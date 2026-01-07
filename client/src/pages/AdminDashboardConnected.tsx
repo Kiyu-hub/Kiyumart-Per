@@ -176,7 +176,7 @@ export default function AdminDashboardConnected() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="border-b p-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
-            Dashboard
+            {user.role === "super_admin" ? "Super Admin" : "Admin"} Dashboard
           </h1>
           <div className="flex items-center gap-2">
             <ThemeToggle />
