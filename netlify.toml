@@ -9,7 +9,7 @@
 # Redirect API calls to your backend server
 [[redirects]]
   from = "/api/*"
-  to = "https://your-backend-url.com/api/:splat"
+  to = "https://kiyumart-per.onrender.com/api/:splat"
   status = 200
   force = true
 
@@ -22,6 +22,6 @@
 # Serve attached_assets from backend
 [[redirects]]
   from = "/attached_assets/*"
-  to = "https://your-backend-url.com/attached_assets/:splat"
+  to = "https://kiyumart-per.onrender.com/attached_assets/:splat"
   status = 200
   force = true
