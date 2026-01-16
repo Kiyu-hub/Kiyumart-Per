@@ -236,13 +236,13 @@ export default function HomeConnected() {
 
   // Filter categories by store type in single-vendor mode
   const filteredCategories = !platformSettings?.isMultiVendor 
-    ? dbCategories.filter(cat => {
+    ? (dbCategories || []).filter(cat => {
         // Default to "clothing" for Islamic fashion platform if no primary store configured
         const storeType = primaryStore?.storeType || "clothing";
         // Show global categories (null or empty storeTypes) OR categories for the store's type
         return !cat.storeTypes || cat.storeTypes.length === 0 || cat.storeTypes.includes(storeType);
       })
-    : dbCategories;
+    : (dbCategories || []);
 
   // Use database categories only
   const categories = filteredCategories.map(cat => ({
