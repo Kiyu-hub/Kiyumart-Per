@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { db } from "../db/index";
 import {
   users,
@@ -1002,19 +1003,66 @@ async function seed() {
     console.log("🎨 Seeding hero banners...");
     await db.insert(heroBanners).values([
       {
-        title: "New Modest Fashion Collection",
-        subtitle: "Discover elegant hijabs and abayas",
-        image: "https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=3840&q=90",
-        ctaLink: "/products",
+        title: "Elegant Abaya Collection",
+        subtitle: "Discover modest elegance with our exclusive abaya designs",
+        image: "/attached_assets/generated_images/Diverse_Islamic_fashion_banner_eb13714d.png",
+        ctaText: "Shop Now",
+        ctaLink: "/products?category=abayas",
         displayOrder: 1,
         isActive: true
       },
       {
-        title: "Premium Electronics Sale",
-        subtitle: "Up to 30% off latest gadgets",
-        image: "https://images.unsplash.com/photo-1678911820864-e2c567c655d7?w=3840&q=90",
-        ctaLink: "/products",
+        title: "Premium Hijab Styles",
+        subtitle: "Luxurious fabrics, timeless designs for every occasion",
+        image: "/attached_assets/generated_images/Islamic_fashion_hero_banner_6bb20763.png",
+        ctaText: "Explore Collection",
+        ctaLink: "/products?category=hijabs",
         displayOrder: 2,
+        isActive: true
+      },
+      {
+        title: "Modest Fashion Essentials",
+        subtitle: "Complete your wardrobe with our curated modest wear",
+        image: "/attached_assets/generated_images/Fashion_hero_banner_lifestyle_000ccc89.png",
+        ctaText: "View Deals",
+        ctaLink: "/products",
+        displayOrder: 3,
+        isActive: true
+      },
+      {
+        title: "Premium Hijabs & Accessories",
+        subtitle: "Beautiful hijabs and accessories for every style",
+        image: "/attached_assets/generated_images/Hijabs_and_accessories_category_09f9b1a2.png",
+        ctaText: "Shop Hijabs",
+        ctaLink: "/products?category=hijabs",
+        displayOrder: 4,
+        isActive: true
+      },
+      {
+        title: "Evening Wear Collection",
+        subtitle: "Stunning modest evening dresses for special occasions",
+        image: "/attached_assets/generated_images/Evening_wear_category_image_455c3389.png",
+        ctaText: "Shop Evening Wear",
+        ctaLink: "/products?category=evening-wear",
+        displayOrder: 5,
+        isActive: true
+      },
+      {
+        title: "Burgundy Velvet Abayas",
+        subtitle: "Luxurious velvet abayas with elegant pearl details",
+        image: "/attached_assets/generated_images/Burgundy_velvet_abaya_with_pearls_c19f2d40.png",
+        ctaText: "View Collection",
+        ctaLink: "/products?category=abayas",
+        displayOrder: 6,
+        isActive: true
+      },
+      {
+        title: "Women's Accessories",
+        subtitle: "Complete your look with our curated accessories",
+        image: "/attached_assets/generated_images/Women's_accessories_category_image_091f4ac1.png",
+        ctaText: "Shop Accessories",
+        ctaLink: "/products?category=accessories",
+        displayOrder: 7,
         isActive: true
       }
     ]);
