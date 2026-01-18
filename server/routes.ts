@@ -5410,13 +5410,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fs = await import('fs');
       const path = await import('path');
       
-      const assetsDir = path.join(process.cwd(), 'attached_assets');
       const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
       
-      const getImagesFromDir = (dir: string, baseDir: string = dir): any[] => {
+      const getImagesFromDir = (dir: string, urlPrefix: string): any[] => {
         const images: any[] = [];
         
         try {
+          if (!fs.existsSync(dir)) {
+            return images;
+          }
           const items = fs.readdirSync(dir);
           
           for (const item of items) {
@@ -5424,12 +5426,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const stat = fs.statSync(fullPath);
             
             if (stat.isDirectory()) {
-              images.push(...getImagesFromDir(fullPath, baseDir));
+              images.push(...getImagesFromDir(fullPath, urlPrefix + '/' + item));
             } else if (stat.isFile()) {
               const ext = path.extname(item).toLowerCase();
               if (imageExtensions.includes(ext)) {
                 const relativePath = path.relative(process.cwd(), fullPath);
-                const url = '/' + relativePath.replace(/\\/g, '/');
+                const url = urlPrefix + '/' + item;
                 
                 images.push({
                   filename: item,
@@ -5447,8 +5449,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return images;
       };
       
-      const images = getImagesFromDir(assetsDir);
-      res.json(images);
+      // Scan attached_assets folder (served via express.static at /attached_assets)
+      const attachedAssetsDir = path.join(process.cwd(), 'attached_assets');
+      const attachedImages = getImagesFromDir(attachedAssetsDir, '/attached_assets');
+      
+      res.json(attachedImages);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -5694,6 +5699,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(200).json({ status: "success" });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Admin Fix Image Paths Endpoint ============
+  app.post("/api/admin/fix-image-paths", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      // Get all products
+      const allProducts = await db.select().from(products);
+      
+      let updatedCount = 0;
+      
+      for (const product of allProducts) {
+        if (!product.images || product.images.length === 0) continue;
+        
+        const hasInvalidPaths = product.images.some(img => img.startsWith("@assets/"));
+        
+        if (hasInvalidPaths) {
+          const fixedImages = product.images.map(img => 
+            img.replace(/^@assets\//, "/attached_assets/")
+          );
+          
+          await db.update(products)
+            .set({ images: fixedImages })
+            .where(eq(products.id, product.id));
+          
+          updatedCount++;
+        }
+      }
+      
+      res.json({ 
+        success: true, 
+        message: `Fixed ${updatedCount} products with invalid image paths` 
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
