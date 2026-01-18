@@ -121,7 +121,7 @@ export default function Footer() {
               />
             ) : (
               <div className="flex items-center mb-4">
-                <Logo size="lg" variant="dark" />
+                <Logo size="lg" variant="auto" />
               </div>
             )}
             <p className="text-muted-foreground mb-4">

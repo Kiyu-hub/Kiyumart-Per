@@ -103,7 +103,7 @@ export default function Header({
               data-testid="logo-container"
               onClick={() => navigate("/")}
             >
-              <Logo size="lg" variant="dark" />
+              <Logo size="lg" variant="auto" />
             </div>
           </div>
 
