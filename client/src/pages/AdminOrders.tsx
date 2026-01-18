@@ -148,7 +148,7 @@ function ViewOrderDialog({
                   <SelectContent>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="processing">Processing</SelectItem>
-                    <SelectItem value="delivering">Delivering</SelectItem>
+                    <SelectItem value="delivering">Out for Delivery</SelectItem>
                     <SelectItem value="delivered">Delivered</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
