@@ -19,8 +19,7 @@ interface OrderCardProps {
 const statusConfig: Record<string, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400" },
   processing: { label: "Processing", className: "bg-blue-500/10 text-blue-700 dark:text-blue-400" },
-  delivering: { label: "Delivering", className: "bg-purple-500/10 text-purple-700 dark:text-purple-400" },
-  shipped: { label: "Shipped", className: "bg-purple-500/10 text-purple-700 dark:text-purple-400" },
+  delivering: { label: "Out for Delivery", className: "bg-purple-500/10 text-purple-700 dark:text-purple-400" },
   delivered: { label: "Delivered", className: "bg-primary/10 text-primary" },
   cancelled: { label: "Cancelled", className: "bg-destructive/10 text-destructive" },
   disputed: { label: "Disputed", className: "bg-red-500/10 text-red-700 dark:text-red-400" },

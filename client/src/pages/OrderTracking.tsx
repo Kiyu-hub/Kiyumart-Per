@@ -124,7 +124,7 @@ export default function OrderTracking() {
     enabled: !authLoading && !!user,
   });
 
-  // Fetch initial rider locations for shipped orders
+  // Fetch initial rider locations for orders out for delivery
   useEffect(() => {
     if (!orders || orders.length === 0) return;
 

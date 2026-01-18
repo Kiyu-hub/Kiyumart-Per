@@ -136,21 +136,19 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    // Order Shipped
-    newSocket.on("order_shipped", (data: {
+    // Order Out for Delivery
+    newSocket.on("order_delivering", (data: {
       orderId: string;
       orderNumber: string;
       trackingNumber?: string;
     }) => {
-      console.log("📮 Order shipped:", data);
+      console.log("📮 Order out for delivery:", data);
       
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       
       toast({
-        title: "Order Shipped",
-        description: data.trackingNumber 
-          ? `Order #${data.orderNumber} has been shipped. Tracking: ${data.trackingNumber}`
-          : `Order #${data.orderNumber} has been shipped`,
+        title: "Order Out for Delivery",
+        description: `Order #${data.orderNumber} is out for delivery`,
         duration: 6000,
       });
     });

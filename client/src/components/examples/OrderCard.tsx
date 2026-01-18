@@ -18,7 +18,7 @@ export default function OrderCardExample() {
         customerName="Michael Brown"
         items={1}
         total={299.99}
-        status="shipped"
+        status="delivering"
         deliveryMethod="bus"
         date="Nov 1, 2024"
         onViewDetails={(id) => console.log('View details:', id)}

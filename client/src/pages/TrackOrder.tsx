@@ -12,8 +12,7 @@ import Footer from "@/components/Footer";
 const statusSteps = [
   { id: "pending", label: "Pending", icon: Package },
   { id: "processing", label: "Processing", icon: Package },
-  { id: "shipped", label: "Shipped", icon: Truck },
-  { id: "out_for_delivery", label: "Out for Delivery", icon: Truck },
+  { id: "delivering", label: "Out for Delivery", icon: Truck },
   { id: "delivered", label: "Delivered", icon: CheckCircle },
 ];
 
