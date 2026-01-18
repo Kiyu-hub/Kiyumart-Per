@@ -1,13 +1,13 @@
 import "dotenv/config";
 import { db } from "../db";
-import { heroBanners } from "../shared/schema";
+import { heroBanners, marketplaceBanners } from "../shared/schema";
 import { sql } from "drizzle-orm";
 
 async function seedBanners() {
   console.log("🧹 Clearing existing hero banners...");
   await db.delete(heroBanners);
   
-  console.log("🎨 Seeding hero banners with local images...");
+  console.log("🎨 Seeding hero banners with local images (for single-store mode)...");
   
   const banners = [
     {
@@ -77,6 +77,82 @@ async function seedBanners() {
 
   await db.insert(heroBanners).values(banners);
   console.log("✅ Hero banners seeded successfully!");
+
+  // Seed marketplace banners for multi-vendor mode
+  console.log("🧹 Clearing existing marketplace banners...");
+  await db.delete(marketplaceBanners);
+  
+  console.log("🎨 Seeding marketplace banners (for multi-vendor mode)...");
+  
+  const mpBanners = [
+    {
+      title: "Welcome to KiyuMart Marketplace",
+      subtitle: "Discover amazing products from multiple vendors",
+      imageUrl: "/attached_assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png",
+      ctaText: "Explore Now",
+      ctaUrl: "/stores",
+      isActive: true,
+      displayOrder: 1
+    },
+    {
+      title: "Fashion Collection",
+      subtitle: "Trendy styles from top sellers",
+      imageUrl: "/attached_assets/stock_images/Fashion_hero_banner_lifestyle_000ccc89.png",
+      ctaText: "Shop Fashion",
+      ctaUrl: "/products?category=fashion",
+      isActive: true,
+      displayOrder: 2
+    },
+    {
+      title: "Islamic Fashion",
+      subtitle: "Premium modest wear from trusted vendors",
+      imageUrl: "/attached_assets/stock_images/Islamic_fashion_hero_banner_6bb20763.png",
+      ctaText: "View Collection",
+      ctaUrl: "/products?category=abayas",
+      isActive: true,
+      displayOrder: 3
+    },
+    {
+      title: "Hijabs & Accessories",
+      subtitle: "Beautiful accessories for every occasion",
+      imageUrl: "/attached_assets/stock_images/Hijabs_and_accessories_category_09f9b1a2.png",
+      ctaText: "Shop Now",
+      ctaUrl: "/products?category=hijabs",
+      isActive: true,
+      displayOrder: 4
+    },
+    {
+      title: "Evening Elegance",
+      subtitle: "Stunning evening wear collection",
+      imageUrl: "/attached_assets/stock_images/Evening_wear_category_image_455c3389.png",
+      ctaText: "Discover",
+      ctaUrl: "/products?category=evening-wear",
+      isActive: true,
+      displayOrder: 5
+    },
+    {
+      title: "Ramadan Special",
+      subtitle: "Celebrate with our special collection",
+      imageUrl: "/attached_assets/stock_images/ramadan_celebration__84d6d687.jpg",
+      ctaText: "Shop Ramadan",
+      ctaUrl: "/products",
+      isActive: true,
+      displayOrder: 6
+    },
+    {
+      title: "Summer Sale",
+      subtitle: "Hot deals on summer essentials",
+      imageUrl: "/attached_assets/stock_images/summer_sale_banner_b_5d34cfd4.jpg",
+      ctaText: "View Deals",
+      ctaUrl: "/products",
+      isActive: true,
+      displayOrder: 7
+    }
+  ];
+
+  await db.insert(marketplaceBanners).values(mpBanners);
+  console.log("✅ Marketplace banners seeded successfully!");
+  
   process.exit(0);
 }
 
