@@ -1,9 +1,9 @@
-import { Search, Menu, Globe, User, Bell, LayoutDashboard, ShoppingBag, Store as StoreIcon, Truck } from "lucide-react";
+import { Search, Menu, User, Bell, LayoutDashboard, ShoppingBag, Store as StoreIcon, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
-import { useLanguage, languages, Language } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import {
@@ -32,7 +32,7 @@ export default function Header({
   onSearch 
 }: HeaderProps) {
   const [location, navigate] = useLocation();
-  const { language, currency, currencySymbol, countryName, setLanguage, t } = useLanguage();
+  const { t } = useLanguage();
   const { user, isAuthenticated } = useAuth();
 
   const { data: notificationData } = useQuery<{ count: number }>({
@@ -132,29 +132,6 @@ export default function Header({
           </div>
 
           <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" data-testid="button-language">
-                  <Globe className="h-5 w-5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                {Object.values(languages).map((lang) => (
-                  <DropdownMenuItem
-                    key={lang.code}
-                    onClick={() => setLanguage(lang.code as Language)}
-                    data-testid={`option-${lang.code}`}
-                    className={language === lang.code ? "bg-accent" : ""}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span>{lang.flag} {lang.country}</span>
-                      <span className="text-muted-foreground text-xs">{lang.currency} ({lang.symbol})</span>
-                    </div>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
             {showBecomeSeller && (
               <Button 
                 variant="outline" 

@@ -16,7 +16,6 @@ import {
   type AuthRequest 
 } from "./auth";
 import { uploadToCloudinary, uploadWithMetadata, uploadWith4KEnhancement } from "./cloudinary";
-import { getExchangeRates, convertCurrency, SUPPORTED_CURRENCIES } from "./currency";
 import multer from "multer";
 import sharp from "sharp";
 import { insertUserSchema, insertProductSchema, insertDeliveryZoneSchema, insertOrderSchema, insertWishlistSchema, insertReviewSchema, insertRiderReviewSchema, insertBannerCollectionSchema, insertMarketplaceBannerSchema, insertFooterPageSchema, vehicleInfoSchema, type User } from "@shared/schema";
@@ -3211,27 +3210,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       res.json(settings);
-    } catch (error: any) {
-      res.status(400).json({ error: error.message });
-    }
-  });
-
-  // ============ Currency Routes ============
-  app.get("/api/currency/rates", async (req, res) => {
-    try {
-      const { base } = req.query;
-      const rates = await getExchangeRates(base as string);
-      res.json({ rates, currencies: SUPPORTED_CURRENCIES });
-    } catch (error: any) {
-      res.status(400).json({ error: error.message });
-    }
-  });
-
-  app.post("/api/currency/convert", async (req, res) => {
-    try {
-      const { amount, from, to } = req.body;
-      const converted = await convertCurrency(amount, from, to);
-      res.json({ amount: converted, from, to });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

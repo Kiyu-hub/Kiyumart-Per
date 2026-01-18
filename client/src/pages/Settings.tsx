@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { useLanguage } from "@/contexts/LanguageContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +10,6 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { 
   Bell, 
-  Globe, 
   Shield, 
   CreditCard, 
   User, 
@@ -24,7 +22,6 @@ import { useToast } from "@/hooks/use-toast";
 export default function Settings() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
-  const { language, setLanguage } = useLanguage();
   const { toast } = useToast();
   const [theme, setTheme] = useState<"light" | "dark">("light");
   
@@ -183,31 +180,6 @@ export default function Settings() {
                     onCheckedChange={toggleTheme}
                     data-testid="switch-dark-mode"
                   />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card data-testid="card-language">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Globe className="h-5 w-5" />
-                  Language & Region
-                </CardTitle>
-                <CardDescription>
-                  Set your preferred language and currency
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-0.5">
-                  <Label className="text-base">Current Language</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Change your language from the globe icon in the header
-                  </p>
-                  <p className="text-sm font-medium mt-2">
-                    {language === "en" && "English (Ghana - GHS)"}
-                    {language === "fr" && "Français (France - EUR)"}
-                    {language === "es" && "Español (España - USD)"}
-                  </p>
                 </div>
               </CardContent>
             </Card>
