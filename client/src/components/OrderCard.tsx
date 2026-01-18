@@ -10,25 +10,33 @@ interface OrderCardProps {
   items: number;
   total: number;
   currency?: string;
-  status: "pending" | "processing" | "shipped" | "delivered" | "cancelled";
-  deliveryMethod: "pickup" | "bus" | "rider";
+  status: string; // Allow any status string
+  deliveryMethod: string; // Allow any delivery method string
   date: string;
   onViewDetails?: (orderId: string) => void;
 }
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400" },
   processing: { label: "Processing", className: "bg-blue-500/10 text-blue-700 dark:text-blue-400" },
+  delivering: { label: "Delivering", className: "bg-purple-500/10 text-purple-700 dark:text-purple-400" },
   shipped: { label: "Shipped", className: "bg-purple-500/10 text-purple-700 dark:text-purple-400" },
   delivered: { label: "Delivered", className: "bg-primary/10 text-primary" },
   cancelled: { label: "Cancelled", className: "bg-destructive/10 text-destructive" },
+  disputed: { label: "Disputed", className: "bg-red-500/10 text-red-700 dark:text-red-400" },
 };
 
-const deliveryConfig = {
+// Default status for unknown values
+const defaultStatus = { label: "Unknown", className: "bg-gray-500/10 text-gray-700 dark:text-gray-400" };
+
+const deliveryConfig: Record<string, { label: string; icon: typeof Package }> = {
   pickup: { label: "Pickup", icon: Package },
   bus: { label: "Bus", icon: Package },
   rider: { label: "Rider", icon: MapPin },
 };
+
+// Default delivery for unknown values
+const defaultDelivery = { label: "Delivery", icon: Package };
 
 export default function OrderCard({
   orderId,
@@ -42,8 +50,8 @@ export default function OrderCard({
   onViewDetails,
 }: OrderCardProps) {
   const { formatPrice } = useLanguage();
-  const statusInfo = statusConfig[status];
-  const deliveryInfo = deliveryConfig[deliveryMethod];
+  const statusInfo = statusConfig[status] || defaultStatus;
+  const deliveryInfo = deliveryConfig[deliveryMethod] || defaultDelivery;
   const DeliveryIcon = deliveryInfo.icon;
 
   return (
