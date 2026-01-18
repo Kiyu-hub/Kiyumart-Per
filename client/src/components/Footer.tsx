@@ -3,8 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
-import logoLight from "@assets/light_mode_1762169855262.png";
-import logoDark from "@assets/photo_2025-09-24_21-19-48-removebg-preview_1762169855290.png";
+import appLogo from "@assets/kiyumart_logo.png";
 
 interface PlatformSettings {
   platformName: string;
@@ -121,20 +120,15 @@ export default function Footer() {
                 data-testid="img-footer-logo"
               />
             ) : (
-              <>
+              <div className="flex items-center gap-2 mb-4">
                 <img 
-                  src={logoLight}
+                  src={appLogo}
                   alt={displayName}
-                  className="h-10 w-auto mb-4 dark:hidden"
-                  data-testid="img-footer-logo-light"
+                  className="h-10 w-10"
+                  data-testid="img-footer-logo"
                 />
-                <img 
-                  src={logoDark}
-                  alt={displayName}
-                  className="h-10 w-auto mb-4 hidden dark:block"
-                  data-testid="img-footer-logo-dark"
-                />
-              </>
+                <span className="font-bold text-xl text-primary">KiyuMart</span>
+              </div>
             )}
             <p className="text-muted-foreground mb-4">
               {displayDescription}
