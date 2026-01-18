@@ -15,7 +15,7 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import CartPopover from "@/components/CartPopover";
-import appLogo from "@assets/kiyumart_logo.png";
+import Logo from "@/components/Logo";
 
 interface HeaderProps {
   cartItemsCount?: number;
@@ -99,17 +99,11 @@ export default function Header({
             </Button>
             
             <div 
-              className="cursor-pointer flex items-center gap-2" 
+              className="cursor-pointer flex items-center" 
               data-testid="logo-container"
               onClick={() => navigate("/")}
             >
-              <img 
-                src={appLogo}
-                alt="KiyuMart"
-                className="h-10 w-10"
-                data-testid="logo"
-              />
-              <span className="font-bold text-xl text-primary hidden sm:block">KiyuMart</span>
+              <Logo size="lg" variant="dark" />
             </div>
           </div>
 

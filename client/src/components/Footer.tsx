@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
-import appLogo from "@assets/kiyumart_logo.png";
+import Logo from "@/components/Logo";
 
 interface PlatformSettings {
   platformName: string;
@@ -120,14 +120,8 @@ export default function Footer() {
                 data-testid="img-footer-logo"
               />
             ) : (
-              <div className="flex items-center gap-2 mb-4">
-                <img 
-                  src={appLogo}
-                  alt={displayName}
-                  className="h-10 w-10"
-                  data-testid="img-footer-logo"
-                />
-                <span className="font-bold text-xl text-primary">KiyuMart</span>
+              <div className="flex items-center mb-4">
+                <Logo size="lg" variant="dark" />
               </div>
             )}
             <p className="text-muted-foreground mb-4">

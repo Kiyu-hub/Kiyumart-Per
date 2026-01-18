@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import AuthForm from "@/components/AuthForm";
 import ThemeToggle from "@/components/ThemeToggle";
-import appLogo from "@assets/kiyumart_logo.png";
+import Logo from "@/components/Logo";
 
 export default function AuthPage() {
   const [, navigate] = useLocation();
@@ -68,17 +68,11 @@ export default function AuthPage() {
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div 
-              className="cursor-pointer flex items-center gap-2" 
+              className="cursor-pointer flex items-center" 
               data-testid="logo-container"
               onClick={() => navigate("/")}
             >
-              <img 
-                src={appLogo}
-                alt="KiyuMart"
-                className="h-10 w-10"
-                data-testid="logo"
-              />
-              <span className="font-bold text-xl text-primary">KiyuMart</span>
+              <Logo size="lg" variant="dark" />
             </div>
             <ThemeToggle />
           </div>
