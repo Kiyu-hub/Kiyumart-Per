@@ -1,4 +1,5 @@
 import { Switch, Route } from "wouter";
+import { useState, useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,6 +8,7 @@ import { AuthProvider } from "@/lib/auth";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { useBranding } from "@/hooks/useBranding";
+import LogoLoadingScreen from "@/components/LogoLoadingScreen";
 
 import Home from "@/pages/HomeConnected";
 import ProductDetails from "@/pages/ProductDetails";
@@ -185,12 +187,38 @@ function Router() {
 }
 
 function App() {
+  const [isAppReady, setIsAppReady] = useState(false);
+
+  useEffect(() => {
+    // Initialize app - preload critical resources
+    const initializeApp = async () => {
+      try {
+        // Preload essential data
+        await Promise.all([
+          queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] }),
+          queryClient.prefetchQuery({ queryKey: ["/api/categories"] }),
+        ]);
+      } catch (error) {
+        console.log("Preload completed with some errors:", error);
+      } finally {
+        setIsAppReady(true);
+      }
+    };
+
+    initializeApp();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>
         <AuthProvider>
           <NotificationProvider>
             <TooltipProvider>
+              <LogoLoadingScreen 
+                isLoading={!isAppReady} 
+                minDisplayTime={2000}
+                message="Preparing your experience"
+              />
               <Toaster />
               <Router />
             </TooltipProvider>
