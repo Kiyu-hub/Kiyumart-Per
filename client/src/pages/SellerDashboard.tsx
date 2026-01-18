@@ -9,9 +9,9 @@ import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 
-import handbagImage from "@assets/generated_images/Designer_handbag_product_photo_d9f11f99.png";
-import sneakersImage from "@assets/generated_images/Men's_sneakers_product_photo_2c87b833.png";
-import dressImage from "@assets/generated_images/Summer_dress_product_photo_9f6f8356.png";
+import handbagImage from "@assets/stock_images/Designer_handbag_product_photo_d9f11f99.png";
+import sneakersImage from "@assets/stock_images/Men's_sneakers_product_photo_2c87b833.png";
+import dressImage from "@assets/stock_images/Summer_dress_product_photo_9f6f8356.png";
 
 interface Store {
   id: string;

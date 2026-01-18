@@ -13,16 +13,16 @@ import Footer from "@/components/Footer";
 import CartSidebar from "@/components/CartSidebar";
 import ThemeToggle from "@/components/ThemeToggle";
 
-import heroImage from "@assets/generated_images/Diverse_Islamic_fashion_banner_eb13714d.png";
-import abaya1 from "@assets/generated_images/Elegant_black_abaya_with_gold_embroidery_cc860cad.png";
-import abaya2 from "@assets/generated_images/Navy_blue_embroidered_modest_dress_aa08f435.png";
-import abaya3 from "@assets/generated_images/Pink_lace_abaya_dress_53759991.png";
-import abaya4 from "@assets/generated_images/Burgundy_velvet_abaya_with_pearls_c19f2d40.png";
-import abaya5 from "@assets/generated_images/Emerald_green_satin_dress_530931af.png";
-import abaya6 from "@assets/generated_images/Cream_abaya_with_beige_embroidery_92e12aec.png";
-import abayaCategoryImage from "@assets/generated_images/Abayas_category_collection_image_cbf9978c.png";
-import hijabCategoryImage from "@assets/generated_images/Hijabs_and_accessories_category_09f9b1a2.png";
-import eveningCategoryImage from "@assets/generated_images/Evening_wear_category_image_455c3389.png";
+import heroImage from "@assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png";
+import abaya1 from "@assets/stock_images/Elegant_black_abaya_with_gold_embroidery_cc860cad.png";
+import abaya2 from "@assets/stock_images/Navy_blue_embroidered_modest_dress_aa08f435.png";
+import abaya3 from "@assets/stock_images/Pink_lace_abaya_dress_53759991.png";
+import abaya4 from "@assets/stock_images/Burgundy_velvet_abaya_with_pearls_c19f2d40.png";
+import abaya5 from "@assets/stock_images/Emerald_green_satin_dress_530931af.png";
+import abaya6 from "@assets/stock_images/Cream_abaya_with_beige_embroidery_92e12aec.png";
+import abayaCategoryImage from "@assets/stock_images/Abayas_category_collection_image_cbf9978c.png";
+import hijabCategoryImage from "@assets/stock_images/Hijabs_and_accessories_category_09f9b1a2.png";
+import eveningCategoryImage from "@assets/stock_images/Evening_wear_category_image_455c3389.png";
 
 export default function Home() {
   const [, navigate] = useLocation();

@@ -1,5 +1,5 @@
 import HeroBanner from '../HeroBanner';
-import heroImage from '@assets/generated_images/Fashion_hero_banner_lifestyle_000ccc89.png';
+import heroImage from '@assets/stock_images/Fashion_hero_banner_lifestyle_000ccc89.png';
 
 export default function HeroBannerExample() {
   const slides = [

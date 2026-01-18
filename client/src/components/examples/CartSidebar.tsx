@@ -1,8 +1,8 @@
 import CartSidebar from '../CartSidebar';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import handbagImage from '@assets/generated_images/Designer_handbag_product_photo_d9f11f99.png';
-import sneakersImage from '@assets/generated_images/Men\'s_sneakers_product_photo_2c87b833.png';
+import handbagImage from '@assets/stock_images/Designer_handbag_product_photo_d9f11f99.png';
+import sneakersImage from '@assets/stock_images/Men\'s_sneakers_product_photo_2c87b833.png';
 
 export default function CartSidebarExample() {
   const [isOpen, setIsOpen] = useState(false);

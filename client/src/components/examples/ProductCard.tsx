@@ -1,5 +1,5 @@
 import ProductCard from '../ProductCard';
-import handbagImage from '@assets/generated_images/Designer_handbag_product_photo_d9f11f99.png';
+import handbagImage from '@assets/stock_images/Designer_handbag_product_photo_d9f11f99.png';
 
 export default function ProductCardExample() {
   return (
