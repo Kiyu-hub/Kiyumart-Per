@@ -1,12 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
 
 export type Language = "en" | "fr" | "es" | "en-ng" | "fr-tg" | "ar";
-export type Currency = "GHS" | "EUR" | "USD" | "NGN" | "XOF" | "GBP" | "ZAR" | "KES";
-
-interface ExchangeRates {
-  [currency: string]: number;
-}
+export type Currency = "GHS"; // Only GHS currency supported
 
 interface LanguageConfig {
   code: Language;
@@ -19,11 +14,11 @@ interface LanguageConfig {
 
 export const languages: Record<Language, LanguageConfig> = {
   en: { code: "en", name: "English", country: "Ghana", flag: "🇬🇭", currency: "GHS", symbol: "GH₵" },
-  "en-ng": { code: "en-ng", name: "English", country: "Nigeria", flag: "🇳🇬", currency: "NGN", symbol: "₦" },
-  fr: { code: "fr", name: "Français", country: "France", flag: "🇫🇷", currency: "EUR", symbol: "€" },
-  "fr-tg": { code: "fr-tg", name: "Français", country: "Togo", flag: "🇹🇬", currency: "XOF", symbol: "CFA" },
-  es: { code: "es", name: "Español", country: "Spain", flag: "🇪🇸", currency: "USD", symbol: "$" },
-  ar: { code: "ar", name: "العربية", country: "Saudi Arabia", flag: "🇸🇦", currency: "USD", symbol: "$" },
+  "en-ng": { code: "en-ng", name: "English", country: "Nigeria", flag: "🇳🇬", currency: "GHS", symbol: "GH₵" },
+  fr: { code: "fr", name: "Français", country: "France", flag: "🇫🇷", currency: "GHS", symbol: "GH₵" },
+  "fr-tg": { code: "fr-tg", name: "Français", country: "Togo", flag: "🇹🇬", currency: "GHS", symbol: "GH₵" },
+  es: { code: "es", name: "Español", country: "Spain", flag: "🇪🇸", currency: "GHS", symbol: "GH₵" },
+  ar: { code: "ar", name: "العربية", country: "Saudi Arabia", flag: "🇸🇦", currency: "GHS", symbol: "GH₵" },
 };
 
 export const translations = {
@@ -166,21 +161,6 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const currencySymbol = languages[language].symbol;
   const countryName = languages[language].country;
 
-  // Fetch exchange rates with React Query
-  const { data: ratesData } = useQuery<{ rates: ExchangeRates }>({
-    queryKey: ["/api/currency/rates"],
-    queryFn: async () => {
-      const res = await fetch("/api/currency/rates?base=GHS");
-      if (!res.ok) throw new Error("Failed to fetch exchange rates");
-      return res.json();
-    },
-    staleTime: 60 * 60 * 1000, // 1 hour
-    gcTime: 24 * 60 * 60 * 1000, // 24 hours
-    refetchInterval: 60 * 60 * 1000, // Refetch every hour
-  });
-
-  const exchangeRates = ratesData?.rates || { GHS: 1 };
-
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
     localStorage.setItem("language", lang);
@@ -190,37 +170,24 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     return translations[language][key] || translations.en[key] || key;
   };
 
-  // Convert price from GHS (base currency) to selected currency
+  // Convert price - no conversion needed since only GHS is used
   const convertPrice = (priceInGHS: number): number => {
     // Coerce to number and handle invalid inputs
     const numericPrice = Number(priceInGHS);
     if (isNaN(numericPrice) || numericPrice === null || numericPrice === undefined) {
       return 0;
     }
-    if (currency === "GHS") return numericPrice;
-    const rate = exchangeRates[currency] || 1;
-    return numericPrice * rate;
+    return numericPrice; // No conversion needed - GHS only
   };
 
-  // Format price with conversion and currency symbol
+  // Format price with GHS currency symbol
   const formatPrice = (priceInGHS: number): string => {
     // Coerce to number and handle invalid inputs gracefully
     const numericPrice = Number(priceInGHS);
     const validPrice = isNaN(numericPrice) ? 0 : numericPrice;
-    const convertedPrice = convertPrice(validPrice);
     
-    // Use Intl.NumberFormat for proper currency formatting
-    try {
-      return new Intl.NumberFormat(language === "fr" || language === "fr-tg" ? "fr-FR" : "en-GH", {
-        style: "currency",
-        currency: currency === "XOF" ? "XOF" : currency,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(convertedPrice);
-    } catch {
-      // Fallback to manual formatting if currency not supported by Intl
-      return `${currencySymbol}${convertedPrice.toFixed(2)}`;
-    }
+    // Format in GHS
+    return `GH₵${validPrice.toFixed(2)}`;
   };
 
   useEffect(() => {
