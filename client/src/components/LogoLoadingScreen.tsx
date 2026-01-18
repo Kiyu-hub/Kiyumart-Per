@@ -2,12 +2,10 @@
  * LogoLoadingScreen - Premium animated loading experience for KiyuMart
  * 
  * Features:
- * - Animated logo with bounce, rotate, and scale effects
+ * - Animated logo with bounce and scale effects
+ * - Confetti and sparkle particles
  * - Smooth spring physics for natural motion
- * - Light/dark mode support
  * - Respects prefers-reduced-motion for accessibility
- * - GPU-optimized transforms for smooth performance
- * - Seamless loop animation during loading
  */
 
 import { useEffect, useState } from "react";
@@ -15,162 +13,89 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import appLogo from "@assets/kiyumart_logo.png";
 
 interface LogoLoadingScreenProps {
-  /** Whether the app is still loading */
   isLoading?: boolean;
-  /** Minimum display time in ms (prevents flash) */
   minDisplayTime?: number;
-  /** Optional loading message */
   message?: string;
 }
 
+// Confetti particle
+const Confetti = ({ delay, x }: { delay: number; x: number }) => {
+  const colors = ["#14b8a6", "#f59e0b", "#ec4899", "#8b5cf6", "#10b981"];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  
+  return (
+    <motion.div
+      className="absolute w-2 h-2 rounded-sm"
+      style={{ backgroundColor: color, left: `${x}%`, top: "-10px" }}
+      animate={{
+        y: [0, 400],
+        x: [0, (Math.random() - 0.5) * 100],
+        rotate: [0, 720],
+        opacity: [1, 0],
+      }}
+      transition={{
+        duration: 3,
+        delay,
+        repeat: Infinity,
+        repeatDelay: 2,
+        ease: "easeIn",
+      }}
+    />
+  );
+};
+
 export default function LogoLoadingScreen({
   isLoading = true,
-  minDisplayTime = 1500,
-  message = "Loading...",
+  minDisplayTime = 2500,
+  message = "Getting your experience ready...",
 }: LogoLoadingScreenProps) {
   const [showLoader, setShowLoader] = useState(true);
   const [hasMinTimePassed, setHasMinTimePassed] = useState(false);
   const shouldReduceMotion = useReducedMotion();
 
-  // Ensure minimum display time for smooth UX
   useEffect(() => {
     const timer = setTimeout(() => {
       setHasMinTimePassed(true);
     }, minDisplayTime);
-
     return () => clearTimeout(timer);
   }, [minDisplayTime]);
 
-  // Hide loader when both loading is complete and min time has passed
   useEffect(() => {
     if (!isLoading && hasMinTimePassed) {
       setShowLoader(false);
     }
   }, [isLoading, hasMinTimePassed]);
 
-  // Animation variants for the logo container
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
-      transition: {
-        duration: 0.3,
-        when: "beforeChildren",
-      },
+      transition: { duration: 0.5, staggerChildren: 0.15 },
     },
     exit: {
       opacity: 0,
       scale: 1.1,
-      transition: {
-        duration: 0.4,
-        ease: "easeInOut",
-      },
+      transition: { duration: 0.4, ease: [0.4, 0, 0.2, 1] },
     },
   };
 
-  // Main logo animation - bouncing with rotation
   const logoVariants = {
-    hidden: {
-      scale: 0,
-      rotate: -180,
-      opacity: 0,
-    },
+    hidden: { scale: 0, rotate: -180, opacity: 0 },
     visible: {
       scale: 1,
       rotate: 0,
       opacity: 1,
-      transition: {
-        type: "spring",
-        stiffness: 260,
-        damping: 20,
-        duration: 0.8,
-      },
+      transition: { type: "spring", stiffness: 200, damping: 12 },
     },
   };
 
-  // Continuous bounce animation
-  const bounceAnimation = shouldReduceMotion
-    ? {}
-    : {
-        y: [0, -20, 0],
-        scale: [1, 1.05, 1],
-        rotate: [0, 5, -5, 0],
-        transition: {
-          duration: 1.5,
-          repeat: Infinity,
-          repeatType: "loop" as const,
-          ease: "easeInOut",
-        },
-      };
-
-  // Shadow animation synced with bounce
-  const shadowVariants = {
-    animate: shouldReduceMotion
-      ? {}
-      : {
-          scale: [1, 0.8, 1],
-          opacity: [0.3, 0.15, 0.3],
-          transition: {
-            duration: 1.5,
-            repeat: Infinity,
-            repeatType: "loop" as const,
-            ease: "easeInOut",
-          },
-        },
-  };
-
-  // Text animation
   const textVariants = {
-    hidden: { opacity: 0, y: 20 },
+    hidden: { opacity: 0, y: 40 },
     visible: {
       opacity: 1,
       y: 0,
-      transition: {
-        delay: 0.5,
-        duration: 0.5,
-        ease: "easeOut",
-      },
+      transition: { delay: 0.4, duration: 0.6, ease: [0.4, 0, 0.2, 1] },
     },
-  };
-
-  // Loading dots animation
-  const dotsContainerVariants = {
-    animate: {
-      transition: {
-        staggerChildren: 0.2,
-      },
-    },
-  };
-
-  const dotVariants = {
-    animate: shouldReduceMotion
-      ? { opacity: [0.3, 1, 0.3] }
-      : {
-          y: [0, -10, 0],
-          opacity: [0.3, 1, 0.3],
-          transition: {
-            duration: 0.6,
-            repeat: Infinity,
-            repeatType: "loop" as const,
-            ease: "easeInOut",
-          },
-        },
-  };
-
-  // Pulse ring animation
-  const ringVariants = {
-    animate: shouldReduceMotion
-      ? {}
-      : {
-          scale: [1, 1.5, 2],
-          opacity: [0.5, 0.2, 0],
-          transition: {
-            duration: 2,
-            repeat: Infinity,
-            repeatType: "loop" as const,
-            ease: "easeOut",
-          },
-        },
   };
 
   return (
@@ -182,144 +107,199 @@ export default function LogoLoadingScreen({
           initial="hidden"
           animate="visible"
           exit="exit"
-          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background dark:bg-gray-900"
+          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center overflow-hidden"
+          style={{
+            background: "linear-gradient(180deg, #f0fdfa 0%, #ccfbf1 40%, #99f6e4 70%, #5eead4 100%)",
+          }}
           data-testid="logo-loading-screen"
         >
-          {/* Animated background gradient */}
+          {/* Animated background circles */}
           <div className="absolute inset-0 overflow-hidden">
-            <motion.div
-              className="absolute inset-0 opacity-30 dark:opacity-20"
-              animate={
-                shouldReduceMotion
-                  ? {}
-                  : {
-                      background: [
-                        "radial-gradient(circle at 30% 30%, rgba(20, 184, 166, 0.3) 0%, transparent 50%)",
-                        "radial-gradient(circle at 70% 70%, rgba(20, 184, 166, 0.3) 0%, transparent 50%)",
-                        "radial-gradient(circle at 30% 30%, rgba(20, 184, 166, 0.3) 0%, transparent 50%)",
-                      ],
-                    }
-              }
-              transition={{
-                duration: 4,
-                repeat: Infinity,
-                repeatType: "loop",
-                ease: "easeInOut",
-              }}
-            />
+            {[...Array(5)].map((_, i) => (
+              <motion.div
+                key={i}
+                className="absolute rounded-full"
+                style={{
+                  width: `${150 + i * 100}px`,
+                  height: `${150 + i * 100}px`,
+                  left: `${10 + i * 15}%`,
+                  top: `${5 + i * 10}%`,
+                  background: `radial-gradient(circle, rgba(20, 184, 166, ${0.15 - i * 0.02}) 0%, transparent 70%)`,
+                }}
+                animate={shouldReduceMotion ? {} : {
+                  scale: [1, 1.2, 1],
+                  x: [0, 20, 0],
+                  y: [0, -20, 0],
+                }}
+                transition={{
+                  duration: 4 + i,
+                  delay: i * 0.5,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
+              />
+            ))}
           </div>
 
-          {/* Main content container */}
-          <div className="relative flex flex-col items-center">
-            {/* Pulse rings behind logo */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <motion.div
-                className="absolute w-32 h-32 rounded-full border-2 border-primary/30"
-                variants={ringVariants}
-                animate="animate"
-              />
-              <motion.div
-                className="absolute w-32 h-32 rounded-full border-2 border-primary/30"
-                variants={ringVariants}
-                animate="animate"
-                style={{ animationDelay: "0.5s" }}
-                transition={{ delay: 0.5 }}
-              />
-            </div>
+          {/* Confetti rain */}
+          {!shouldReduceMotion && [...Array(15)].map((_, i) => (
+            <Confetti key={i} delay={i * 0.3} x={5 + i * 6} />
+          ))}
 
-            {/* Logo with shadow */}
-            <div className="relative">
-              {/* Shadow element */}
-              <motion.div
-                className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-20 h-4 bg-black/20 dark:bg-black/40 rounded-full blur-md"
-                variants={shadowVariants}
-                animate="animate"
-              />
+          {/* Main Logo Section */}
+          <div className="relative flex flex-col items-center z-10 mb-8">
+            {/* Glowing background for logo */}
+            <motion.div
+              className="absolute w-44 h-44 md:w-56 md:h-56 rounded-full blur-2xl"
+              style={{ background: "radial-gradient(circle, rgba(20, 184, 166, 0.5) 0%, transparent 70%)" }}
+              animate={shouldReduceMotion ? {} : {
+                scale: [1, 1.3, 1],
+                opacity: [0.5, 0.8, 0.5],
+              }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            />
 
-              {/* Animated Logo */}
+            {/* Rotating rings */}
+            <motion.div
+              className="absolute w-40 h-40 md:w-52 md:h-52 rounded-full border-4 border-dashed border-teal-400/30"
+              animate={shouldReduceMotion ? {} : { rotate: 360 }}
+              transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+            />
+            <motion.div
+              className="absolute w-48 h-48 md:w-60 md:h-60 rounded-full border-2 border-dotted border-teal-300/20"
+              animate={shouldReduceMotion ? {} : { rotate: -360 }}
+              transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+            />
+
+            {/* Logo with bounce */}
+            <motion.div variants={logoVariants} className="relative z-10">
+              <motion.img
+                src={appLogo}
+                alt="KiyuMart"
+                className="w-32 h-32 md:w-44 md:h-44 object-contain"
+                animate={shouldReduceMotion ? {} : {
+                  y: [0, -15, 0],
+                  scale: [1, 1.05, 1],
+                }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                style={{ filter: "drop-shadow(0 20px 40px rgba(13, 148, 136, 0.4))" }}
+              />
+            </motion.div>
+
+            {/* Sparkle stars around logo */}
+            {!shouldReduceMotion && [...Array(8)].map((_, i) => (
               <motion.div
-                variants={logoVariants}
-                initial="hidden"
-                animate="visible"
-                className="relative z-10"
+                key={i}
+                className="absolute text-yellow-400"
+                style={{
+                  left: `${50 + Math.cos(i * Math.PI / 4) * 45}%`,
+                  top: `${50 + Math.sin(i * Math.PI / 4) * 45}%`,
+                  transform: "translate(-50%, -50%)",
+                }}
+                animate={{
+                  scale: [0, 1.2, 0],
+                  opacity: [0, 1, 0],
+                  rotate: [0, 180, 360],
+                }}
+                transition={{
+                  duration: 1.5,
+                  delay: i * 0.2,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
               >
-                <motion.img
-                  src={appLogo}
-                  alt="KiyuMart"
-                  className="w-24 h-24 md:w-32 md:h-32 object-contain drop-shadow-2xl"
-                  animate={bounceAnimation}
-                  style={{
-                    filter: "drop-shadow(0 10px 20px rgba(20, 184, 166, 0.3))",
-                  }}
-                  data-testid="loading-logo"
-                />
+                ✦
               </motion.div>
+            ))}
+          </div>
+
+          {/* Brand name */}
+          <motion.div variants={textVariants} className="text-center z-10 mb-6">
+            <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight">
+              <span className="bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm">
+                Kiyu
+              </span>
+              <span className="bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 bg-clip-text text-transparent drop-shadow-sm">
+                Mart
+              </span>
+            </h1>
+            <motion.p
+              className="mt-3 text-lg text-teal-700 font-medium"
+              animate={{ opacity: [0.6, 1, 0.6] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              Shop Smart, Live Better ✨
+            </motion.p>
+          </motion.div>
+
+          {/* Loading message and progress */}
+          <motion.div
+            className="flex flex-col items-center gap-4 z-10 mt-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.8 }}
+          >
+            <span className="text-teal-700 font-semibold text-base">{message}</span>
+
+            {/* Bouncing dots */}
+            <div className="flex gap-3">
+              {[0, 1, 2].map((i) => (
+                <motion.div
+                  key={i}
+                  className="w-4 h-4 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 shadow-lg"
+                  animate={shouldReduceMotion ? {} : {
+                    y: [0, -15, 0],
+                    scale: [1, 1.2, 1],
+                  }}
+                  transition={{
+                    duration: 0.5,
+                    delay: i * 0.12,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                  }}
+                />
+              ))}
             </div>
 
-            {/* Brand name with animation */}
-            <motion.div
-              variants={textVariants}
-              initial="hidden"
-              animate="visible"
-              className="mt-8 text-center"
-            >
-              <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-teal-400 bg-clip-text text-transparent">
-                KiyuMart
-              </h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Quality meets affordability
-              </p>
-            </motion.div>
-
-            {/* Loading indicator with animated dots */}
-            <motion.div
-              className="mt-8 flex items-center gap-2"
-              variants={dotsContainerVariants}
-              animate="animate"
-            >
-              <span className="text-sm text-muted-foreground">{message}</span>
-              <div className="flex gap-1">
-                {[0, 1, 2].map((index) => (
-                  <motion.span
-                    key={index}
-                    className="w-2 h-2 bg-primary rounded-full"
-                    variants={dotVariants}
-                    animate="animate"
-                    custom={index}
-                    style={{ animationDelay: `${index * 0.2}s` }}
-                    transition={{ delay: index * 0.2 }}
-                  />
-                ))}
-              </div>
-            </motion.div>
-
-            {/* Progress bar */}
-            <motion.div
-              className="mt-6 w-48 h-1 bg-muted rounded-full overflow-hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.8 }}
-            >
+            {/* Progress bar with shine effect */}
+            <div className="w-64 md:w-80 h-3 bg-white/60 rounded-full overflow-hidden shadow-inner backdrop-blur-sm">
               <motion.div
-                className="h-full bg-gradient-to-r from-primary to-teal-400 rounded-full"
+                className="h-full rounded-full relative overflow-hidden"
+                style={{
+                  background: "linear-gradient(90deg, #14b8a6, #10b981, #06b6d4)",
+                }}
                 initial={{ width: "0%" }}
                 animate={{ width: "100%" }}
                 transition={{
                   duration: minDisplayTime / 1000,
-                  ease: "easeInOut",
+                  ease: [0.4, 0, 0.2, 1],
                 }}
-              />
-            </motion.div>
-          </div>
+              >
+                {/* Shine effect */}
+                <motion.div
+                  className="absolute inset-0 w-1/4"
+                  style={{
+                    background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent)",
+                  }}
+                  animate={{ x: ["-100%", "400%"] }}
+                  transition={{
+                    duration: 1.5,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                  }}
+                />
+              </motion.div>
+            </div>
+          </motion.div>
 
-          {/* Footer branding */}
+          {/* Footer */}
           <motion.p
-            className="absolute bottom-8 text-xs text-muted-foreground/50"
+            className="absolute bottom-4 text-xs text-teal-600/60 font-medium"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 1 }}
+            transition={{ delay: 1.2 }}
           >
-            © 2026 KiyuMart. All rights reserved.
+            © 2026 KiyuMart • Your happiness, delivered
           </motion.p>
         </motion.div>
       )}
@@ -334,12 +314,9 @@ export function useAppLoading() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate app initialization (replace with actual init logic)
     const initApp = async () => {
-      // Wait for critical resources
       await Promise.all([
-        // Add your initialization promises here
-        new Promise((resolve) => setTimeout(resolve, 500)), // Minimum load time
+        new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
       setIsLoading(false);
     };
