@@ -5705,7 +5705,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Admin Fix Image Paths Endpoint ============
   app.post("/api/admin/fix-image-paths", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
-      // Get all products
+      // Fix products only (not banners)
       const allProducts = await db.select().from(products);
       
       let updatedCount = 0;
