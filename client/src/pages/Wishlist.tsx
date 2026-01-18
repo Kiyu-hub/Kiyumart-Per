@@ -58,7 +58,7 @@ export default function Wishlist() {
   if (!isAuthenticated && !authLoading) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
-        <Header cartItemsCount={0} onCartClick={() => {}} />
+        <Header cartItemsCount={0} onCartClick={() => navigate("/cart")} />
         <div className="flex-1 flex items-center justify-center">
           <Card className="max-w-md">
             <CardHeader>

@@ -184,7 +184,7 @@ export default function LiveTracking() {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-background p-6">
         <p className="text-lg text-muted-foreground mb-4">Order not found</p>
-        <Button onClick={() => navigate("/order-tracking")} data-testid="button-back-orders">
+        <Button onClick={() => navigate("/orders")} data-testid="button-back-orders">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Orders
         </Button>
@@ -196,7 +196,7 @@ export default function LiveTracking() {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-background p-6">
         <p className="text-lg text-muted-foreground mb-4">Delivery location not available</p>
-        <Button onClick={() => navigate("/order-tracking")} data-testid="button-back-orders">
+        <Button onClick={() => navigate("/orders")} data-testid="button-back-orders">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Orders
         </Button>

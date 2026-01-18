@@ -178,7 +178,7 @@ export default function SellerDashboard() {
                   <ProductCard
                     key={product.id}
                     {...product}
-                    onToggleWishlist={(id) => console.log('Delete product:', id)}
+                    onToggleWishlist={(id) => navigate(`/seller/products`)}
                   />
                 ))}
               </div>

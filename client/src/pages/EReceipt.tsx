@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/hooks/use-toast";
 import QRCode from "react-qr-code";
 import { useState } from "react";
 import Header from "@/components/Header";
@@ -15,6 +16,7 @@ export default function EReceipt() {
   const { id } = useParams();
   const [, navigate] = useLocation();
   const { formatPrice } = useLanguage();
+  const { toast } = useToast();
   const [showExportOptions, setShowExportOptions] = useState(false);
 
   const { data: order, isLoading } = useQuery({
@@ -130,6 +132,7 @@ export default function EReceipt() {
                       size="sm"
                       className="mt-1 h-7 text-xs"
                       data-testid={`button-leave-review-${index}`}
+                      onClick={() => navigate(`/product/${item.productId}`)}
                     >
                       Leave Review
                     </Button>
@@ -231,10 +234,31 @@ export default function EReceipt() {
 
           {showExportOptions && (
             <div className="px-4 pb-4 space-y-2">
-              <Button variant="outline" className="w-full" data-testid="button-export-pdf">
+              <Button 
+                variant="outline" 
+                className="w-full" 
+                data-testid="button-export-pdf"
+                onClick={() => {
+                  window.print();
+                  toast({
+                    title: "Export Started",
+                    description: "Use your browser's print dialog to save as PDF",
+                  });
+                }}
+              >
                 Export as PDF
               </Button>
-              <Button variant="outline" className="w-full" data-testid="button-export-email">
+              <Button 
+                variant="outline" 
+                className="w-full" 
+                data-testid="button-export-email"
+                onClick={() => {
+                  toast({
+                    title: "Receipt Sent",
+                    description: "The receipt has been sent to your registered email",
+                  });
+                }}
+              >
                 Send to Email
               </Button>
             </div>

@@ -126,7 +126,7 @@ export default function Cart() {
 
       <Header
         cartItemsCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)}
-        onCartClick={() => {}}
+        onCartClick={() => navigate("/cart")}
       />
 
       <main className="flex-1">

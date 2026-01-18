@@ -1,6 +1,8 @@
-import { useParams } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useParams, useLocation } from "wouter";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
@@ -36,11 +38,65 @@ const categoryInfo: Record<string, { title: string; description: string }> = {
 
 export default function CategoryPage() {
   const { id } = useParams();
+  const [, navigate] = useLocation();
   const { currencySymbol, t } = useLanguage();
+  const { isAuthenticated, user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
     queryKey: ["/api/products"],
   });
+
+  const { data: wishlistItems = [] } = useQuery<{ productId: string }[]>({
+    queryKey: ["/api/wishlist"],
+    enabled: isAuthenticated,
+  });
+
+  const addToWishlistMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      const res = await fetch("/api/wishlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to add to wishlist");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
+      toast({ title: "Added to wishlist" });
+    },
+  });
+
+  const removeFromWishlistMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      const res = await fetch(`/api/wishlist/${productId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to remove from wishlist");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
+      toast({ title: "Removed from wishlist" });
+    },
+  });
+
+  const handleToggleWishlist = (productId: string) => {
+    if (!isAuthenticated) {
+      navigate("/auth");
+      return;
+    }
+    const isInWishlist = wishlistItems.some((item) => item.productId === productId);
+    if (isInWishlist) {
+      removeFromWishlistMutation.mutate(productId);
+    } else {
+      addToWishlistMutation.mutate(productId);
+    }
+  };
 
   const categoryProducts = products.filter((p) => p.category === id);
   const categoryData = categoryInfo[id || ""] || {
@@ -51,8 +107,8 @@ export default function CategoryPage() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header
-        onSearch={(query) => console.log("Search:", query)}
-        onCartClick={() => {}}
+        onSearch={(query) => navigate(`/products?search=${encodeURIComponent(query)}`)}
+        onCartClick={() => navigate(isAuthenticated ? "/cart" : "/auth")}
         data-testid="header-category"
       />
 
@@ -123,7 +179,7 @@ export default function CategoryPage() {
                     discount={calculatedDiscount}
                     rating={parseFloat(product.ratings) || 0}
                     reviewCount={product.totalRatings}
-                    onToggleWishlist={(id) => console.log("Wishlist toggled:", id)}
+                    onToggleWishlist={handleToggleWishlist}
                   />
                 );
               })}

@@ -174,8 +174,8 @@ export default function Notifications() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header
-        onSearch={(query) => console.log('Search:', query)}
-        onCartClick={() => {}}
+        onSearch={(query) => navigate(`/products?search=${encodeURIComponent(query)}`)}
+        onCartClick={() => navigate("/cart")}
         data-testid="header-notifications"
       />
 

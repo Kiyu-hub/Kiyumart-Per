@@ -184,8 +184,8 @@ export default function Profile() {
     return (
       <div className="min-h-screen flex flex-col bg-background">
         <Header
-          onSearch={(query) => console.log('Search:', query)}
-          onCartClick={() => {}}
+          onSearch={(query) => navigate(`/products?search=${encodeURIComponent(query)}`)}
+          onCartClick={() => navigate("/cart")}
           data-testid="header-profile"
         />
         <main className="flex-1 flex items-center justify-center">
@@ -201,8 +201,8 @@ export default function Profile() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header
-        onSearch={(query) => console.log('Search:', query)}
-        onCartClick={() => {}}
+        onSearch={(query) => navigate(`/products?search=${encodeURIComponent(query)}`)}
+        onCartClick={() => navigate("/cart")}
         data-testid="header-profile"
       />
 

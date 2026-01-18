@@ -58,7 +58,12 @@ export default function DeliveryTracker({
                 <p className="text-sm text-muted-foreground">Delivery Rider</p>
               </div>
             </div>
-            <Button variant="outline" size="icon" data-testid="button-call-rider">
+            <Button 
+              variant="outline" 
+              size="icon" 
+              data-testid="button-call-rider"
+              onClick={() => riderPhone && window.open(`tel:${riderPhone}`, '_self')}
+            >
               <Phone className="h-4 w-4" />
             </Button>
           </div>

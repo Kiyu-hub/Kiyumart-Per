@@ -95,7 +95,16 @@ export default function RiderActiveRoute() {
                   </div>
                 </div>
 
-                <Button className="w-full" data-testid="button-navigate">
+                <Button 
+                  className="w-full" 
+                  data-testid="button-navigate"
+                  onClick={() => {
+                    if (activeDelivery?.deliveryAddress) {
+                      const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeDelivery.deliveryAddress)}`;
+                      window.open(mapsUrl, '_blank');
+                    }
+                  }}
+                >
                   <Navigation className="h-4 w-4 mr-2" />
                   Start Navigation
                 </Button>
