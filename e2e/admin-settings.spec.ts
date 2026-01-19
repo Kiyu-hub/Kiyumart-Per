@@ -1,11 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
-test.beforeAll(async ({ request }) => {
+test.beforeAll(async ({ request }: { request: APIRequestContext }) => {
   // Ensure test users exist
   await request.post('http://localhost:5000/api/seed/test-users');
 });
 
-test('multi-vendor toggle updates immediately and persists after reload', async ({ page }) => {
+test('multi-vendor toggle updates immediately and persists after reload', async ({ page }: { page: Page }) => {
   // login
   await page.goto('/auth');
   await page.fill('[data-testid="input-login-email"]', 'superadmin@kiyumart.com');
