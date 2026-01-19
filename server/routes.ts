@@ -5716,7 +5716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/paystack/banks", requireAuth, async (req: AuthRequest, res) => {
     try {
       const settings = await storage.getPlatformSettings();
-      const banks = await paystackService.getGhanaBanks(settings.paystackSecretKey);
+      const banks = await paystackService.getGhanaBanks(settings.paystackSecretKey ?? undefined);
       res.json(banks.data);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -5728,7 +5728,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { accountNumber, bankCode } = req.body;
       const settings = await storage.getPlatformSettings();
-      const verification = await paystackService.verifyAccountNumber(accountNumber, bankCode, settings.paystackSecretKey);
+      const verification = await paystackService.verifyAccountNumber(accountNumber, bankCode, settings.paystackSecretKey ?? undefined);
       res.json(verification.data);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -5788,7 +5788,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
 
         const settings = await storage.getPlatformSettings();
-        const paystackResponse = await paystackService.createSubaccount(subaccountData, settings.paystackSecretKey);
+        const paystackResponse = await paystackService.createSubaccount(subaccountData, settings.paystackSecretKey ?? undefined);
         paystackIdentifier = paystackResponse.data.subaccount_code;
       } else {
         // Mobile money payouts work differently (no subaccounts)
@@ -5822,7 +5822,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payload = JSON.stringify(req.body);
 
       const settings = await storage.getPlatformSettings();
-      if (!paystackService.verifyWebhookSignature(payload, signature, settings.paystackSecretKey)) {
+      if (!paystackService.verifyWebhookSignature(payload, signature, settings.paystackSecretKey ?? undefined)) {
         return res.status(401).json({ error: "Invalid signature" });
       }
 
