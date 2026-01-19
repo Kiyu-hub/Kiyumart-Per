@@ -102,18 +102,11 @@ export default function RealTimeRiderMap() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg">
+          <div className="h-[500px] flex items-center justify-center bg-muted rounded-lg">
             <p className="text-muted-foreground">Loading map...</p>
           </div>
-        ) : riders.length === 0 ? (
-          <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg">
-            <div className="text-center">
-              <Truck className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-              <p className="text-muted-foreground">No active deliveries at the moment</p>
-            </div>
-          </div>
         ) : (
-          <div className="h-[400px] rounded-lg overflow-hidden border" data-testid="map-container">
+          <div className="h-[500px] rounded-lg overflow-hidden border" data-testid="map-container">
             <MapContainer
               center={center}
               zoom={12}
@@ -123,34 +116,43 @@ export default function RealTimeRiderMap() {
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
-              {riders.map((rider) => (
-                <Marker
-                  key={rider.riderId}
-                  position={[rider.latitude, rider.longitude]}
-                  icon={riderIcon}
-                >
-                  <Popup>
-                    <div className="p-2 min-w-[200px]" data-testid={`popup-rider-${rider.riderId}`}>
-                      <h3 className="font-bold text-sm mb-1">{rider.riderName}</h3>
-                      <p className="text-xs text-muted-foreground mb-2">
-                        Order #{rider.orderNumber}
-                      </p>
-                      <div className="space-y-1 text-xs">
-                        {rider.speed !== null && (
-                          <p className="flex items-center gap-1">
-                            <span className="font-medium">Speed:</span>
-                            <span>{Math.round(rider.speed * 3.6)} km/h</span>
-                          </p>
-                        )}
-                        <p className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          <span>{formatTimestamp(rider.timestamp)}</span>
+              {riders.length === 0 ? (
+                <div className="absolute inset-0 z-[1000] flex items-center justify-center pointer-events-none">
+                  <div className="bg-background/80 backdrop-blur-sm rounded-lg p-4 text-center">
+                    <Truck className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">No active deliveries</p>
+                  </div>
+                </div>
+              ) : (
+                riders.map((rider) => (
+                  <Marker
+                    key={rider.riderId}
+                    position={[rider.latitude, rider.longitude]}
+                    icon={riderIcon}
+                  >
+                    <Popup>
+                      <div className="p-2 min-w-[200px]" data-testid={`popup-rider-${rider.riderId}`}>
+                        <h3 className="font-bold text-sm mb-1">{rider.riderName}</h3>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Order #{rider.orderNumber}
                         </p>
+                        <div className="space-y-1 text-xs">
+                          {rider.speed !== null && (
+                            <p className="flex items-center gap-1">
+                              <span className="font-medium">Speed:</span>
+                              <span>{Math.round(rider.speed * 3.6)} km/h</span>
+                            </p>
+                          )}
+                          <p className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            <span>{formatTimestamp(rider.timestamp)}</span>
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </Popup>
-                </Marker>
-              ))}
+                    </Popup>
+                  </Marker>
+                ))
+              )}
             </MapContainer>
           </div>
         )}
