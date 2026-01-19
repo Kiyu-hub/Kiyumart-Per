@@ -3180,11 +3180,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...settings,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
         paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
-        cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret, process.env.CLOUDINARY_API_SECRET),
-        cloudinaryApiKeySource: getSource(settings.cloudinaryApiKey, process.env.CLOUDINARY_API_KEY),
-        cloudinaryCloudNameSource: getSource(settings.cloudinaryCloudName, process.env.CLOUDINARY_CLOUD_NAME),
-        paystackSecretKeySource: getSource(settings.paystackSecretKey, process.env.PAYSTACK_SECRET_KEY),
-        paystackPublicKeySource: getSource(settings.paystackPublicKey, process.env.PAYSTACK_PUBLIC_KEY),
+        cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret ?? undefined, process.env.CLOUDINARY_API_SECRET),
+        cloudinaryApiKeySource: getSource(settings.cloudinaryApiKey ?? undefined, process.env.CLOUDINARY_API_KEY),
+        cloudinaryCloudNameSource: getSource(settings.cloudinaryCloudName ?? undefined, process.env.CLOUDINARY_CLOUD_NAME),
+        paystackSecretKeySource: getSource(settings.paystackSecretKey ?? undefined, process.env.PAYSTACK_SECRET_KEY),
+        paystackPublicKeySource: getSource(settings.paystackPublicKey ?? undefined, process.env.PAYSTACK_PUBLIC_KEY),
       };
       res.json(sanitizedSettings);
     } catch (error: any) {
@@ -3231,11 +3231,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...settings,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
         paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
-        cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret, process.env.CLOUDINARY_API_SECRET),
-        cloudinaryApiKeySource: getSource(settings.cloudinaryApiKey, process.env.CLOUDINARY_API_KEY),
-        cloudinaryCloudNameSource: getSource(settings.cloudinaryCloudName, process.env.CLOUDINARY_CLOUD_NAME),
-        paystackSecretKeySource: getSource(settings.paystackSecretKey, process.env.PAYSTACK_SECRET_KEY),
-        paystackPublicKeySource: getSource(settings.paystackPublicKey, process.env.PAYSTACK_PUBLIC_KEY),
+        cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret ?? undefined, process.env.CLOUDINARY_API_SECRET),
+        cloudinaryApiKeySource: getSource(settings.cloudinaryApiKey ?? undefined, process.env.CLOUDINARY_API_KEY),
+        cloudinaryCloudNameSource: getSource(settings.cloudinaryCloudName ?? undefined, process.env.CLOUDINARY_CLOUD_NAME),
+        paystackSecretKeySource: getSource(settings.paystackSecretKey ?? undefined, process.env.PAYSTACK_SECRET_KEY),
+        paystackPublicKeySource: getSource(settings.paystackPublicKey ?? undefined, process.env.PAYSTACK_PUBLIC_KEY),
       };
       res.json(sanitizedSettings);
     } catch (error: any) {
