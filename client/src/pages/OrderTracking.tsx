@@ -8,7 +8,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import OrderStatusTimeline from "@/components/OrderStatusTimeline";
 import OrderStatusBadge from "@/components/OrderStatusBadge";
 import DeliveryMap from "@/components/DeliveryMap";
-import { ArrowLeft, Search, Filter, Loader2 } from "lucide-react";
+import { ArrowLeft, Search, Filter, Loader2, Navigation } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";

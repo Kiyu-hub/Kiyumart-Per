@@ -9,7 +9,7 @@ export default function SellerAnalytics() {
   const { user } = useAuth();
   const { formatPrice } = useLanguage();
 
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading } = useQuery<{ totalRevenue?: string; totalOrders?: number; productsSold?: number; growthRate?: number }>({
     queryKey: ["/api/analytics"],
     enabled: !!user && user.role === "seller",
   });

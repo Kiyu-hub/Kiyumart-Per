@@ -99,8 +99,9 @@ export default function RiderActiveRoute() {
                   className="w-full" 
                   data-testid="button-navigate"
                   onClick={() => {
-                    if (activeDelivery?.deliveryAddress) {
-                      const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeDelivery.deliveryAddress)}`;
+                    // Use destination field as the navigation target
+                    if (activeDelivery?.destination) {
+                      const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeDelivery.destination)}`;
                       window.open(mapsUrl, '_blank');
                     }
                   }}

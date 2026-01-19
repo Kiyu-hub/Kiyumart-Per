@@ -36,6 +36,7 @@ interface DeliveryMapProps {
     profileImage?: string;
     rating?: number;
     vehicleType?: string;
+    phone?: string;
   };
   orderNumber: string;
   className?: string;

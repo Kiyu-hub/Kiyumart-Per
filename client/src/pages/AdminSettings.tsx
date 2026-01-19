@@ -76,6 +76,10 @@ interface PlatformSettings extends SettingsFormData {
   logo?: string;
   onboardingImages?: string[];
   updatedAt: string;
+  paystackPublicKeySource?: string;
+  paystackSecretKeySource?: string;
+  cloudinaryApiKeySource?: string;
+  cloudinaryApiSecretSource?: string;
 }
 
 export default function AdminSettings() {

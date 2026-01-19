@@ -75,11 +75,6 @@ export default function AdminStoreManager() {
     }
   }, [isAuthenticated, authLoading, user, navigate]);
 
-  const { data: stores = [] } = useQuery<Array<{id: string; name: string; isActive: boolean; isApproved: boolean}>>({
-    queryKey: ["/api/stores"],
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
-  });
-
   const form = useForm<StoreSettingsFormData>({
     resolver: zodResolver(storeSettingsSchema),
     values: settings ? {

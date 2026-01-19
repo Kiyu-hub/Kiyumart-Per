@@ -3324,7 +3324,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = await storage.updatePlatformSettings(updateData);
 
       const duration = Date.now() - start;
-      console.info(`PATCH /api/settings by user=${req.user?.id || 'unknown'} keys=${Object.keys(req.body).join(',') || 'none'} duration=${duration}ms`);
+      const userId = (req as any).user?.id || 'unknown';
+      console.info(`PATCH /api/settings by user=${userId} keys=${Object.keys(req.body).join(',') || 'none'} duration=${duration}ms`);
       if (duration > 500) {
         console.warn(`PATCH /api/settings took ${duration}ms - investigate potential latency`);
       }
