@@ -8,6 +8,8 @@ import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 
 const app = express();
 
@@ -67,9 +69,28 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
 }));
 
-// Health check endpoint for Render
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check endpoint for Render + Supabase Heartbeat
+app.get('/api/health', async (_req, res) => {
+  try {
+    const start = Date.now();
+    // This pokes Supabase to keep it from pausing
+    await db.execute(sql`SELECT 1`);
+    const duration = Date.now() - start;
+
+    res.json({ 
+      status: 'ok', 
+      database: 'connected',
+      latency: `${duration}ms`,
+      timestamp: new Date().toISOString() 
+    });
+  } catch (error) {
+    console.error("Health check failed:", error);
+    res.status(500).json({ 
+      status: 'error', 
+      database: 'disconnected',
+      timestamp: new Date().toISOString() 
+    });
+  }
 });
 
 // Trust proxy - Required for rate limiting behind Replit's proxy
