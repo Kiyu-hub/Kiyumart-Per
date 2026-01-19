@@ -3579,7 +3579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Build split payment configuration
       if (isMultiVendor) {
         // Multi-vendor: Build subaccounts array with splits for each seller
-        const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "0");
+        const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "1");
         const subaccounts: any[] = [];
         const storeErrors: string[] = [];
         
@@ -3653,7 +3653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const store = await storage.getStore(order.storeId);
             if (store && store.paystackSubaccountId && store.isPayoutVerified) {
-              const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "0");
+              const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "1");
 
               // Only assign as Paystack subaccount when seller uses bank account payouts
               if (store.payoutType === 'bank_account') {
@@ -5780,7 +5780,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get platform settings for commission rate
       const settings = await storage.getPlatformSettings();
-      const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "10");
+      const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "1");
       
       let paystackIdentifier: string;
 

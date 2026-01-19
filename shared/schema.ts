@@ -9,7 +9,7 @@ export const deliveryMethodEnum = pgEnum("delivery_method", ["pickup", "bus", "r
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "processing", "completed", "failed", "refunded"]);
 export const supportStatusEnum = pgEnum("support_status", ["open", "assigned", "resolved"]);
 export const discountTypeEnum = pgEnum("discount_type", ["percentage", "fixed"]);
-export const notificationTypeEnum = pgEnum("notification_type", ["order", "user", "product", "review", "message", "system"]);
+export const notificationTypeEnum = pgEnum("notification_type", ["order", "user", "product", "review", "message", "payout", "system"]);
 export const adminTransactionTypeEnum = pgEnum("admin_transaction_type", ["sale", "commission", "promotion_fee"]);
 export const mediaTypeEnum = pgEnum("media_type", ["image", "video"]);
 export const deliveryAssignmentStatusEnum = pgEnum("delivery_assignment_status", ["assigned", "en_route", "delivered", "cancelled"]);
@@ -110,6 +110,12 @@ export const platformSettings = pgTable("platform_settings", {
   facebookUrl: text("facebook_url"),
   instagramUrl: text("instagram_url"),
   twitterUrl: text("twitter_url"),
+  linkedinUrl: text("linkedin_url"),
+  youtubeUrl: text("youtube_url"),
+  tiktokUrl: text("tiktok_url"),
+  pinterestUrl: text("pinterest_url"),
+  whatsappPage: text("whatsapp_page"),
+  showSocialLinks: boolean("show_social_links").default(true),
   footerDescription: text("footer_description").default("Your trusted fashion marketplace. Quality products, fast delivery, and excellent service."),
   footerLinks: jsonb("footer_links").$type<Array<{title: string; url: string}>>().default([]),
   footerPaymentIcons: text("footer_payment_icons").array(),
@@ -130,7 +136,7 @@ export const platformSettings = pgTable("platform_settings", {
   allowSellerRegistration: boolean("allow_seller_registration").default(false),
   allowRiderRegistration: boolean("allow_rider_registration").default(false),
   primaryStoreId: varchar("primary_store_id"),
-  defaultCommissionRate: decimal("default_commission_rate", { precision: 5, scale: 2 }).default("0.00"), // 0% default
+  defaultCommissionRate: decimal("default_commission_rate", { precision: 5, scale: 2 }).default("1.00"), // 1% default
   minimumPayoutAmount: decimal("minimum_payout_amount", { precision: 10, scale: 2 }).default("0.00"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

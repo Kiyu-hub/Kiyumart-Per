@@ -56,6 +56,12 @@ const settingsSchema = z.object({
   facebookUrl: z.string().url().optional().or(z.literal("")),
   instagramUrl: z.string().url().optional().or(z.literal("")),
   twitterUrl: z.string().url().optional().or(z.literal("")),
+  linkedinUrl: z.string().url().optional().or(z.literal("")),
+  youtubeUrl: z.string().url().optional().or(z.literal("")),
+  tiktokUrl: z.string().url().optional().or(z.literal("")),
+  pinterestUrl: z.string().url().optional().or(z.literal("")),
+  whatsappPage: z.string().optional().or(z.literal("")),
+  showSocialLinks: z.boolean(),
   footerDescription: z.string().min(1, "Footer description is required"),
   adsEnabled: z.boolean(),
   heroBannerAdImage: z.string().url().optional().or(z.literal("")),
@@ -126,7 +132,7 @@ export default function AdminSettings() {
       paystackPublicKey: settings.paystackPublicKey || "",
       paystackSecretKey: settings.paystackSecretKey || "",
       processingFeePercent: settings.processingFeePercent,
-      defaultCommissionRate: (settings as any).defaultCommissionRate || "0",
+      defaultCommissionRate: (settings as any).defaultCommissionRate || "1",
       cloudinaryCloudName: (settings as any).cloudinaryCloudName || "",
       cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
       cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
@@ -146,6 +152,12 @@ export default function AdminSettings() {
       footerAdUrl: settings.footerAdUrl || "",
       productPageAdImage: settings.productPageAdImage || "",
       productPageAdUrl: settings.productPageAdUrl || "",
+      linkedinUrl: (settings as any).linkedinUrl || "",
+      youtubeUrl: (settings as any).youtubeUrl || "",
+      tiktokUrl: (settings as any).tiktokUrl || "",
+      pinterestUrl: (settings as any).pinterestUrl || "",
+      whatsappPage: (settings as any).whatsappPage || "",
+      showSocialLinks: (settings as any).showSocialLinks ?? true,
     } : undefined,
   });
 
@@ -189,7 +201,7 @@ export default function AdminSettings() {
         paystackPublicKey: data.paystackPublicKey || "",
         paystackSecretKey: data.paystackSecretKey || "",
         processingFeePercent: data.processingFeePercent,
-        defaultCommissionRate: data.defaultCommissionRate || "0",
+        defaultCommissionRate: data.defaultCommissionRate || "1",
         cloudinaryCloudName: data.cloudinaryCloudName || "",
         cloudinaryApiKey: data.cloudinaryApiKey || "",
         cloudinaryApiSecret: data.cloudinaryApiSecret || "",
@@ -199,6 +211,12 @@ export default function AdminSettings() {
         facebookUrl: data.facebookUrl || "",
         instagramUrl: data.instagramUrl || "",
         twitterUrl: data.twitterUrl || "",
+        linkedinUrl: data.linkedinUrl || "",
+        youtubeUrl: data.youtubeUrl || "",
+        tiktokUrl: data.tiktokUrl || "",
+        pinterestUrl: data.pinterestUrl || "",
+        whatsappPage: data.whatsappPage || "",
+        showSocialLinks: data.showSocialLinks ?? true,
         footerDescription: data.footerDescription,
         adsEnabled: data.adsEnabled || false,
         heroBannerAdImage: data.heroBannerAdImage || "",
@@ -237,7 +255,7 @@ export default function AdminSettings() {
         paystackPublicKey: settings.paystackPublicKey || "",
         paystackSecretKey: settings.paystackSecretKey || "",
         processingFeePercent: settings.processingFeePercent,
-        defaultCommissionRate: (settings as any).defaultCommissionRate || "0",
+        defaultCommissionRate: (settings as any).defaultCommissionRate || "1",
         cloudinaryCloudName: (settings as any).cloudinaryCloudName || "",
         cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
         cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
@@ -247,6 +265,12 @@ export default function AdminSettings() {
         facebookUrl: settings.facebookUrl || "",
         instagramUrl: settings.instagramUrl || "",
         twitterUrl: settings.twitterUrl || "",
+          linkedinUrl: (settings as any).linkedinUrl || "",
+          youtubeUrl: (settings as any).youtubeUrl || "",
+          tiktokUrl: (settings as any).tiktokUrl || "",
+          pinterestUrl: (settings as any).pinterestUrl || "",
+          whatsappPage: (settings as any).whatsappPage || "",
+          showSocialLinks: (settings as any).showSocialLinks ?? true,
         footerDescription: settings.footerDescription,
         adsEnabled: settings.adsEnabled || false,
         heroBannerAdImage: settings.heroBannerAdImage || "",
@@ -833,6 +857,94 @@ export default function AdminSettings() {
                             {form.formState.errors.twitterUrl.message}
                           </p>
                         )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="linkedinUrl">LinkedIn URL</Label>
+                        <Input
+                          id="linkedinUrl"
+                          {...form.register("linkedinUrl")}
+                          placeholder="https://linkedin.com/company/yourpage"
+                          data-testid="input-linkedin-url"
+                        />
+                        {form.formState.errors.linkedinUrl && (
+                          <p className="text-sm text-destructive">
+                            {form.formState.errors.linkedinUrl.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="youtubeUrl">YouTube URL</Label>
+                        <Input
+                          id="youtubeUrl"
+                          {...form.register("youtubeUrl")}
+                          placeholder="https://youtube.com/channel/yourchannel"
+                          data-testid="input-youtube-url"
+                        />
+                        {form.formState.errors.youtubeUrl && (
+                          <p className="text-sm text-destructive">
+                            {form.formState.errors.youtubeUrl.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="tiktokUrl">TikTok URL</Label>
+                        <Input
+                          id="tiktokUrl"
+                          {...form.register("tiktokUrl")}
+                          placeholder="https://tiktok.com/@yourpage"
+                          data-testid="input-tiktok-url"
+                        />
+                        {form.formState.errors.tiktokUrl && (
+                          <p className="text-sm text-destructive">
+                            {form.formState.errors.tiktokUrl.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="pinterestUrl">Pinterest URL</Label>
+                        <Input
+                          id="pinterestUrl"
+                          {...form.register("pinterestUrl")}
+                          placeholder="https://pinterest.com/yourpage"
+                          data-testid="input-pinterest-url"
+                        />
+                        {form.formState.errors.pinterestUrl && (
+                          <p className="text-sm text-destructive">
+                            {form.formState.errors.pinterestUrl.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="whatsappPage">WhatsApp Page</Label>
+                        <Input
+                          id="whatsappPage"
+                          {...form.register("whatsappPage")}
+                          placeholder="https://wa.me/yourphonenumber or https://your.whatsapp.page"
+                          data-testid="input-whatsapp-page"
+                        />
+                        {form.formState.errors.whatsappPage && (
+                          <p className="text-sm text-destructive">
+                            {form.formState.errors.whatsappPage.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <div>
+                          <Label htmlFor="showSocialLinks">Show Social Links</Label>
+                          <p className="text-xs text-muted-foreground">Toggle visibility of social links in the footer</p>
+                        </div>
+                        <Switch
+                          id="showSocialLinks"
+                          checked={form.watch("showSocialLinks")}
+                          onCheckedChange={(checked) => form.setValue("showSocialLinks", checked)}
+                          data-testid="switch-show-social-links"
+                        />
                       </div>
                     </div>
                   </div>
