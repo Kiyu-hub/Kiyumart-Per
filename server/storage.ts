@@ -919,7 +919,7 @@ export class DbStorage implements IStorage {
 
       // Step 2: Get platform settings for minimum payout amount
       const settings = await this.getPlatformSettings();
-      const minPayoutAmount = parseFloat(settings.minimumPayoutAmount || "50.00");
+      const minPayoutAmount = parseFloat(settings.minimumPayoutAmount || "0.00");
 
       // Step 3: Validate payout amount
       const requestedAmount = parseFloat(data.amount);

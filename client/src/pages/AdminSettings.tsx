@@ -47,7 +47,6 @@ const settingsSchema = z.object({
   paystackSecretKey: z.string().optional(),
   processingFeePercent: z.string().min(0),
   defaultCommissionRate: z.string().min(0).max(100),
-  minimumPayoutAmount: z.string().min(0),
   cloudinaryCloudName: z.string().optional(),
   cloudinaryApiKey: z.string().optional(),
   cloudinaryApiSecret: z.string().optional(),
@@ -127,8 +126,7 @@ export default function AdminSettings() {
       paystackPublicKey: settings.paystackPublicKey || "",
       paystackSecretKey: settings.paystackSecretKey || "",
       processingFeePercent: settings.processingFeePercent,
-      defaultCommissionRate: (settings as any).defaultCommissionRate || "10",
-      minimumPayoutAmount: (settings as any).minimumPayoutAmount || "50",
+      defaultCommissionRate: (settings as any).defaultCommissionRate || "0",
       cloudinaryCloudName: (settings as any).cloudinaryCloudName || "",
       cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
       cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
@@ -191,8 +189,7 @@ export default function AdminSettings() {
         paystackPublicKey: data.paystackPublicKey || "",
         paystackSecretKey: data.paystackSecretKey || "",
         processingFeePercent: data.processingFeePercent,
-        defaultCommissionRate: data.defaultCommissionRate || "10",
-        minimumPayoutAmount: data.minimumPayoutAmount || "50",
+        defaultCommissionRate: data.defaultCommissionRate || "0",
         cloudinaryCloudName: data.cloudinaryCloudName || "",
         cloudinaryApiKey: data.cloudinaryApiKey || "",
         cloudinaryApiSecret: data.cloudinaryApiSecret || "",
@@ -240,8 +237,7 @@ export default function AdminSettings() {
         paystackPublicKey: settings.paystackPublicKey || "",
         paystackSecretKey: settings.paystackSecretKey || "",
         processingFeePercent: settings.processingFeePercent,
-        defaultCommissionRate: (settings as any).defaultCommissionRate || "10",
-        minimumPayoutAmount: (settings as any).minimumPayoutAmount || "50",
+        defaultCommissionRate: (settings as any).defaultCommissionRate || "0",
         cloudinaryCloudName: (settings as any).cloudinaryCloudName || "",
         cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
         cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
@@ -604,7 +600,7 @@ export default function AdminSettings() {
                       type="number"
                       step="0.01"
                       {...form.register("defaultCommissionRate")}
-                      placeholder="10.00"
+                      placeholder="0.00"
                       data-testid="input-commission-rate"
                     />
                     <p className="text-xs text-muted-foreground">
@@ -612,20 +608,7 @@ export default function AdminSettings() {
                     </p>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="minimumPayoutAmount">Minimum Payout Amount</Label>
-                    <Input
-                      id="minimumPayoutAmount"
-                      type="number"
-                      step="0.01"
-                      {...form.register("minimumPayoutAmount")}
-                      placeholder="50.00"
-                      data-testid="input-minimum-payout"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Minimum amount sellers must have before requesting a payout
-                    </p>
-                  </div>
+                  
                 </CardContent>
               </Card>
 
