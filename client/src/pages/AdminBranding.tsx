@@ -67,6 +67,23 @@ export default function AdminBranding() {
     } : undefined,
   });
 
+  // Reset form if settings change externally
+  useEffect(() => {
+    if (settings) {
+      form.reset({
+        primaryColor: settings.primaryColor || "#1e7b5f",
+        secondaryColor: settings.secondaryColor || "#2c3e50",
+        accentColor: settings.accentColor || "#e74c3c",
+        lightBgColor: settings.lightBgColor || "#ffffff",
+        lightTextColor: settings.lightTextColor || "#000000",
+        lightCardColor: settings.lightCardColor || "#f8f9fa",
+        darkBgColor: settings.darkBgColor || "#1a1a1a",
+        darkTextColor: settings.darkTextColor || "#ffffff",
+        darkCardColor: settings.darkCardColor || "#2a2a2a",
+      });
+    }
+  }, [settings]);
+
   const updateMutation = useMutation({
     mutationFn: async (data: BrandingFormData) => {
       return await apiRequest("PATCH", "/api/settings", data);

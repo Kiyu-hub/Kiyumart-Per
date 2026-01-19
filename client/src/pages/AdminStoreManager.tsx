@@ -75,6 +75,11 @@ export default function AdminStoreManager() {
     }
   }, [isAuthenticated, authLoading, user, navigate]);
 
+  const { data: stores = [] } = useQuery<Array<{id: string; name: string; isActive: boolean; isApproved: boolean}>>({
+    queryKey: ["/api/stores"],
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+  });
+
   const form = useForm<StoreSettingsFormData>({
     resolver: zodResolver(storeSettingsSchema),
     values: settings ? {
@@ -96,6 +101,30 @@ export default function AdminStoreManager() {
       footerDescription: settings.footerDescription || "",
     } : undefined,
   });
+
+  // Keep store manager form in sync if something else updates platform settings
+  useEffect(() => {
+    if (settings) {
+      form.reset({
+        platformName: settings.platformName || "",
+        logo: settings.logo || "",
+        contactEmail: settings.contactEmail || "",
+        contactPhone: settings.contactPhone || "",
+        contactAddress: settings.contactAddress || "",
+        primaryColor: settings.primaryColor || "#1e7b5f",
+        secondaryColor: settings.secondaryColor || "#2c3e50",
+        useCustomBranding: false,
+        businessHoursOpen: "09:00",
+        businessHoursClose: "18:00",
+        defaultCurrency: (settings.defaultCurrency as "GHS" | "EUR" | "USD") || "GHS",
+        shippingZonesEnabled: true,
+        isMultiVendor: settings.isMultiVendor || false,
+        primaryStoreId: settings.primaryStoreId || "",
+        shopDisplayMode: (settings.shopDisplayMode as "by-store" | "by-category") || "by-store",
+        footerDescription: settings.footerDescription || "",
+      });
+    }
+  }, [settings]);
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (data: StoreSettingsFormData) => {

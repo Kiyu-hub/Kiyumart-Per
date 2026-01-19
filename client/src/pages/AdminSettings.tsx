@@ -137,10 +137,52 @@ export default function AdminSettings() {
       return res.json();
     },
     onSuccess: async () => {
-      // Invalidate and immediately refetch settings to update branding
+      // Invalidate and immediately refetch settings to update branding and other consumers
       await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/settings", user?.id] });
       await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/settings", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/platform-settings"] });
+
+      // Reset the form with the most recent settings so the UI reflects saved values immediately
+      const fresh = queryClient.getQueryData<any>(["/api/settings"]);
+      if (fresh) {
+        form.reset({
+          platformName: fresh.platformName,
+          isMultiVendor: fresh.isMultiVendor,
+          allowSellerRegistration: fresh.allowSellerRegistration || false,
+          allowRiderRegistration: fresh.allowRiderRegistration || false,
+          shopDisplayMode: fresh.shopDisplayMode || "by-store",
+          primaryStoreId: fresh.primaryStoreId || null,
+          primaryColor: fresh.primaryColor,
+          defaultCurrency: fresh.defaultCurrency,
+          paystackPublicKey: fresh.paystackPublicKey || "",
+          paystackSecretKey: fresh.paystackSecretKey || "",
+          processingFeePercent: fresh.processingFeePercent,
+          defaultCommissionRate: fresh.defaultCommissionRate || "10",
+          minimumPayoutAmount: fresh.minimumPayoutAmount || "50",
+          cloudinaryCloudName: fresh.cloudinaryCloudName || "",
+          cloudinaryApiKey: fresh.cloudinaryApiKey || "",
+          cloudinaryApiSecret: fresh.cloudinaryApiSecret || "",
+          contactPhone: fresh.contactPhone,
+          contactEmail: fresh.contactEmail,
+          contactAddress: fresh.contactAddress,
+          facebookUrl: fresh.facebookUrl || "",
+          instagramUrl: fresh.instagramUrl || "",
+          twitterUrl: fresh.twitterUrl || "",
+          footerDescription: fresh.footerDescription,
+          adsEnabled: fresh.adsEnabled || false,
+          heroBannerAdImage: fresh.heroBannerAdImage || "",
+          heroBannerAdUrl: fresh.heroBannerAdUrl || "",
+          sidebarAdImage: fresh.sidebarAdImage || "",
+          sidebarAdUrl: fresh.sidebarAdUrl || "",
+          footerAdImage: fresh.footerAdImage || "",
+          footerAdUrl: fresh.footerAdUrl || "",
+          productPageAdImage: fresh.productPageAdImage || "",
+          productPageAdUrl: fresh.productPageAdUrl || "",
+        });
+      }
+
       toast({
         title: "Settings updated",
         description: "Platform settings have been saved successfully. Branding colors updated!",
@@ -158,6 +200,46 @@ export default function AdminSettings() {
   const onSubmit = (data: SettingsFormData) => {
     updateSettingsMutation.mutate(data);
   };
+
+  // Keep form in sync when settings change externally
+  useEffect(() => {
+    if (settings) {
+      form.reset({
+        platformName: settings.platformName,
+        isMultiVendor: settings.isMultiVendor,
+        allowSellerRegistration: (settings as any).allowSellerRegistration || false,
+        allowRiderRegistration: (settings as any).allowRiderRegistration || false,
+        shopDisplayMode: (settings as any).shopDisplayMode || "by-store",
+        primaryStoreId: (settings as any).primaryStoreId || null,
+        primaryColor: settings.primaryColor,
+        defaultCurrency: settings.defaultCurrency,
+        paystackPublicKey: settings.paystackPublicKey || "",
+        paystackSecretKey: settings.paystackSecretKey || "",
+        processingFeePercent: settings.processingFeePercent,
+        defaultCommissionRate: (settings as any).defaultCommissionRate || "10",
+        minimumPayoutAmount: (settings as any).minimumPayoutAmount || "50",
+        cloudinaryCloudName: (settings as any).cloudinaryCloudName || "",
+        cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
+        cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
+        contactPhone: settings.contactPhone,
+        contactEmail: settings.contactEmail,
+        contactAddress: settings.contactAddress,
+        facebookUrl: settings.facebookUrl || "",
+        instagramUrl: settings.instagramUrl || "",
+        twitterUrl: settings.twitterUrl || "",
+        footerDescription: settings.footerDescription,
+        adsEnabled: settings.adsEnabled || false,
+        heroBannerAdImage: settings.heroBannerAdImage || "",
+        heroBannerAdUrl: settings.heroBannerAdUrl || "",
+        sidebarAdImage: settings.sidebarAdImage || "",
+        sidebarAdUrl: settings.sidebarAdUrl || "",
+        footerAdImage: settings.footerAdImage || "",
+        footerAdUrl: settings.footerAdUrl || "",
+        productPageAdImage: settings.productPageAdImage || "",
+        productPageAdUrl: settings.productPageAdUrl || "",
+      });
+    }
+  }, [settings]);
 
   if (authLoading || isLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
