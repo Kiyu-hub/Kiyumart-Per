@@ -178,11 +178,11 @@ export class PaystackService {
     }
   }
 
-  async verifyTransaction(reference: string) {
+  async verifyTransaction(reference: string, secret?: string) {
     try {
       const response = await axios.get(
         `${PAYSTACK_BASE_URL}/transaction/verify/${reference}`,
-        { headers: this.headers }
+        { headers: buildHeaders(secret) }
       );
       return response.data;
     } catch (error: any) {
