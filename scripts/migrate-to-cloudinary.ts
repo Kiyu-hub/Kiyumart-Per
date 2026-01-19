@@ -28,7 +28,12 @@ async function uploadToCloudinary(localPath: string, folder: string = "kiyumart"
     fetch_format: "auto",
   });
 
-  return result.secure_url;
+  // Ensure optimized URL (auto format/quality) before saving to DB
+  const url = result.secure_url;
+  if (!url) throw new Error("Failed to get cloudinary URL");
+  // Add f_auto/q_auto if missing
+  const optimized = url.includes("cloudinary.com") && !url.match(/(f_auto|q_auto)/) ? url.replace("/upload/", "/upload/f_auto,q_auto/") : url;
+  return optimized;
 }
 
 async function migrateBannersToCloudinary() {

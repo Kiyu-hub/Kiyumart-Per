@@ -42,7 +42,7 @@ export async function uploadToCloudinary(
       },
       (error, result) => {
         if (error) reject(error);
-        else resolve(result!.secure_url);
+        else resolve(optimizeUrl(result!.secure_url))
       }
     );
 
@@ -69,7 +69,7 @@ export async function uploadWithMetadata(
       (error, result) => {
         if (error) reject(error);
         else resolve({
-          url: result!.secure_url,
+          url: optimizeUrl(result!.secure_url),
           duration: result!.duration, // Video duration in seconds
           format: result!.format,
           resource_type: result!.resource_type,
@@ -137,12 +137,14 @@ export async function uploadWith4KEnhancement(
         } else {
           const enhancedWidth = result!.eager?.[0]?.width || result!.width;
           const enhancedHeight = result!.eager?.[0]?.height || result!.height;
+          const eagerUrl = result!.eager?.[0]?.secure_url;
+          const finalUrl = eagerUrl || result!.secure_url;
           
           if (enhancedWidth < MIN_4K_WIDTH || enhancedHeight < MIN_4K_HEIGHT) {
             reject(new Error(`Image quality insufficient for 4K enhancement. Original: ${originalWidth}×${originalHeight}px. Please upload a higher resolution image.`));
           } else {
             resolve({
-              url: result!.secure_url,
+              url: optimizeUrl(finalUrl),
               width: enhancedWidth,
               height: enhancedHeight,
               enhanced: true
@@ -158,5 +160,28 @@ export async function uploadWith4KEnhancement(
     readableStream.pipe(uploadStream);
   });
 }
+/**
+* Injects f_auto (auto-format) and q_auto (auto-quality) 
+ * to save bandwidth and Cloudinary credits.
+ */
+
+export const optimizeUrl = (url: string | undefined): string => {
+  if (!url || !url.includes("cloudinary.com")) return url || "";
+
+  const hasF = url.includes("f_auto");
+  const hasQ = url.includes("q_auto");
+
+  // If both transformations already present, return as-is
+  if (hasF && hasQ) return url;
+
+  // Build the missing transformation string
+  const parts: string[] = [];
+  if (!hasF) parts.push("f_auto");
+  if (!hasQ) parts.push("q_auto");
+  const insert = parts.join(",");
+
+  // Insert before any version or existing transformations
+  return url.replace("/upload/", `/upload/${insert}/`);
+};
 
 export { cloudinary };
