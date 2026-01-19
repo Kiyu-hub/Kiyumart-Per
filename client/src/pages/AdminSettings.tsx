@@ -56,6 +56,14 @@ const settingsSchema = z.object({
   facebookUrl: z.string().url().optional().or(z.literal("")),
   instagramUrl: z.string().url().optional().or(z.literal("")),
   twitterUrl: z.string().url().optional().or(z.literal("")),
+  showFacebook: z.boolean(),
+  showInstagram: z.boolean(),
+  showTwitter: z.boolean(),
+  showLinkedin: z.boolean(),
+  showYoutube: z.boolean(),
+  showTiktok: z.boolean(),
+  showPinterest: z.boolean(),
+  showWhatsapp: z.boolean(),
   linkedinUrl: z.string().url().optional().or(z.literal("")),
   youtubeUrl: z.string().url().optional().or(z.literal("")),
   tiktokUrl: z.string().url().optional().or(z.literal("")),
@@ -142,6 +150,14 @@ export default function AdminSettings() {
       facebookUrl: settings.facebookUrl || "",
       instagramUrl: settings.instagramUrl || "",
       twitterUrl: settings.twitterUrl || "",
+      showFacebook: (settings as any).showFacebook ?? true,
+      showInstagram: (settings as any).showInstagram ?? true,
+      showTwitter: (settings as any).showTwitter ?? true,
+      showLinkedin: (settings as any).showLinkedin ?? true,
+      showYoutube: (settings as any).showYoutube ?? true,
+      showTiktok: (settings as any).showTiktok ?? true,
+      showPinterest: (settings as any).showPinterest ?? true,
+      showWhatsapp: (settings as any).showWhatsapp ?? true,
       footerDescription: settings.footerDescription,
       adsEnabled: settings.adsEnabled || false,
       heroBannerAdImage: settings.heroBannerAdImage || "",
@@ -211,6 +227,14 @@ export default function AdminSettings() {
         facebookUrl: data.facebookUrl || "",
         instagramUrl: data.instagramUrl || "",
         twitterUrl: data.twitterUrl || "",
+        showFacebook: data.showFacebook ?? true,
+        showInstagram: data.showInstagram ?? true,
+        showTwitter: data.showTwitter ?? true,
+        showLinkedin: data.showLinkedin ?? true,
+        showYoutube: data.showYoutube ?? true,
+        showTiktok: data.showTiktok ?? true,
+        showPinterest: data.showPinterest ?? true,
+        showWhatsapp: data.showWhatsapp ?? true,
         linkedinUrl: data.linkedinUrl || "",
         youtubeUrl: data.youtubeUrl || "",
         tiktokUrl: data.tiktokUrl || "",
@@ -265,6 +289,14 @@ export default function AdminSettings() {
         facebookUrl: settings.facebookUrl || "",
         instagramUrl: settings.instagramUrl || "",
         twitterUrl: settings.twitterUrl || "",
+          showFacebook: (settings as any).showFacebook ?? true,
+          showInstagram: (settings as any).showInstagram ?? true,
+          showTwitter: (settings as any).showTwitter ?? true,
+          showLinkedin: (settings as any).showLinkedin ?? true,
+          showYoutube: (settings as any).showYoutube ?? true,
+          showTiktok: (settings as any).showTiktok ?? true,
+          showPinterest: (settings as any).showPinterest ?? true,
+          showWhatsapp: (settings as any).showWhatsapp ?? true,
           linkedinUrl: (settings as any).linkedinUrl || "",
           youtubeUrl: (settings as any).youtubeUrl || "",
           tiktokUrl: (settings as any).tiktokUrl || "",
@@ -816,12 +848,20 @@ export default function AdminSettings() {
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <Label htmlFor="facebookUrl">Facebook URL</Label>
-                        <Input
-                          id="facebookUrl"
-                          {...form.register("facebookUrl")}
-                          placeholder="https://facebook.com/yourpage"
-                          data-testid="input-facebook-url"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            id="facebookUrl"
+                            {...form.register("facebookUrl")}
+                            placeholder="https://facebook.com/yourpage"
+                            data-testid="input-facebook-url"
+                          />
+                          <Switch
+                            id="showFacebook"
+                            checked={form.watch("showFacebook")}
+                            onCheckedChange={(checked) => form.setValue("showFacebook", checked)}
+                            data-testid="switch-show-facebook"
+                          />
+                        </div>
                         {form.formState.errors.facebookUrl && (
                           <p className="text-sm text-destructive">
                             {form.formState.errors.facebookUrl.message}
@@ -831,12 +871,20 @@ export default function AdminSettings() {
 
                       <div className="space-y-2">
                         <Label htmlFor="instagramUrl">Instagram URL</Label>
-                        <Input
-                          id="instagramUrl"
-                          {...form.register("instagramUrl")}
-                          placeholder="https://instagram.com/yourpage"
-                          data-testid="input-instagram-url"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            id="instagramUrl"
+                            {...form.register("instagramUrl")}
+                            placeholder="https://instagram.com/yourpage"
+                            data-testid="input-instagram-url"
+                          />
+                          <Switch
+                            id="showInstagram"
+                            checked={form.watch("showInstagram")}
+                            onCheckedChange={(checked) => form.setValue("showInstagram", checked)}
+                            data-testid="switch-show-instagram"
+                          />
+                        </div>
                         {form.formState.errors.instagramUrl && (
                           <p className="text-sm text-destructive">
                             {form.formState.errors.instagramUrl.message}
@@ -846,12 +894,20 @@ export default function AdminSettings() {
 
                       <div className="space-y-2">
                         <Label htmlFor="twitterUrl">Twitter URL</Label>
-                        <Input
-                          id="twitterUrl"
-                          {...form.register("twitterUrl")}
-                          placeholder="https://twitter.com/yourpage"
-                          data-testid="input-twitter-url"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            id="twitterUrl"
+                            {...form.register("twitterUrl")}
+                            placeholder="https://twitter.com/yourpage"
+                            data-testid="input-twitter-url"
+                          />
+                          <Switch
+                            id="showTwitter"
+                            checked={form.watch("showTwitter")}
+                            onCheckedChange={(checked) => form.setValue("showTwitter", checked)}
+                            data-testid="switch-show-twitter"
+                          />
+                        </div>
                         {form.formState.errors.twitterUrl && (
                           <p className="text-sm text-destructive">
                             {form.formState.errors.twitterUrl.message}
@@ -861,76 +917,106 @@ export default function AdminSettings() {
 
                       <div className="space-y-2">
                         <Label htmlFor="linkedinUrl">LinkedIn URL</Label>
-                        <Input
-                          id="linkedinUrl"
-                          {...form.register("linkedinUrl")}
-                          placeholder="https://linkedin.com/company/yourpage"
-                          data-testid="input-linkedin-url"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            id="linkedinUrl"
+                            {...form.register("linkedinUrl")}
+                            placeholder="https://linkedin.com/company/yourpage"
+                            data-testid="input-linkedin-url"
+                          />
+                          <Switch
+                            id="showLinkedin"
+                            checked={form.watch("showLinkedin")}
+                            onCheckedChange={(checked) => form.setValue("showLinkedin", checked)}
+                            data-testid="switch-show-linkedin"
+                          />
+                        </div>
                         {form.formState.errors.linkedinUrl && (
-                          <p className="text-sm text-destructive">
-                            {form.formState.errors.linkedinUrl.message}
-                          </p>
+                          <p className="text-sm text-destructive">{form.formState.errors.linkedinUrl.message}</p>
                         )}
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="youtubeUrl">YouTube URL</Label>
-                        <Input
-                          id="youtubeUrl"
-                          {...form.register("youtubeUrl")}
-                          placeholder="https://youtube.com/channel/yourchannel"
-                          data-testid="input-youtube-url"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            id="youtubeUrl"
+                            {...form.register("youtubeUrl")}
+                            placeholder="https://youtube.com/channel/yourchannel"
+                            data-testid="input-youtube-url"
+                          />
+                          <Switch
+                            id="showYoutube"
+                            checked={form.watch("showYoutube")}
+                            onCheckedChange={(checked) => form.setValue("showYoutube", checked)}
+                            data-testid="switch-show-youtube"
+                          />
+                        </div>
                         {form.formState.errors.youtubeUrl && (
-                          <p className="text-sm text-destructive">
-                            {form.formState.errors.youtubeUrl.message}
-                          </p>
+                          <p className="text-sm text-destructive">{form.formState.errors.youtubeUrl.message}</p>
                         )}
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="tiktokUrl">TikTok URL</Label>
-                        <Input
-                          id="tiktokUrl"
-                          {...form.register("tiktokUrl")}
-                          placeholder="https://tiktok.com/@yourpage"
-                          data-testid="input-tiktok-url"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            id="tiktokUrl"
+                            {...form.register("tiktokUrl")}
+                            placeholder="https://tiktok.com/@yourpage"
+                            data-testid="input-tiktok-url"
+                          />
+                          <Switch
+                            id="showTiktok"
+                            checked={form.watch("showTiktok")}
+                            onCheckedChange={(checked) => form.setValue("showTiktok", checked)}
+                            data-testid="switch-show-tiktok"
+                          />
+                        </div>
                         {form.formState.errors.tiktokUrl && (
-                          <p className="text-sm text-destructive">
-                            {form.formState.errors.tiktokUrl.message}
-                          </p>
+                          <p className="text-sm text-destructive">{form.formState.errors.tiktokUrl.message}</p>
                         )}
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="pinterestUrl">Pinterest URL</Label>
-                        <Input
-                          id="pinterestUrl"
-                          {...form.register("pinterestUrl")}
-                          placeholder="https://pinterest.com/yourpage"
-                          data-testid="input-pinterest-url"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            id="pinterestUrl"
+                            {...form.register("pinterestUrl")}
+                            placeholder="https://pinterest.com/yourpage"
+                            data-testid="input-pinterest-url"
+                          />
+                          <Switch
+                            id="showPinterest"
+                            checked={form.watch("showPinterest")}
+                            onCheckedChange={(checked) => form.setValue("showPinterest", checked)}
+                            data-testid="switch-show-pinterest"
+                          />
+                        </div>
                         {form.formState.errors.pinterestUrl && (
-                          <p className="text-sm text-destructive">
-                            {form.formState.errors.pinterestUrl.message}
-                          </p>
+                          <p className="text-sm text-destructive">{form.formState.errors.pinterestUrl.message}</p>
                         )}
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="whatsappPage">WhatsApp Page</Label>
-                        <Input
-                          id="whatsappPage"
-                          {...form.register("whatsappPage")}
-                          placeholder="https://wa.me/yourphonenumber or https://your.whatsapp.page"
-                          data-testid="input-whatsapp-page"
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            id="whatsappPage"
+                            {...form.register("whatsappPage")}
+                            placeholder="https://wa.me/yourphonenumber or https://your.whatsapp.page"
+                            data-testid="input-whatsapp-page"
+                          />
+                          <Switch
+                            id="showWhatsapp"
+                            checked={form.watch("showWhatsapp")}
+                            onCheckedChange={(checked) => form.setValue("showWhatsapp", checked)}
+                            data-testid="switch-show-whatsapp"
+                          />
+                        </div>
                         {form.formState.errors.whatsappPage && (
-                          <p className="text-sm text-destructive">
-                            {form.formState.errors.whatsappPage.message}
-                          </p>
+                          <p className="text-sm text-destructive">{form.formState.errors.whatsappPage.message}</p>
                         )}
                       </div>
 

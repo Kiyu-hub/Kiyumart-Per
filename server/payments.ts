@@ -120,7 +120,7 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
             }
           }
         } catch (e) {
-          console.error('[PAYOUT] Error handling commission payout:', e?.message || e);
+          console.error('[PAYOUT] Error handling commission payout:', (e as any)?.message || e);
         }
       }
 
