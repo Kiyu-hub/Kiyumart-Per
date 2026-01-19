@@ -3143,11 +3143,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Platform Settings ============
   app.get("/api/settings", async (req, res) => {
     try {
-      const settings = await storage.getPlatformSettings();
+      let settings = await storage.getPlatformSettings();
+
+      // If secrets are present in environment but not in DB, import them into DB
+      const toUpdate: any = {};
+      if (!settings.paystackSecretKey && process.env.PAYSTACK_SECRET_KEY) {
+        toUpdate.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+      }
+      if (!settings.paystackPublicKey && process.env.PAYSTACK_PUBLIC_KEY) {
+        toUpdate.paystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY;
+      }
+      if (!settings.cloudinaryApiSecret && process.env.CLOUDINARY_API_SECRET) {
+        toUpdate.cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
+      }
+      if (!settings.cloudinaryApiKey && process.env.CLOUDINARY_API_KEY) {
+        toUpdate.cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
+      }
+      if (!settings.cloudinaryCloudName && process.env.CLOUDINARY_CLOUD_NAME) {
+        toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      }
+
+      if (Object.keys(toUpdate).length > 0) {
+        // Persist imported env settings so they become manageable via dashboard
+        settings = await storage.updatePlatformSettings(toUpdate);
+      }
+
       // Mask sensitive credentials in the response
       const sanitizedSettings = {
         ...settings,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
+        paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
       };
       res.json(sanitizedSettings);
     } catch (error: any) {
@@ -3158,13 +3183,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Alias for platform settings (used by multi-vendor components)
   app.get("/api/platform-settings", async (req, res) => {
     try {
-      const settings = await storage.getPlatformSettings();
+      let settings = await storage.getPlatformSettings();
+
+      // Import env secrets to DB if missing (so they appear in admin dashboard)
+      const toUpdate: any = {};
+      if (!settings.paystackSecretKey && process.env.PAYSTACK_SECRET_KEY) {
+        toUpdate.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+      }
+      if (!settings.paystackPublicKey && process.env.PAYSTACK_PUBLIC_KEY) {
+        toUpdate.paystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY;
+      }
+      if (!settings.cloudinaryApiSecret && process.env.CLOUDINARY_API_SECRET) {
+        toUpdate.cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
+      }
+      if (!settings.cloudinaryApiKey && process.env.CLOUDINARY_API_KEY) {
+        toUpdate.cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
+      }
+      if (!settings.cloudinaryCloudName && process.env.CLOUDINARY_CLOUD_NAME) {
+        toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      }
+
+      if (Object.keys(toUpdate).length > 0) {
+        settings = await storage.updatePlatformSettings(toUpdate);
+      }
+
       // Mask sensitive credentials in the response
       const sanitizedSettings = {
         ...settings,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
+        paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
       };
       res.json(sanitizedSettings);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Import environment secrets into DB (admin only)
+  app.post("/api/settings/import-env", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const current = await storage.getPlatformSettings();
+      const toUpdate: any = {};
+      if (process.env.PAYSTACK_SECRET_KEY && !current.paystackSecretKey) toUpdate.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+      if (process.env.PAYSTACK_PUBLIC_KEY && !current.paystackPublicKey) toUpdate.paystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY;
+      if (process.env.CLOUDINARY_API_SECRET && !current.cloudinaryApiSecret) toUpdate.cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
+      if (process.env.CLOUDINARY_API_KEY && !current.cloudinaryApiKey) toUpdate.cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
+      if (process.env.CLOUDINARY_CLOUD_NAME && !current.cloudinaryCloudName) toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
+
+      if (Object.keys(toUpdate).length === 0) {
+        return res.json({ message: "No environment secrets to import", settings: current });
+      }
+
+      const updated = await storage.updatePlatformSettings(toUpdate);
+      const sanitized = { ...updated, cloudinaryApiSecret: updated.cloudinaryApiSecret ? "••••••••••••••••" : "", paystackSecretKey: updated.paystackSecretKey ? "••••••••••••••••" : "" };
+      res.json(sanitized);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3178,6 +3250,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updateData = { ...req.body };
       if (!updateData.cloudinaryApiSecret || updateData.cloudinaryApiSecret === "••••••••••••••••") {
         updateData.cloudinaryApiSecret = previousSettings.cloudinaryApiSecret;
+      }
+      if (!updateData.paystackSecretKey || updateData.paystackSecretKey === "••••••••••••••••") {
+        updateData.paystackSecretKey = previousSettings.paystackSecretKey;
       }
       
       const settings = await storage.updatePlatformSettings(updateData);
@@ -5575,7 +5650,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get Ghana banks list
   app.get("/api/paystack/banks", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const banks = await paystackService.getGhanaBanks();
+      const settings = await storage.getPlatformSettings();
+      const banks = await paystackService.getGhanaBanks(settings.paystackSecretKey);
       res.json(banks.data);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -5586,7 +5662,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/paystack/verify-account", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { accountNumber, bankCode } = req.body;
-      const verification = await paystackService.verifyAccountNumber(accountNumber, bankCode);
+      const settings = await storage.getPlatformSettings();
+      const verification = await paystackService.verifyAccountNumber(accountNumber, bankCode, settings.paystackSecretKey);
       res.json(verification.data);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -5645,7 +5722,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           primary_contact_name: seller?.name || req.user!.email,
         };
 
-        const paystackResponse = await paystackService.createSubaccount(subaccountData);
+        const settings = await storage.getPlatformSettings();
+        const paystackResponse = await paystackService.createSubaccount(subaccountData, settings.paystackSecretKey);
         paystackIdentifier = paystackResponse.data.subaccount_code;
       } else {
         // Mobile money payouts work differently (no subaccounts)
@@ -5678,7 +5756,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const signature = req.headers['x-paystack-signature'] as string;
       const payload = JSON.stringify(req.body);
 
-      if (!paystackService.verifyWebhookSignature(payload, signature)) {
+      const settings = await storage.getPlatformSettings();
+      if (!paystackService.verifyWebhookSignature(payload, signature, settings.paystackSecretKey)) {
         return res.status(401).json({ error: "Invalid signature" });
       }
 

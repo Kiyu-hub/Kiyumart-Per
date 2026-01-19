@@ -382,7 +382,33 @@ export default function AdminSettings() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="paystackSecretKey">Paystack Secret Key</Label>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <Label htmlFor="paystackSecretKey">Paystack Secret Key</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Your Paystack secret key (starts with sk_test_ or sk_live_). You can set it here or via environment variables. Environment variables are recommended for production, but credentials set here will be stored and manageable from the dashboard.
+                        </p>
+                      </div>
+                      <div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const res = await apiRequest("POST", "/api/settings/import-env", {});
+                              await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+                              await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+                              toast({ title: "Imported", description: "Environment secrets imported into platform settings." });
+                            } catch (e: any) {
+                              toast({ title: "Import failed", description: e.message || "Failed to import from environment", variant: "destructive" });
+                            }
+                          }}
+                          data-testid="button-import-paystack"
+                        >
+                          Import from Environment
+                        </Button>
+                      </div>
+                    </div>
                     <Input
                       id="paystackSecretKey"
                       type="password"
@@ -390,9 +416,6 @@ export default function AdminSettings() {
                       placeholder="sk_test_xxxxxxxxxxxxxxxx"
                       data-testid="input-paystack-secret"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Your Paystack secret key (starts with sk_test_ or sk_live_)
-                    </p>
                     {form.formState.errors.paystackSecretKey && (
                       <p className="text-sm text-destructive">
                         {form.formState.errors.paystackSecretKey.message}
@@ -462,12 +485,35 @@ export default function AdminSettings() {
                     <div className="flex items-start gap-3">
                       <ImageIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                       <div className="flex-1">
-                        <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                          Cloudinary Configuration
-                        </h4>
-                        <p className="text-sm text-blue-700 dark:text-blue-300">
-                          For security reasons, Cloudinary API credentials must be configured using environment variables (Replit Secrets), not stored in the database.
-                        </p>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                              Cloudinary Configuration
+                            </h4>
+                            <p className="text-sm text-blue-700 dark:text-blue-300">
+                              You can set Cloudinary credentials here or via environment variables. Environment variables are recommended for production, but credentials set here will be stored and manageable from the dashboard. Use "Import from Environment" to copy any runtime values into the dashboard (they will be masked).
+                            </p>
+                          </div>
+                          <div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  const res = await apiRequest("POST", "/api/settings/import-env", {});
+                                  await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+                                  await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+                                  toast({ title: "Imported", description: "Environment secrets imported into platform settings." });
+                                } catch (e: any) {
+                                  toast({ title: "Import failed", description: e.message || "Failed to import from environment", variant: "destructive" });
+                                }
+                              }}
+                              data-testid="button-import-cloudinary"
+                            >
+                              Import from Environment
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>

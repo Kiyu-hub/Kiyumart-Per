@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_BASE_URL = 'https://api.paystack.co';
 
 interface PaystackSubaccountData {
@@ -11,6 +10,15 @@ interface PaystackSubaccountData {
   description?: string;
   primary_contact_email?: string;
   primary_contact_name?: string;
+}
+
+// Build headers dynamically using provided secret or environment variable
+function buildHeaders(secret?: string) {
+  const key = secret || process.env.PAYSTACK_SECRET_KEY || '';
+  return {
+    'Authorization': `Bearer ${key}`,
+    'Content-Type': 'application/json',
+  };
 }
 
 interface PaystackSubaccountResponse {
@@ -52,17 +60,12 @@ interface PaystackAccountVerificationResponse {
 }
 
 export class PaystackService {
-  private headers = {
-    'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
-    'Content-Type': 'application/json',
-  };
-
-  async createSubaccount(data: PaystackSubaccountData): Promise<PaystackSubaccountResponse> {
+  async createSubaccount(data: PaystackSubaccountData, secret?: string): Promise<PaystackSubaccountResponse> {
     try {
       const response = await axios.post<PaystackSubaccountResponse>(
         `${PAYSTACK_BASE_URL}/subaccount`,
         data,
-        { headers: this.headers, timeout: 20000 }
+        { headers: buildHeaders(secret), timeout: 20000 }
       );
       return response.data;
     } catch (error: any) {
@@ -105,11 +108,11 @@ export class PaystackService {
     }
   }
 
-  async getGhanaBanks(): Promise<PaystackBankListResponse> {
+  async getGhanaBanks(secret?: string): Promise<PaystackBankListResponse> {
     try {
       const response = await axios.get<PaystackBankListResponse>(
         `${PAYSTACK_BASE_URL}/bank?country=ghana&type=ghipss`,
-        { headers: this.headers }
+        { headers: buildHeaders(secret) }
       );
       return response.data;
     } catch (error: any) {
@@ -117,11 +120,11 @@ export class PaystackService {
     }
   }
 
-  async verifyAccountNumber(accountNumber: string, bankCode: string): Promise<PaystackAccountVerificationResponse> {
+  async verifyAccountNumber(accountNumber: string, bankCode: string, secret?: string): Promise<PaystackAccountVerificationResponse> {
     try {
       const response = await axios.get<PaystackAccountVerificationResponse>(
         `${PAYSTACK_BASE_URL}/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`,
-        { headers: this.headers, timeout: 15000 }
+        { headers: buildHeaders(secret), timeout: 15000 }
       );
       return response.data;
     } catch (error: any) {
@@ -162,12 +165,12 @@ export class PaystackService {
     transaction_charge?: number;
     bearer?: 'account' | 'subaccount';
     metadata?: any;
-  }) {
+  }, secret?: string) {
     try {
       const response = await axios.post(
         `${PAYSTACK_BASE_URL}/transaction/initialize`,
         data,
-        { headers: this.headers }
+        { headers: buildHeaders(secret) }
       );
       return response.data;
     } catch (error: any) {
@@ -187,10 +190,11 @@ export class PaystackService {
     }
   }
 
-  verifyWebhookSignature(payload: string, signature: string): boolean {
+  verifyWebhookSignature(payload: string, signature: string, secret?: string): boolean {
     const crypto = require('crypto');
+    const key = secret || process.env.PAYSTACK_SECRET_KEY || '';
     const hash = crypto
-      .createHmac('sha512', PAYSTACK_SECRET_KEY)
+      .createHmac('sha512', key)
       .update(payload)
       .digest('hex');
     return hash === signature;
