@@ -3847,124 +3847,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const primaryOrder = orders[0];
 
-      // Create transaction record (use primary order for single orderId field)
-      const transactionData = {
-        orderId: primaryOrder.id,
-        userId: data.data.metadata.userId || data.data.metadata.buyerId,
-        amount: (data.data.amount / 100).toString(),
-        currency: data.data.currency,
-        paymentProvider: "paystack",
-        paymentReference: data.data.reference,
-        status: data.data.status === "success" ? "completed" : "failed",
-        metadata: {
-          ...data.data,
-          isMultiVendor,
-          orderCount: orders.length,
-          orderIds: orders.map((o: any) => o.id),
-        },
-      };
-
-      const transaction = await storage.createTransaction(transactionData);
-      
-      if (data.data.status === "success") {
-        // Update ALL orders atomically
-        const updatePromises = orders.map((order: any) =>
-          storage.updateOrder(order.id, {
-            paymentStatus: "completed",
-            status: "processing",
-          })
-        );
-        await Promise.all(updatePromises);
-        
-        // Calculate and record commission for ALL orders
-        const commissionPromises = orders.map((order: any) => 
-          calculateAndRecordCommission(order.id)
-        );
-        await Promise.all(commissionPromises);
-        
-        // Get buyer details (all orders have same buyer)
-        const buyer = await storage.getUser(primaryOrder.buyerId);
-        
-        // Notify about all orders
-        for (const order of orders) {
-          // Notify admins about each paid order
-          await notifyAdmins(
-            "order",
-            "New order placed",
-            `Order #${order.orderNumber} has been placed by ${buyer?.name || 'Customer'}`,
-            { orderId: order.id, orderNumber: order.orderNumber, buyerId: order.buyerId }
-          );
-        }
-        
-        // Create single notification for buyer (summarize all orders)
-        const orderNumbers = orders.map((o: any) => `#${o.orderNumber}`).join(", ");
-        const totalPaid = (data.data.amount / 100).toFixed(2);
-        
-        await storage.createNotification({
-          userId: primaryOrder.buyerId,
-          type: "order",
-          title: "Payment Successful",
-          message: isMultiVendor 
-            ? `Your payment for ${orders.length} orders (${orderNumbers}) was successful. Total: ${data.data.currency} ${totalPaid}`
-            : `Your payment for order #${primaryOrder.orderNumber} was successful. Total: ${primaryOrder.currency} ${primaryOrder.total}`,
-        });
-        
-        // Emit payment success notification to buyer
-        io.to(primaryOrder.buyerId).emit("payment_completed", {
-          orderId: primaryOrder.id,
-          orderNumber: orderNumbers,
-          amount: `${data.data.currency} ${totalPaid}`,
-          paymentMethod: "Paystack",
-          isMultiVendor,
-          orderCount: orders.length,
-        });
-        
-        // Emit order status updates for all orders
-        for (const order of orders) {
-          io.to(order.buyerId).emit("order_status_updated", {
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            status: "processing",
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      } else {
-        // Payment failed - update all orders
-        const failedUpdatePromises = orders.map((order: any) =>
-          storage.updateOrder(order.id, {
-            paymentStatus: "failed",
-          })
-        );
-        await Promise.all(failedUpdatePromises);
-        
-        await storage.createNotification({
-          userId: primaryOrder.buyerId,
-          type: "order",
-          title: "Payment Failed",
-          message: isMultiVendor
-            ? `Payment for ${orders.length} orders failed. Please try again.`
-            : `Payment for order #${primaryOrder.orderNumber} failed. Please try again.`,
-        });
-        
-        // Emit payment failure notification to buyer
-        const orderNumbers = orders.map((o: any) => o.orderNumber).join(", ");
-        io.to(primaryOrder.buyerId).emit("payment_failed", {
-          orderId: primaryOrder.id,
-          orderNumber: orderNumbers,
-          reason: data.data.gateway_response || "Payment failed",
-          isMultiVendor,
-          orderCount: orders.length,
-        });
+      // Delegate transaction/order processing to shared helper to maintain idempotency and
+      // ensure consistent behavior between webhook and manual verify flow.
+      try {
+        const { processPaystackChargeSuccess } = await import('./payments');
+        await processPaystackChargeSuccess(data.data, storage, io);
+      } catch (procErr: any) {
+        console.error('[VERIFY] Error processing payment via shared helper:', procErr?.message || procErr);
+        // Continue - we will still attempt to return current transaction state if available
       }
 
-      res.json({ 
-        transaction, 
-        verified: data.data.status === "success",
+      const transaction = await storage.getTransactionByReference(reference);
+
+      res.json({
+        transaction,
+        verified: data.data.status === 'success',
         orderId: primaryOrder.id,
         orderIds: orders.map((o: any) => o.id),
         isMultiVendor,
         orderCount: orders.length,
-        message: data.data.status === "success" ? "Payment verified successfully" : data.data.gateway_response || "Payment failed"
+        message: data.data.status === 'success' ? 'Payment verified successfully' : data.data.gateway_response || 'Payment failed'
       });
       } catch (fetchError: any) {
         clearTimeout(timeout);
@@ -4028,71 +3930,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle different webhook events
       if (event.event === 'charge.success') {
-        const { reference, metadata } = event.data;
-        
-        if (!metadata?.orderId) {
-          console.error('[WEBHOOK] Missing orderId in metadata');
-          return res.status(400).json({ error: "Invalid webhook data" });
+        const data = event.data;
+        try {
+          const { processPaystackChargeSuccess } = await import('./payments');
+          await processPaystackChargeSuccess(data, storage, io);
+          console.log('[WEBHOOK] Payment processed successfully (charge.success)');
+        } catch (innerErr: any) {
+          console.error('[WEBHOOK] Error processing charge.success:', innerErr?.message || innerErr);
+          // don't fail the webhook - log and return 200 so Paystack won't retry indefinitely for non-retriable issues
         }
-
-        // Check if transaction already processed (idempotency)
-        const existingTransaction = await storage.getTransactionByReference(reference);
-        if (existingTransaction && existingTransaction.status === "completed") {
-          console.log('[WEBHOOK] Transaction already processed:', reference);
-          return res.json({ message: "Transaction already processed" });
-        }
-
-        const order = await storage.getOrder(metadata.orderId);
-        if (!order) {
-          console.error('[WEBHOOK] Order not found:', metadata.orderId);
-          return res.status(404).json({ error: "Order not found" });
-        }
-
-        // Create or update transaction
-        if (!existingTransaction) {
-          await storage.createTransaction({
-            orderId: metadata.orderId,
-            userId: metadata.userId,
-            amount: (event.data.amount / 100).toString(),
-            currency: event.data.currency,
-            paymentProvider: "paystack",
-            paymentReference: reference,
-            status: "completed",
-            metadata: event.data,
-          });
-        } else {
-          // Update existing transaction status
-          // Note: This would require a updateTransaction method in storage
-          console.log('[WEBHOOK] Updating existing transaction:', reference);
-        }
-
-        // Update order status
-        await storage.updateOrder(metadata.orderId, {
-          paymentStatus: "completed",
-          status: "processing",
-        });
-
-        // Calculate and record commission for multi-vendor marketplace
-        await calculateAndRecordCommission(metadata.orderId);
-
-        // Notify buyer
-        await storage.createNotification({
-          userId: order.buyerId,
-          type: "order",
-          title: "Payment Confirmed",
-          message: `Your payment for order #${order.orderNumber} has been confirmed by Paystack.`,
-        });
-
-        // Real-time notification
-        io.to(order.buyerId).emit("payment_completed", {
-          orderId: order.id,
-          orderNumber: order.orderNumber,
-          amount: `${order.currency} ${order.total}`,
-        });
-
-        console.log('[WEBHOOK] Payment processed successfully:', reference);
       } else if (event.event === 'charge.failed') {
-        // Handle failed payment
         console.log('[WEBHOOK] Payment failed:', event.data.reference);
       }
 

@@ -4,7 +4,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:unit": "tsx server/__tests__/paystack-webhook.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
