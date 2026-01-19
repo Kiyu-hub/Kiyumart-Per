@@ -176,6 +176,32 @@ app.use(cookieParser());
 (async () => {
   const server = await registerRoutes(app);
 
+  // Ensure super_admin has all role features on startup
+  try {
+    const { storage } = await import('./storage');
+    const superAdminFeatures: Record<string, boolean> = {
+      canManageUsers: true,
+      canManageProducts: true,
+      canManageOrders: true,
+      canManageStores: true,
+      canManageCategories: true,
+      canManageAdmins: true,
+      canEditPasswords: true,
+      canManageRoles: true,
+      canManagePlatformSettings: true,
+      canViewAnalytics: true,
+      canManagePromotions: true,
+      canManageReviews: true,
+      canManagePayouts: true,
+      canViewPayouts: true,
+      canManageFeatures: true,
+    };
+    await storage.updateRoleFeatures('super_admin', superAdminFeatures, 'system');
+    console.log('[BOOT] Ensured super_admin role features are set');
+  } catch (e) {
+    console.warn('[BOOT] Could not seed super_admin role features:', (e as any)?.message ?? String(e));
+  }
+
   // Global Error Handler - Must be after all routes
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

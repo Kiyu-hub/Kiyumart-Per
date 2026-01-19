@@ -169,6 +169,19 @@ export const stores = pgTable("stores", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Idempotency keys table for correlating payment initializes and webhooks
+export const idempotencyKeys = pgTable("idempotency_keys", {
+  key: varchar("key").primaryKey(),
+  payload: jsonb("payload").$type<Record<string, any> | null>(),
+  used: boolean("used").default(false),
+  usedReference: text("used_reference"),
+  retries: integer("retries").default(0),
+  lastAttempt: timestamp("last_attempt"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  keyIdx: index("idempotency_keys_key_idx").on(t.key),
+}));
+
 // Product categories (admin-manageable)
 export const categories = pgTable("categories", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

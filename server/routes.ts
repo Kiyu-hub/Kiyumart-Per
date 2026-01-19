@@ -3599,8 +3599,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       try {
-        // Add simple idempotency key to help Paystack dedupe retries
-        const idempotencyKey = `init-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+        // Create a persistent idempotency key in DB so retries can be correlated and audited
+        const idempotencyPayload = {
+          orderIds: orders.map(o => o.id),
+          checkoutSessionId: paymentPayload.metadata.checkoutSessionId || null,
+          buyerId: req.user?.id || null,
+        };
+        const { key: idempotencyKey } = await storage.createIdempotencyKey(`init-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, idempotencyPayload);
+
         const response = await fetch("https://api.paystack.co/transaction/initialize", {
           method: "POST",
           headers: {
@@ -3623,6 +3629,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const data = await response.json();
+        // Log initialize response and associate Paystack reference with idempotency (if reference present)
+        try {
+          if (data?.data?.reference) {
+            // Mark the idempotency key with the eventual Paystack reference so webhooks can correlate
+            await storage.markIdempotencyUsed(idempotencyKey, data.data.reference);
+          }
+        } catch (e) {
+          console.warn('[PAYMENTS] Could not associate idempotency key with reference', (e as any).message || e);
+        }
         console.info(`[PAYMENTS] Paystack initialize response: reference=${data?.data?.reference} status=${data?.status}`);
         
         if (!data.status) {
@@ -3948,13 +3963,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Handle different webhook events
       if (event.event === 'charge.success') {
         const data = event.data;
+        const reference = data?.reference;
         try {
-          const { processPaystackChargeSuccess } = await import('./payments');
-          await processPaystackChargeSuccess(data, storage, io);
-          console.log('[WEBHOOK] Payment processed successfully (charge.success)');
-        } catch (innerErr: any) {
-          console.error('[WEBHOOK] Error processing charge.success:', innerErr?.message || innerErr);
-          // don't fail the webhook - log and return 200 so Paystack won't retry indefinitely for non-retriable issues
+          // Attempt to find an idempotency key correlated to this reference
+          let idemp = reference ? await storage.getIdempotencyByReference(reference) : undefined;
+
+          // Fallback: if Paystack metadata included a session id, try to find init key
+          if (!idemp && data?.metadata?.checkoutSessionId) {
+            idemp = await storage.getIdempotencyKey(`init-${data.metadata.checkoutSessionId}`);
+          }
+
+          // If no idempotency record exists, create a lightweight one keyed by reference
+          const idempotencyKey = idemp?.key ?? `paystack-ref-${reference || Date.now()}`;
+          if (!idemp) {
+            await storage.createIdempotencyKey(idempotencyKey, { reference, metadata: data?.metadata || null });
+          }
+
+          // Track retry attempts and alert if too many
+          const retries = await storage.incrementIdempotencyRetry(idempotencyKey).catch(() => 0);
+          if (retries > 5) {
+            // Emit metrics for repeated webhook retries; alerting should be configured in monitoring
+            try {
+              await metrics.incrementWebhookRetries(reference || 'unknown');
+              console.warn(`[WEBHOOK] Repeated webhook retries for reference ${reference}: ${retries}`);
+            } catch (mErr) {
+              console.error('[WEBHOOK] metrics.incrementWebhookRetries failed', mErr);
+            }
+          }
+
+          // Delegate processing to shared helper
+          try {
+            const { processPaystackChargeSuccess } = await import('./payments');
+            await processPaystackChargeSuccess(data, storage, io);
+            console.log('[WEBHOOK] Payment processed successfully (charge.success)');
+            try { await metrics.incrementWebhookProcessed('success'); } catch {}
+
+            // Mark idempotency record used (associate with reference)
+            await storage.markIdempotencyUsed(idempotencyKey, reference).catch(() => {});
+          } catch (innerErr: any) {
+            console.error('[WEBHOOK] Error processing charge.success:', innerErr?.message || innerErr);
+            try { await metrics.incrementWebhookProcessed('failure'); } catch {}
+            // don't fail the webhook - log and return 200 so Paystack won't retry indefinitely for non-retriable issues
+          }
+        } catch (outerErr: any) {
+          console.error('[WEBHOOK] Unexpected error while handling charge.success:', outerErr?.message || outerErr);
         }
       } else if (event.event === 'charge.failed') {
         console.log('[WEBHOOK] Payment failed:', event.data.reference);
@@ -5585,6 +5637,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Paystack Integration Routes ============
   const { paystackService } = await import("./paystack");
+  const metrics = await import("./metrics");
+
+  // Expose Prometheus metrics endpoint for scraping
+  app.get('/metrics', async (_req, res) => {
+    try {
+      const body = await metrics.getMetrics();
+      res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+      res.send(body);
+    } catch (e: any) {
+      res.status(500).send(`# metrics error: ${(e && e.message) || e}`);
+    }
+  });
 
   // Get Ghana banks list
   app.get("/api/paystack/banks", requireAuth, async (req: AuthRequest, res) => {

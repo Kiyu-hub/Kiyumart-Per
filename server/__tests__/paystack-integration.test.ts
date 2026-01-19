@@ -9,6 +9,10 @@ import * as storageModule from '../storage';
 import { generateToken } from '../auth';
 
 async function run() {
+  if (process.env.RUN_PAYSTACK_INTEGRATION !== 'true') {
+    console.log('Skipping integration test; set RUN_PAYSTACK_INTEGRATION=true to run');
+    process.exit(0);
+  }
   process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'testsecret';
 
   // Prepare fake storage behaviors

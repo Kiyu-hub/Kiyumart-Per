@@ -71,6 +71,16 @@ export default function StoreModeToggle({
   const handleToggle = (checked: boolean) => {
     if (role !== "admin") return;
 
+    // If switching to single-store mode, ensure a primaryStoreId is set in platform settings
+    if (!checked && !settings?.primaryStoreId) {
+      toast({
+        title: "Primary store required",
+        description: "Select a Primary Store in Settings before switching to Single-Store mode.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setPendingMode(checked);
     setShowConfirmDialog(true);
   };

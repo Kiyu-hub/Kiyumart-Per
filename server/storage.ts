@@ -4,6 +4,7 @@ import {
   chatMessages, transactions, platformSettings, cart, wishlist, reviews, riderReviews,
   productVariants, heroBanners, coupons, bannerCollections, marketplaceBanners,
   stores, categoryFields, categories, notifications, mediaLibrary, footerPages,
+  idempotencyKeys,
   commissions, platformEarnings, sellerPayouts, roleFeatures,
   type User, type InsertUser, type Product, type InsertProduct,
   type Order, type InsertOrder, type DeliveryZone, type InsertDeliveryZone,
@@ -66,6 +67,12 @@ export interface IStorage {
   // Transaction operations
   createTransaction(data: any): Promise<Transaction>;
   getTransactionByReference(reference: string): Promise<Transaction | undefined>;
+  // Idempotency key operations (simple DB-backed keys for init/webhook dedupe)
+  createIdempotencyKey(key: string, payload?: any): Promise<{ key: string }>;
+  getIdempotencyKey(key: string): Promise<any | undefined>;
+  getIdempotencyByReference(reference: string): Promise<any | undefined>;
+  markIdempotencyUsed(key: string, reference?: string): Promise<void>;
+  incrementIdempotencyRetry(key: string): Promise<number>;
   
   // Commission operations
   createCommission(data: InsertCommission): Promise<Commission>;
@@ -705,6 +712,58 @@ export class DbStorage implements IStorage {
   async getTransactionByReference(reference: string): Promise<Transaction | undefined> {
     const result = await db.select().from(transactions).where(eq(transactions.paymentReference, reference)).limit(1);
     return result[0];
+  }
+
+  // Idempotency helpers using typed Drizzle table `idempotencyKeys`
+  async createIdempotencyKey(key: string, payload?: any): Promise<{ key: string }> {
+    try {
+      await db.insert(idempotencyKeys).values({ key, payload: payload ?? null }).onConflictDoNothing();
+    } catch (e) {
+      console.warn('[IDEMPOTENCY] insert failed', (e as any).message || e);
+    }
+    return { key };
+  }
+
+  async getIdempotencyKey(key: string): Promise<any | undefined> {
+    try {
+      const res = await db.select().from(idempotencyKeys).where(eq(idempotencyKeys.key, key)).limit(1);
+      return res[0];
+    } catch (e) {
+      console.warn('[IDEMPOTENCY] select failed', (e as any).message || e);
+      return undefined;
+    }
+  }
+
+  async getIdempotencyByReference(reference: string): Promise<any | undefined> {
+    try {
+      const res = await db.select().from(idempotencyKeys).where(eq(idempotencyKeys.usedReference, reference)).limit(1);
+      return res[0];
+    } catch (e) {
+      console.warn('[IDEMPOTENCY] select by reference failed', (e as any).message || e);
+      return undefined;
+    }
+  }
+
+  async markIdempotencyUsed(key: string, reference?: string): Promise<void> {
+    try {
+      await db.update(idempotencyKeys).set({ used: true, usedReference: reference ?? null, lastAttempt: new Date() }).where(eq(idempotencyKeys.key, key));
+    } catch (e) {
+      console.warn('[IDEMPOTENCY] mark used failed', (e as any).message || e);
+    }
+  }
+
+  async incrementIdempotencyRetry(key: string): Promise<number> {
+    try {
+      const updated = await db.update(idempotencyKeys)
+        .set({ retries: sql`COALESCE(${idempotencyKeys.retries},0) + 1`, lastAttempt: new Date() })
+        .where(eq(idempotencyKeys.key, key)).returning();
+      if (updated && updated[0]) return (updated[0] as any).retries ?? 0;
+      const res = await db.select({ retries: idempotencyKeys.retries }).from(idempotencyKeys).where(eq(idempotencyKeys.key, key)).limit(1);
+      return res[0]?.retries ?? 0;
+    } catch (e) {
+      console.warn('[IDEMPOTENCY] increment retry failed', (e as any).message || e);
+      return 0;
+    }
   }
 
   // Commission operations
