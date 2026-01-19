@@ -67,6 +67,50 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
         }
       });
 
+      // Auto-create payouts for mobile money sellers so they can receive funds
+      for (let i = 0; i < commissionResults.length; i++) {
+        const res = commissionResults[i] as PromiseSettledResult<any>;
+        if (res.status !== 'fulfilled') continue;
+        try {
+          const commission = res.value.commission;
+          const sellerId = commission.sellerId;
+          const sellerAmount = commission.sellerAmount; // string like "12.34"
+
+          // Find seller's store to get payout type/details
+          const store = await storage.getStoreByPrimarySeller(sellerId);
+          if (!store) continue;
+
+          if (store.payoutType === 'mobile_money') {
+            // Create a seller payout record for this commission amount
+            try {
+              const payout = await storage.createSellerPayout({
+                sellerId,
+                amount: sellerAmount,
+                currency: primaryOrder.currency || 'GHS',
+                method: 'mobile_money',
+                bankDetails: { mobileNumber: store.payoutDetails?.mobileNumber, provider: store.payoutDetails?.provider },
+                notes: `Auto payout for order ${commission.orderId}`,
+              } as any);
+
+              // Mark payout as processing so admins can track it (actual transfer may be manual or via worker)
+              await storage.updatePayoutStatus(payout.id, 'processing', 'system');
+
+              // Notify seller about pending payout
+              await storage.createNotification({
+                userId: sellerId,
+                type: 'payout',
+                title: 'Payout Initiated',
+                message: `A payout of ${sellerAmount} has been initiated to your mobile money ${store.payoutDetails?.mobileNumber}. It will be processed shortly.`
+              });
+            } catch (pErr: any) {
+              console.error('[PAYOUT] Failed to create auto payout for mobile money seller', pErr?.message || pErr);
+            }
+          }
+        } catch (e) {
+          console.error('[PAYOUT] Error handling commission payout:', e?.message || e);
+        }
+      }
+
       // Notifications
       const buyer = await storage.getUser(primaryOrder.buyerId);
       const orderNumbers = orders.map((o: any) => `#${o.orderNumber}`).join(', ');

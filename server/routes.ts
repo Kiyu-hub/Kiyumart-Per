@@ -3600,11 +3600,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Calculate seller's share for this order
               const orderAmount = parseFloat(order.total);
               const sellerShare = Math.round(orderAmount * (100 - commissionRate) / 100 * 100); // In kobo
-              
-              subaccounts.push({
-                subaccount: store.paystackSubaccountId,
-                share: sellerShare,
-              });
+
+              // Only include as Paystack subaccount if seller uses bank account payouts
+              if (store.payoutType === 'bank_account' && store.paystackSubaccountId) {
+                subaccounts.push({
+                  subaccount: store.paystackSubaccountId,
+                  share: sellerShare,
+                });
+              } else {
+                // For mobile money recipients, include payout info in metadata for post-processing
+                paymentPayload.metadata = paymentPayload.metadata || {};
+                paymentPayload.metadata.mobilePayouts = paymentPayload.metadata.mobilePayouts || [];
+                paymentPayload.metadata.mobilePayouts.push({
+                  storeId: store.id,
+                  sellerId: store.primarySellerId,
+                  provider: store.payoutDetails?.provider,
+                  mobileNumber: store.payoutDetails?.mobileNumber,
+                  amountKobo: sellerShare,
+                });
+              }
             } catch (storeError) {
               storeErrors.push(`Failed to fetch store for order ${order.orderNumber}`);
               console.error("Store fetch error:", storeError);
@@ -3626,6 +3640,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           paymentPayload.bearer = "account"; // Platform bears Paystack fees
           paymentPayload.metadata.splitEnabled = true;
           paymentPayload.metadata.commissionRate = commissionRate;
+        } else {
+          // No subaccounts (e.g., all sellers use mobile money); ensure split metadata flags are explicit
+          paymentPayload.metadata.splitEnabled = false;
+          paymentPayload.metadata.commissionRate = commissionRate;
         }
         
       } else {
@@ -3636,15 +3654,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const store = await storage.getStore(order.storeId);
             if (store && store.paystackSubaccountId && store.isPayoutVerified) {
               const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "0");
-              
-              paymentPayload.subaccount = store.paystackSubaccountId;
-              paymentPayload.transaction_charge = commissionRate * 100;
-              paymentPayload.bearer = "account";
-              
-              paymentPayload.metadata.storeId = store.id;
-              paymentPayload.metadata.storeName = store.name;
-              paymentPayload.metadata.commissionRate = commissionRate;
-              paymentPayload.metadata.splitEnabled = true;
+
+              // Only assign as Paystack subaccount when seller uses bank account payouts
+              if (store.payoutType === 'bank_account') {
+                paymentPayload.subaccount = store.paystackSubaccountId;
+                paymentPayload.transaction_charge = commissionRate * 100;
+                paymentPayload.bearer = "account";
+
+                paymentPayload.metadata.storeId = store.id;
+                paymentPayload.metadata.storeName = store.name;
+                paymentPayload.metadata.commissionRate = commissionRate;
+                paymentPayload.metadata.splitEnabled = true;
+              } else {
+                // For mobile money, include payout info for post-processing and do not set subaccount
+                paymentPayload.metadata.storeId = store.id;
+                paymentPayload.metadata.storeName = store.name;
+                paymentPayload.metadata.commissionRate = commissionRate;
+                paymentPayload.metadata.splitEnabled = false;
+                paymentPayload.metadata.mobilePayout = paymentPayload.metadata.mobilePayout || {};
+                paymentPayload.metadata.mobilePayout[store.id] = {
+                  provider: store.payoutDetails?.provider,
+                  mobileNumber: store.payoutDetails?.mobileNumber,
+                };
+              }
             }
           } catch (storeError) {
             console.warn("Could not fetch store for split payment:", storeError);
