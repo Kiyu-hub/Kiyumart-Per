@@ -4,6 +4,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "build:frontend": "vite build",
+    "dev:frontend": "vite",
     "test:e2e": "playwright test",
     "test:unit": "SESSION_SECRET=testsecret tsx server/__tests__/*.test.ts",
     "test:integration": "SESSION_SECRET=testsecret tsx server/__tests__/paystack-integration.test.ts"
