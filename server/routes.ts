@@ -3308,6 +3308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/settings", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    const start = Date.now();
     try {
       const previousSettings = await storage.getPlatformSettings();
       
@@ -3321,7 +3322,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const settings = await storage.updatePlatformSettings(updateData);
-      
+
+      const duration = Date.now() - start;
+      console.info(`PATCH /api/settings by user=${req.user?.id || 'unknown'} keys=${Object.keys(req.body).join(',') || 'none'} duration=${duration}ms`);
+      if (duration > 500) {
+        console.warn(`PATCH /api/settings took ${duration}ms - investigate potential latency`);
+      }
+
       // Handle automatic store updates when multi-vendor mode is toggled
       if (previousSettings.isMultiVendor !== settings.isMultiVendor) {
         if (settings.isMultiVendor) {
@@ -3353,6 +3360,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(settings);
     } catch (error: any) {
+      const duration = Date.now() - start;
+      console.error(`PATCH /api/settings failed after ${duration}ms:`, error?.message || error);
       res.status(400).json({ error: error.message });
     }
   });

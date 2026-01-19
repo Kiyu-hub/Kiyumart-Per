@@ -17,6 +17,16 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud } from "lucide-react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -74,6 +84,12 @@ export default function AdminSettings() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("general");
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+
+  // Import dialogs state
+  const [showImportPaystackDialog, setShowImportPaystackDialog] = useState(false);
+  const [isImportingPaystack, setIsImportingPaystack] = useState(false);
+  const [showImportCloudinaryDialog, setShowImportCloudinaryDialog] = useState(false);
+  const [isImportingCloudinary, setIsImportingCloudinary] = useState(false);
 
   const { data: settings, isLoading } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
@@ -477,22 +493,44 @@ export default function AdminSettings() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={async () => {
-                                  try {
-                                    const confirmImport = window.confirm("Import Paystack secrets from environment into the database? This will store secrets in the DB (masked) and make them manageable from the dashboard.");
-                                    if (!confirmImport) return;
-                                    const res = await apiRequest("POST", "/api/settings/import-paystack", {});
-                                    await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
-                                    await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
-                                    toast({ title: "Imported", description: "Paystack environment secrets have been imported into Platform Settings." });
-                                  } catch (e: any) {
-                                    toast({ title: "Import failed", description: e.message || "Failed to import Paystack secrets", variant: "destructive" });
-                                  }
-                                }}
+                                onClick={() => setShowImportPaystackDialog(true)}
                                 data-testid="button-import-paystack"
                               >
                                 Import from Environment
                               </Button>
+
+                              <AlertDialog open={showImportPaystackDialog} onOpenChange={setShowImportPaystackDialog}>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Import Paystack Secrets?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Import Paystack secrets from environment into the database. This will store the secrets in the DB (they will be masked in the UI). Proceed only if you trust the environment values.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={() => setShowImportPaystackDialog(false)}>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={async () => {
+                                        try {
+                                          setIsImportingPaystack(true);
+                                          const res = await apiRequest("POST", "/api/settings/import-paystack", {});
+                                          await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+                                          await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+                                          toast({ title: "Imported", description: "Paystack environment secrets have been imported into Platform Settings." });
+                                          setShowImportPaystackDialog(false);
+                                        } catch (e: any) {
+                                          toast({ title: "Import failed", description: e.message || "Failed to import Paystack secrets", variant: "destructive" });
+                                        } finally {
+                                          setIsImportingPaystack(false);
+                                        }
+                                      }}
+                                      disabled={isImportingPaystack}
+                                    >
+                                      {isImportingPaystack ? "Importing..." : "Import"}
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
                             </div>
                           </div>
                         </div>
@@ -616,22 +654,44 @@ export default function AdminSettings() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={async () => {
-                                try {
-                                  const confirmImport = window.confirm("Import Cloudinary secrets from environment into the database? This will store secrets in the DB (masked) and make them manageable from the dashboard.");
-                                  if (!confirmImport) return;
-                                  const res = await apiRequest("POST", "/api/settings/import-cloudinary", {});
-                                  await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
-                                  await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
-                                  toast({ title: "Imported", description: "Cloudinary environment secrets have been imported into Platform Settings." });
-                                } catch (e: any) {
-                                  toast({ title: "Import failed", description: e.message || "Failed to import Cloudinary secrets", variant: "destructive" });
-                                }
-                              }}
+                              onClick={() => setShowImportCloudinaryDialog(true)}
                               data-testid="button-import-cloudinary"
                             >
                               Import from Environment
                             </Button>
+
+                            <AlertDialog open={showImportCloudinaryDialog} onOpenChange={setShowImportCloudinaryDialog}>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Import Cloudinary Secrets?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Import Cloudinary secrets from environment into the database. This will store the secrets in the DB (they will be masked in the UI). Proceed only if you trust the environment values.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel onClick={() => setShowImportCloudinaryDialog(false)}>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={async () => {
+                                      try {
+                                        setIsImportingCloudinary(true);
+                                        const res = await apiRequest("POST", "/api/settings/import-cloudinary", {});
+                                        await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+                                        await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+                                        toast({ title: "Imported", description: "Cloudinary environment secrets have been imported into Platform Settings." });
+                                        setShowImportCloudinaryDialog(false);
+                                      } catch (e: any) {
+                                        toast({ title: "Import failed", description: e.message || "Failed to import Cloudinary secrets", variant: "destructive" });
+                                      } finally {
+                                        setIsImportingCloudinary(false);
+                                      }
+                                    }}
+                                    disabled={isImportingCloudinary}
+                                  >
+                                    {isImportingCloudinary ? "Importing..." : "Import"}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </div>
                         </div>
                       </div>
