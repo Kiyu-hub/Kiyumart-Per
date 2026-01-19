@@ -136,63 +136,67 @@ export default function AdminSettings() {
       const res = await apiRequest("PATCH", "/api/settings", data);
       return res.json();
     },
-    onSuccess: async () => {
-      // Invalidate and immediately refetch settings to update branding and other consumers
-      await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+    // Optimistic update to ensure UI shows changes immediately
+    onMutate: async (newData: SettingsFormData) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/settings"] });
+      const previous = queryClient.getQueryData<any>(["/api/settings"]);
+      queryClient.setQueryData(["/api/settings"], (old: any) => ({ ...old, ...newData, updatedAt: new Date().toISOString() }));
+      return { previous };
+    },
+    onError: (err: any, _newData, context: any) => {
+      // rollback
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/settings"], context.previous);
+      }
+      toast({ title: "Update failed", description: err.message || "Failed to update settings", variant: "destructive" });
+    },
+    onSuccess: async (data) => {
+      // Replace cache with authoritative server response and refetch other keys
+      queryClient.setQueryData(["/api/settings"], data);
       await queryClient.invalidateQueries({ queryKey: ["/api/settings", user?.id] });
       await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
       await queryClient.refetchQueries({ queryKey: ["/api/settings", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/platform-settings"] });
 
-      // Reset the form with the most recent settings so the UI reflects saved values immediately
-      const fresh = queryClient.getQueryData<any>(["/api/settings"]);
-      if (fresh) {
-        form.reset({
-          platformName: fresh.platformName,
-          isMultiVendor: fresh.isMultiVendor,
-          allowSellerRegistration: fresh.allowSellerRegistration || false,
-          allowRiderRegistration: fresh.allowRiderRegistration || false,
-          shopDisplayMode: fresh.shopDisplayMode || "by-store",
-          primaryStoreId: fresh.primaryStoreId || null,
-          primaryColor: fresh.primaryColor,
-          defaultCurrency: fresh.defaultCurrency,
-          paystackPublicKey: fresh.paystackPublicKey || "",
-          paystackSecretKey: fresh.paystackSecretKey || "",
-          processingFeePercent: fresh.processingFeePercent,
-          defaultCommissionRate: fresh.defaultCommissionRate || "10",
-          minimumPayoutAmount: fresh.minimumPayoutAmount || "50",
-          cloudinaryCloudName: fresh.cloudinaryCloudName || "",
-          cloudinaryApiKey: fresh.cloudinaryApiKey || "",
-          cloudinaryApiSecret: fresh.cloudinaryApiSecret || "",
-          contactPhone: fresh.contactPhone,
-          contactEmail: fresh.contactEmail,
-          contactAddress: fresh.contactAddress,
-          facebookUrl: fresh.facebookUrl || "",
-          instagramUrl: fresh.instagramUrl || "",
-          twitterUrl: fresh.twitterUrl || "",
-          footerDescription: fresh.footerDescription,
-          adsEnabled: fresh.adsEnabled || false,
-          heroBannerAdImage: fresh.heroBannerAdImage || "",
-          heroBannerAdUrl: fresh.heroBannerAdUrl || "",
-          sidebarAdImage: fresh.sidebarAdImage || "",
-          sidebarAdUrl: fresh.sidebarAdUrl || "",
-          footerAdImage: fresh.footerAdImage || "",
-          footerAdUrl: fresh.footerAdUrl || "",
-          productPageAdImage: fresh.productPageAdImage || "",
-          productPageAdUrl: fresh.productPageAdUrl || "",
-        });
-      }
+      // Reset form with server response
+      form.reset({
+        platformName: data.platformName,
+        isMultiVendor: data.isMultiVendor,
+        allowSellerRegistration: data.allowSellerRegistration || false,
+        allowRiderRegistration: data.allowRiderRegistration || false,
+        shopDisplayMode: data.shopDisplayMode || "by-store",
+        primaryStoreId: data.primaryStoreId || null,
+        primaryColor: data.primaryColor,
+        defaultCurrency: data.defaultCurrency,
+        paystackPublicKey: data.paystackPublicKey || "",
+        paystackSecretKey: data.paystackSecretKey || "",
+        processingFeePercent: data.processingFeePercent,
+        defaultCommissionRate: data.defaultCommissionRate || "10",
+        minimumPayoutAmount: data.minimumPayoutAmount || "50",
+        cloudinaryCloudName: data.cloudinaryCloudName || "",
+        cloudinaryApiKey: data.cloudinaryApiKey || "",
+        cloudinaryApiSecret: data.cloudinaryApiSecret || "",
+        contactPhone: data.contactPhone,
+        contactEmail: data.contactEmail,
+        contactAddress: data.contactAddress,
+        facebookUrl: data.facebookUrl || "",
+        instagramUrl: data.instagramUrl || "",
+        twitterUrl: data.twitterUrl || "",
+        footerDescription: data.footerDescription,
+        adsEnabled: data.adsEnabled || false,
+        heroBannerAdImage: data.heroBannerAdImage || "",
+        heroBannerAdUrl: data.heroBannerAdUrl || "",
+        sidebarAdImage: data.sidebarAdImage || "",
+        sidebarAdUrl: data.sidebarAdUrl || "",
+        footerAdImage: data.footerAdImage || "",
+        footerAdUrl: data.footerAdUrl || "",
+        productPageAdImage: data.productPageAdImage || "",
+        productPageAdUrl: data.productPageAdUrl || "",
+      });
 
       toast({
         title: "Settings updated",
         description: "Platform settings have been saved successfully. Branding colors updated!",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Update failed",
-        description: error.message,
-        variant: "destructive",
       });
     },
   });

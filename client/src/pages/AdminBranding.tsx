@@ -88,6 +88,22 @@ export default function AdminBranding() {
     mutationFn: async (data: BrandingFormData) => {
       return await apiRequest("PATCH", "/api/settings", data);
     },
+    onMutate: async (newData: BrandingFormData) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/settings"] });
+      const previous = queryClient.getQueryData<any>(["/api/settings"]);
+      queryClient.setQueryData(["/api/settings"], (old: any) => ({ ...old, ...newData }));
+      return { previous };
+    },
+    onError: (error: any, _vars, context: any) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/settings"], context.previous);
+      }
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update branding",
+        variant: "destructive",
+      });
+    },
     onSuccess: () => {
       // Invalidate with exact pattern to match the query key
       queryClient.invalidateQueries({ queryKey: ["/api/settings", user?.id] });
@@ -101,13 +117,9 @@ export default function AdminBranding() {
       // Force immediate refetch of platform settings for useBranding hook
       queryClient.refetchQueries({ queryKey: ["/api/platform-settings"] });
     },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update branding",
-        variant: "destructive",
-      });
-    },
+    onSettled: () => {
+      queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+    }
   });
 
   const onSubmit = (data: BrandingFormData) => {

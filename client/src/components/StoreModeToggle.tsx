@@ -40,6 +40,22 @@ export default function StoreModeToggle({
     mutationFn: async (isMultiVendor: boolean) => {
       return await apiRequest("PATCH", "/api/settings", { isMultiVendor });
     },
+    onMutate: async (isMultiVendor: boolean) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/settings"] });
+      const previous = queryClient.getQueryData<any>(["/api/settings"]);
+      queryClient.setQueryData(["/api/settings"], (old: any) => ({ ...old, isMultiVendor }));
+      return { previous };
+    },
+    onError: (error: any, _vars, context: any) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/settings"], context.previous);
+      }
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update store mode",
+        variant: "destructive",
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
       toast({
@@ -47,13 +63,9 @@ export default function StoreModeToggle({
         description: "Store mode updated successfully.",
       });
     },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update store mode",
-        variant: "destructive",
-      });
-    },
+    onSettled: () => {
+      queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+    }
   });
 
   const handleToggle = (checked: boolean) => {
