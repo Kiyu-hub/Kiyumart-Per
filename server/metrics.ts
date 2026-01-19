@@ -6,10 +6,11 @@ let enabled = false;
 async function tryInit() {
   if (enabled) return;
   try {
-    // Dynamically import prom-client to avoid hard failure when dependency isn't installed
-    // (CI or lightweight environments may omit metrics)
+    // Load prom-client at runtime to avoid compile-time module resolution errors
+    // Use require guarded by ts-ignore so TypeScript won't error when types are missing
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const client = await import('prom-client');
+    // @ts-ignore
+    const client = require('prom-client');
     register = new client.Registry();
     client.collectDefaultMetrics({ register });
 

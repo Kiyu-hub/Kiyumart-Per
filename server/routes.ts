@@ -540,7 +540,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/approve", requireAuth, requireRole("super_admin"), async (req, res) => {
+  app.patch("/api/users/:id/approve", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
     try {
       // First, get the user without approving yet
       const user = await storage.getUser(req.params.id);
@@ -619,6 +619,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(userWithoutPassword);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Allow authenticated users to apply to become a seller or rider
+  app.post('/api/users/apply', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { role } = req.body as { role?: string };
+      if (!role || (role !== 'seller' && role !== 'rider')) {
+        return res.status(400).json({ error: 'Invalid role. Must be "seller" or "rider"' });
+      }
+
+      const user = await storage.getUser(req.user!.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      if (user.role === role && user.isApproved) {
+        return res.status(400).json({ error: `You are already an approved ${role}` });
+      }
+
+      if (user.applicationStatus === 'pending' && user.role === role) {
+        return res.status(400).json({ error: `Your ${role} application is already pending` });
+      }
+
+      // Update user's role and mark application as pending
+      const updated = await storage.updateUser(user.id, {
+        role,
+        isApproved: false,
+        applicationStatus: 'pending' as any,
+        rejectionReason: null,
+      });
+
+      if (!updated) return res.status(500).json({ error: 'Failed to submit application' });
+
+      // Notify admins about new application
+      try {
+        await notifyAdmins('user', `New ${role} application`, `${updated.name} (${updated.email}) has applied to become a ${role}`, { userId: updated.id, role });
+      } catch (notifyErr) {
+        console.error('[APPLY] notifyAdmins failed', notifyErr);
+      }
+
+      // Notify applicant
+      await storage.createNotification({
+        userId: updated.id,
+        type: 'system',
+        title: `${role.charAt(0).toUpperCase() + role.slice(1)} Application Submitted`,
+        message: `Your application to become a ${role} has been submitted. An admin will review and approve your application shortly.`
+      });
+
+      const { password, ...userWithoutPassword } = updated;
+      res.json(userWithoutPassword);
+    } catch (err: any) {
+      console.error('Error submitting application:', err);
+      res.status(400).json({ error: err.message });
     }
   });
 
@@ -3984,13 +4036,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Track retry attempts and alert if too many
           const retries = await storage.incrementIdempotencyRetry(idempotencyKey).catch(() => 0);
           if (retries > 5) {
-            // Emit metrics for repeated webhook retries; alerting should be configured in monitoring
+            // Notify admins of repeated webhook retries for same reference
             try {
-              await metrics.incrementWebhookRetries(reference || 'unknown');
-              console.warn(`[WEBHOOK] Repeated webhook retries for reference ${reference}: ${retries}`);
-            } catch (mErr) {
-              console.error('[WEBHOOK] metrics.incrementWebhookRetries failed', mErr);
+              await notifyAdmins('payment_webhook_retries', 'Repeated webhook retries', `Paystack reference ${reference} has ${retries} webhook attempts`, { reference, retries });
+            } catch (notifyErr) {
+              console.error('[WEBHOOK] notifyAdmins failed', notifyErr);
             }
+            console.warn(`[WEBHOOK] Repeated webhook retries for reference ${reference}: ${retries}`);
           }
 
           // Delegate processing to shared helper
@@ -3998,13 +4050,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const { processPaystackChargeSuccess } = await import('./payments');
             await processPaystackChargeSuccess(data, storage, io);
             console.log('[WEBHOOK] Payment processed successfully (charge.success)');
-            try { await metrics.incrementWebhookProcessed('success'); } catch {}
 
             // Mark idempotency record used (associate with reference)
             await storage.markIdempotencyUsed(idempotencyKey, reference).catch(() => {});
           } catch (innerErr: any) {
             console.error('[WEBHOOK] Error processing charge.success:', innerErr?.message || innerErr);
-            try { await metrics.incrementWebhookProcessed('failure'); } catch {}
             // don't fail the webhook - log and return 200 so Paystack won't retry indefinitely for non-retriable issues
           }
         } catch (outerErr: any) {
@@ -5639,18 +5689,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Paystack Integration Routes ============
   const { paystackService } = await import("./paystack");
-  const metrics = await import("./metrics");
-
-  // Expose Prometheus metrics endpoint for scraping
-  app.get('/metrics', async (_req, res) => {
-    try {
-      const body = await metrics.getMetrics();
-      res.setHeader('Content-Type', 'text/plain; version=0.0.4');
-      res.send(body);
-    } catch (e: any) {
-      res.status(500).send(`# metrics error: ${(e && e.message) || e}`);
-    }
-  });
 
   // Get Ghana banks list
   app.get("/api/paystack/banks", requireAuth, async (req: AuthRequest, res) => {
