@@ -540,7 +540,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/approve", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.patch("/api/users/:id/approve", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       // First, get the user without approving yet
       const user = await storage.getUser(req.params.id);
@@ -914,6 +914,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ error: error.message });
     }
   });
+
+  
 
   app.delete("/api/users/:id", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
     try {
