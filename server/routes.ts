@@ -3586,11 +3586,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       try {
+        // Add simple idempotency key to help Paystack dedupe retries
+        const idempotencyKey = `init-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
         const response = await fetch("https://api.paystack.co/transaction/initialize", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${settings.paystackSecretKey}`,
             "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
           },
           body: JSON.stringify(paymentPayload),
           signal: controller.signal,
@@ -3607,6 +3610,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const data = await response.json();
+        console.info(`[PAYMENTS] Paystack initialize response: reference=${data?.data?.reference} status=${data?.status}`);
         
         if (!data.status) {
           return res.status(400).json({ 

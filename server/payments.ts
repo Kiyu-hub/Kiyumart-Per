@@ -59,8 +59,13 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
       await Promise.all(updatePromises);
 
       // Calculate commission for each order (storage helper)
-      const commissionPromises = orders.map((order: any) => storage.createCommissionWithEarning(order.id));
-      await Promise.allSettled(commissionPromises);
+      // Use allSettled so a failure for one order doesn't block others; log failures
+      const commissionResults = await Promise.allSettled(orders.map((order: any) => storage.createCommissionWithEarning(order.id)));
+      commissionResults.forEach((r, idx) => {
+        if (r.status === 'rejected') {
+          console.error(`[PAYMENTS] Commission calc failed for order ${orders[idx].id}:`, (r as any).reason?.message || r);
+        }
+      });
 
       // Notifications
       const buyer = await storage.getUser(primaryOrder.buyerId);
