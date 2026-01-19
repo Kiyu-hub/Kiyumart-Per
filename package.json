@@ -5,7 +5,8 @@
   "license": "MIT",
   "scripts": {
     "test:e2e": "playwright test",
-    "test:unit": "tsx server/__tests__/*.test.ts"
+    "test:unit": "SESSION_SECRET=testsecret tsx server/__tests__/*.test.ts",
+    "test:integration": "SESSION_SECRET=testsecret tsx server/__tests__/paystack-integration.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -2571,6 +2571,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           processingFee: finalProcessingFee.toFixed(2),
           total: finalTotal.toFixed(2),
         };
+        // If platform is single-store and a primary store is configured, ensure order
+        // is stamped with that store and seller so payments route to the primary store.
+        if (!platformIsMultiVendor && platformSettings?.primaryStoreId) {
+          try {
+            const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
+            if (primaryStore) {
+              orderInput.storeId = primaryStore.id;
+              orderInput.sellerId = primaryStore.primarySellerId || orderInput.sellerId;
+            }
+          } catch (storeErr: any) {
+            console.warn('Could not fetch primary store for single-store mode:', storeErr?.message || storeErr);
+          }
+        }
 
         const validatedOrder = insertOrderSchema.parse(orderInput);
         const order = await storage.createOrder(validatedOrder, validatedItems.map(v => ({
