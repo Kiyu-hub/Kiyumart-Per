@@ -249,4 +249,14 @@ app.use(cookieParser());
   }, () => {
     log(`serving on port ${port}`);
   });
+
+  // Start payout worker
+  try {
+    const { runPayoutWorker } = await import('./workers/payoutWorker');
+    // Pass io if available via registerRoutes; try to import io via routes module if exported
+    runPayoutWorker();
+    console.log('[BOOT] Payout worker started');
+  } catch (e) {
+    console.warn('[BOOT] Could not start payout worker:', (e as any)?.message ?? String(e));
+  }
 })();

@@ -845,7 +845,7 @@ export class DbStorage implements IStorage {
         commissionAmount: commissionAmountDecimal,
         sellerAmount: sellerAmountDecimal,
         platformAmount: commissionAmountDecimal, // Same as commission amount
-        status: "pending", // Can be processed later for payout
+        status: "processed", // Auto-mark processed on successful payment
         processedAt: new Date(), // Set when commission is calculated
       } as any).returning();
 
@@ -1054,6 +1054,22 @@ export class DbStorage implements IStorage {
       .from(sellerPayouts)
       .where(eq(sellerPayouts.status, 'pending'))
       .orderBy(desc(sellerPayouts.createdAt));
+  }
+
+  // Get payouts by status (e.g., 'processing')
+  async getPayoutsByStatus(status: string): Promise<SellerPayout[]> {
+    return await db.select()
+      .from(sellerPayouts)
+      .where(eq(sellerPayouts.status, status))
+      .orderBy(desc(sellerPayouts.createdAt));
+  }
+
+  // Mark an array of commission IDs as processed
+  async markCommissionsProcessed(commissionIds: string[]): Promise<void> {
+    if (!commissionIds || commissionIds.length === 0) return;
+    await db.update(commissions)
+      .set({ status: 'processed' })
+      .where(sql`${commissions.id} = ANY(${commissionIds})`);
   }
 
   // Update payout status (for admin processing)

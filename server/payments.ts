@@ -67,6 +67,19 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
         }
       });
 
+      // Collect commission IDs and mark them processed so sellers don't need to request payouts
+      try {
+        const commissionIds: string[] = commissionResults
+          .filter((r: any) => r.status === 'fulfilled')
+          .map((r: any) => (r as any).value?.commission?.id)
+          .filter(Boolean);
+        if (commissionIds.length > 0) {
+          await storage.markCommissionsProcessed(commissionIds);
+        }
+      } catch (e) {
+        console.error('[PAYMENTS] Failed to mark commissions processed:', (e as any)?.message || e);
+      }
+
       // Auto-create payouts for mobile money sellers so they can receive funds
       for (let i = 0; i < commissionResults.length; i++) {
         const res = commissionResults[i] as PromiseSettledResult<any>;

@@ -190,6 +190,54 @@ export class PaystackService {
     }
   }
 
+  // Create transfer recipient for Paystack (supports bank and mobile money)
+  async createTransferRecipient(data: {
+    type: 'nuban' | 'mobile_money' | 'bank_account' | string;
+    name: string;
+    account_number?: string;
+    bank_code?: string;
+    currency?: string;
+    mobile?: string;
+    provider?: string;
+  }, secret?: string) {
+    try {
+      const payload: any = {
+        type: data.type,
+        name: data.name,
+        currency: data.currency || 'GHS',
+      };
+      if (data.type === 'nuban' || data.type === 'bank_account') {
+        payload.account_number = data.account_number;
+        payload.bank_code = data.bank_code;
+      }
+      if (data.type === 'mobile_money') {
+        payload.mobile = data.mobile;
+        payload.provider = data.provider;
+      }
+
+      const response = await axios.post(`${PAYSTACK_BASE_URL}/transferrecipient`, payload, { headers: buildHeaders(secret), timeout: 20000 });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to create transfer recipient');
+    }
+  }
+
+  // Initiate a transfer to a recipient
+  async initiateTransfer(data: { amountKobo: number; recipient: string; reason?: string }, secret?: string) {
+    try {
+      const payload = {
+        source: 'balance',
+        amount: data.amountKobo,
+        recipient: data.recipient,
+        reason: data.reason || 'Seller payout',
+      };
+      const response = await axios.post(`${PAYSTACK_BASE_URL}/transfer`, payload, { headers: buildHeaders(secret), timeout: 20000 });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to initiate transfer');
+    }
+  }
+
   verifyWebhookSignature(payload: string, signature: string, secret?: string): boolean {
     const crypto = require('crypto');
     const key = secret || process.env.PAYSTACK_SECRET_KEY || '';
