@@ -362,23 +362,70 @@ export default function AdminSettings() {
             <TabsContent value="payments" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Paystack Integration</CardTitle>
+                  <div className="flex items-center gap-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" className="h-6 w-auto" aria-hidden>
+                      <rect width="200" height="40" rx="6" fill="#00b14f" />
+                      <text x="100" y="26" fill="#fff" fontFamily="Inter, Arial, sans-serif" fontWeight="700" fontSize="18" textAnchor="middle">Paystack</text>
+                    </svg>
+                    <CardTitle>Paystack Integration</CardTitle>
+                  </div>
                   <CardDescription>
-                    Configure your Paystack payment gateway credentials
+                    Configure your Paystack payment gateway credentials. Use "Import from Environment" to copy runtime keys into Platform Settings (they will be masked).
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="paystackPublicKey">Paystack Public Key</Label>
+                    <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+                      <div className="flex items-start gap-3">
+                        <CreditCard className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">Paystack Configuration</h4>
+                              <p className="text-sm text-blue-700 dark:text-blue-300">
+                                Paystack handles payments (cards, bank transfers). You can set Paystack keys here or via environment variables. Environment variables are recommended for production, but credentials set here will be stored and manageable from the dashboard. Use "Import from Environment" to copy runtime values into the dashboard (they will be masked).
+                              </p>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-2">Source: <span className="font-medium">{settings?.paystackPublicKeySource || 'none'}</span></div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    const confirmImport = window.confirm("Import Paystack secrets from environment into the database? This will store secrets in the DB (masked) and make them manageable from the dashboard.");
+                                    if (!confirmImport) return;
+                                    const res = await apiRequest("POST", "/api/settings/import-paystack", {});
+                                    await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+                                    await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+                                    toast({ title: "Imported", description: "Paystack environment secrets have been imported into Platform Settings." });
+                                  } catch (e: any) {
+                                    toast({ title: "Import failed", description: e.message || "Failed to import Paystack secrets", variant: "destructive" });
+                                  }
+                                }}
+                                data-testid="button-import-paystack"
+                              >
+                                Import from Environment
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <Label htmlFor="paystackPublicKey">Paystack Public Key</Label>
+                        <p className="text-xs text-muted-foreground">Your Paystack public key (starts with pk_test_ or pk_live_)</p>
+                      </div>
+                      <div className="text-xs text-muted-foreground">Source: <span className="font-medium">{settings?.paystackPublicKeySource || 'none'}</span></div>
+                    </div>
                     <Input
                       id="paystackPublicKey"
                       {...form.register("paystackPublicKey")}
                       placeholder="pk_test_xxxxxxxxxxxxxxxx"
                       data-testid="input-paystack-public"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Your Paystack public key (starts with pk_test_ or pk_live_)
-                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -390,23 +437,7 @@ export default function AdminSettings() {
                         </p>
                       </div>
                       <div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={async () => {
-                            try {
-                              const res = await apiRequest("POST", "/api/settings/import-paystack", {});
-                              await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
-                              await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
-                              toast({ title: "Imported", description: "Paystack environment secrets imported into platform settings." });
-                            } catch (e: any) {
-                              toast({ title: "Import failed", description: e.message || "Failed to import from environment", variant: "destructive" });
-                            }
-                          }}
-                          data-testid="button-import-paystack"
-                        >
-                          Import from Environment
-                        </Button>
+                        <div className="text-xs text-muted-foreground mb-2">Source: <span className="font-medium">{settings?.paystackSecretKeySource || 'none'}</span></div>
                       </div>
                     </div>
                     <Input
@@ -416,7 +447,6 @@ export default function AdminSettings() {
                       placeholder="sk_test_xxxxxxxxxxxxxxxx"
                       data-testid="input-paystack-secret"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">Source: <span className="font-medium">{settings?.paystackSecretKeySource || 'none'}</span></p>
                     {form.formState.errors.paystackSecretKey && (
                       <p className="text-sm text-destructive">
                         {form.formState.errors.paystackSecretKey.message}
@@ -496,17 +526,20 @@ export default function AdminSettings() {
                             </p>
                           </div>
                           <div>
+                            <div className="text-xs text-muted-foreground mb-2">Source: <span className="font-medium">{settings?.cloudinaryApiKeySource || 'none'}</span></div>
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={async () => {
                                 try {
+                                  const confirmImport = window.confirm("Import Cloudinary secrets from environment into the database? This will store secrets in the DB (masked) and make them manageable from the dashboard.");
+                                  if (!confirmImport) return;
                                   const res = await apiRequest("POST", "/api/settings/import-cloudinary", {});
                                   await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
                                   await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
-                                  toast({ title: "Imported", description: "Cloudinary environment secrets imported into platform settings." });
+                                  toast({ title: "Imported", description: "Cloudinary environment secrets have been imported into Platform Settings." });
                                 } catch (e: any) {
-                                  toast({ title: "Import failed", description: e.message || "Failed to import from environment", variant: "destructive" });
+                                  toast({ title: "Import failed", description: e.message || "Failed to import Cloudinary secrets", variant: "destructive" });
                                 }
                               }}
                               data-testid="button-import-cloudinary"
