@@ -3168,11 +3168,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         settings = await storage.updatePlatformSettings(toUpdate);
       }
 
-      // Mask sensitive credentials in the response
+      // Determine secret sources for transparency
+      const getSource = (keyName: string | undefined, envVar?: string | undefined) => {
+        if (keyName && envVar && keyName === envVar) return "env";
+        if (keyName) return "db";
+        if (!keyName && envVar) return "env-only"; // env present but not yet imported
+        return "none";
+      };
+
       const sanitizedSettings = {
         ...settings,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
         paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
+        cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret, process.env.CLOUDINARY_API_SECRET),
+        cloudinaryApiKeySource: getSource(settings.cloudinaryApiKey, process.env.CLOUDINARY_API_KEY),
+        cloudinaryCloudNameSource: getSource(settings.cloudinaryCloudName, process.env.CLOUDINARY_CLOUD_NAME),
+        paystackSecretKeySource: getSource(settings.paystackSecretKey, process.env.PAYSTACK_SECRET_KEY),
+        paystackPublicKeySource: getSource(settings.paystackPublicKey, process.env.PAYSTACK_PUBLIC_KEY),
       };
       res.json(sanitizedSettings);
     } catch (error: any) {
@@ -3207,11 +3219,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         settings = await storage.updatePlatformSettings(toUpdate);
       }
 
-      // Mask sensitive credentials in the response
+      // Determine secret sources for transparency
+      const getSource = (keyName: string | undefined, envVar?: string | undefined) => {
+        if (keyName && envVar && keyName === envVar) return "env";
+        if (keyName) return "db";
+        if (!keyName && envVar) return "env-only"; // env present but not yet imported
+        return "none";
+      };
+
       const sanitizedSettings = {
         ...settings,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
         paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
+        cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret, process.env.CLOUDINARY_API_SECRET),
+        cloudinaryApiKeySource: getSource(settings.cloudinaryApiKey, process.env.CLOUDINARY_API_KEY),
+        cloudinaryCloudNameSource: getSource(settings.cloudinaryCloudName, process.env.CLOUDINARY_CLOUD_NAME),
+        paystackSecretKeySource: getSource(settings.paystackSecretKey, process.env.PAYSTACK_SECRET_KEY),
+        paystackPublicKeySource: getSource(settings.paystackPublicKey, process.env.PAYSTACK_PUBLIC_KEY),
       };
       res.json(sanitizedSettings);
     } catch (error: any) {
@@ -3236,6 +3260,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const updated = await storage.updatePlatformSettings(toUpdate);
       const sanitized = { ...updated, cloudinaryApiSecret: updated.cloudinaryApiSecret ? "••••••••••••••••" : "", paystackSecretKey: updated.paystackSecretKey ? "••••••••••••••••" : "" };
+      res.json(sanitized);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Import only Paystack secrets from environment into DB
+  app.post("/api/settings/import-paystack", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const current = await storage.getPlatformSettings();
+      const toUpdate: any = {};
+      if (process.env.PAYSTACK_SECRET_KEY && !current.paystackSecretKey) toUpdate.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+      if (process.env.PAYSTACK_PUBLIC_KEY && !current.paystackPublicKey) toUpdate.paystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY;
+
+      if (Object.keys(toUpdate).length === 0) {
+        return res.json({ message: "No Paystack environment secrets to import", settings: current });
+      }
+
+      const updated = await storage.updatePlatformSettings(toUpdate);
+      const sanitized = { ...updated, paystackSecretKey: updated.paystackSecretKey ? "••••••••••••••••" : "", paystackPublicKey: updated.paystackPublicKey || "" };
+      res.json(sanitized);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Import only Cloudinary secrets from environment into DB
+  app.post("/api/settings/import-cloudinary", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const current = await storage.getPlatformSettings();
+      const toUpdate: any = {};
+      if (process.env.CLOUDINARY_API_SECRET && !current.cloudinaryApiSecret) toUpdate.cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
+      if (process.env.CLOUDINARY_API_KEY && !current.cloudinaryApiKey) toUpdate.cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
+      if (process.env.CLOUDINARY_CLOUD_NAME && !current.cloudinaryCloudName) toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
+
+      if (Object.keys(toUpdate).length === 0) {
+        return res.json({ message: "No Cloudinary environment secrets to import", settings: current });
+      }
+
+      const updated = await storage.updatePlatformSettings(toUpdate);
+      const sanitized = { ...updated, cloudinaryApiSecret: updated.cloudinaryApiSecret ? "••••••••••••••••" : "", cloudinaryApiKey: updated.cloudinaryApiKey || "", cloudinaryCloudName: updated.cloudinaryCloudName || "" };
       res.json(sanitized);
     } catch (error: any) {
       res.status(400).json({ error: error.message });

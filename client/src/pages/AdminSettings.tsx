@@ -395,10 +395,10 @@ export default function AdminSettings() {
                           size="sm"
                           onClick={async () => {
                             try {
-                              const res = await apiRequest("POST", "/api/settings/import-env", {});
+                              const res = await apiRequest("POST", "/api/settings/import-paystack", {});
                               await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
                               await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
-                              toast({ title: "Imported", description: "Environment secrets imported into platform settings." });
+                              toast({ title: "Imported", description: "Paystack environment secrets imported into platform settings." });
                             } catch (e: any) {
                               toast({ title: "Import failed", description: e.message || "Failed to import from environment", variant: "destructive" });
                             }
@@ -416,6 +416,7 @@ export default function AdminSettings() {
                       placeholder="sk_test_xxxxxxxxxxxxxxxx"
                       data-testid="input-paystack-secret"
                     />
+                    <p className="text-xs text-muted-foreground mt-1">Source: <span className="font-medium">{settings?.paystackSecretKeySource || 'none'}</span></p>
                     {form.formState.errors.paystackSecretKey && (
                       <p className="text-sm text-destructive">
                         {form.formState.errors.paystackSecretKey.message}
@@ -500,10 +501,10 @@ export default function AdminSettings() {
                               size="sm"
                               onClick={async () => {
                                 try {
-                                  const res = await apiRequest("POST", "/api/settings/import-env", {});
+                                  const res = await apiRequest("POST", "/api/settings/import-cloudinary", {});
                                   await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
                                   await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
-                                  toast({ title: "Imported", description: "Environment secrets imported into platform settings." });
+                                  toast({ title: "Imported", description: "Cloudinary environment secrets imported into platform settings." });
                                 } catch (e: any) {
                                   toast({ title: "Import failed", description: e.message || "Failed to import from environment", variant: "destructive" });
                                 }
@@ -539,6 +540,7 @@ export default function AdminSettings() {
                       placeholder="123456789012345"
                       data-testid="input-cloudinary-api-key"
                     />
+                    <p className="text-xs text-muted-foreground mt-1">Source: <span className="font-medium">{settings?.cloudinaryApiKeySource || 'none'}</span></p>
                     <p className="text-xs text-muted-foreground">
                       Your Cloudinary API key
                     </p>
@@ -553,6 +555,7 @@ export default function AdminSettings() {
                       placeholder="••••••••••••••••••••••••"
                       data-testid="input-cloudinary-api-secret"
                     />
+                    <p className="text-xs text-muted-foreground mt-1">Source: <span className="font-medium">{settings?.cloudinaryApiSecretSource || 'none'}</span></p>
                     <p className="text-xs text-muted-foreground">
                       Your Cloudinary API secret (keep this confidential)
                     </p>
