@@ -3395,6 +3395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (Object.keys(toUpdate).length > 0) {
         // Persist imported env settings so they become manageable via dashboard
+        console.info('GET /api/settings: toUpdate keys', Object.keys(toUpdate), 'toUpdate preview', JSON.stringify(toUpdate));
         settings = await storage.updatePlatformSettings(toUpdate);
       }
 
