@@ -63,9 +63,10 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
+    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
-  admin: [
+  admin : [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: Grid3x3, label: "Categories", id: "categories" },
     { icon: Package, label: "Products", id: "products" },
@@ -79,8 +80,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Heart, label: "My Wishlist", id: "my-wishlist" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
-    { icon: BarChart3, label: "Analytics", id: "analytics" },
-  ],
+    { icon: BarChart3, label: "Analytics", id: "analytics" },    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },  ],
   seller: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: ImagePlus, label: "Media Library", id: "media-library" },
@@ -95,6 +95,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
+    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
   rider: [

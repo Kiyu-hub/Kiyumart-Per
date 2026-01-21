@@ -65,6 +65,8 @@ export default function AdminDashboard() {
       setActiveItem("messages");
     } else if (path.includes("/admin/analytics")) {
       setActiveItem("analytics");
+    } else if (path.includes("/admin/platform-earnings")) {
+      setActiveItem("platform-earnings");
     }
   }, [location]);
 
@@ -83,6 +85,7 @@ export default function AdminDashboard() {
       id === "notifications" ? "/admin/notifications" :
       id === "messages" ? "/admin/messages" :
       id === "analytics" ? "/admin/analytics" :
+      id === "platform-earnings" ? "/admin/platform-earnings" :
       "/admin"
     );
   };
