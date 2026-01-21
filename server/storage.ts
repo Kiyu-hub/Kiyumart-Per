@@ -1181,13 +1181,18 @@ export class DbStorage implements IStorage {
 
   // Platform settings
   async getPlatformSettings(): Promise<PlatformSettings> {
-    // Return the most recently updated settings row (if multiple exist) to avoid ambiguity
-    const result = await db.select().from(platformSettings).orderBy(desc(platformSettings.updatedAt)).limit(1);
-    if (result.length === 0) {
-      const [settings] = await db.insert(platformSettings).values({}).returning();
-      return settings;
+    try {
+      // Return the most recently updated settings row (if multiple exist) to avoid ambiguity
+      const result = await db.select().from(platformSettings).orderBy(desc(platformSettings.updatedAt)).limit(1);
+      if (result.length === 0) {
+        const [settings] = await db.insert(platformSettings).values({}).returning();
+        return settings;
+      }
+      return result[0];
+    } catch (err) {
+      console.error('ERROR getPlatformSettings query failed:', err?.stack || err);
+      throw err;
     }
-    return result[0];
   }
 
   async updatePlatformSettings(data: Partial<PlatformSettings>): Promise<PlatformSettings> {
