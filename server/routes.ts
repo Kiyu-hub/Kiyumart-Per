@@ -1983,7 +1983,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fallback: ensure seller/store details are attached by querying commissions/orders/stores per row
       const result = [] as any[];
       for (const e of earnings) {
-        const commissionRow = e.commissionId ? await db.select().from(commissions).where(eq(commissions.id, e.commissionId)).limit(1) : [];
+        let commissionRow: any[] = [];
+        if (e.commissionId) {
+          try {
+            commissionRow = await db.select().from(commissions).where(eq(commissions.id, e.commissionId)).limit(1);
+          } catch (err) {
+            console.warn('Warning: failed to load commission for id', e.commissionId, err?.message || err);
+            commissionRow = [];
+          }
+        }
         const commission = commissionRow[0];
         let sellerName = null;
         let storeName = null;
@@ -2033,6 +2041,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(result);
     } catch (error: any) {
+      console.error('ERROR /api/admin/platform-earnings', error?.stack || error);
       res.status(400).json({ error: error.message });
     }
   });
@@ -2041,6 +2050,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const summary = await storage.getPlatformEarningsSummary();
       res.json(summary);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Sellers list with payout summary
+  app.get('/api/admin/sellers', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const sellers = await storage.getUsersByRole('seller');
+      const results: any[] = [];
+      for (const s of sellers) {
+        // Aggregates for payouts
+        const totals = await db.select({
+          totalPaid: db.raw("COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0)"),
+          pending: db.raw("COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0)"),
+          count: db.raw("COALESCE(COUNT(*), 0)"),
+          lastPayoutAt: db.raw("MAX(processed_at)")
+        }).from(sellerPayouts).where(eq(sellerPayouts.sellerId, s.id));
+
+        results.push({
+          id: s.id,
+          name: s.name,
+          email: s.email,
+          isApproved: s.isApproved,
+          totalPaid: (totals[0]?.totalPaid as any) || '0.00',
+          pendingAmount: (totals[0]?.pending as any) || '0.00',
+          payoutCount: (totals[0]?.count as any) || 0,
+          lastPayoutAt: totals[0]?.lastpayoutat || null
+        });
+      }
+      res.json(results);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Get payouts for a seller
+  app.get('/api/admin/sellers/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const sellerId = req.params.id;
+      const payouts = await storage.getSellerPayouts(sellerId);
+      res.json(payouts);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
