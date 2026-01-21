@@ -777,6 +777,27 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
+  // Fetch platform earnings list with optional pagination and filtering
+  async getPlatformEarnings(limit = 50, offset = 0): Promise<PlatformEarning[]> {
+    const rows = await db.select().from(platformEarnings).orderBy(desc(platformEarnings.createdAt)).limit(limit).offset(offset);
+    return rows;
+  }
+
+  // Summary of platform earnings grouped by type and total
+  async getPlatformEarningsSummary(): Promise<{ total: string; byType: Record<string, string> }> {
+    const totals = await db.select({ type: platformEarnings.type, sum: sql`SUM(${platformEarnings.amount})` }).from(platformEarnings).groupBy(platformEarnings.type);
+    const totalAll = await db.select({ sum: sql`SUM(${platformEarnings.amount})` }).from(platformEarnings);
+    const byType: Record<string, string> = {};
+    totals.forEach((t: any) => { byType[String(t.type)] = (parseFloat(String(t.sum)) || 0).toFixed(2); });
+    return { total: (parseFloat(String(totalAll[0]?.sum)) || 0).toFixed(2), byType };
+  }
+
+  // Fetch recent transactions
+  async getTransactions(limit = 50, offset = 0): Promise<Transaction[]> {
+    const rows = await db.select().from(transactions).orderBy(desc(transactions.createdAt)).limit(limit).offset(offset);
+    return rows;
+  }
+
   // CRITICAL: Atomic commission creation with platform earning
   async createCommissionWithEarning(orderId: string): Promise<{commission: Commission, earning: PlatformEarning}> {
     return await db.transaction(async (tx) => {

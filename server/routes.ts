@@ -1946,6 +1946,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin: Platform earnings list
+  app.get('/api/admin/platform-earnings', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const limit = parseInt((req.query.limit as string) || '50');
+      const offset = parseInt((req.query.offset as string) || '0');
+      const earnings = await storage.getPlatformEarnings(limit, offset);
+      res.json(earnings);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/admin/finance-summary', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const summary = await storage.getPlatformEarningsSummary();
+      res.json(summary);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: recent transactions and logs
+  app.get('/api/admin/transactions', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const limit = parseInt((req.query.limit as string) || '50');
+      const offset = parseInt((req.query.offset as string) || '0');
+      const txs = await storage.getTransactions(limit, offset);
+      res.json(txs);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.post("/api/admin/footer-pages", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
     try {
       const data = insertFooterPageSchema.parse(req.body);

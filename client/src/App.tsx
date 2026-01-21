@@ -42,6 +42,7 @@ import AdminDeliveryZones from "@/pages/AdminDeliveryZones";
 import AdminBannerManager from "@/pages/AdminBannerManager";
 import AdminCategoryManager from "@/pages/AdminCategoryManager";
 import AdminFooterPagesManager from "@/pages/AdminFooterPagesManager";
+import AdminPlatformEarnings from "@/pages/AdminPlatformEarnings";
 import AdminProducts from "@/pages/AdminProducts";
 import AdminOrders from "@/pages/AdminOrders";
 import AdminUsers from "@/pages/AdminUsers";
@@ -134,6 +135,7 @@ function Router() {
       <Route path="/admin/banners" component={AdminBannerManager} />
       <Route path="/admin/categories" component={AdminCategoryManager} />
       <Route path="/admin/footer-pages" component={AdminFooterPagesManager} />
+      <Route path="/admin/platform-earnings" component={AdminPlatformEarnings} />
       <Route path="/admin/media-library" component={AdminMediaLibrary} />
       <Route path="/admin/products/create" component={AdminProductCreate} />
       <Route path="/admin/products/:id/edit" component={AdminProductEdit} />
