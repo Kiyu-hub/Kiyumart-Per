@@ -3399,6 +3399,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         settings = await storage.updatePlatformSettings(toUpdate);
       }
 
+      // Sanitize social links if sentinel was stored accidentally
+      const socialKeysForSanitize = ['facebookUrl','instagramUrl','twitterUrl','linkedinUrl','youtubeUrl','tiktokUrl','pinterestUrl','whatsappPage'];
+      for (const k of socialKeysForSanitize) {
+        if ((settings as any)[k] === '__CLEAR__') {
+          (settings as any)[k] = null;
+        }
+      }
+
       // Determine secret sources for transparency
       const getSource = (keyName: string | undefined, envVar?: string | undefined) => {
         if (keyName && envVar && keyName === envVar) return "env";

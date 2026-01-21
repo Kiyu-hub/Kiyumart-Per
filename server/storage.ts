@@ -1189,7 +1189,15 @@ export class DbStorage implements IStorage {
         const [settings] = await db.insert(platformSettings).values({}).returning();
         return settings;
       }
-      return result[0];
+      // Sanitize social URLs: convert '__CLEAR__' to null
+      const socialKeys = [
+        'facebookUrl','instagramUrl','twitterUrl','linkedinUrl','youtubeUrl','tiktokUrl','pinterestUrl','whatsappPage'
+      ];
+      const settings = { ...result[0] };
+      for (const key of socialKeys) {
+        if (settings[key] === '__CLEAR__') settings[key] = null;
+      }
+      return settings;
     } catch (err) {
       console.error('ERROR getPlatformSettings query failed:', err?.stack || err);
       throw err;

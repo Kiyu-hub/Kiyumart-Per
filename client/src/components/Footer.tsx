@@ -1,4 +1,5 @@
-import { Facebook, Instagram, Twitter, Mail, Phone, MapPin } from "lucide-react";
+import { Mail, Phone, MapPin } from "lucide-react";
+import { FaFacebookF, FaInstagram, FaTwitter, FaLinkedin, FaYoutube, FaTiktok, FaPinterest, FaWhatsapp } from 'react-icons/fa';
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRoute } from "wouter";
@@ -148,8 +149,10 @@ export default function Footer() {
                   size="icon" 
                   onClick={() => openSocialLink(settings.facebookUrl)}
                   data-testid="button-facebook"
+                  aria-label="Facebook"
+                  title="Facebook"
                 >
-                  <Facebook className="h-5 w-5" />
+                  <FaFacebookF className="h-5 w-5" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.instagramUrl && settings?.showInstagram !== false && (
@@ -158,8 +161,10 @@ export default function Footer() {
                   size="icon"
                   onClick={() => openSocialLink(settings.instagramUrl)}
                   data-testid="button-instagram"
+                  aria-label="Instagram"
+                  title="Instagram"
                 >
-                  <Instagram className="h-5 w-5" />
+                  <FaInstagram className="h-5 w-5" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.twitterUrl && settings?.showTwitter !== false && (
@@ -168,34 +173,35 @@ export default function Footer() {
                   size="icon"
                   onClick={() => openSocialLink(settings.twitterUrl)}
                   data-testid="button-twitter"
+                  aria-label="Twitter"
+                  title="Twitter"
                 >
-                  <Twitter className="h-5 w-5" />
+                  <FaTwitter className="h-5 w-5" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.linkedinUrl && settings?.showLinkedin !== false && (
                 <Button variant="ghost" size="icon" onClick={() => openSocialLink(settings.linkedinUrl)} data-testid="button-linkedin">
-                  {/* Using same icon as placeholder: */}
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M4.98 3.5C4.98 4.88 3.88 6 2.5 6S0 4.88 0 3.5 1.12 1 2.5 1 4.98 2.12 4.98 3.5zM.06 8.98H4.94V24H.06zM8.98 8.98h4.6v2.07h.06c.64-1.2 2.2-2.47 4.53-2.47 4.84 0 5.74 3.19 5.74 7.33V24h-4.88v-7.42c0-1.77-.03-4.04-2.46-4.04-2.46 0-2.83 1.92-2.83 3.9V24H8.98z"/></svg>
+                  <FaLinkedin className="h-5 w-5" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.youtubeUrl && settings?.showYoutube !== false && (
                 <Button variant="ghost" size="icon" onClick={() => openSocialLink(settings.youtubeUrl)} data-testid="button-youtube">
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.2-3L10 9v6zM23.5 6.2s-.2-1.6-.8-2.3c-.8-1-1.7-1-2.1-1.1C16.8 2.5 12 2.5 12 2.5h0s-4.8 0-8.6.3c-.4 0-1.3.1-2.1 1.1-.6.7-.8 2.3-.8 2.3S0 8 0 9.8v2.4C0 14 0.6 15.6 0.6 15.6s.2 1.6.8 2.3c.8 1 1.9 1 2.4 1.1 1.7.1 7.1.3 7.1.3s4.8 0 8.6-.3c.4 0 1.3-.1 2.1-1.1.6-.7.8-2.3.8-2.3s.6-1.6.6-3.4V9.8c0-1.8-.6-3.6-.6-3.6z"/></svg>
+                  <FaYoutube className="h-5 w-5" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.tiktokUrl && settings?.showTiktok !== false && (
-                <Button variant="ghost" size="icon" onClick={() => openSocialLink(settings.tiktokUrl)} data-testid="button-tiktok">
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2v6.3c0 1.1.9 2 2 2H16v3c-2.2 0-4-1.8-4-4V2h0zM7 8v8c0 3.3 2.7 6 6 6s6-2.7 6-6V9h-2v7c0 2.2-1.8 4-4 4s-4-1.8-4-4V8H7z"/></svg>
+                <Button variant="ghost" size="icon" onClick={() => openSocialLink(settings.tiktokUrl)} data-testid="button-tiktok" aria-label="TikTok" title="TikTok">
+                  <FaTiktok className="h-5 w-5" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.pinterestUrl && settings?.showPinterest !== false && (
-                <Button variant="ghost" size="icon" onClick={() => openSocialLink(settings.pinterestUrl)} data-testid="button-pinterest">
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12c0 4 2.5 7.4 6.1 8.8-.1-.7-.1-1.8 0-2.5.1-.6.7-3.6.7-3.6s-.2-.4-.2-1c0-.9.5-1.6 1.1-1.6.5 0 .8.4.8.9 0 .5-.3 1.3-.4 2-.1.6.4 1.1 1 1.1 1.2 0 2.1-1.9 2.1-4.6 0-2.4-1.7-4.2-4.9-4.2-3.6 0-5.9 2.7-5.9 5.5 0 1 .4 2 1 2.6.1.1.1.2.1.3 0 .2-.1.8-.1.9 0 .1-.1.4-.2.5 0 0-.1.1-.2.1 0 0-.1 0-.1.1C6.2 20.7 8.9 22 12 22c5.5 0 10-4.5 10-10S17.5 2 12 2z"/></svg>
+                <Button variant="ghost" size="icon" onClick={() => openSocialLink(settings.pinterestUrl)} data-testid="button-pinterest" aria-label="Pinterest" title="Pinterest">
+                  <FaPinterest className="h-5 w-5" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.whatsappPage && settings?.showWhatsapp !== false && (
-                <Button variant="ghost" size="icon" onClick={() => openSocialLink(settings.whatsappPage)} data-testid="button-whatsapp">
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M20 5.5C18.6 4.1 16.6 3.2 14.4 3 12.1 2.8 9.6 3.6 7.9 5.3 6.2 6.9 5.4 9.4 5.6 11.7c.2 2.2 1.1 4.2 2.5 5.6L6 21l3.8-2.1c1.3.7 2.8 1.1 4.4 1.1 2.2 0 4.3-.9 5.8-2.4 1.6-1.6 2.4-3.7 2.2-5.9-.2-2.2-1.2-4.2-2.7-5.6z"/></svg>
+                <Button variant="ghost" size="icon" onClick={() => openSocialLink(settings.whatsappPage)} data-testid="button-whatsapp" aria-label="WhatsApp" title="WhatsApp">
+                  <FaWhatsapp className="h-5 w-5" />
                 </Button>
               )}
             </div>
