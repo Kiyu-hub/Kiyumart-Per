@@ -820,7 +820,9 @@ export class DbStorage implements IStorage {
 
       // Step 4: Calculate amounts using integer arithmetic (cents) for precision
       // Convert to cents to avoid floating point errors
-      const orderAmountCents = Math.round(parseFloat(order.total) * 100);
+      // Commission and seller amounts are calculated on the amount excluding processing fees
+      const orderProcessingFeeCents = Math.round((parseFloat(order.processingFee || "0") || 0) * 100);
+      const orderAmountCents = Math.round(parseFloat(order.total) * 100) - orderProcessingFeeCents;
       const commissionAmountCents = Math.round((orderAmountCents * commissionRatePercent) / 100);
       const sellerAmountCents = orderAmountCents - commissionAmountCents;
 

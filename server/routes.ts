@@ -3555,16 +3555,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
       // Prepare payment payload (use first order's currency for consistency)
+      // Compute total processing fee across orders and ensure it is set as transaction_charge
+      const processingFeeTotal = orders.reduce((s: number, o: any) => s + (parseFloat(o.processingFee || "0") || 0), 0);
+
       const paymentPayload: any = {
         email: req.user!.email,
-        amount: Math.round(totalAmount * 100), // Total in kobo/pesewas
+        amount: Math.round(totalAmount * 100), // Total in kobo/pesewas (includes processing fee)
         currency: orders[0].currency,
         channels: ["card", "bank_transfer", "mobile_money"],
         callback_url: callbackUrl,
+        transaction_charge: Math.round(processingFeeTotal * 100), // pass processing fee to Paystack (kobo)
         metadata: {
           userId: req.user!.id,
           buyerId: req.user!.id,
           isMultiVendor,
+          processingFeeTotal: processingFeeTotal.toFixed(2),
           ...(isMultiVendor ? {
             checkoutSessionId,
             orderIds: orders.map((o: any) => o.id),
@@ -3597,9 +3602,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 continue;
               }
               
-              // Calculate seller's share for this order
+              // Calculate seller's share for this order excluding processing fee
               const orderAmount = parseFloat(order.total);
-              const sellerShare = Math.round(orderAmount * (100 - commissionRate) / 100 * 100); // In kobo
+              const orderProcessingFee = parseFloat(order.processingFee || "0");
+              const amountExcludingProcessing = Math.max(0, orderAmount - orderProcessingFee);
+
+              const sellerShare = Math.round(amountExcludingProcessing * (100 - commissionRate) / 100 * 100); // In kobo
 
               // Only include as Paystack subaccount if seller uses bank account payouts
               if (store.payoutType === 'bank_account' && store.paystackSubaccountId) {
@@ -3658,8 +3666,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Only assign as Paystack subaccount when seller uses bank account payouts
               if (store.payoutType === 'bank_account') {
                 paymentPayload.subaccount = store.paystackSubaccountId;
-                paymentPayload.transaction_charge = commissionRate * 100;
-                paymentPayload.bearer = "account";
+                // Let Paystack charge processing fee from the transaction_charge (set above)
+                paymentPayload.bearer = "account"; // Platform bears Paystack fees
 
                 paymentPayload.metadata.storeId = store.id;
                 paymentPayload.metadata.storeName = store.name;

@@ -24,7 +24,8 @@ async function run() {
   storageModule.storage.getStore = async (id: string) => ({ id: 'store1', primarySellerId: 'seller1', name: 'Primary Store', paystackSubaccountId: 'sub_123', isPayoutVerified: true } as any);
 
   // Existing order for single-vendor purchase
-  const order = { id: 'order1', buyerId: 'u1', orderNumber: 'ORD-1', total: '10.00', currency: 'GHS', storeId: 'store1', sellerId: 'seller1' } as any;
+  // Order total includes processing fee (e.g., product 100 + processing 5 = 105)
+  const order = { id: 'order1', buyerId: 'u1', orderNumber: 'ORD-1', total: '105.00', processingFee: '5.00', currency: 'GHS', storeId: 'store1', sellerId: 'seller1' } as any;
   storageModule.storage.getOrder = async (id: string) => id === 'order1' ? order : undefined;
 
   storageModule.storage.updateOrder = async (id: string, data: any) => { calls.push(`updateOrder:${id}`); Object.assign(order, data); return order; };
@@ -41,6 +42,16 @@ async function run() {
     }
 
     if (typeof url === 'string' && url.includes('/transaction/initialize')) {
+      // Capture and inspect initialize payload
+      try {
+        const body = JSON.parse(opts.body as string);
+        calls.push(`initialize:transaction_charge=${body.transaction_charge}`);
+        if (body.subaccounts && body.subaccounts.length > 0) {
+          calls.push(`initialize:subaccount_share=${body.subaccounts[0].share}`);
+        }
+      } catch (e) {
+        // ignore
+      }
       return {
         ok: true,
         status: 200,
@@ -93,6 +104,10 @@ async function run() {
   if (!calls.includes('createTransaction')) throw new Error('Transaction not created');
   if (!calls.some(c => c.startsWith('updateOrder:'))) throw new Error('Order not updated');
   if (!calls.some(c => c.startsWith('commission:'))) throw new Error('Commission not calculated');
+
+  // Validate processing fee passed to Paystack (in kobo) and subaccount share reflects amount excluding processing fee and commission
+  if (!calls.some(c => c.startsWith('initialize:transaction_charge=500'))) throw new Error('Processing fee not passed correctly to Paystack (expected 500 kobo)');
+  if (!calls.some(c => c.startsWith('initialize:subaccount_share=9000'))) throw new Error('Subaccount share calculation is incorrect (expected 9000 kobo)');
 
   console.log('✅ paystack-integration.test passed');
 
