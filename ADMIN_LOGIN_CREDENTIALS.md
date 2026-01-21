@@ -4,7 +4,7 @@
 
 ### 🔑 Super Admin Account
 **Email:** `superadmin@kiyumart.com`  
-**Password:** `superadmin123`  
+**Password:** `Smart@3990`  
 **Dashboard:** `/admin`
 
 **Full Access:**
@@ -83,14 +83,14 @@
 # Test Super Admin Login
 curl -X POST http://localhost:5000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"super_admin@kiyumart.com","password":"super_admin123"}'
+  -d '{"email":"superadmin@kiyumart.com","password":"Smart@3990"}'
 ```
 
 ---
 
 ## ⚠️ IMPORTANT NOTES
 
-1. **Underscore in Email:** The super admin email has an **underscore** (`super_admin@kiyumart.com`), not all one word
+1. **Email:** The super admin email is `superadmin@kiyumart.com` (no underscore)
 2. **Development Only:** These are test credentials - change them for production
 3. **All Active:** All accounts are active and approved
 4. **Working:** All credentials have been tested and confirmed working as of Nov 11, 2025
@@ -101,7 +101,7 @@ curl -X POST http://localhost:5000/api/auth/login \
 
 If login fails:
 1. ✅ **Verify exact email:** `superadmin@kiyumart.com` (no underscores)
-2. ✅ **Verify password:** `superadmin123` (no underscores)
+2. ✅ **Verify password:** `Smart@3990`
 3. ✅ **Clear browser cookies** and try again
 4. ✅ **Check server is running:** Workflow should show RUNNING status
 5. ✅ **Database connected:** Verify DATABASE_URL is set

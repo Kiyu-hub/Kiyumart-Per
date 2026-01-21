@@ -6,7 +6,7 @@ This document contains test login credentials for all user roles in the KiyuMart
 
 ### 1. Super Admin Account
 **Email:** `superadmin@kiyumart.com`  
-**Password:** `superadmin123`  
+**Password:** `Smart@3990`  
 **Dashboard URL:** `/admin`
 
 **Access & Features:**

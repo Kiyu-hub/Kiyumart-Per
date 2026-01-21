@@ -22,7 +22,7 @@ This will create default admin accounts with the following credentials:
 
 **Super Admin:**
 - Email: `superadmin@kiyumart.com`
-- Password: `superadmin123`
+- Password: `Smart@3990`
 
 **Admin:**
 - Email: `admin@kiyumart.com`
@@ -69,7 +69,7 @@ The script will:
 | Variable | Description | Required | Default (Dev Only) |
 |----------|-------------|----------|-------------------|
 | `SUPER_ADMIN_EMAIL` | Super admin email address | No | superadmin@kiyumart.com |
-| `SUPER_ADMIN_PASSWORD` | Super admin password | Yes (prod) | superadmin123 |
+| `SUPER_ADMIN_PASSWORD` | Super admin password | Yes (prod) | Smart@3990 |
 | `ADMIN_EMAIL` | Admin email address | No | admin@kiyumart.com |
 | `ADMIN_PASSWORD` | Admin password | Yes (prod) | admin123 |
 

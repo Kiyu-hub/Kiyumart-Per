@@ -145,7 +145,6 @@ export const platformSettings = pgTable("platform_settings", {
   allowRiderRegistration: boolean("allow_rider_registration").default(false),
   primaryStoreId: varchar("primary_store_id"),
   defaultCommissionRate: decimal("default_commission_rate", { precision: 5, scale: 2 }).default("1.00"), // 1% default
-  minimumPayoutAmount: decimal("minimum_payout_amount", { precision: 10, scale: 2 }).default("0.00"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

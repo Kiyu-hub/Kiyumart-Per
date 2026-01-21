@@ -56,13 +56,23 @@ async function seedAdminAccounts() {
         where: eq(users.email, account.email),
       });
 
+      // Hash password up-front so we can create or update consistently
+      const hashedPassword = await bcrypt.hash(account.password, 10);
+
       if (existing) {
-        console.log(`✓ ${account.role} account already exists: ${account.email}`);
+        // Update existing account password and ensure it's active + approved
+        await db.update(users).set({
+          password: hashedPassword,
+          isActive: true,
+          isApproved: true,
+          name: account.name,
+          role: account.role,
+          phone: account.phone,
+        }).where(eq(users.email, account.email));
+
+        console.log(`✓ Updated ${account.role} account password: ${account.email}`);
         continue;
       }
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(account.password, 10);
 
       // Create account
       await db.insert(users).values({
@@ -78,7 +88,7 @@ async function seedAdminAccounts() {
       console.log(`✓ Created ${account.role} account: ${account.email}`);
       console.log(`  Password: ${account.password}`);
     } catch (error) {
-      console.error(`✗ Failed to create ${account.role} account:`, error);
+      console.error(`✗ Failed to create/update ${account.role} account:`, error);
     }
   }
 

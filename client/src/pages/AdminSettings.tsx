@@ -855,12 +855,26 @@ export default function AdminSettings() {
                             placeholder="https://facebook.com/yourpage"
                             data-testid="input-facebook-url"
                           />
-                          <Switch
-                            id="showFacebook"
-                            checked={form.watch("showFacebook")}
-                            onCheckedChange={(checked) => form.setValue("showFacebook", checked)}
-                            data-testid="switch-show-facebook"
-                          />
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="showFacebook"
+                              checked={form.watch("showFacebook")}
+                              onCheckedChange={(checked) => form.setValue("showFacebook", checked)}
+                              data-testid="switch-show-facebook"
+                            />
+                            <button
+                              type="button"
+                              className="btn-ghost text-sm"
+                              onClick={() => {
+                                if (confirm('Clear Facebook URL from settings? This will remove it from the footer.')) {
+                                  form.setValue('facebookUrl', '__CLEAR__');
+                                }
+                              }}
+                              data-testid="button-clear-facebook"
+                            >
+                              Clear
+                            </button>
+                          </div>
                         </div>
                         {form.formState.errors.facebookUrl && (
                           <p className="text-sm text-destructive">
@@ -878,12 +892,24 @@ export default function AdminSettings() {
                             placeholder="https://instagram.com/yourpage"
                             data-testid="input-instagram-url"
                           />
-                          <Switch
-                            id="showInstagram"
-                            checked={form.watch("showInstagram")}
-                            onCheckedChange={(checked) => form.setValue("showInstagram", checked)}
-                            data-testid="switch-show-instagram"
-                          />
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="showInstagram"
+                              checked={form.watch("showInstagram")}
+                              onCheckedChange={(checked) => form.setValue("showInstagram", checked)}
+                              data-testid="switch-show-instagram"
+                            />
+                            <button
+                              type="button"
+                              className="btn-ghost text-sm"
+                              onClick={() => {
+                                if (confirm('Clear Instagram URL from settings?')) {
+                                  form.setValue('instagramUrl', '__CLEAR__');
+                                }
+                              }}
+                              data-testid="button-clear-instagram"
+                            >Clear</button>
+                          </div>
                         </div>
                         {form.formState.errors.instagramUrl && (
                           <p className="text-sm text-destructive">
@@ -901,12 +927,15 @@ export default function AdminSettings() {
                             placeholder="https://twitter.com/yourpage"
                             data-testid="input-twitter-url"
                           />
-                          <Switch
-                            id="showTwitter"
-                            checked={form.watch("showTwitter")}
-                            onCheckedChange={(checked) => form.setValue("showTwitter", checked)}
-                            data-testid="switch-show-twitter"
-                          />
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="showTwitter"
+                              checked={form.watch("showTwitter")}
+                              onCheckedChange={(checked) => form.setValue("showTwitter", checked)}
+                              data-testid="switch-show-twitter"
+                            />
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear Twitter URL from settings?')) form.setValue('twitterUrl', '__CLEAR__'); }} data-testid="button-clear-twitter">Clear</button>
+                          </div>
                         </div>
                         {form.formState.errors.twitterUrl && (
                           <p className="text-sm text-destructive">
@@ -924,12 +953,15 @@ export default function AdminSettings() {
                             placeholder="https://linkedin.com/company/yourpage"
                             data-testid="input-linkedin-url"
                           />
-                          <Switch
-                            id="showLinkedin"
-                            checked={form.watch("showLinkedin")}
-                            onCheckedChange={(checked) => form.setValue("showLinkedin", checked)}
-                            data-testid="switch-show-linkedin"
-                          />
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="showLinkedin"
+                              checked={form.watch("showLinkedin")}
+                              onCheckedChange={(checked) => form.setValue("showLinkedin", checked)}
+                              data-testid="switch-show-linkedin"
+                            />
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear LinkedIn URL from settings?')) form.setValue('linkedinUrl', '__CLEAR__'); }} data-testid="button-clear-linkedin">Clear</button>
+                          </div>
                         </div>
                         {form.formState.errors.linkedinUrl && (
                           <p className="text-sm text-destructive">{form.formState.errors.linkedinUrl.message}</p>
@@ -945,12 +977,15 @@ export default function AdminSettings() {
                             placeholder="https://youtube.com/channel/yourchannel"
                             data-testid="input-youtube-url"
                           />
-                          <Switch
-                            id="showYoutube"
-                            checked={form.watch("showYoutube")}
-                            onCheckedChange={(checked) => form.setValue("showYoutube", checked)}
-                            data-testid="switch-show-youtube"
-                          />
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="showYoutube"
+                              checked={form.watch("showYoutube")}
+                              onCheckedChange={(checked) => form.setValue("showYoutube", checked)}
+                              data-testid="switch-show-youtube"
+                            />
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear YouTube URL from settings?')) form.setValue('youtubeUrl', '__CLEAR__'); }} data-testid="button-clear-youtube">Clear</button>
+                          </div>
                         </div>
                         {form.formState.errors.youtubeUrl && (
                           <p className="text-sm text-destructive">{form.formState.errors.youtubeUrl.message}</p>
@@ -966,12 +1001,15 @@ export default function AdminSettings() {
                             placeholder="https://tiktok.com/@yourpage"
                             data-testid="input-tiktok-url"
                           />
-                          <Switch
-                            id="showTiktok"
-                            checked={form.watch("showTiktok")}
-                            onCheckedChange={(checked) => form.setValue("showTiktok", checked)}
-                            data-testid="switch-show-tiktok"
-                          />
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="showTiktok"
+                              checked={form.watch("showTiktok")}
+                              onCheckedChange={(checked) => form.setValue("showTiktok", checked)}
+                              data-testid="switch-show-tiktok"
+                            />
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear TikTok URL from settings?')) form.setValue('tiktokUrl', '__CLEAR__'); }} data-testid="button-clear-tiktok">Clear</button>
+                          </div>
                         </div>
                         {form.formState.errors.tiktokUrl && (
                           <p className="text-sm text-destructive">{form.formState.errors.tiktokUrl.message}</p>
@@ -987,12 +1025,15 @@ export default function AdminSettings() {
                             placeholder="https://pinterest.com/yourpage"
                             data-testid="input-pinterest-url"
                           />
-                          <Switch
-                            id="showPinterest"
-                            checked={form.watch("showPinterest")}
-                            onCheckedChange={(checked) => form.setValue("showPinterest", checked)}
-                            data-testid="switch-show-pinterest"
-                          />
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="showPinterest"
+                              checked={form.watch("showPinterest")}
+                              onCheckedChange={(checked) => form.setValue("showPinterest", checked)}
+                              data-testid="switch-show-pinterest"
+                            />
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear Pinterest URL from settings?')) form.setValue('pinterestUrl', '__CLEAR__'); }} data-testid="button-clear-pinterest">Clear</button>
+                          </div>
                         </div>
                         {form.formState.errors.pinterestUrl && (
                           <p className="text-sm text-destructive">{form.formState.errors.pinterestUrl.message}</p>
@@ -1008,12 +1049,15 @@ export default function AdminSettings() {
                             placeholder="https://wa.me/yourphonenumber or https://your.whatsapp.page"
                             data-testid="input-whatsapp-page"
                           />
-                          <Switch
-                            id="showWhatsapp"
-                            checked={form.watch("showWhatsapp")}
-                            onCheckedChange={(checked) => form.setValue("showWhatsapp", checked)}
-                            data-testid="switch-show-whatsapp"
-                          />
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="showWhatsapp"
+                              checked={form.watch("showWhatsapp")}
+                              onCheckedChange={(checked) => form.setValue("showWhatsapp", checked)}
+                              data-testid="switch-show-whatsapp"
+                            />
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear WhatsApp link from settings?')) form.setValue('whatsappPage', '__CLEAR__'); }} data-testid="button-clear-whatsapp">Clear</button>
+                          </div>
                         </div>
                         {form.formState.errors.whatsappPage && (
                           <p className="text-sm text-destructive">{form.formState.errors.whatsappPage.message}</p>

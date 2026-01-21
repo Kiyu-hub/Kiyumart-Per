@@ -10,13 +10,13 @@ Your KiyuMart Islamic Fashion E-commerce Platform is now **fully configured and 
 
 ### Login Credentials:
 **Email:** `superadmin@kiyumart.com`  
-**Password:** `superadmin123`  
+**Password:** `Smart@3990`  
 **Dashboard URL:** `/admin`
 
 ### Quick Login:
 1. Open your application at the root URL (`/`)
 2. Click "Login" or navigate to `/admin`
-3. Enter: `superadmin@kiyumart.com` / `superadmin123`
+3. Enter: `superadmin@kiyumart.com` / `Smart@3990`
 4. You'll have full platform access!
 
 ---

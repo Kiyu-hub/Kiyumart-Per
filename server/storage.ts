@@ -783,6 +783,54 @@ export class DbStorage implements IStorage {
     return rows;
   }
 
+  // Detailed platform earnings (joins to provide store/seller and order info) with filters
+  async getPlatformEarningsDetailed(options?: { limit?: number; offset?: number; sellerId?: string; storeId?: string; from?: string; to?: string; type?: string }) {
+    const limit = options?.limit ?? 50;
+    const offset = options?.offset ?? 0;
+
+    let query: any = db.select({
+      id: platformEarnings.id,
+      orderId: platformEarnings.orderId,
+      commissionId: platformEarnings.commissionId,
+      amount: platformEarnings.amount,
+      type: platformEarnings.type,
+      description: platformEarnings.description,
+      createdAt: platformEarnings.createdAt,
+      sellerId: commissions.sellerId,
+      sellerName: users.name,
+      storeId: stores.id,
+      storeName: stores.name,
+      orderNumber: orders.orderNumber,
+      orderCreatedAt: orders.createdAt
+    })
+    .from(platformEarnings)
+    .leftJoin(commissions, eq(platformEarnings.commissionId, commissions.id))
+    .leftJoin(orders, eq(platformEarnings.orderId, orders.id))
+    .leftJoin(stores, eq(commissions.sellerId, stores.primarySellerId))
+    .leftJoin(users, eq(commissions.sellerId, users.id))
+    .orderBy(desc(platformEarnings.createdAt)) as any;
+
+    // Apply filters
+    if (options?.sellerId) {
+      query = query.where(eq(commissions.sellerId, options.sellerId));
+    }
+    if (options?.storeId) {
+      query = query.where(eq(stores.id, options.storeId));
+    }
+    if (options?.type) {
+      query = query.where(eq(platformEarnings.type, options.type));
+    }
+    if (options?.from) {
+      query = query.where(sql`${platformEarnings.createdAt} >= ${new Date(options.from)}`);
+    }
+    if (options?.to) {
+      query = query.where(sql`${platformEarnings.createdAt} <= ${new Date(options.to)}`);
+    }
+
+    const rows = await query.limit(limit).offset(offset);
+    return rows;
+  }
+
   // Summary of platform earnings grouped by type and total
   async getPlatformEarningsSummary(): Promise<{ total: string; byType: Record<string, string> }> {
     const totals = await db.select({ type: platformEarnings.type, sum: sql`SUM(${platformEarnings.amount})` }).from(platformEarnings).groupBy(platformEarnings.type);
@@ -837,7 +885,7 @@ export class DbStorage implements IStorage {
 
       // Step 3: Get platform commission rate
       const settings = await this.getPlatformSettings();
-      const commissionRatePercent = parseFloat(settings.defaultCommissionRate || "10.00");
+      const commissionRatePercent = parseFloat(settings.defaultCommissionRate || "1.00");
 
       // Step 4: Calculate amounts using integer arithmetic (cents) for precision
       // Convert to cents to avoid floating point errors
@@ -940,17 +988,10 @@ export class DbStorage implements IStorage {
         throw error;
       }
 
-      // Step 2: Get platform settings for minimum payout amount
+      // Step 2: Get platform settings
       const settings = await this.getPlatformSettings();
-      const minPayoutAmount = parseFloat(settings.minimumPayoutAmount || "0.00");
-
-      // Step 3: Validate payout amount
       const requestedAmount = parseFloat(data.amount);
-      if (requestedAmount < minPayoutAmount) {
-        const error = new Error(`Payout amount ${requestedAmount.toFixed(2)} is below minimum ${minPayoutAmount.toFixed(2)}`);
-        (error as any).code = 'BELOW_MINIMUM_PAYOUT';
-        throw error;
-      }
+      // No minimum payout amount is enforced platform-wide
 
       if (requestedAmount <= 0) {
         const error = new Error(`Invalid payout amount: ${requestedAmount.toFixed(2)}`);
@@ -1090,9 +1131,14 @@ export class DbStorage implements IStorage {
   // Mark an array of commission IDs as processed
   async markCommissionsProcessed(commissionIds: string[]): Promise<void> {
     if (!commissionIds || commissionIds.length === 0) return;
-    await db.update(commissions)
-      .set({ status: 'processed' })
-      .where(sql`${commissions.id} = ANY(${commissionIds})`);
+
+    // Some DB drivers can fail when passing JS arrays directly to ANY(...).
+    // Update commissions one-by-one inside a transaction to ensure compatibility and atomicity.
+    await db.transaction(async (tx) => {
+      for (const id of commissionIds) {
+        await tx.update(commissions).set({ status: 'processed' }).where(eq(commissions.id, id));
+      }
+    });
   }
 
   // Update payout status (for admin processing)
@@ -1135,7 +1181,8 @@ export class DbStorage implements IStorage {
 
   // Platform settings
   async getPlatformSettings(): Promise<PlatformSettings> {
-    const result = await db.select().from(platformSettings).limit(1);
+    // Return the most recently updated settings row (if multiple exist) to avoid ambiguity
+    const result = await db.select().from(platformSettings).orderBy(desc(platformSettings.updatedAt)).limit(1);
     if (result.length === 0) {
       const [settings] = await db.insert(platformSettings).values({}).returning();
       return settings;

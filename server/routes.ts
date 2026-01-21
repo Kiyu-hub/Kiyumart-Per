@@ -4,7 +4,7 @@ import { Server as SocketIOServer } from "socket.io";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { db } from "../db";
-import { users, cart, wishlist, chatMessages, notifications, orders, products, stores } from "@shared/schema";
+import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, commissions } from "@shared/schema";
 import { eq, or, isNotNull, and, desc } from "drizzle-orm";
 import { 
   hashPassword, 
@@ -1951,8 +1951,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const limit = parseInt((req.query.limit as string) || '50');
       const offset = parseInt((req.query.offset as string) || '0');
-      const earnings = await storage.getPlatformEarnings(limit, offset);
-      res.json(earnings);
+      const sellerId = req.query.sellerId as string | undefined;
+      const storeId = req.query.storeId as string | undefined;
+      const type = req.query.type as string | undefined;
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
+
+      const earnings = await storage.getPlatformEarningsDetailed({ limit, offset, sellerId, storeId, type, from, to });
+      console.log('[DBG] earnings sample:', earnings[0]);
+
+      // Enrich results with store and seller names (defensive: storage method may not return them in all DB adapters)
+      const sellerIds = Array.from(new Set(earnings.map((e: any) => e.sellerId).filter(Boolean)));
+      const storeIds = Array.from(new Set(earnings.map((e: any) => e.storeId).filter(Boolean)));
+
+      const sellersMap: Record<string, any> = {};
+      for (const sid of sellerIds) {
+        try {
+          const su = await db.select().from(users).where(eq(users.id, sid)).limit(1);
+          if (su[0]) sellersMap[sid] = { id: su[0].id, name: su[0].name };
+        } catch (e) { continue; }
+      }
+
+      const storesMap: Record<string, any> = {};
+      for (const stid of storeIds) {
+        try {
+          const su = await db.select().from(stores).where(eq(stores.id, stid)).limit(1);
+          if (su[0]) storesMap[stid] = { id: su[0].id, name: su[0].name };
+        } catch (e) { continue; }
+      }
+
+      // Fallback: ensure seller/store details are attached by querying commissions/orders/stores per row
+      const result = [] as any[];
+      for (const e of earnings) {
+        const commissionRow = e.commissionId ? await db.select().from(commissions).where(eq(commissions.id, e.commissionId)).limit(1) : [];
+        const commission = commissionRow[0];
+        let sellerName = null;
+        let storeName = null;
+        let sellerIdLocal = commission?.sellerId || null;
+
+        if (sellerIdLocal) {
+          const su = await db.select().from(users).where(eq(users.id, sellerIdLocal)).limit(1);
+          sellerName = su[0]?.name || null;
+        }
+
+        // Try to find store by commission sellerId or order.storeId
+        let storeIdLocal = null;
+        if (commission && commission.sellerId) {
+          const storeRow = await db.select().from(stores).where(eq(stores.primarySellerId, commission.sellerId)).limit(1);
+          if (storeRow[0]) {
+            storeIdLocal = storeRow[0].id;
+            storeName = storeRow[0].name;
+          }
+        }
+        if (!storeName && e.orderId) {
+          const orderRow = await db.select().from(orders).where(eq(orders.id, e.orderId)).limit(1);
+          if (orderRow[0] && orderRow[0].storeId) {
+            const storeRow = await db.select().from(stores).where(eq(stores.id, orderRow[0].storeId)).limit(1);
+            if (storeRow[0]) {
+              storeIdLocal = storeRow[0].id;
+              storeName = storeRow[0].name;
+            }
+          }
+        }
+
+        result.push({
+          id: e.id,
+          orderId: e.orderId,
+          orderNumber: e.orderNumber || null,
+          orderCreatedAt: e.orderCreatedAt || null,
+          commissionId: e.commissionId,
+          amount: e.amount,
+          type: e.type,
+          description: e.description,
+          createdAt: e.createdAt,
+          sellerId: sellerIdLocal,
+          sellerName,
+          storeId: storeIdLocal,
+          storeName,
+        });
+      }
+
+      res.json(result);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3413,14 +3492,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const previousSettings = await storage.getPlatformSettings();
       
       // Handle cloudinaryApiSecret: preserve existing if placeholder or empty is sent
-      const updateData = { ...req.body };
+      const updateData: any = { ...req.body };
+
+      // Preserve sensitive fields when placeholders or empty values are submitted
       if (!updateData.cloudinaryApiSecret || updateData.cloudinaryApiSecret === "••••••••••••••••") {
         updateData.cloudinaryApiSecret = previousSettings.cloudinaryApiSecret;
       }
       if (!updateData.paystackSecretKey || updateData.paystackSecretKey === "••••••••••••••••") {
         updateData.paystackSecretKey = previousSettings.paystackSecretKey;
       }
-      
+
+      // Do not overwrite social links with empty strings accidentally - preserve previous unless explicitly set to null
+      const socialKeys = ['facebookUrl','instagramUrl','twitterUrl','linkedinUrl','youtubeUrl','tiktokUrl','pinterestUrl','whatsappPage'];
+      for (const key of socialKeys) {
+        if (key in updateData && typeof updateData[key] === 'string') {
+          const trimmed = updateData[key].trim();
+          if (trimmed === '') {
+            // Remove the key so updatePlatformSettings doesn't set it to empty string
+            delete updateData[key];
+          } else if (trimmed === '__CLEAR__') {
+            // Explicit clear request from UI - set to null so DB can be cleared
+            updateData[key] = null;
+          } else {
+            // Basic URL normalization: add https:// if missing
+            if (!/^https?:\/\//i.test(trimmed)) {
+              updateData[key] = `https://${trimmed}`;
+            } else {
+              updateData[key] = trimmed;
+            }
+          }
+        }
+      }
+
+      console.warn('DEBUG-UPDATE-PATCH-SETTINGS', JSON.stringify(updateData, null, 2));
       const settings = await storage.updatePlatformSettings(updateData);
 
       const duration = Date.now() - start;
