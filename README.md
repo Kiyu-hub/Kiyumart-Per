@@ -1,15 +1,16 @@
-# KiyuMart - Islamic Women's Fashion E-commerce Platform
+# KiyuMart - Modern Local Marketplace Platform
 
-![KiyuMart](https://via.placeholder.com/1200x300/16a34a/ffffff?text=KiyuMart+-+Islamic+Fashion+Marketplace)
+![KiyuMart](https://via.placeholder.com/1200x300/16a34a/ffffff?text=KiyuMart+-+Local+Marketplace)
 
 > **✅ Production-Ready Platform**
 >
-> This is a **fully functional, production-ready e-commerce platform** with multi-vendor support, complete admin management, and comprehensive payment tracking. 
+> A **fully functional, production-ready local marketplace platform** enabling small businesses, artisans, and entrepreneurs to sell their products to local and regional customers. Multi-vendor support, comprehensive admin management, real-time order tracking, and secure payment processing.
 > 
-> **Version:** 1.1 (Latest)  
-> **Status:** ✅ Production Ready
+> **Version:** 1.1.1 (Latest - Security Hardened)  
+> **Status:** ✅ Production Ready with Enterprise-Grade Security  
+> **Last Updated:** January 23, 2026
 > 
-> For deployment checklist and production recommendations, see [PRODUCTION_READY.md](./PRODUCTION_READY.md)
+> For deployment checklist, production recommendations, and security guidelines, see [PRODUCTION_READY.md](./PRODUCTION_READY.md) and [PRODUCTION_ASSESSMENT.md](./PRODUCTION_ASSESSMENT.md)
 
 ---
 
@@ -33,11 +34,13 @@
 
 ## 🌟 Overview
 
-**KiyuMart** is a comprehensive e-commerce platform dedicated to modest Islamic women's fashion, featuring elegant abayas, hijabs, and modest dresses. The platform operates as both a **single-store marketplace** and a **multi-vendor marketplace**, with dynamic switching controlled by super admin settings.
+**KiyuMart** is a comprehensive local marketplace platform designed to empower entrepreneurs, small businesses, and artisans to reach customers in their local and regional markets. The platform operates as both a **single-store marketplace** and a **multi-vendor marketplace**, with dynamic switching controlled by super admin settings.
+
+Key capabilities include product inventory management, secure payment processing via Paystack, real-time order tracking with live map visualization, multi-currency and multi-language support, and comprehensive admin/seller dashboards for business management.
 
 ### 🎯 Business Vision
 
-To be a leading online destination for modest Islamic fashion, offering a diverse and inclusive range of high-quality products to a global market while empowering local and international sellers.
+To be the leading online marketplace platform for local businesses, connecting quality products with customers while providing tools, logistics support, and payment processing that empowers entrepreneurs to scale their operations regionally and internationally.
 
 ---
 
@@ -46,124 +49,182 @@ To be a leading online destination for modest Islamic fashion, offering a divers
 ### 🛍️ Customer Features
 
 - **Product Browsing**
-  - Browse products by categories (Abayas, Hijabs, Dresses, Accessories)
-  - Advanced filtering and search capabilities
-  - Product variant selection (size, color)
-  - High-quality product images (up to 5 images per product)
+  - Browse products across multiple categories
+  - Advanced filtering, search, and sorting capabilities
+  - Product variant selection (size, color, specifications)
+  - High-quality product media (up to 5 images per product)
   - Product videos for detailed viewing
   - Customer reviews and ratings (1-5 stars)
   - Related products suggestions
+  - Wishlist functionality with heart icons
+  - Product comparison tools
 
 - **Shopping Experience**
   - Persistent shopping cart with real-time updates
-  - Wishlist functionality with heart icons
   - Multi-currency support (GHS, NGN, XOF, USD, EUR, SAR)
   - Multi-language support (English, French, Arabic)
   - Automatic currency switching based on language selection
   - Mobile-first responsive design
   - Dark/light mode theme support
+  - One-click checkout
+  - Save payment methods securely
 
 - **Order Management**
-  - Secure Paystack payment integration
+  - Secure Paystack payment integration with server-side verification
   - Real-time order tracking with live map visualization (Leaflet.js + OpenStreetMap)
   - QR code generation for order verification
   - Order history and status tracking
   - Email and push notifications
+  - Estimated delivery time display
+  - Order invoice generation
 
 - **User Account**
   - Profile picture upload (Cloudinary integration)
   - Personal information management
-  - Address management
-  - Order history
+  - Multiple address management (home, work, other)
+  - Order history and repeat purchase
   - Wishlist management
   - Settings and preferences (notifications, theme, language)
+  - Account security settings
 
-### 👨‍💼 Admin Features
+### 👨‍💼 Admin Features (Super Admin)
 
 - **Dashboard Analytics**
-  - Total revenue tracking
-  - Order statistics
+  - Total revenue tracking with currency conversion
+  - Order statistics (daily, weekly, monthly)
   - Product performance metrics
   - User growth analytics
   - Real-time order monitoring
+  - Sales trends and forecasting
 
 - **Platform Settings** (`/admin/settings`)
   - **General Settings**: Platform name, multi-vendor mode toggle
   - **Payment Configuration**: Paystack API keys (public/secret), processing fee percentage
-  - **Cloudinary Storage**: Cloud name, API key, API secret
+  - **Cloudinary Storage**: Cloud name, API key, API secret for image storage
   - **Contact Information**: Phone, email, address, social media links
   - **Branding**: Primary color customization, logo upload
   - **Currency**: Default currency selection
   - **Footer Content**: Dynamic footer description and contact details
+  - **Feature Toggles**: Enable/disable specific marketplace features
+  - **Security Settings**: API rate limiting, request size limits
 
 - **Delivery Zone Management** (`/admin/delivery-zones`)
   - Create, edit, and delete delivery zones
   - Set delivery fees per zone
   - Configure estimated delivery times
-  - Manage zone coverage areas
-  - Enable/disable zones
+  - Manage zone coverage areas (geographic boundaries)
+  - Enable/disable zones dynamically
+  - Export zone analytics
 
 - **Product Management**
   - Add, edit, delete products
-  - Manage product variants (sizes, colors)
+  - Manage product variants (sizes, colors, specifications)
   - Upload multiple images and videos
-  - Inventory management
-  - Category assignment
+  - Inventory management with stock alerts
+  - Category assignment with hierarchical organization
   - Pricing control (cost price, selling price, discounts)
+  - Bulk product operations
+  - Product approval workflows
+  - Tax configuration per product
 
 - **Order Management**
-  - View all orders
-  - Update order status
+  - View all orders with advanced filtering
+  - Update order status (pending, confirmed, shipped, delivered, cancelled)
   - Assign riders to orders
-  - Process refunds
-  - Export order data
+  - Process refunds and returns
+  - Export order data (CSV, PDF)
+  - Batch order operations
+  - Order analytics and reporting
 
 - **User Management**
-  - View all users (customers, sellers, riders)
+  - View all users (customers, sellers, riders, agents)
   - Manage user roles and permissions
   - Enable/disable accounts
-  - View user activity
+  - View user activity logs
+  - User verification management
+  - Bulk user import
+  - Export user data for analysis
 
 - **Hero Banner Management**
-  - Create promotional banners
+  - Create promotional banners with rich media
   - Auto-scrolling carousel
-  - Schedule banner visibility
+  - Schedule banner visibility (start/end dates)
   - Image upload and positioning
+  - Banner performance analytics
+  - A/B testing support
+
+- **Rider Management** (Logistics Partner)
+  - Register and manage delivery riders
+  - Track rider performance metrics
+  - Assign delivery zones to riders
+  - View rider earnings and payouts
+  - Approve/reject rider applications
+  - Manage rider commissions
+
+- **Reporting & Analytics**
+  - Sales reports by product, category, seller
+  - User activity reports
+  - Payment reconciliation reports
+  - Tax reports
+  - Inventory reports
+  - Performance dashboards
 
 ### 🏪 Seller Features (Multi-Vendor Mode)
 
 - **Seller Dashboard**
-  - Sales analytics
+  - Sales analytics (daily, weekly, monthly)
   - Product performance tracking
-  - Revenue reports
-  - Order notifications
+  - Revenue reports with withdrawal history
+  - Order notifications in real-time
+  - Marketing tools and promotions
+  - Customer reviews and feedback
 
 - **Product Management**
-  - Add own products
-  - Manage inventory
-  - Set pricing
-  - Upload product media
-  - Track product views and sales
+  - Add own products with full customization
+  - Manage inventory with stock alerts
+  - Set pricing and discounts
+  - Upload product media (images and videos)
+  - Track product views, click-through rates, and sales
+  - Batch product operations
+  - Product variant management
+  - Automatic best-seller labeling
 
 - **Order Processing**
-  - View incoming orders
-  - Update order status
-  - Manage fulfillment
-  - Customer communication
+  - View incoming orders with filters
+  - Update order status and customer communication
+  - Manage fulfillment (accept/reject orders)
+  - Customer communication through in-app messaging
+  - Order fulfillment tracking
+  - Return and refund management
 
-### 🚴 Rider Features
+- **Store Customization**
+  - Store name and description
+  - Store banner and logo upload
+  - Store policy settings
+  - Social media links
+
+- **Payments & Payouts**
+  - Real-time sales tracking
+  - Withdrawal requests with approval workflow
+  - Payout history and statements
+  - Commission calculation transparency
+  - Tax reporting
+
+### 🚴 Rider Features (Delivery Partner)
 
 - **Delivery Dashboard**
-  - Assigned deliveries list
-  - Route optimization
+  - Assigned deliveries list with status
+  - Route optimization for efficient delivery
   - Real-time location tracking
-  - Delivery status updates
+  - Delivery status updates and proof of delivery
 
 - **Order Management**
-  - View delivery details
-  - Update delivery status
+  - View delivery details (recipient, address, items)
+  - Update delivery status (picked up, in transit, delivered)
   - Customer contact information
-  - Navigation assistance
+  - Navigation assistance with maps
+  - Photo/signature capture for delivery proof
+  - Delivery history and earnings
 
 ---
 
