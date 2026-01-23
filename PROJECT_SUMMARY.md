@@ -17,6 +17,9 @@ KiyuMart is a **production-ready, enterprise-grade local marketplace platform** 
 - Order management with real-time tracking
 - Multi-currency support (6 currencies)
 - Multi-language support (3 languages)
+ - Order management with real-time tracking
+ - Single-currency operation (GHS)
+ - English-only UI
 
 ✅ **Multi-Vendor Marketplace**
 - Seller onboarding & management
@@ -54,7 +57,7 @@ KiyuMart is a **production-ready, enterprise-grade local marketplace platform** 
 ┌──────────────────┐
 │  Frontend (React)│ ← Vite build, deployed to Netlify
 │  TypeScript      │
-│  Multi-language  │
+│  English-only UI │
 └────────┬─────────┘
          │ HTTPS/WebSocket
 ┌────────▼──────────────┐
@@ -98,7 +101,6 @@ PostgreSQL Paystack Cloudinary
 ## 📊 Project Statistics
 
 ```
-Codebase Size:
   - Backend: ~6000 lines (routes.ts alone)
   - Frontend: ~1500+ lines (components, pages, hooks)
   - Database: 7+ migrations
@@ -115,10 +117,11 @@ API Endpoints: 50+
   - Payments (3+)
   - Seeds (5+)
 
+Codebase Size:
 Database Tables: 15+
 User Roles: 6 (super_admin, admin, seller, buyer, rider, agent)
-Supported Currencies: 6 (GHS, NGN, XOF, USD, EUR, SAR)
-Supported Languages: 3 (English, French, Arabic)
+Supported Currencies: 1 (GHS)
+Supported Languages: 1 (English)
 ```
 
 ---

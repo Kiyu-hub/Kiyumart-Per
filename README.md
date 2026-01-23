@@ -37,7 +37,7 @@
 
 **KiyuMart** is a comprehensive local marketplace platform designed to empower entrepreneurs, small businesses, and artisans to reach customers in their local and regional markets. The platform operates as both a **single-store marketplace** and a **multi-vendor marketplace**, with dynamic switching controlled by super admin settings.
 
-Key capabilities include product inventory management, secure payment processing via Paystack, real-time order tracking with live map visualization, multi-currency and multi-language support, and comprehensive admin/seller dashboards for business management.
+Key capabilities include product inventory management, secure payment processing via Paystack, real-time order tracking with live map visualization, single-currency (GHS) operation and English-only UI, and comprehensive admin/seller dashboards for business management.
 
 ### 🎯 Business Vision
 
@@ -62,9 +62,8 @@ To be the leading online marketplace platform for local businesses, connecting q
 
 - **Shopping Experience**
   - Persistent shopping cart with real-time updates
-  - Multi-currency support (GHS, NGN, XOF, USD, EUR, SAR)
-  - Multi-language support (English, French, Arabic)
-  - Automatic currency switching based on language selection
+  - Single-currency support (GHS)
+  - English-only UI
   - Mobile-first responsive design
   - Dark/light mode theme support
   - One-click checkout
@@ -104,7 +103,7 @@ To be the leading online marketplace platform for local businesses, connecting q
   - **Cloudinary Storage**: Cloud name, API key, API secret for image storage
   - **Contact Information**: Phone, email, address, social media links
   - **Branding**: Primary color customization, logo upload
-  - **Currency**: Default currency selection
+  - **Currency**: Default currency selection (GHS)
   - **Footer Content**: Dynamic footer description and contact details
   - **Feature Toggles**: Enable/disable specific marketplace features
   - **Security Settings**: API rate limiting, request size limits
@@ -326,7 +325,7 @@ To be the leading online marketplace platform for local businesses, connecting q
 ### External Services
 - **Payment Gateway**: Paystack API
 - **Media Storage**: Cloudinary (images, videos)
-- **Currency Conversion**: exchangerate.host API
+- **Currency Conversion**: Not used — platform operates in GHS only
 - **Maps**: OpenStreetMap with Leaflet.js
 
 ### Development Tools
@@ -805,28 +804,9 @@ Upload custom logos via Admin Settings or replace:
 
 ---
 
-## 📱 Multi-Language Support
+## 📱 Language Support
 
-### Supported Languages
-
-1. **English** (USD currency)
-2. **French** (EUR currency)
-3. **Arabic** (SAR currency)
-
-### Adding New Languages
-
-1. Update `LanguageContext.tsx`:
-   ```typescript
-   const currencies = {
-     en: { symbol: "$", code: "USD" },
-     fr: { symbol: "€", code: "EUR" },
-     ar: { symbol: "﷼", code: "SAR" },
-     // Add new language
-   };
-   ```
-
-2. Add translations to components
-3. Update language selector in Header
+This platform uses English as the single supported language. Internationalization and automatic language-to-currency switching have been removed; the UI and documentation are English-only. To add languages later, implement a `LanguageContext` with translations and expose a selector in the header.
 
 ---
 

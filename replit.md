@@ -8,10 +8,10 @@ KiyuMart is an e-commerce platform for modest Islamic women's fashion, functioni
 
 ### Production Readiness (Tasks 1-7 Complete)
 
-1. **Multi-Currency Formatting System** (Task 7): All 20 hardcoded "GHS" instances replaced with centralized formatPrice utility
-   - Created PriceDisplay component wrapping formatPrice from useLanguage hook
+1. **Single-Currency Formatting (GHS)** (Task 7): Centralized `formatPrice` utility enforces consistent GHS display across the UI
+   - Created `PriceDisplay` component wrapping `formatPrice` from `useLanguage` hook
    - Systematic replacement across RiderDashboard, RiderDetailsPage, SellerDetailsPage, SellerDashboardConnected, Cart, ProductDetails
-   - Automatic currency switching based on language (English→GHS, French→CFA, Arabic→SAR)
+   - Internationalization and automatic currency switching have been disabled; platform displays prices in GHS only
    - Zero LSP errors, production-ready implementation
 
 2. **Analytics Endpoints Stabilization** (Tasks 1-3): Fixed rider/seller analytics crashes
