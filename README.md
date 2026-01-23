@@ -10,7 +10,9 @@
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
 > **Last Updated:** January 23, 2026
 > 
-> For deployment checklist, production recommendations, and security guidelines, see [PRODUCTION_READY.md](./PRODUCTION_READY.md) and [PRODUCTION_ASSESSMENT.md](./PRODUCTION_ASSESSMENT.md)
+> **📚 Documentation:** Start with [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) for complete guides  
+> **🚀 Quick Start:** See [QUICK_START.md](./QUICK_START.md) to get running in 5 minutes  
+> **🔒 Security:** See [PRODUCTION_ASSESSMENT.md](./PRODUCTION_ASSESSMENT.md) for security audit
 
 ---
 
@@ -18,15 +20,13 @@
 
 - [Overview](#overview)
 - [Features](#features)
+- [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
 - [Getting Started](#getting-started)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
 - [User Roles & Permissions](#user-roles--permissions)
-- [API Documentation](#api-documentation)
-- [Database Schema](#database-schema)
 - [Deployment](#deployment)
-- [Environment Variables](#environment-variables)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -228,7 +228,36 @@ To be the leading online marketplace platform for local businesses, connecting q
 
 ---
 
-## 🛠️ Technology Stack
+## � Documentation
+
+### Quick References
+- **[DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md)** - Central hub for all documentation (START HERE!)
+- **[QUICK_START.md](./QUICK_START.md)** - Get running in 5 minutes
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Complete system design (1000+ lines)
+- **[DEVELOPMENT.md](./DEVELOPMENT.md)** - Development guide with code examples
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Production deployment instructions
+- **[PRODUCTION_ASSESSMENT.md](./PRODUCTION_ASSESSMENT.md)** - Security audit & readiness report
+
+### Choose Your Path
+
+**I'm a New Developer:**
+→ Start with [QUICK_START.md](./QUICK_START.md), then read [DEVELOPMENT.md](./DEVELOPMENT.md)
+
+**I Need to Understand the System:**
+→ Read [ARCHITECTURE.md](./ARCHITECTURE.md) for complete technical overview
+
+**I'm Deploying to Production:**
+→ Follow [DEPLOYMENT.md](./DEPLOYMENT.md) step-by-step
+
+**I Need API Documentation:**
+→ See [ARCHITECTURE.md](./ARCHITECTURE.md#api-architecture) for complete API reference
+
+**I Need Help:**
+→ Check [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) to find what you need
+
+---
+
+## �🛠️ Technology Stack
 
 ### Frontend
 - **Framework**: React 18 with Vite
