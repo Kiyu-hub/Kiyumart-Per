@@ -20,7 +20,10 @@ interface Analytics {
 
 interface Order {
   id: string;
+  orderNumber?: string;
   status: string;
+  total?: string;
+  paymentStatus?: string;
   createdAt: string;
 }
 
@@ -269,18 +272,50 @@ export default function AdminDashboard() {
                     <Loader2 className="h-4 w-4 animate-spin" />
                   </div>
                 ) : recentOrders.length > 0 ? (
-                  <div className="space-y-2">
-                    {recentOrders.map((order, index) => (
-                      <div key={order.id} className="flex justify-between items-center py-2 border-b last:border-0">
-                        <div>
-                          <p className="font-medium text-sm">Order #{index + 1}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(order.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div className="text-sm capitalize">{order.status}</div>
-                      </div>
-                    ))}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="text-left py-3 px-3 font-semibold">Order #</th>
+                          <th className="text-left py-3 px-3 font-semibold">Date</th>
+                          <th className="text-left py-3 px-3 font-semibold">Amount</th>
+                          <th className="text-left py-3 px-3 font-semibold">Status</th>
+                          <th className="text-left py-3 px-3 font-semibold">Payment</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recentOrders.map((order) => (
+                          <tr key={order.id} className="border-b hover:bg-muted/30 transition-colors">
+                            <td className="py-3 px-3 font-medium">#{order.orderNumber || order.id.slice(0, 8)}</td>
+                            <td className="py-3 px-3 text-muted-foreground">
+                              {new Date(order.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </td>
+                            <td className="py-3 px-3 font-semibold text-green-600">
+                              {order.total ? formatPrice(parseFloat(order.total)) : 'N/A'}
+                            </td>
+                            <td className="py-3 px-3">
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                order.status === 'delivered' ? 'bg-green-100 text-green-800' :
+                                order.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                                order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                                'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3">
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                order.paymentStatus === 'completed' ? 'bg-green-100 text-green-800' :
+                                order.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-red-100 text-red-800'
+                              }`}>
+                                {order.paymentStatus ? order.paymentStatus.charAt(0).toUpperCase() + order.paymentStatus.slice(1) : 'N/A'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 ) : (
                   <p className="text-center text-muted-foreground py-4">No orders yet</p>

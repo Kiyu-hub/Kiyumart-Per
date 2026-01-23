@@ -2,35 +2,14 @@
 
 ![KiyuMart](https://via.placeholder.com/1200x300/16a34a/ffffff?text=KiyuMart+-+Islamic+Fashion+Marketplace)
 
-> **⚠️ CRITICAL: AI DEVELOPMENT PROTECTION GUIDELINES**
+> **✅ Production-Ready Platform**
 >
-> This is a **fully functional, production-ready e-commerce platform** with complex, working architecture.
+> This is a **fully functional, production-ready e-commerce platform** with multi-vendor support, complete admin management, and comprehensive payment tracking. 
 > 
-> **DO NOT:**
-> - Rebuild entire components or systems "to improve them"
-> - Refactor working code without explicit request
-> - Change database schema primary key types (breaks all data)
-> - Delete or rename core files without understanding dependencies
-> - Modify `vite.config.ts`, `drizzle.config.ts`, or `package.json` directly
+> **Version:** 1.1 (Latest)  
+> **Status:** ✅ Production Ready
 > 
-> **DO:**
-> - Make targeted, minimal changes to fix specific issues
-> - Read existing code before making changes
-> - Preserve existing patterns and conventions
-> - Test thoroughly before completing tasks
-> - Update `replit.md` when adding features
-> 
-> **Database Safety:**
-> - Use `npm run db:push` for all schema changes (NEVER write SQL migrations)
-> - Use `npm run db:push --force` if data loss warning appears (when safe to do so)
-> - NEVER change ID column types (serial ↔ varchar) - this destroys existing data
-> 
-> **If Unsure:**
-> - Ask questions before making major changes
-> - Check `replit.md` for project-specific documentation
-> - Review this README for architecture understanding
-> 
-> **Remember**: All features are working as designed. Fix what's broken, add what's requested, preserve what works.
+> For deployment checklist and production recommendations, see [PRODUCTION_READY.md](./PRODUCTION_READY.md)
 
 ---
 

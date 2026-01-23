@@ -42,6 +42,22 @@ interface SalesData {
   analytics: Analytics;
 }
 
+interface Payout {
+  id: string;
+  sellerId: string;
+  amount: string;
+  currency: string;
+  method: string;
+  status: string;
+  reference: string;
+  bankDetails: string;
+  commissionIds: string[];
+  notes: string;
+  processedBy: string;
+  processedAt: string;
+  createdAt: string;
+}
+
 interface Seller {
   id: string;
   name: string;
@@ -70,6 +86,11 @@ export default function SellerDetailsPage() {
   const { data: salesData, isLoading: salesLoading } = useQuery<SalesData>({
     queryKey: [`/api/sellers/${sellerId}/sales`],
     enabled: !!sellerId && isAuthenticated,
+  });
+
+  const { data: payouts = [], isLoading: payoutsLoading } = useQuery<Payout[]>({
+    queryKey: [`/api/admin/sellers/${sellerId}/payouts`],
+    enabled: !!sellerId && isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
@@ -198,6 +219,9 @@ export default function SellerDetailsPage() {
             <TabsTrigger value="sales" data-testid="tab-sales">
               Sales ({sales.length})
             </TabsTrigger>
+            <TabsTrigger value="payouts" data-testid="tab-payouts">
+              Payment History ({payouts.length})
+            </TabsTrigger>
             <TabsTrigger value="analytics" data-testid="tab-analytics">
               Analytics
             </TabsTrigger>
@@ -262,7 +286,79 @@ export default function SellerDetailsPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="analytics" className="mt-6">
+          <TabsContent value="payouts" className="mt-6">
+            {payoutsLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : payouts.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <DollarSign className="h-12 w-12 text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No payment history found</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {payouts.map((payout) => (
+                  <Card key={payout.id} data-testid={`payout-${payout.id}`}>
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="font-semibold">Payout {payout.reference}</h3>
+                            <Badge className={payout.status === "completed" ? "bg-green-500" : payout.status === "pending" ? "bg-yellow-500" : "bg-red-500"}>
+                              {payout.status}
+                            </Badge>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                            <div>
+                              <p className="text-muted-foreground">Amount</p>
+                              <p className="font-bold text-lg text-green-600">
+                                {formatPrice(parseFloat(payout.amount || "0"))}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Method</p>
+                              <p className="font-medium capitalize">{payout.method}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Currency</p>
+                              <p className="font-medium">{payout.currency}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Processed Date</p>
+                              <p className="font-medium">
+                                {payout.processedAt ? format(new Date(payout.processedAt), "MMM dd, yyyy HH:mm") : "N/A"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Created</p>
+                              <p className="font-medium">
+                                {payout.createdAt ? format(new Date(payout.createdAt), "MMM dd, yyyy HH:mm") : "N/A"}
+                              </p>
+                            </div>
+                            {payout.bankDetails && (
+                              <div>
+                                <p className="text-muted-foreground">Bank Details</p>
+                                <p className="font-medium">{payout.bankDetails}</p>
+                              </div>
+                            )}
+                          </div>
+                          {payout.notes && (
+                            <div className="mt-3">
+                              <p className="text-muted-foreground text-xs">Notes</p>
+                              <p className="text-sm">{payout.notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
             {salesLoading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />

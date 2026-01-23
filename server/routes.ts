@@ -3564,15 +3564,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Do not overwrite social links with empty strings accidentally - preserve previous unless explicitly set to null
       const socialKeys = ['facebookUrl','instagramUrl','twitterUrl','linkedinUrl','youtubeUrl','tiktokUrl','pinterestUrl','whatsappPage'];
+      const keysToDelete = req.body._clearSocialKeys || []; // Support for clearing specific social keys
+      
       for (const key of socialKeys) {
+        // If admin explicitly requested to clear this key
+        if (keysToDelete.includes(key)) {
+          updateData[key] = null;
+          continue;
+        }
+        
         if (key in updateData && typeof updateData[key] === 'string') {
           const trimmed = updateData[key].trim();
           if (trimmed === '') {
-            // Remove the key so updatePlatformSettings doesn't set it to empty string
+            // Empty string: Remove the key so updatePlatformSettings doesn't set it to empty string
+            // This preserves the previous value
             delete updateData[key];
-          } else if (trimmed === '__CLEAR__') {
-            // Explicit clear request from UI - set to null so DB can be cleared
-            updateData[key] = null;
           } else {
             // Basic URL normalization: add https:// if missing
             if (!/^https?:\/\//i.test(trimmed)) {
@@ -3583,6 +3589,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
+      
+      // Remove the internal flag before storing
+      delete updateData._clearSocialKeys;
 
       console.warn('DEBUG-UPDATE-PATCH-SETTINGS', JSON.stringify(updateData, null, 2));
       const settings = await storage.updatePlatformSettings(updateData);

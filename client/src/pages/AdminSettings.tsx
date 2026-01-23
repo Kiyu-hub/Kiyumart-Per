@@ -53,9 +53,9 @@ const settingsSchema = z.object({
   contactPhone: z.string().min(1, "Contact phone is required"),
   contactEmail: z.string().email("Must be a valid email"),
   contactAddress: z.string().min(1, "Contact address is required"),
-  facebookUrl: z.string().url().optional().or(z.literal("")).or(z.literal("__CLEAR__")),
-  instagramUrl: z.string().url().optional().or(z.literal("")).or(z.literal("__CLEAR__")),
-  twitterUrl: z.string().url().optional().or(z.literal("")).or(z.literal("__CLEAR__")),
+  facebookUrl: z.string().url().optional().or(z.literal("")),
+  instagramUrl: z.string().url().optional().or(z.literal("")),
+  twitterUrl: z.string().url().optional().or(z.literal("")),
   showFacebook: z.boolean(),
   showInstagram: z.boolean(),
   showTwitter: z.boolean(),
@@ -64,11 +64,11 @@ const settingsSchema = z.object({
   showTiktok: z.boolean(),
   showPinterest: z.boolean(),
   showWhatsapp: z.boolean(),
-  linkedinUrl: z.string().url().optional().or(z.literal("")).or(z.literal("__CLEAR__")),
-  youtubeUrl: z.string().url().optional().or(z.literal("")).or(z.literal("__CLEAR__")),
-  tiktokUrl: z.string().url().optional().or(z.literal("")).or(z.literal("__CLEAR__")),
-  pinterestUrl: z.string().url().optional().or(z.literal("")).or(z.literal("__CLEAR__")),
-  whatsappPage: z.string().optional().or(z.literal("")).or(z.literal("__CLEAR__")),
+  linkedinUrl: z.string().url().optional().or(z.literal("")),
+  youtubeUrl: z.string().url().optional().or(z.literal("")),
+  tiktokUrl: z.string().url().optional().or(z.literal("")),
+  pinterestUrl: z.string().url().optional().or(z.literal("")),
+  whatsappPage: z.string().optional().or(z.literal("")),
 
   showSocialLinks: z.boolean(),
   footerDescription: z.string().min(1, "Footer description is required"),
@@ -101,6 +101,7 @@ export default function AdminSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("general");
+  const [clearedSocialKeys, setClearedSocialKeys] = useState<string[]>([]);
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
   // Import dialogs state
@@ -180,7 +181,12 @@ export default function AdminSettings() {
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (data: SettingsFormData) => {
-      const res = await apiRequest("PATCH", "/api/settings", data);
+      // Include the list of social keys that should be cleared
+      const payload = {
+        ...data,
+        _clearSocialKeys: clearedSocialKeys
+      };
+      const res = await apiRequest("PATCH", "/api/settings", payload);
       return res.json();
     },
     // Optimistic update to ensure UI shows changes immediately
@@ -195,6 +201,8 @@ export default function AdminSettings() {
       if (context?.previous) {
         queryClient.setQueryData(["/api/settings"], context.previous);
       }
+      // Reset cleared keys on error
+      setClearedSocialKeys([]);
       toast({ title: "Update failed", description: err.message || "Failed to update settings", variant: "destructive" });
     },
     onSuccess: async (data) => {
@@ -204,6 +212,9 @@ export default function AdminSettings() {
       await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
       await queryClient.refetchQueries({ queryKey: ["/api/settings", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/platform-settings"] });
+
+      // Reset cleared keys after successful update
+      setClearedSocialKeys([]);
 
       // Reset form with server response
       form.reset({
@@ -868,7 +879,8 @@ export default function AdminSettings() {
                               className="btn-ghost text-sm"
                               onClick={() => {
                                 if (confirm('Clear Facebook URL from settings? This will remove it from the footer.')) {
-                                  form.setValue('facebookUrl', '__CLEAR__');
+                                  form.setValue('facebookUrl', '');
+                                  setClearedSocialKeys([...clearedSocialKeys, 'facebookUrl']);
                                 }
                               }}
                               data-testid="button-clear-facebook"
@@ -905,7 +917,8 @@ export default function AdminSettings() {
                               className="btn-ghost text-sm"
                               onClick={() => {
                                 if (confirm('Clear Instagram URL from settings?')) {
-                                  form.setValue('instagramUrl', '__CLEAR__');
+                                  form.setValue('instagramUrl', '');
+                                  setClearedSocialKeys([...clearedSocialKeys, 'instagramUrl']);
                                 }
                               }}
                               data-testid="button-clear-instagram"
@@ -935,7 +948,7 @@ export default function AdminSettings() {
                               onCheckedChange={(checked) => form.setValue("showTwitter", checked)}
                               data-testid="switch-show-twitter"
                             />
-                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear Twitter URL from settings?')) form.setValue('twitterUrl', '__CLEAR__'); }} data-testid="button-clear-twitter">Clear</button>
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear Twitter URL from settings?')) { form.setValue('twitterUrl', ''); setClearedSocialKeys([...clearedSocialKeys, 'twitterUrl']); } }} data-testid="button-clear-twitter">Clear</button>
                           </div>
                         </div>
                         {form.formState.errors.twitterUrl && (
@@ -961,7 +974,7 @@ export default function AdminSettings() {
                               onCheckedChange={(checked) => form.setValue("showLinkedin", checked)}
                               data-testid="switch-show-linkedin"
                             />
-                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear LinkedIn URL from settings?')) form.setValue('linkedinUrl', '__CLEAR__'); }} data-testid="button-clear-linkedin">Clear</button>
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear LinkedIn URL from settings?')) { form.setValue('linkedinUrl', ''); setClearedSocialKeys([...clearedSocialKeys, 'linkedinUrl']); } }} data-testid="button-clear-linkedin">Clear</button>
                           </div>
                         </div>
                         {form.formState.errors.linkedinUrl && (
@@ -985,7 +998,7 @@ export default function AdminSettings() {
                               onCheckedChange={(checked) => form.setValue("showYoutube", checked)}
                               data-testid="switch-show-youtube"
                             />
-                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear YouTube URL from settings?')) form.setValue('youtubeUrl', '__CLEAR__'); }} data-testid="button-clear-youtube">Clear</button>
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear YouTube URL from settings?')) { form.setValue('youtubeUrl', ''); setClearedSocialKeys([...clearedSocialKeys, 'youtubeUrl']); } }} data-testid="button-clear-youtube">Clear</button>
                           </div>
                         </div>
                         {form.formState.errors.youtubeUrl && (
@@ -1009,7 +1022,7 @@ export default function AdminSettings() {
                               onCheckedChange={(checked) => form.setValue("showTiktok", checked)}
                               data-testid="switch-show-tiktok"
                             />
-                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear TikTok URL from settings?')) form.setValue('tiktokUrl', '__CLEAR__'); }} data-testid="button-clear-tiktok">Clear</button>
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear TikTok URL from settings?')) { form.setValue('tiktokUrl', ''); setClearedSocialKeys([...clearedSocialKeys, 'tiktokUrl']); } }} data-testid="button-clear-tiktok">Clear</button>
                           </div>
                         </div>
                         {form.formState.errors.tiktokUrl && (
@@ -1033,7 +1046,7 @@ export default function AdminSettings() {
                               onCheckedChange={(checked) => form.setValue("showPinterest", checked)}
                               data-testid="switch-show-pinterest"
                             />
-                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear Pinterest URL from settings?')) form.setValue('pinterestUrl', '__CLEAR__'); }} data-testid="button-clear-pinterest">Clear</button>
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear Pinterest URL from settings?')) { form.setValue('pinterestUrl', ''); setClearedSocialKeys([...clearedSocialKeys, 'pinterestUrl']); } }} data-testid="button-clear-pinterest">Clear</button>
                           </div>
                         </div>
                         {form.formState.errors.pinterestUrl && (
@@ -1057,7 +1070,7 @@ export default function AdminSettings() {
                               onCheckedChange={(checked) => form.setValue("showWhatsapp", checked)}
                               data-testid="switch-show-whatsapp"
                             />
-                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear WhatsApp link from settings?')) form.setValue('whatsappPage', '__CLEAR__'); }} data-testid="button-clear-whatsapp">Clear</button>
+                            <button type="button" className="btn-ghost text-sm" onClick={() => { if (confirm('Clear WhatsApp link from settings?')) { form.setValue('whatsappPage', ''); setClearedSocialKeys([...clearedSocialKeys, 'whatsappPage']); } }} data-testid="button-clear-whatsapp">Clear</button>
                           </div>
                         </div>
                         {form.formState.errors.whatsappPage && (
