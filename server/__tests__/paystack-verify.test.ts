@@ -35,4 +35,4 @@ async function run() {
   console.log('✅ paystack-verify.test passed');
 }
 
-run().catch(err => { console.error('❌ test failed', err); process.exit(1); });
+run().catch(err => { console.error('❌ test failed', err); throw err; });

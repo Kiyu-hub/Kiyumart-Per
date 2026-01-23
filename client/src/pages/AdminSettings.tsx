@@ -1153,11 +1153,6 @@ export default function AdminSettings() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="GHS">GHS - Ghanaian Cedi</SelectItem>
-                        <SelectItem value="NGN">NGN - Nigerian Naira</SelectItem>
-                        <SelectItem value="XOF">XOF - West African CFA Franc</SelectItem>
-                        <SelectItem value="USD">USD - US Dollar</SelectItem>
-                        <SelectItem value="EUR">EUR - Euro</SelectItem>
-                        <SelectItem value="SAR">SAR - Saudi Riyal</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

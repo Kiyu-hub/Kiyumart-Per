@@ -23,6 +23,7 @@
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
 - [Getting Started](#getting-started)
+ - [Testing](#testing)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
 - [User Roles & Permissions](#user-roles--permissions)
@@ -225,6 +226,37 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Navigation assistance with maps
   - Photo/signature capture for delivery proof
   - Delivery history and earnings
+
+  ## 🧪 Testing
+
+  This repository includes unit and Playwright e2e tests. The project includes a GitHub Actions workflow that runs tests on push and pull requests to `main`.
+
+  Local test commands:
+
+  ```bash
+  # Install deps
+  npm ci
+
+  # Run unit tests
+  npm run test:unit
+
+  # Start backend (in a separate terminal)
+  npx tsx server/index.ts
+
+  # Start frontend (in a separate terminal)
+  npm run dev:frontend
+
+  # Install Playwright browsers (first time)
+  npx playwright install chromium
+
+  # Run e2e tests (expects backend and frontend to be running)
+  npx playwright test --project=chromium
+  ```
+
+  Notes:
+  - In CI we install Playwright browsers with `--with-deps`. If you encounter Playwright browser errors locally, run `npx playwright install --with-deps` and ensure required system libraries are present.
+  - The tests assume `SESSION_SECRET` is set; the CI workflow sets `SESSION_SECRET=testsecret` for e2e runs.
+
 
 ---
 

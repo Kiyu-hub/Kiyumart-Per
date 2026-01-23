@@ -1,5 +1,5 @@
 import { Switch, Route } from "wouter";
-import { useState, useEffect } from "react";
+import * as React from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -191,9 +191,9 @@ function Router() {
 }
 
 function App() {
-  const [isAppReady, setIsAppReady] = useState(false);
+  const [isAppReady, setIsAppReady] = React.useState(false);
 
-  useEffect(() => {
+  React.useEffect(() => {
     // Initialize app - preload critical resources
     const initializeApp = async () => {
       try {

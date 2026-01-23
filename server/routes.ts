@@ -20,6 +20,7 @@ import multer from "multer";
 import sharp from "sharp";
 import { insertUserSchema, insertProductSchema, insertDeliveryZoneSchema, insertOrderSchema, insertWishlistSchema, insertReviewSchema, insertRiderReviewSchema, insertBannerCollectionSchema, insertMarketplaceBannerSchema, insertFooterPageSchema, vehicleInfoSchema, type User } from "@shared/schema";
 import { getStoreTypeSchema, type StoreType, STORE_TYPES } from "@shared/storeTypes";
+import buildPaystackInitializePayload from './paystackUtils';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -3791,11 +3792,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
-      // Prepare payment payload (use first order's currency for consistency)
+      // Prepare payment payload (use helper for base structure)
       // Compute total processing fee across orders and ensure it is set as transaction_charge
       const processingFeeTotal = orders.reduce((s: number, o: any) => s + (parseFloat(o.processingFee || "0") || 0), 0);
 
+      // Use the Paystack payload builder for a consistent base payload, then extend
+      const baseForHelper = {
+        id: orders[0].id,
+        orderNumber: orders[0].orderNumber,
+        total: totalAmount.toFixed(2),
+        currency: orders[0].currency,
+        buyerId: req.user!.id,
+        paystackSubaccountId: undefined,
+      } as any;
+
+      const helperSettings = { defaultCommissionRate: settings.defaultCommissionRate } as any;
+      const basePayload = buildPaystackInitializePayload(baseForHelper, helperSettings);
+
       const paymentPayload: any = {
+        ...basePayload,
         email: req.user!.email,
         amount: Math.round(totalAmount * 100), // Total in kobo/pesewas (includes processing fee)
         currency: orders[0].currency,
@@ -3803,6 +3818,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         callback_url: callbackUrl,
         transaction_charge: Math.round(processingFeeTotal * 100), // pass processing fee to Paystack (kobo)
         metadata: {
+          ...(basePayload.metadata || {}),
           userId: req.user!.id,
           buyerId: req.user!.id,
           isMultiVendor,

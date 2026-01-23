@@ -11,7 +11,7 @@ import { generateToken } from '../auth';
 async function run() {
   if (process.env.RUN_PAYSTACK_INTEGRATION !== 'true') {
     console.log('Skipping integration test; set RUN_PAYSTACK_INTEGRATION=true to run');
-    process.exit(0);
+    return;
   }
   process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'testsecret';
 
@@ -114,4 +114,4 @@ async function run() {
   server.close();
 }
 
-run().catch(err => { console.error('❌ integration test failed', err); process.exit(1); });
+run().catch(err => { console.error('❌ integration test failed', err); throw err; });

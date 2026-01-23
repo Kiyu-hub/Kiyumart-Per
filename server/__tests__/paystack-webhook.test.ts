@@ -43,5 +43,5 @@ async function run() {
 
 run().catch(err => {
   console.error('❌ test failed', err);
-  process.exit(1);
+  throw err;
 });
