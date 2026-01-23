@@ -2144,8 +2144,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create test user accounts for all roles (Development/Testing only)
+  // SECURITY: Only allow in development mode
   app.post("/api/seed/test-users", async (req, res) => {
     try {
+      // Reject seed endpoints in production
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked seed endpoint /api/seed/test-users in production`);
+        return res.status(403).json({ error: "Seed endpoints are disabled in production" });
+      }
+      
       const testUsers = [
         {
           email: "superadmin@kiyumart.com",
@@ -2249,6 +2256,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Complete marketplace seed - creates sellers, products, and banners (Development/Testing only)
   app.post("/api/seed/complete-marketplace", async (req, res) => {
     try {
+      // Reject seed endpoints in production
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked seed endpoint /api/seed/complete-marketplace in production`);
+        return res.status(403).json({ error: "Seed endpoints are disabled in production" });
+      }
+      
       const results = {
         sellers: [] as any[],
         products: [] as any[],
@@ -2365,6 +2378,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Islamic Fashion Products Seed (Development/Testing only)
   app.post("/api/seed/islamic-fashion", async (req, res) => {
     try {
+      // Reject seed endpoints in production
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked seed endpoint /api/seed/islamic-fashion in production`);
+        return res.status(403).json({ error: "Seed endpoints are disabled in production" });
+      }
+      
       const { createCompliantProductData, getAllProductBundles } = await import("./seedMediaLibrary");
       
       // Get or create a seller for the store
@@ -2467,6 +2486,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin seed for marketplace setup (Development only)
   app.post("/api/seed/marketplace-setup", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
     try {
+      // Reject seed endpoints in production
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked seed endpoint /api/seed/marketplace-setup in production`);
+        return res.status(403).json({ error: "Seed endpoints are disabled in production" });
+      }
+      
       // Create sample banner collection
       const collection = await storage.createBannerCollection({
         name: "Homepage Promotions",
@@ -2532,6 +2557,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Seller seed for products (⚠️ DEVELOPMENT/TESTING ONLY - Remove or disable in production)
   app.post("/api/seed/sample-data", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
     try {
+      // Reject seed endpoints in production
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked seed endpoint /api/seed/sample-data in production`);
+        return res.status(403).json({ error: "Seed endpoints are disabled in production" });
+      }
+      
       const sellerId = req.user!.id;
       const { createCompliantProductData, getAllProductBundles } = await import("./seedMediaLibrary");
       

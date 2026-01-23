@@ -359,6 +359,8 @@ export default function SellerDetailsPage() {
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="analytics" className="mt-6">
             {salesLoading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />

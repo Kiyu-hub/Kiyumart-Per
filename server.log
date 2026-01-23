@@ -1,4 +1,5 @@
 [BOOT] Ensured super_admin role features are set
-9:25:42 PM [express] serving on port 5000
+12:23:04 PM [express] serving on port 5000
 [PAYOUT-WORKER] Starting payout worker, interval 15000
 [BOOT] Payout worker started
+12:28:46 PM [express] GET /api/health 200 in 242ms :: {"status":"ok","database":"connected","latency"…
