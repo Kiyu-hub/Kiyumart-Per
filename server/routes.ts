@@ -2061,9 +2061,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sellers = await storage.getUsersByRole('seller');
       const results: any[] = [];
+
+      // Import needed schema and db helpers here so the scope is clear
+      const { db } = await import("../db/index");
+      const { sellerPayouts } = await import("@shared/schema");
+      const { eq, sql } = await import("drizzle-orm");
+
       for (const s of sellers) {
         // Aggregates for payouts (use sql templates instead of db.raw)
-        const { sql } = await import("drizzle-orm");
         const totals = await db.select({
           totalPaid: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'completed' THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
           pending: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'pending' THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
@@ -2384,6 +2389,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         results.banners.push(created);
       }
 
+      // Ensure a store exists for the first seeded seller and set it as primary store (single-store mode)
+      try {
+        if (results.sellers.length > 0) {
+          const primarySeller = results.sellers[0];
+          const primaryStore = await storage.ensureStoreForSeller(primarySeller.id);
+          await storage.updatePlatformSettings({ isMultiVendor: false, primaryStoreId: primaryStore.id, defaultCurrency: 'GHS' });
+          console.log(`[seed/complete-marketplace] Set primaryStoreId=${primaryStore.id} for seeded marketplace`);
+        }
+      } catch (err: any) {
+        console.warn('[seed/complete-marketplace] Failed to set primary store:', err?.message || err);
+      }
+
       res.json({
         success: true,
         message: "Complete marketplace seeded successfully!",
@@ -2396,6 +2413,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Development helper: Ensure the platform primary store is set to a store that has active products
+  app.post('/api/seed/ensure-primary-store', async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('[SECURITY] Blocked /api/seed/ensure-primary-store in production');
+        return res.status(403).json({ error: 'Seed endpoints are disabled in production' });
+      }
+
+      // Find any active product and use its store as the primary store
+      const products = await storage.getProducts({ isActive: true });
+      if (!products || products.length === 0) return res.status(400).json({ error: 'No active products found' });
+
+      const candidate = products[0];
+      if (!candidate.storeId) return res.status(400).json({ error: 'Product does not have a storeId' });
+
+      const store = await storage.getStore(candidate.storeId);
+      if (!store) return res.status(404).json({ error: 'Store not found' });
+
+      const updated = await storage.updatePlatformSettings({ isMultiVendor: false, primaryStoreId: store.id, defaultCurrency: 'GHS' });
+      res.json({ success: true, primaryStoreId: store.id, settings: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
     }
   });
 
