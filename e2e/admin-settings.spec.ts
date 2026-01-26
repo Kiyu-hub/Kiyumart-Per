@@ -5,14 +5,24 @@ test.beforeAll(async ({ request }: { request: APIRequestContext }) => {
   await request.post('http://localhost:5000/api/seed/test-users');
 });
 
-test('multi-vendor toggle updates immediately and persists after reload', async ({ page }: { page: Page }) => {
-  // login
-  await page.goto('/auth');
-  await page.fill('[data-testid="input-login-email"]', 'superadmin@kiyumart.com');
-  await page.fill('[data-testid="input-login-password"]', 'superadmin123');
-  await page.click('[data-testid="button-login"]');
+// Use programmatic login and set cookie to avoid triggering rate limits from repeated UI logins
+test.beforeEach(async ({ request, page }) => {
+  const loginRes = await request.post('http://localhost:5000/api/auth/login', {
+    data: { email: 'superadmin@kiyumart.com', password: 'superadmin123' },
+  });
+  const rawSetCookie = (loginRes.headers()['set-cookie'] || '') as string;
+  const m = rawSetCookie.match(/token=([^;]+);?/);
+  const token = m ? m[1] : '';
 
-  // go to admin settings
+  if (token) {
+    await page.context().addCookies([
+      { name: 'token', value: token, domain: 'localhost', path: '/', httpOnly: true },
+    ]);
+  }
+});
+
+test('multi-vendor toggle updates immediately and persists after reload', async ({ page }: { page: Page }) => {
+  // go to admin settings (already authenticated via cookie)
   await page.goto('/admin/settings');
   await page.waitForSelector('[data-testid="label-store-mode"]');
 

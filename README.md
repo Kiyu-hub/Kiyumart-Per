@@ -255,6 +255,7 @@ To be the leading online marketplace platform for local businesses, connecting q
   Notes:
   - In CI we install Playwright browsers with `--with-deps`. If you encounter Playwright browser errors locally, run `npx playwright install --with-deps` and ensure required system libraries are present.
   - The tests assume `SESSION_SECRET` is set; the CI workflow sets `SESSION_SECRET=testsecret` for e2e runs.
+  - For faster, more reliable e2e runs that don't trigger rate limits, tests may obtain tokens using the test-only endpoint `POST /api/test/token` (development/testing only). This avoids repeated UI logins and prevents 429s in CI.
 
 
 ---

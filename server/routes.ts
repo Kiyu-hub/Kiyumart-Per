@@ -2254,6 +2254,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Test helper: create a JWT for a seeded user (Development/Testing only)
+  app.post('/api/test/token', async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked test endpoint /api/test/token in production`);
+        return res.status(403).json({ error: "Test endpoints are disabled in production" });
+      }
+
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ error: 'Email is required' });
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      const token = generateToken(user);
+
+      res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // Complete marketplace seed - creates sellers, products, and banners (Development/Testing only)
   app.post("/api/seed/complete-marketplace", async (req, res) => {
     try {
