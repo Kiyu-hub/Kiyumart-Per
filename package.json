@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "build:frontend": "vite build",
-    "dev:frontend": "vite",
+    "dev:frontend": "vite --host",
     "test:e2e": "playwright test",
     "test:unit": "bash scripts/run-unit-tests.sh",
     "test:integration": "SESSION_SECRET=testsecret tsx server/__tests__/paystack-integration.test.ts",
