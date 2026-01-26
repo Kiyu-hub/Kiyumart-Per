@@ -192,18 +192,19 @@ function Router() {
 
 function App() {
   const [isAppReady, setIsAppReady] = React.useState(false);
+  const [appInitError, setAppInitError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    // Initialize app - preload critical resources
+    // Initialize app - preload critical resources and detect backend availability
     const initializeApp = async () => {
       try {
-        // Preload essential data
-        await Promise.all([
-          queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] }),
-          queryClient.prefetchQuery({ queryKey: ["/api/categories"] }),
-        ]);
-      } catch (error) {
-        console.log("Preload completed with some errors:", error);
+        // Use prefetch to warm the cache and detect errors early
+        await queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] });
+        await queryClient.prefetchQuery({ queryKey: ["/api/categories"] });
+      } catch (error: any) {
+        console.error("Preload completed with errors:", error?.message || error);
+        // Surface a helpful message if the API returned HTML or was unreachable
+        setAppInitError(error?.message || String(error));
       } finally {
         setIsAppReady(true);
       }
@@ -211,6 +212,24 @@ function App() {
 
     initializeApp();
   }, []);
+
+  // If we detected an initialization error (e.g., backend not reachable), show a helpful full-screen message
+  if (appInitError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+        <div className="max-w-2xl text-center">
+          <h1 className="text-2xl font-bold mb-4">Application failed to initialize</h1>
+          <p className="text-muted-foreground mb-4">{appInitError}</p>
+          <p className="mb-4">Common fixes:</p>
+          <ul className="text-left list-disc list-inside text-sm text-muted-foreground">
+            <li>Ensure the backend is running locally: <code>SESSION_SECRET=testsecret npx tsx server/index.ts</code> (http://localhost:5000)</li>
+            <li>If your frontend is served from another origin (preview), set <code>VITE_API_URL</code> to your backend: <code>VITE_API_URL=http://localhost:5000 npm run dev:frontend</code></li>
+            <li>Check the browser devtools console for the full response details.</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <QueryClientProvider client={queryClient}>
