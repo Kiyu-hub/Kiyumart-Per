@@ -243,7 +243,7 @@ To be the leading online marketplace platform for local businesses, connecting q
   npx tsx server/index.ts
 
   # Start frontend (in a separate terminal)
-  npm run dev:frontend
+  npm run dev:frontend (Vite: http://localhost:5173)
 
   # Install Playwright browsers (first time)
   npx playwright install chromium
@@ -492,8 +492,7 @@ The platform can be fully configured through the admin settings interface:
 - **Logo Upload**: Platform logo (light and dark versions)
 
 #### 6. Currency
-- **Default Currency**: GHS, NGN, XOF, USD, EUR, or SAR
-
+  - **Default Currency**: GHS (single-currency platform)
 ### Delivery Zones (`/admin/delivery-zones`)
 
 Configure delivery areas and pricing:
