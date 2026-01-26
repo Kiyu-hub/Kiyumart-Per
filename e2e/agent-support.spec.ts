@@ -23,7 +23,7 @@ test.beforeAll(async ({ request }: { request: APIRequestContext }) => {
 });
 
 test('agent support flow: create -> message -> assign -> resolve', async ({ request }: { request: APIRequestContext }) => {
-  const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+  const headers: Record<string, string> = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
   // 1) Create conversation
   const subject = 'Playwright: Agent test convo';

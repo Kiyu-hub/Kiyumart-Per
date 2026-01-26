@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
-async function setAuthCookie(page, request, email: string) {
+async function setAuthCookie(page: Page, request: APIRequestContext, email: string) {
   const res = await request.post('http://localhost:5000/api/test/token', { data: { email } });
   expect(res.ok()).toBeTruthy();
   const body = await res.json();

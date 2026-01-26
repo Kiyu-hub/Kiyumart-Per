@@ -240,10 +240,15 @@ To be the leading online marketplace platform for local businesses, connecting q
   npm run test:unit
 
   # Start backend (in a separate terminal)
-  npx tsx server/index.ts
+  npx tsx server/index.ts (Backend: http://localhost:5000)
 
   # Start frontend (in a separate terminal)
-  npm run dev:frontend (Vite: http://localhost:5173)
+  npm run dev:frontend (Vite frontend: http://localhost:5173)
+
+  ## Local dev URLs
+  - Frontend: http://localhost:5173
+  - Backend API: http://localhost:5000
+  - Playwright tests expect the backend and frontend to be running. Use the test-only helper `POST /api/test/token` (development only) to obtain JWTs for seeded users to avoid repeated UI logins and rate-limits in CI.
 
   # Install Playwright browsers (first time)
   npx playwright install chromium
