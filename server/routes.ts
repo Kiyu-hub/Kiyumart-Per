@@ -2062,12 +2062,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sellers = await storage.getUsersByRole('seller');
       const results: any[] = [];
       for (const s of sellers) {
-        // Aggregates for payouts
+        // Aggregates for payouts (use sql templates instead of db.raw)
+        const { sql } = await import("drizzle-orm");
         const totals = await db.select({
-          totalPaid: db.raw("COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0)"),
-          pending: db.raw("COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0)"),
-          count: db.raw("COALESCE(COUNT(*), 0)"),
-          lastPayoutAt: db.raw("MAX(processed_at)")
+          totalPaid: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'completed' THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
+          pending: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'pending' THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
+          count: sql`COALESCE(COUNT(*), 0)`,
+          lastPayoutAt: sql`MAX(${sellerPayouts.processedAt})`
         }).from(sellerPayouts).where(eq(sellerPayouts.sellerId, s.id));
 
         results.push({
