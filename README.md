@@ -230,6 +230,8 @@ To be the leading online marketplace platform for local businesses, connecting q
 
   This repository includes unit and Playwright e2e tests. The project includes a GitHub Actions workflow that runs tests on push and pull requests to `main`.
 
+  Refer to `TEST_CREDENTIALS.md` for a central, safe reference of test account emails and instructions for obtaining tokens (no plaintext passwords are included).
+
   Local test commands:
 
   ```bash
