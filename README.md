@@ -159,6 +159,9 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Recommended image sizes and responsive behavior are shown in the Admin Settings UI
   - Ads respect `adsEnabled` flag and can be toggled on/off by admin
 
+- **Product Card Pricing**
+  - Product cards show a sale price and (when applicable) the original/cost price as a struck-through value to highlight discounts and savings.
+
 - **Rider Management** (Logistics Partner)
   - Register and manage delivery riders
   - Track rider performance metrics
