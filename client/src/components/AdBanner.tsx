@@ -18,9 +18,11 @@ type AdPosition = "hero" | "sidebar" | "footer" | "product-page";
 interface AdBannerProps {
   position: AdPosition;
   className?: string;
+  /** When true, render as a full-bleed ad (no rounded corners or card background) */
+  fullBleed?: boolean;
 }
 
-export default function AdBanner({ position, className = "" }: AdBannerProps) {
+export default function AdBanner({ position, className = "", fullBleed = false }: AdBannerProps) {
   const { data: settings } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
   });
@@ -62,47 +64,63 @@ export default function AdBanner({ position, className = "" }: AdBannerProps) {
     return null;
   }
 
-  const handleAdClick = () => {
-    if (ad.url) {
-      window.open(ad.url, "_blank", "noopener,noreferrer");
-    }
-  };
+  const isFull = fullBleed || className.includes("rounded-none") || className.includes("border-0");
+
+  const wrapperClasses = [
+    "relative",
+    "group",
+    "overflow-hidden",
+    isFull ? "w-full" : "rounded-lg border bg-card",
+    "shadow-sm",
+    className,
+  ].join(" ");
+
+  // Use anchor for proper semantics and keyboard navigation
+  const AdInner = (
+    <>
+      {/* subtle gradient overlay for a polished look */}
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/8 pointer-events-none" />
+
+      <img
+        src={ad.image}
+        alt={ad.url ? "Sponsored advertisement" : "Advertisement"}
+        className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105`}
+        data-testid={`img-ad-${position}`}
+      />
+
+      {/* Sponsored pill */}
+      <div className="absolute top-3 right-3 bg-black/50 text-white text-xs px-3 py-1 rounded-full flex items-center gap-2 backdrop-blur-sm">
+        <ExternalLink className="h-3 w-3 opacity-90" />
+        <span>Sponsored</span>
+      </div>
+
+      {/* Decorative subtle separator when full-bleed to give structure */}
+      {isFull && <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-black/8 to-transparent" />}
+    </>
+  );
+
+  if (ad.url) {
+    return (
+      <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
+        <a
+          href={ad.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
+          aria-label="Open sponsored content"
+          data-testid={`link-ad-${position}`}
+        >
+          {AdInner}
+        </a>
+      </div>
+    );
+  }
 
   return (
-    <div
-      className={`relative group overflow-hidden rounded-lg border bg-card ${className}`}
-      data-testid={`ad-banner-${position}`}
-    >
-      {ad.url ? (
-        <button
-          onClick={handleAdClick}
-          className="w-full h-full relative block transition-opacity hover:opacity-90"
-          data-testid={`button-ad-${position}`}
-        >
-          <img
-            src={ad.image}
-            alt="Advertisement"
-            className="w-full h-full object-cover"
-            data-testid={`img-ad-${position}`}
-          />
-          <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-            <ExternalLink className="h-3 w-3" />
-            <span>Ad</span>
-          </div>
-        </button>
-      ) : (
-        <div className="relative">
-          <img
-            src={ad.image}
-            alt="Advertisement"
-            className="w-full h-full object-cover"
-            data-testid={`img-ad-${position}`}
-          />
-          <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-            Ad
-          </div>
-        </div>
-      )}
+    <div className={wrapperClasses} data-testid={`ad-banner-${position}`} role="img" aria-label="Advertisement">
+      <div className="w-full h-full relative">
+        {AdInner}
+      </div>
     </div>
   );
 }

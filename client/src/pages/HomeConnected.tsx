@@ -348,7 +348,7 @@ export default function HomeConnected() {
 
       {/* Full-bleed hero ad - stretches edge-to-edge and removes card borders for a flush look */}
       <div className="w-screen -mx-4 md:-mx-8 py-6">
-        <AdBanner position="hero" className="h-32 md:h-48 rounded-none border-0" />
+        <AdBanner position="hero" className="h-36 md:h-56 rounded-none border-0" fullBleed />
       </div>
 
       <main className="flex-1">
@@ -432,7 +432,7 @@ export default function HomeConnected() {
 
       {/* Full-bleed footer ad */}
       <div className="w-screen -mx-4 md:-mx-8 pb-12">
-        <AdBanner position="footer" className="h-24 md:h-32 rounded-none border-0" />
+        <AdBanner position="footer" className="h-28 md:h-36 rounded-none border-0" fullBleed />
       </div>
 
       <Footer />
