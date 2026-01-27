@@ -79,11 +79,18 @@ export default function Home() {
   });
 
   // Filter products by primary store in single-store mode
-  const dbProducts = platformSettings?.isMultiVendor 
+  let dbProducts = platformSettings?.isMultiVendor 
     ? allDbProducts 
     : platformSettings?.primaryStoreId
       ? allDbProducts.filter(p => p.storeId === platformSettings.primaryStoreId)
       : allDbProducts;
+
+  // Fallback: if single-store mode but the configured primary store has no products,
+  // fall back to showing all products to avoid empty/blank pages in dev environments.
+  const primaryStoreIdMissingProducts = !platformSettings?.isMultiVendor && platformSettings?.primaryStoreId && dbProducts.length === 0 && allDbProducts.length > 0;
+  if (primaryStoreIdMissingProducts) {
+    dbProducts = allDbProducts; // show all products as a graceful fallback
+  }
 
   const bannerSlides = [
     {
@@ -106,6 +113,28 @@ export default function Home() {
     image: cat.image,
     productCount: dbProducts.filter(p => p.category === cat.slug).length
   }));
+
+  // If we had to fall back because the primary store has no products, send a dev-only client log
+  if (primaryStoreIdMissingProducts) {
+    (async () => {
+      try {
+        await fetch('/api/test/client-log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            type: 'primary_store_missing_products',
+            primaryStoreId: platformSettings?.primaryStoreId,
+            availableProducts: allDbProducts.length,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+      } catch (e) {
+        // silent
+        console.debug('Client log failed to send:', e?.message || e);
+      }
+    })();
+  }
 
   const products = [
     {
