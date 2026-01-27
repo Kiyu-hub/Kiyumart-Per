@@ -153,6 +153,12 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Banner performance analytics
   - A/B testing support
 
+- **Ads Configuration**
+  - Manage homepage, sidebar, product-page, and footer ads via Admin Settings
+  - Ad links accept absolute URLs (https://...), relative paths (/category/...), anchors (#section), and protocol links like mailto: and tel:
+  - Recommended image sizes and responsive behavior are shown in the Admin Settings UI
+  - Ads respect `adsEnabled` flag and can be toggled on/off by admin
+
 - **Rider Management** (Logistics Partner)
   - Register and manage delivery riders
   - Track rider performance metrics

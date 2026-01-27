@@ -115,10 +115,58 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   );
 
   if (ad.url) {
+    const url = ad.url.trim();
+    const isInternal = url.startsWith('/') || url.startsWith('#');
+    const isProtocol = url.startsWith('mailto:') || url.startsWith('tel:');
+    const isExternal = /^https?:\/\//i.test(url);
+
+    if (isInternal) {
+      const [, navigate] = require('wouter').useLocation();
+      const handleClick = (e: React.MouseEvent) => {
+        e.preventDefault();
+        if (url.startsWith('#')) {
+          const el = document.querySelector(url);
+          if (el) el.scrollIntoView({ behavior: 'smooth' });
+        } else {
+          navigate(url);
+        }
+      };
+
+      return (
+        <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
+          <a
+            href={url}
+            onClick={handleClick}
+            className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
+            aria-label="Open sponsored content"
+            data-testid={`link-ad-${position}`}
+          >
+            {AdInner}
+          </a>
+        </div>
+      );
+    }
+
+    if (isProtocol) {
+      return (
+        <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
+          <a
+            href={url}
+            className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
+            aria-label="Open sponsored content"
+            data-testid={`link-ad-${position}`}
+          >
+            {AdInner}
+          </a>
+        </div>
+      );
+    }
+
+    // external http(s)
     return (
       <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
         <a
-          href={ad.url}
+          href={url}
           target="_blank"
           rel="noopener noreferrer"
           className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
