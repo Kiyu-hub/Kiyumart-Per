@@ -101,7 +101,8 @@ test('multi-vendor toggle via Admin Settings persists after save', async ({ page
 
     // Read current switch state from the DOM (aria-checked)
     const attr = await page.getAttribute('[data-testid="switch-multi-vendor"]', 'aria-checked');
-    const currentIsMulti = attr === 'true' || attr === true;
+    // Normalize the aria-checked attribute (string | null) to a boolean
+    const currentIsMulti = attr === 'true';
     expect(currentIsMulti).toBe(initialIsMulti);
 
     // Toggle the switch
@@ -138,7 +139,7 @@ test('multi-vendor toggle via Admin Settings persists after save', async ({ page
       await page.reload();
       await page.waitForSelector('[data-testid="switch-multi-vendor"]', { timeout: 5000 });
       const attr2 = await page.getAttribute('[data-testid="switch-multi-vendor"]', 'aria-checked');
-      const currentIsMultiAfter = attr2 === 'true' || attr2 === true;
+      const currentIsMultiAfter = attr2 === 'true';
       expect(currentIsMultiAfter).toBe(!initialIsMulti);
     } catch (e) {
       // ignore UI validation failure
