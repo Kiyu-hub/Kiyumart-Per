@@ -1186,7 +1186,8 @@ export class DbStorage implements IStorage {
       console.info('PLAT_SETTINGS_COLUMNS', Object.keys(platformSettings));
       const result = await db.select().from(platformSettings).orderBy(desc(platformSettings.updatedAt)).limit(1);
       if (result.length === 0) {
-        const [settings] = await db.insert(platformSettings).values({}).returning();
+        // Ensure reasonable defaults on first creation: Single-store by default and GHS currency
+        const [settings] = await db.insert(platformSettings).values({ isMultiVendor: false, defaultCurrency: 'GHS' }).returning();
         return settings;
       }
       // Sanitize social URLs: convert '__CLEAR__' to null

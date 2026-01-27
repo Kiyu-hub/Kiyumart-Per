@@ -901,6 +901,18 @@ We welcome contributions! Please follow these guidelines:
 - Include data-testid attributes for UI elements
 - Validate forms with Zod schemas
 
+### Pre-push checks ✅
+
+To help prevent common problems from reaching CI or production, please run the following before pushing:
+
+- Typecheck: `npm run typecheck` — this runs `tsc --noEmit` and will catch TypeScript errors early.
+- Run tests: `npm run test:e2e` (Playwright) and `npm run test:unit` when relevant.
+
+Testing helpers:
+
+- `e2e/test-utils.ts#getTestToken(request, email)` is a small helper that returns a test JWT (via `/api/test/token`) for Playwright tests. Use it to avoid duplicated token-fetching logic and block-scoped redeclaration issues in tests.
+
+Adding these checks locally keeps CI fast and reduces churn in PRs.
 ---
 
 ## 📄 License

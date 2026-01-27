@@ -89,6 +89,32 @@ async function seed() {
       isApproved: true
     }).returning();
 
+    // Ensure super_admin role has all server features set (idempotent)
+    try {
+      const superAdminFeatures: Record<string, boolean> = {
+        canManageUsers: true,
+        canManageProducts: true,
+        canManageOrders: true,
+        canManageStores: true,
+        canManageCategories: true,
+        canManageAdmins: true,
+        canEditPasswords: true,
+        canManageRoles: true,
+        canManagePlatformSettings: true,
+        canViewAnalytics: true,
+        canManagePromotions: true,
+        canManageReviews: true,
+        canManagePayouts: true,
+        canViewPayouts: true,
+        canManageFeatures: true,
+      };
+      const { storage } = await import('./storage');
+      await storage.updateRoleFeatures('super_admin', superAdminFeatures, 'system');
+      console.log('Ensured super_admin role features set via seed');
+    } catch (e) {
+      console.warn('Could not ensure super_admin role features via seed:', (e as any)?.message || e);
+    }
+
     const [admin1] = await db.insert(users).values({
       email: "admin1@kiyumart.com",
       password: hashedPassword,

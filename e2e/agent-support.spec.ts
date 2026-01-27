@@ -11,8 +11,16 @@ test.beforeAll(async ({ request }: { request: APIRequestContext }) => {
   // Login once and reuse the token to avoid rate-limiter 429s
   // Use the test-only token endpoint to get a JWT without triggering the rate-limiter
   const t = await getTestToken(request, 'agent@kiyumart.com');
-  // We only need the token; agentId is optional and rarely used in asserts here
+  // Capture token and agent ID via auth/me so we can assert assigned agent matches
   authToken = t;
+  const meRes = await request.get('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${authToken}` } });
+  if (meRes.ok()) {
+    const meBody = await meRes.json();
+    agentId = meBody.id;
+  }
+
+  expect(authToken).toBeTruthy();
+  expect(agentId).toBeTruthy();
 
   expect(authToken).toBeTruthy();
   expect(agentId).toBeTruthy();

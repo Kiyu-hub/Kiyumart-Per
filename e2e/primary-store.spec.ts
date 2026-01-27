@@ -54,8 +54,8 @@ test('primary store shows seller products and maintains Islamic header banners i
   await page.goto('http://localhost:5000/');
   await page.waitForLoadState('networkidle');
 
-  // Patch settings with superadmin token (reuse earlier tokenBody)
-  const patch = await request.patch('http://localhost:5000/api/settings', { data: { isMultiVendor: true }, headers: { Authorization: `Bearer ${tokenBody.token}` } });
+  // Patch settings with superadmin token (reuse earlier testToken)
+  const patch = await request.patch('http://localhost:5000/api/settings', { data: { isMultiVendor: true }, headers: { Authorization: `Bearer ${testToken}` } });
   expect(patch.ok()).toBeTruthy();
 
   // Go back to homepage, banners should switch to marketplace layout (category headings)
