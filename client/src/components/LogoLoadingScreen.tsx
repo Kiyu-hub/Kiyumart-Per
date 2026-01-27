@@ -12,6 +12,11 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import appLogo from "@assets/kiyumart_logo.png";
 
+// Attempt to use a script-style logo when present. This is loaded at runtime so
+// the build won't fail if the file isn't yet added to `attached_assets/`.
+// Use the express-served attached_assets path so it works in dev and prod.
+const SCRIPT_LOGO_URL = "/attached_assets/kiyumart_logo_script.png";
+
 interface LogoLoadingScreenProps {
   isLoading?: boolean;
   minDisplayTime?: number;
@@ -51,7 +56,17 @@ export default function LogoLoadingScreen({
 }: LogoLoadingScreenProps) {
   const [showLoader, setShowLoader] = useState(true);
   const [hasMinTimePassed, setHasMinTimePassed] = useState(false);
+  const [logoSrc, setLogoSrc] = useState<string>(appLogo);
   const shouldReduceMotion = useReducedMotion();
+
+  // Try to load a script-style logo from attached_assets at runtime. If it
+  // exists, we use it; otherwise we keep the default `appLogo`.
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setLogoSrc(SCRIPT_LOGO_URL);
+    img.onerror = () => setLogoSrc(appLogo);
+    img.src = SCRIPT_LOGO_URL;
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -174,9 +189,9 @@ export default function LogoLoadingScreen({
             {/* Logo with bounce */}
             <motion.div variants={logoVariants} className="relative z-10">
               <motion.img
-                src={appLogo}
-                alt="KiyuMart"
-                className="w-32 h-32 md:w-44 md:h-44 object-contain"
+                src={logoSrc}
+                alt="KiyuMart logo"
+                className="w-40 md:w-56 h-auto object-contain"
                 animate={shouldReduceMotion ? {} : {
                   y: [0, -15, 0],
                   scale: [1, 1.05, 1],
