@@ -6,19 +6,16 @@ test.beforeAll(async ({ request }: { request: APIRequestContext }) => {
 });
 
 // Use programmatic login and set cookie to avoid triggering rate limits from repeated UI logins
-test.beforeEach(async ({ request, page }) => {
-  const loginRes = await request.post('http://localhost:5000/api/auth/login', {
-    data: { email: 'superadmin@kiyumart.com', password: 'superadmin123' },
-  });
-  const rawSetCookie = (loginRes.headers()['set-cookie'] || '') as string;
-  const m = rawSetCookie.match(/token=([^;]+);?/);
-  const token = m ? m[1] : '';
+async function setAuthCookie(page: any, request: any, email: string) {
+  const res = await request.post('http://localhost:5000/api/test/token', { data: { email } });
+  if (!res.ok()) throw new Error('Failed to get test token');
+  const body = await res.json();
+  const token = body.token;
+  await page.context().addCookies([{ name: 'token', value: token, domain: 'localhost', path: '/', httpOnly: true }]);
+}
 
-  if (token) {
-    await page.context().addCookies([
-      { name: 'token', value: token, domain: 'localhost', path: '/', httpOnly: true },
-    ]);
-  }
+test.beforeEach(async ({ request, page }) => {
+  await setAuthCookie(page, request, 'superadmin@kiyumart.com');
 });
 
 test('multi-vendor toggle updates immediately and persists after reload', async ({ page }: { page: Page }) => {
