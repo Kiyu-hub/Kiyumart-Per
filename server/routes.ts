@@ -2160,10 +2160,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Seed endpoints are disabled in production" });
       }
       
+      // Determine a non-exposed super-admin password: use env when provided, otherwise generate one at runtime (not logged)
+      const crypto = await import('crypto');
+      const resolvedSuperAdminPassword = process.env.SUPER_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+
       const testUsers = [
         {
           email: process.env.SUPER_ADMIN_EMAIL || "superadmin@kiyumart.com",
-          password: await bcrypt.hash(process.env.SUPER_ADMIN_PASSWORD || 'Smart@3990', 10),
+          password: await bcrypt.hash(resolvedSuperAdminPassword, 10),
           name: "Super Admin",
           role: "super_admin",
           isActive: true,
@@ -2246,13 +2250,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         message: "Test users created/verified for all 6 roles",
         users: created,
+        // Note: Passwords are not included in responses for security. Set `SUPER_ADMIN_PASSWORD` and `ADMIN_PASSWORD` via environment variables.
         credentials: {
-          super_admin: `${process.env.SUPER_ADMIN_EMAIL || 'superadmin@kiyumart.com'} / ${process.env.SUPER_ADMIN_PASSWORD || 'Smart@3990'}`,
-          admin: `${process.env.ADMIN_EMAIL || 'admin@kiyumart.com'} / ${process.env.ADMIN_PASSWORD || 'Admin123!'}`,
-          seller: `seller@kiyumart.com / seller123`,
-          buyer: `buyer@kiyumart.com / buyer123`,
-          rider: `rider@kiyumart.com / rider123`,
-          agent: `agent@kiyumart.com / agent123`
+          super_admin: `${process.env.SUPER_ADMIN_EMAIL || 'superadmin@kiyumart.com'} (password set via SUPER_ADMIN_PASSWORD)`,
+          admin: `${process.env.ADMIN_EMAIL || 'admin@kiyumart.com'} (password set via ADMIN_PASSWORD)`,
+          seller: `seller@kiyumart.com`,
+          buyer: `buyer@kiyumart.com`,
+          rider: `rider@kiyumart.com`,
+          agent: `agent@kiyumart.com`
         }
       });
     } catch (error: any) {

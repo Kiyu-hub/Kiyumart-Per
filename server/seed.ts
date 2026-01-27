@@ -82,7 +82,9 @@ async function seed() {
     const hashedPassword = await bcrypt.hash("password123", 10);
 
     // Super Admin: use environment password when available for consistency
-    const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'Smart@3990';
+    // Use env-provided superadmin password if supplied; otherwise generate a random one (do NOT log or expose it)
+    const crypto = await import('crypto');
+    const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
     const hashedSuperAdminPassword = await bcrypt.hash(superAdminPassword, 10);
 
     const [superAdmin] = await db.insert(users).values({
