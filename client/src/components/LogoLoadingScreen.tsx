@@ -12,8 +12,8 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import appLogo from "@assets/kiyumart_logo.png";
 
-// Script-style heading logo used on the loading screen (serves from attached_assets)
-const SCRIPT_HEADING_LOGO = "/attached_assets/kiyumart_logo_script.png";
+// Use the light logo as the heading image on the loading screen (served from attached_assets)
+const SCRIPT_HEADING_LOGO = "/attached_assets/kiyumart_logo_light.png";
 
 interface LogoLoadingScreenProps {
   isLoading?: boolean;
