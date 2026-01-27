@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { db } from '../db/index';
-import { platformSettings } from '@shared/schema';
+import { platformSettings } from '../shared/schema';
 import { eq, desc } from 'drizzle-orm';
 
 async function run() {

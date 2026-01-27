@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { db } from '../db/index';
-import { platformSettings } from '@shared/schema';
+import { platformSettings } from '../shared/schema';
 
 async function run() {
   const rows = await db.select().from(platformSettings).orderBy(platformSettings.updatedAt);

@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { db } from '../db';
-import { platformEarnings, commissions, platformSettings } from '@shared/schema';
+import { platformEarnings, commissions, platformSettings } from '../shared/schema';
 import { desc, eq } from 'drizzle-orm';
 
 async function run() {
