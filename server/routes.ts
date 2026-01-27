@@ -2282,6 +2282,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Dev-only helper to set an httpOnly auth cookie for a test user (useful for E2E tests)
+  app.get('/api/test/auth-cookie', async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked test endpoint /api/test/auth-cookie in production`);
+        return res.status(403).send('disabled in production');
+      }
+
+      const email = req.query.email as string | undefined;
+      if (!email) return res.status(400).send('email required');
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) return res.status(404).send('user not found');
+
+      const token = generateToken(user);
+      // Set cookie (httpOnly) so browser requests send it automatically
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: false,
+        sameSite: 'lax',
+        path: '/',
+      });
+
+      res.json({ success: true, user: { id: user.id, email: user.email, role: user.role } });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // Dev-only endpoint for client-side logs (useful for diagnosing init timeouts and other client issues)
   app.post('/api/test/client-log', async (req, res) => {
     try {
