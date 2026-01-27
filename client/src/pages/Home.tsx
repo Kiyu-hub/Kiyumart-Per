@@ -5,7 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Header from "@/components/Header";
-import HeroCarousel from "@/components/HeroCarousel";
+import MarketplaceBannerCarousel from "@/components/MarketplaceBannerCarousel";
 import CategoryCard from "@/components/CategoryCard";
 import StoreCard from "@/components/StoreCard";
 import ProductCard from "@/components/ProductCard";
@@ -85,11 +85,15 @@ export default function Home() {
       ? allDbProducts.filter(p => p.storeId === platformSettings.primaryStoreId)
       : allDbProducts;
 
-  // Fallback: if single-store mode but the configured primary store has no products,
-  // fall back to showing all products to avoid empty/blank pages in dev environments.
-  const primaryStoreIdMissingProducts = !platformSettings?.isMultiVendor && platformSettings?.primaryStoreId && dbProducts.length === 0 && allDbProducts.length > 0;
-  if (primaryStoreIdMissingProducts) {
-    dbProducts = allDbProducts; // show all products as a graceful fallback
+  // Fallback behavior when the configured primary store has no products
+  const primaryStoreIdMissingProducts = platformSettings?.isMultiVendor !== true && platformSettings?.primaryStoreId && dbProducts.length === 0 && allDbProducts.length > 0;
+
+  const isProduction = (import.meta.env.MODE === 'production');
+
+  // In non-production environments, fallback to showing all products (helpful for dev).
+  // In production, we DO NOT fall back to other stores; instead we'll render banners and a friendly message.
+  if (primaryStoreIdMissingProducts && !isProduction) {
+    dbProducts = allDbProducts; // show all products as a graceful fallback in dev
   }
 
   const bannerSlides = [
@@ -231,7 +235,7 @@ export default function Home() {
         onCartClick={() => setIsCartOpen(true)}
       />
 
-      <HeroCarousel />
+      <MarketplaceBannerCarousel />
 
       <main className="flex-1">
         <section className="max-w-7xl mx-auto px-4 py-12">

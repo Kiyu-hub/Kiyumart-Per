@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Search, Filter, ShoppingBag, Loader2 } from "lucide-react";
+import MarketplaceBannerCarousel from "@/components/MarketplaceBannerCarousel";
 import { useDebounce } from "@/hooks/useDebounce";
 import type { Product } from "@shared/schema";
 
@@ -24,6 +25,17 @@ export default function AllProducts() {
   const { data: products = [], isLoading } = useQuery<Product[]>({
     queryKey: ["/api/products"],
   });
+
+  // Platform settings to detect single-store mode and primary store behavior
+  const { data: platformSettings } = useQuery<{ isMultiVendor?: boolean; primaryStoreId?: string } | null>({
+    queryKey: ["/api/platform-settings"],
+  });
+
+  const isSingleStoreMode = platformSettings?.isMultiVendor !== true;
+  const isProduction = (import.meta.env.MODE === 'production');
+
+  // When in production and single-store mode and primary store has no products, don't fallback — show Coming Soon instead
+  const showComingSoon = isProduction && isSingleStoreMode && platformSettings?.primaryStoreId && products.length === 0;
 
   const { data: categories = [] } = useQuery<any[]>({
     queryKey: ["/api/categories", "active"],
@@ -129,6 +141,17 @@ export default function AllProducts() {
           ) : isSearching ? (
             <div className="flex justify-center items-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : showComingSoon ? (
+            <div className="space-y-6">
+              <div className="mb-6">
+                <MarketplaceBannerCarousel autoplayEnabled={false} />
+              </div>
+              <div className="text-center py-16 text-muted-foreground" data-testid="coming-soon-products">
+                <ShoppingBag className="w-20 h-20 mx-auto mb-4 opacity-50" />
+                <h2 className="text-2xl font-bold">Coming Soon</h2>
+                <p className="text-sm">This store is being prepared. Check back soon for fresh products!</p>
+              </div>
             </div>
           ) : filteredProducts.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" data-testid="grid-products">
