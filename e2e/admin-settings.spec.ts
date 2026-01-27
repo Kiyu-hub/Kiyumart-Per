@@ -11,7 +11,8 @@ async function setAuthCookie(page: any, request: any, email: string) {
   if (!res.ok()) throw new Error('Failed to get test token');
   const body = await res.json();
   const token = body.token;
-  await page.context().addCookies([{ name: 'token', value: token, domain: 'localhost', path: '/', httpOnly: true }]);
+  // Use url when setting cookie to ensure it's attached to the Vite dev origin
+  await page.context().addCookies([{ name: 'token', value: token, url: 'http://localhost', path: '/', httpOnly: true }]);
 }
 
 test.beforeEach(async ({ request, page }) => {
