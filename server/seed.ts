@@ -60,7 +60,7 @@ async function seed() {
     await db.delete(supportConversations);
     await db.delete(deliveryAssignments);
     await db.delete(mediaLibrary);
-    await db.delete(wishlist
+    await db.delete(wishlists);
     await db.delete(chatMessages);
     await db.delete(notifications);
     await db.delete(cart);

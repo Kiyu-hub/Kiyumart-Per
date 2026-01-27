@@ -1193,13 +1193,13 @@ export class DbStorage implements IStorage {
       const socialKeys = [
         'facebookUrl','instagramUrl','twitterUrl','linkedinUrl','youtubeUrl','tiktokUrl','pinterestUrl','whatsappPage'
       ];
-      const settings = { ...result[0] };
+      const settings: any = { ...result[0] };
       for (const key of socialKeys) {
         if (settings[key] === '__CLEAR__') settings[key] = null;
       }
       return settings;
     } catch (err) {
-      console.error('ERROR getPlatformSettings query failed:', err?.stack || err);
+      console.error('ERROR getPlatformSettings query failed:', (err as any)?.stack || (err as any));
       throw err;
     }
   }

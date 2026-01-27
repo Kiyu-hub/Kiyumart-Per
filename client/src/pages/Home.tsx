@@ -135,7 +135,7 @@ export default function Home() {
         });
       } catch (e) {
         // silent
-        console.debug('Client log failed to send:', e?.message || e);
+        console.debug('Client log failed to send:', (e as any)?.message || (e as any));
       }
     })();
   }

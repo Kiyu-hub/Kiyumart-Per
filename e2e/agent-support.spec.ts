@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { getTestToken } from './test-utils';
 
 let authToken: string;
 let agentId: string;
@@ -9,14 +10,9 @@ test.beforeAll(async ({ request }: { request: APIRequestContext }) => {
 
   // Login once and reuse the token to avoid rate-limiter 429s
   // Use the test-only token endpoint to get a JWT without triggering the rate-limiter
-  const tokenRes = await request.post('http://localhost:5000/api/test/token', {
-    data: { email: 'agent@kiyumart.com' },
-  });
-
-  expect(tokenRes.ok()).toBeTruthy();
-  const tokenBody = await tokenRes.json();
-  authToken = tokenBody.token;
-  agentId = tokenBody.user?.id;
+  const t = await getTestToken(request, 'agent@kiyumart.com');
+  // We only need the token; agentId is optional and rarely used in asserts here
+  authToken = t;
 
   expect(authToken).toBeTruthy();
   expect(agentId).toBeTruthy();

@@ -1968,16 +1968,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sellersMap: Record<string, any> = {};
       for (const sid of sellerIds) {
         try {
-          const su = await db.select().from(users).where(eq(users.id, sid)).limit(1);
-          if (su[0]) sellersMap[sid] = { id: su[0].id, name: su[0].name };
+          const su = await db.select().from(users).where(eq(users.id, sid as string)).limit(1);
+          if (su[0]) sellersMap[sid as string] = { id: su[0].id, name: su[0].name };
         } catch (e) { continue; }
       }
 
       const storesMap: Record<string, any> = {};
       for (const stid of storeIds) {
         try {
-          const su = await db.select().from(stores).where(eq(stores.id, stid)).limit(1);
-          if (su[0]) storesMap[stid] = { id: su[0].id, name: su[0].name };
+          const su = await db.select().from(stores).where(eq(stores.id, stid as string)).limit(1);
+          if (su[0]) storesMap[stid as string] = { id: su[0].id, name: su[0].name };
         } catch (e) { continue; }
       }
 
@@ -1989,7 +1989,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             commissionRow = await db.select().from(commissions).where(eq(commissions.id, e.commissionId)).limit(1);
           } catch (err) {
-            console.warn('Warning: failed to load commission for id', e.commissionId, err?.message || err);
+            console.warn('Warning: failed to load commission for id', e.commissionId, (err as any)?.message || (err as any));
             commissionRow = [];
           }
         }
@@ -2084,7 +2084,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalPaid: (totals[0]?.totalPaid as any) || '0.00',
           pendingAmount: (totals[0]?.pending as any) || '0.00',
           payoutCount: (totals[0]?.count as any) || 0,
-          lastPayoutAt: totals[0]?.lastpayoutat || null
+          lastPayoutAt: totals[0]?.lastPayoutAt || null
         });
       }
       res.json(results);
@@ -2483,10 +2483,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const products = await storage.getProducts({ isActive: true });
       if (!products || products.length === 0) return res.status(400).json({ error: 'No active products found' });
 
-      const candidate = products[0];
-      if (!candidate.storeId) return res.status(400).json({ error: 'Product does not have a storeId' });
+      // Find the first active product that has an associated storeId
+      const candidate = products.find((p: any) => !!p.storeId);
+      if (!candidate) return res.status(400).json({ error: 'No active product with a storeId found' });
 
-      const store = await storage.getStore(candidate.storeId);
+  const store = await storage.getStore(candidate.storeId as string);
       if (!store) return res.status(404).json({ error: 'Store not found' });
 
       const updated = await storage.updatePlatformSettings({ isMultiVendor: false, primaryStoreId: store.id, defaultCurrency: 'GHS' });
@@ -2508,22 +2509,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { createCompliantProductData, getAllProductBundles } = await import("./seedMediaLibrary");
       
       // Get or create a seller for the store
-      let seller;
-      try {
-        const existingSeller = await storage.getUserByEmail("store@kiyumart.com");
-        seller = existingSeller;
-      } catch {
-        seller = await storage.createUser({
-          email: "store@kiyumart.com",
-          password: await bcrypt.hash("store123", 10),
-          name: "KiyuMart Store",
-          role: "seller" as const,
-          storeName: "KiyuMart - Islamic Fashion",
-          storeType: "clothing"
-        });
-        // Approve the seller after creation
-        if (seller) {
-          await storage.updateUser(seller.id, { isApproved: true, isActive: true });
+      let seller = await storage.getUserByEmail("store@kiyumart.com");
+      console.log('[seed] existingSeller:', !!seller);
+      if (!seller) {
+        try {
+          seller = await storage.createUser({
+            email: "store@kiyumart.com",
+            password: await bcrypt.hash("store123", 10),
+            name: "KiyuMart Store",
+            role: "seller" as const,
+            storeName: "KiyuMart - Islamic Fashion",
+            storeType: "clothing"
+          });
+          console.log('[seed] created seller id:', seller?.id);
+        } catch (err: any) {
+          console.error('[seed] create seller failed:', err?.message || String(err));
+          // If creation failed due to a race or duplicate key, try to fetch the user again
+          seller = await storage.getUserByEmail("store@kiyumart.com");
+          console.log('[seed] re-fetched seller after failure:', !!seller);
         }
       }
 
@@ -2531,13 +2534,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("Failed to create or find seller");
       }
 
+      // Ensure seller is approved and active
+      if (!seller.isApproved || !seller.isActive) {
+        await storage.updateUser(seller.id, { isApproved: true, isActive: true });
+      }
+
       const products = [];
       const reviews = [];
 
-      // Create products using compliant bundles from media library
+      // Ensure this seller has an associated store, and create products for that store
+      const store = await storage.ensureStoreForSeller(seller.id, { requireApproval: false });
+
+      // Create products using compliant bundles from media library and attach storeId
       const clothingBundles = getAllProductBundles("clothing");
       for (let i = 0; i < Math.min(clothingBundles.length, 3); i++) {
-        const productData = createCompliantProductData(seller.id, "clothing", i);
+        const productData = createCompliantProductData(seller.id, "clothing", i, store.id);
         const product = await storage.createProduct(productData as any);
         products.push(product);
       }
@@ -2552,22 +2563,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ];
 
       for (const customer of customerData) {
-        try {
-          let user;
+        let user = await storage.getUserByEmail(customer.email);
+        if (!user) {
           try {
-            user = await storage.getUserByEmail(customer.email);
-          } catch {
             user = await storage.createUser({
               email: customer.email,
               password: await bcrypt.hash("customer123", 10),
               name: customer.name,
               role: "buyer"
             });
+          } catch (err: any) {
+            // If creation failed due to a race or duplicate key, try to fetch again
+            user = await storage.getUserByEmail(customer.email);
           }
-          customers.push(user);
-        } catch (error) {
-          console.log(`Customer ${customer.email} already exists`);
         }
+        if (user) customers.push(user);
       }
 
       // Add real customer reviews

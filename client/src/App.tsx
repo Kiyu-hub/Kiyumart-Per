@@ -225,7 +225,7 @@ function App() {
             });
           } catch (e) {
             // swallow network/logging errors - we don't want to worsen user experience
-            console.debug('Client log failed to send:', e?.message || e);
+            console.debug('Client log failed to send:', (e as any)?.message || (e as any));
           }
         })();
 
