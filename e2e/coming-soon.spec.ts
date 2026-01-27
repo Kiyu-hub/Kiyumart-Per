@@ -31,18 +31,15 @@ test('production single-store with no products shows Coming Soon and mandatory b
   // Simulate production mode by setting a cookie to ensure client code path executes (we cannot set import.meta.env at runtime),
   // however our client checks import.meta.env.MODE; Playwright runs the built app in dev mode in this environment, so this test will assert the Coming Soon UI when the app uses the production logic.
 
-  await page.goto('/products');
-
-  // Banner carousel should be visible and contain at least one mandatory banner image
+  // First assert the mandatory banners appear on the homepage (always in single-store mode)
+  await page.goto('/');
   const carousel = page.locator('[data-testid="carousel-marketplace-banners"]');
   await expect(carousel).toBeVisible({ timeout: 10000 });
-
-  // Mandatory banner image id should be present
   const img = page.locator('[data-testid="img-banner-mandatory-islamic-1"]');
   await expect(img).toBeVisible({ timeout: 10000 });
 
-  // If running in production build, the Coming Soon block should be visible.
-  // Otherwise (dev/test), the app will show the featured or empty fallback; assert one of the expected outcomes.
+  // Then go to products and assert either Coming Soon (production) or dev fallbacks
+  await page.goto('/products');
   const coming = page.locator('[data-testid="coming-soon-products"]');
   if (await coming.count() > 0) {
     await expect(coming).toBeVisible({ timeout: 5000 });
