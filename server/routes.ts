@@ -2282,6 +2282,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Dev-only endpoint for client-side logs (useful for diagnosing init timeouts and other client issues)
+  app.post('/api/test/client-log', async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked test endpoint /api/test/client-log in production`);
+        return res.status(403).json({ error: "Test endpoints are disabled in production" });
+      }
+
+      const payload = req.body || {};
+      // Sanitize and log a short summary so logs don't fill up with huge payloads
+      const summary = {
+        type: payload.type || 'unknown',
+        message: (payload.message || '').toString().slice(0, 1000),
+        url: payload.url || '',
+        userAgent: (payload.userAgent || '').toString().slice(0, 200),
+        timestamp: payload.timestamp || new Date().toISOString(),
+      };
+
+      console.warn(`[CLIENT-LOG] ${summary.type} @ ${summary.timestamp} - ${summary.message} (url=${summary.url})`);
+
+      res.json({ success: true, received: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // Complete marketplace seed - creates sellers, products, and banners (Development/Testing only)
   app.post("/api/seed/complete-marketplace", async (req, res) => {
     try {

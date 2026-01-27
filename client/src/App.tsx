@@ -207,7 +207,28 @@ function App() {
         await withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] }), 5000);
         await withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/categories"] }), 5000);
       } catch (error: any) {
-        console.error("Preload completed with errors:", error?.message || error);
+        console.warn("Preload completed with errors:", error?.message || error);
+        // Fire a lightweight client log to the server (development-only). Don't block the UI on this.
+        (async () => {
+          try {
+            await fetch('/api/test/client-log', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                type: 'init_timeout',
+                message: error?.message || String(error),
+                url: window.location.href,
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString(),
+              }),
+            });
+          } catch (e) {
+            // swallow network/logging errors - we don't want to worsen user experience
+            console.debug('Client log failed to send:', e?.message || e);
+          }
+        })();
+
         // Surface a helpful message if the API returned HTML, timed out, or was unreachable
         setAppInitError(error?.message || String(error));
       } finally {
