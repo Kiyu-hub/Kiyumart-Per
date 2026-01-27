@@ -3,7 +3,6 @@
 This file documents test accounts and how to access them safely. **Do not commit or publish real passwords.**
 
 > Purpose: central reference for test emails, roles, and how to obtain access *without exposing secrets*.
-
 ---
 
 ## Admin & Super Admin
