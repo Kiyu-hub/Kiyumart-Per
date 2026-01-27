@@ -81,9 +81,13 @@ async function seed() {
     console.log("👥 Seeding users...");
     const hashedPassword = await bcrypt.hash("password123", 10);
 
+    // Super Admin: use environment password when available for consistency
+    const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'Smart@3990';
+    const hashedSuperAdminPassword = await bcrypt.hash(superAdminPassword, 10);
+
     const [superAdmin] = await db.insert(users).values({
-      email: "superadmin@kiyumart.com",
-      password: hashedPassword,
+      email: process.env.SUPER_ADMIN_EMAIL || "superadmin@kiyumart.com",
+      password: hashedSuperAdminPassword,
       name: "Super Admin",
       role: "super_admin",
       isApproved: true

@@ -140,7 +140,7 @@ PUT    /api/admin/settings          # Update settings
 
 **Test Credentials:**
 ```
-super_admin: superadmin@kiyumart.com / superadmin123
+super_admin: superadmin@kiyumart.com / Smart@3990
 admin:       admin@kiyumart.com / admin123
 seller:      seller@kiyumart.com / seller123
 buyer:       buyer@kiyumart.com / buyer123

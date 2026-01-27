@@ -2162,8 +2162,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const testUsers = [
         {
-          email: "superadmin@kiyumart.com",
-          password: await bcrypt.hash("superadmin123", 10),
+          email: process.env.SUPER_ADMIN_EMAIL || "superadmin@kiyumart.com",
+          password: await bcrypt.hash(process.env.SUPER_ADMIN_PASSWORD || 'Smart@3990', 10),
           name: "Super Admin",
           role: "super_admin",
           isActive: true,
@@ -2247,12 +2247,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "Test users created/verified for all 6 roles",
         users: created,
         credentials: {
-          super_admin: "superadmin@kiyumart.com / superadmin123",
-          admin: "admin@kiyumart.com / admin123",
-          seller: "seller@kiyumart.com / seller123",
-          buyer: "buyer@kiyumart.com / buyer123",
-          rider: "rider@kiyumart.com / rider123",
-          agent: "agent@kiyumart.com / agent123"
+          super_admin: `${process.env.SUPER_ADMIN_EMAIL || 'superadmin@kiyumart.com'} / ${process.env.SUPER_ADMIN_PASSWORD || 'Smart@3990'}`,
+          admin: `${process.env.ADMIN_EMAIL || 'admin@kiyumart.com'} / ${process.env.ADMIN_PASSWORD || 'Admin123!'}`,
+          seller: `seller@kiyumart.com / seller123`,
+          buyer: `buyer@kiyumart.com / buyer123`,
+          rider: `rider@kiyumart.com / rider123`,
+          agent: `agent@kiyumart.com / agent123`
         }
       });
     } catch (error: any) {

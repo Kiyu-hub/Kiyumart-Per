@@ -60,7 +60,7 @@ Your KiyuMart Islamic Fashion E-commerce Platform is now **fully configured and 
 
 ### Super Admin
 - **Email:** superadmin@kiyumart.com
-- **Password:** superadmin123
+- **Password:** Smart@3990
 - **Access:** Full platform control
 
 ### Admin
@@ -127,7 +127,7 @@ Your KiyuMart Islamic Fashion E-commerce Platform is now **fully configured and 
 
 ### Credential Format Change:
 **OLD (incorrect):** `super_admin@kiyumart.com` / `super_admin123`  
-**NEW (correct):** `superadmin@kiyumart.com` / `superadmin123`
+**NEW (correct):** `superadmin@kiyumart.com` / `Smart@3990`
 
 All underscores have been **removed** from the super admin credentials for simplicity.
 
@@ -156,7 +156,7 @@ curl -X POST http://localhost:5000/api/seed/complete-marketplace
 ```bash
 curl -X POST http://localhost:5000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"superadmin@kiyumart.com","password":"superadmin123"}'
+  -d '{"email":"superadmin@kiyumart.com","password":"Smart@3990"}'
 ```
 
 ### Check Database Status:
@@ -205,7 +205,7 @@ Before deploying to production:
 ## ✨ **Next Steps**
 
 1. **Login to Admin Dashboard:**
-   - Use `superadmin@kiyumart.com` / `superadmin123`
+   - Use `superadmin@kiyumart.com` / `Smart@3990`
    - Explore all features and settings
 
 2. **Configure Platform:**
