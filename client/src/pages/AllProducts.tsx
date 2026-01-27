@@ -33,6 +33,19 @@ export default function AllProducts() {
     },
   });
 
+  // Fetch featured products as a safe fallback when the main product list is empty
+  const { data: featuredProducts = [] } = useQuery<any[]>({
+    queryKey: ["/api/homepage/featured-products"],
+    queryFn: async () => {
+      const res = await fetch("/api/homepage/featured-products");
+      return res.json();
+    },
+    // Only fetch featured products if main product list is empty (avoid unnecessary requests)
+    enabled: products.length === 0,
+    // Keep the result short-lived for interactive pages
+    staleTime: 1000 * 60,
+  });
+
   // Use debounced search query for filtering
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
@@ -133,6 +146,28 @@ export default function AllProducts() {
                   inStock={(product.stock || 0) > 0}
                 />
               ))}
+            </div>
+          ) : featuredProducts && featuredProducts.length > 0 ? (
+            <div>
+              <div className="text-center py-4 text-muted-foreground">
+                <p className="text-lg font-medium">No products match your search/filters. Showing featured products instead.</p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" data-testid="grid-featured-products">
+                {featuredProducts.map((product: any) => (
+                  <ProductCard
+                    key={product.id}
+                    id={product.id}
+                    name={product.name}
+                    price={product.price}
+                    costPrice={product.costPrice || undefined}
+                    image={(product.images && product.images[0]) || product.image || ""}
+                    discount={product.discount || 0}
+                    rating={product.ratings || "0"}
+                    reviewCount={product.totalRatings || 0}
+                    inStock={(product.stock || 0) > 0}
+                  />
+                ))}
+              </div>
             </div>
           ) : (
             <div className="text-center py-16 text-muted-foreground" data-testid="empty-products">
