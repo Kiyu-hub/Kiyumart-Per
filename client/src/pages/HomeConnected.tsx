@@ -347,8 +347,9 @@ export default function HomeConnected() {
       <HeroCarousel />
 
       {/* Full-bleed hero ad - stretches edge-to-edge and removes card borders for a flush look */}
-      <div className="w-screen -mx-4 md:-mx-8 py-6">
-        <AdBanner position="hero" className="h-36 md:h-56 rounded-none border-0" fullBleed />
+      <div className="w-screen -mx-4 md:-mx-8 py-3">
+        {/* much shorter hero ad height per request */}
+        <AdBanner position="hero" className="h-16 md:h-20 rounded-none border-0" fullBleed />
       </div>
 
       <main className="flex-1">
@@ -431,8 +432,9 @@ export default function HomeConnected() {
       </main>
 
       {/* Full-bleed footer ad */}
-      <div className="w-screen -mx-4 md:-mx-8 pb-12">
-        <AdBanner position="footer" className="h-28 md:h-36 rounded-none border-0" fullBleed />
+      <div className="w-screen -mx-4 md:-mx-8 pb-8">
+        {/* smaller footer ad */}
+        <AdBanner position="footer" className="h-12 md:h-16 rounded-none border-0" fullBleed />
       </div>
 
       <Footer />

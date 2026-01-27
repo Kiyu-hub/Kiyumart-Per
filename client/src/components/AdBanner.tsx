@@ -78,20 +78,35 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   // Use anchor for proper semantics and keyboard navigation
   const AdInner = (
     <>
-      {/* subtle gradient overlay for a polished look */}
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/8 pointer-events-none" />
+      {/* Blurred background based on the ad image for a pleasant, professional backdrop */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div
+          className="absolute inset-0 bg-center bg-no-repeat bg-cover"
+          style={{
+            backgroundImage: `url(${ad.image})`,
+            filter: 'blur(14px) saturate(1.05) brightness(0.85)',
+            transform: 'scale(1.08)'
+          }}
+        />
+        {/* subtle color blend to make text/overlay pop */}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/10 mix-blend-multiply" />
+      </div>
 
-      <img
-        src={ad.image}
-        alt={ad.url ? "Sponsored advertisement" : "Advertisement"}
-        className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105`}
-        data-testid={`img-ad-${position}`}
-      />
+      {/* Center the actual ad image at its intrinsic size without stretching */}
+      <div className="relative flex items-center justify-center h-full">
+        <img
+          src={ad.image}
+          alt={ad.url ? 'Sponsored advertisement' : 'Advertisement'}
+          className={`max-h-full object-contain transition-transform duration-300 group-hover:scale-105`}
+          style={{ width: 'auto', maxWidth: '90%' }}
+          data-testid={`img-ad-${position}`}
+        />
+      </div>
 
-      {/* Sponsored pill */}
-      <div className="absolute top-3 right-3 bg-black/50 text-white text-xs px-3 py-1 rounded-full flex items-center gap-2 backdrop-blur-sm">
+      {/* Sponsored pill (smaller, refined) */}
+      <div className="absolute top-2 right-2 bg-black/55 text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-2 backdrop-blur-sm">
         <ExternalLink className="h-3 w-3 opacity-90" />
-        <span>Sponsored</span>
+        <span className="text-[11px]">Sponsored</span>
       </div>
 
       {/* Decorative subtle separator when full-bleed to give structure */}
