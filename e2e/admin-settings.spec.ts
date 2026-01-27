@@ -13,9 +13,11 @@ async function setAuthCookie(page: any, request: any, email: string) {
   const token = body.token;
   // Use url when setting cookie to ensure it's attached to the Vite dev origin
   // Inject a cookie via page script so it's available to the frontend and sent on requests
-  // Navigate blank and set cookie via page context so it is applied before navigation to app routes
-  await page.goto('about:blank');
+  // Open the app, set cookie in page context, then navigate to admin routes
+  await page.goto('/');
   await page.evaluate((t) => { document.cookie = `token=${t}; path=/`; }, token);
+  // reload so the app picks up the cookie on its initialization requests
+  await page.reload();
 }
 
 test.beforeEach(async ({ request, page }) => {
