@@ -1239,15 +1239,16 @@ export default function AdminSettings() {
                             Recommended size: 300x600px
                           </p>
                         </div>
-                        <div className="space-y-2">(Optional)</Label>
+                        <div className="space-y-2">
+                          <Label htmlFor="sidebarAdUrl">Link (Optional)</Label>
                           <Input
                             id="sidebarAdUrl"
                             {...form.register("sidebarAdUrl")}
                             placeholder="https://example.com or /stores/123 or mailto:ads@domain.com"
                             data-testid="input-sidebar-ad-url"
                           />
-                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p data-testid="input-sidebar-ad-url"
-                          />
+                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p>
+                        </div>
                         </div>
                       </div>
 
@@ -1270,16 +1271,16 @@ export default function AdminSettings() {
                           <p className="text-xs text-muted-foreground">
                             Recommended size: 728x90px
                           </p>
-                        </div>(Optional)</Label>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="productPageAdUrl">Link (Optional)</Label>
                           <Input
                             id="productPageAdUrl"
                             {...form.register("productPageAdUrl")}
                             placeholder="https://example.com or /product/123 or tel:+233123456789"
                             data-testid="input-product-ad-url"
                           />
-                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p placeholder="https://example.com"
-                            data-testid="input-product-ad-url"
-                          />
+                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p>
                         </div>
                       </div>
 
@@ -1301,17 +1302,17 @@ export default function AdminSettings() {
                           />
                           <p className="text-xs text-muted-foreground">
                             Recommended size: 1200x150px
-                          </p>(Optional)</Label>
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="footerAdUrl">Link (Optional)</Label>
                           <Input
                             id="footerAdUrl"
                             {...form.register("footerAdUrl")}
                             placeholder="https://example.com or /contact or #newsletter"
                             data-testid="input-footer-ad-url"
                           />
-                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p {...form.register("footerAdUrl")}
-                            placeholder="https://example.com"
-                            data-testid="input-footer-ad-url"
-                          />
+                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p>
                         </div>
                       </div>
                     </div>
