@@ -196,14 +196,19 @@ function App() {
 
   React.useEffect(() => {
     // Initialize app - preload critical resources and detect backend availability
+    const withTimeout = <T,>(p: Promise<T>, ms = 5000) => {
+      const timeout = new Promise<T>((_res, rej) => setTimeout(() => rej(new Error(`Request timed out after ${ms}ms`)), ms));
+      return Promise.race([p, timeout]);
+    };
+
     const initializeApp = async () => {
       try {
-        // Use prefetch to warm the cache and detect errors early
-        await queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] });
-        await queryClient.prefetchQuery({ queryKey: ["/api/categories"] });
+        // Use prefetch to warm the cache and detect errors early, but don't hang forever
+        await withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] }), 5000);
+        await withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/categories"] }), 5000);
       } catch (error: any) {
         console.error("Preload completed with errors:", error?.message || error);
-        // Surface a helpful message if the API returned HTML or was unreachable
+        // Surface a helpful message if the API returned HTML, timed out, or was unreachable
         setAppInitError(error?.message || String(error));
       } finally {
         setIsAppReady(true);
