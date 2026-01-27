@@ -132,13 +132,14 @@ export default function MarketplaceBannerCarousel({
   };
 
   return (
+    // Make the carousel full-bleed horizontally so banners span the full viewport width
     <Carousel
       opts={{
         align: "start",
         loop: true,
       }}
       plugins={plugins}
-      className="w-full"
+      className="w-screen mx-auto"
       data-testid="carousel-marketplace-banners"
     >
       <CarouselContent>
@@ -149,7 +150,8 @@ export default function MarketplaceBannerCarousel({
                 <img
                   src={banner.imageUrl}
                   alt={banner.title || "Banner"}
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  // Use viewport width so banner fills horizontally; keep object-cover for responsive cropping
+                  className="w-screen h-full object-cover transition-transform duration-300 group-hover:scale-105"
                   data-testid={`img-banner-${banner.id}`}
                 />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent" />
