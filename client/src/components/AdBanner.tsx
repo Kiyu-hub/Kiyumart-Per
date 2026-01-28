@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { ExternalLink } from "lucide-react";
 
 interface PlatformSettings {
@@ -30,6 +31,9 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   const { data: settings } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
   });
+
+  // Ensure hooks are invoked unconditionally — we need `navigate` available even if not used
+  const [, navigate] = useLocation();
 
   if (!settings?.adsEnabled) {
     return null;
