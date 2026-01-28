@@ -432,12 +432,6 @@ export default function HomeConnected() {
               )}
             </section>
           </div>
-
-          <aside className="hidden lg:block lg:col-span-4">
-            <div className="space-y-6 sticky top-24">
-              <AdBanner position="sidebar" className="h-64 rounded-lg shadow-sm" />
-            </div>
-          </aside>
         </div>
       </main>
 
