@@ -36,7 +36,8 @@ export default function PaymentVerifyPage() {
     }
   }, [authLoading, navigate]);
 
-  const { data: verification, isLoading, error }, isAuthenticated],
+  const { data: verification, isLoading, error } = useQuery<VerificationResult>({
+    queryKey: ["/api/payments/verify", reference, isAuthenticated],
     queryFn: async () => {
       // Choose public or authenticated verify endpoint depending on auth state
       const url = isAuthenticated ? `/api/payments/verify/${reference}` : `/api/payments/verify-public/${reference}`;
@@ -63,8 +64,7 @@ export default function PaymentVerifyPage() {
       
       return result;
     },
-    enabled: !!reference
-    enabled: !!reference && isAuthenticated,
+    enabled: !!reference,
     retry: 2, // Retry up to 2 times for network errors
     retryDelay: 1000, // Wait 1 second between retries
   });
