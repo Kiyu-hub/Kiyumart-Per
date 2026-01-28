@@ -647,7 +647,7 @@ export default function ProductDetails() {
 
                 {/* Product page ad placement */}
                 <div className="mt-6">
-                  <AdBanner position="product-page" className="h-28 md:h-40 rounded-lg" />
+                  <AdBanner position="product-page" className="h-44 md:h-56 rounded-lg" />
                 </div>
               </div>
             </div>

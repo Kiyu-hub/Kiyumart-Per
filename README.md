@@ -160,6 +160,11 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Ads respect `adsEnabled` flag and can be toggled on/off by admin
   - UI Display: The platform now renders **Hero** (homepage), **Sidebar** (homepage - large screens), **Product Page** (product detail pages), and **Footer** ads when configured.
 
+Development notes:
+  - The Vite dev server proxies `/api` to `http://localhost:5000` (backend) to keep client API calls consistent in development and avoid mismatches between ports (e.g., `5173`, `5174`). This is set in `vite.config.ts`.
+  - If you see inconsistent behavior between ports (frontend appearing stale on one port while the backend reflects changes), kill extra Vite instances and restart the dev server (`npm run dev:frontend`) so only one dev server runs on `5173`.
+  - Optionally set `VITE_API_URL` to `http://localhost:5000` if you want the client to always use the backend origin for API calls instead of relying on the proxy.
+
 - **Product Card Pricing**
   - Product cards show a sale price and (when applicable) the original/cost price as a struck-through value to highlight discounts and savings.
 

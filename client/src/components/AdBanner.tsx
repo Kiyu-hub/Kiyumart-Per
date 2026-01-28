@@ -139,28 +139,40 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   );
 
   if (ad.url) {
-    const url = ad.url.trim();
-    const isInternal = url.startsWith('/') || url.startsWith('#');
-    const isProtocol = url.startsWith('mailto:') || url.startsWith('tel:');
-    const isExternal = /^https?:\/\//i.test(url);
+    const raw = ad.url.trim();
+    // Normalize URL: accept 'category/..', '/category/..', '#anchor', 'mailto:', 'tel:', or full http(s)
+    const isProtocol = /^mailto:|^tel:/i.test(raw);
+    const isHttp = /^https?:\/\//i.test(raw);
+
+    let normalized = raw;
+    if (!isHttp && !isProtocol && !raw.startsWith('#')) {
+      if (!raw.startsWith('/')) normalized = `/${raw}`; // make relative paths absolute
+    }
+
+    // Treat same-origin absolute URLs as internal
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const isInternal = normalized.startsWith('/') || normalized.startsWith('#') || normalized.startsWith(origin);
+
+    const handleInternalClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (normalized.startsWith('#')) {
+        const el = document.querySelector(normalized);
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      } else if (normalized.startsWith(origin)) {
+        // remove origin and navigate to path
+        const path = normalized.replace(origin, '');
+        navigate(path);
+      } else {
+        navigate(normalized);
+      }
+    };
 
     if (isInternal) {
-      const handleClick = (e: React.MouseEvent) => {
-        e.preventDefault();
-        if (url.startsWith('#')) {
-          const el = document.querySelector(url);
-          if (el) el.scrollIntoView({ behavior: 'smooth' });
-        } else {
-          // use the top-level navigate hook to avoid rendering hooks conditionally
-          navigate(url);
-        }
-      };
-
       return (
         <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
           <a
-            href={url}
-            onClick={handleClick}
+            href={normalized}
+            onClick={handleInternalClick}
             className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
             aria-label="Open sponsored content"
             data-testid={`link-ad-${position}`}
@@ -175,7 +187,7 @@ export default function AdBanner({ position, className = "", fullBleed = false }
       return (
         <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
           <a
-            href={url}
+            href={normalized}
             className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
             aria-label="Open sponsored content"
             data-testid={`link-ad-${position}`}
@@ -190,7 +202,7 @@ export default function AdBanner({ position, className = "", fullBleed = false }
     return (
       <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
         <a
-          href={url}
+          href={normalized}
           target="_blank"
           rel="noopener noreferrer"
           className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}

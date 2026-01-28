@@ -355,6 +355,13 @@ export default function HomeConnected() {
       <main className="flex-1">
         {/* Main content with Sidebar for large screens */}
         <div className="max-w-7xl mx-auto px-4 py-12 grid lg:grid-cols-12 gap-6">
+          {/* Sidebar on the LEFT for better visibility and vertical space */}
+          <aside className="hidden lg:block lg:col-span-4">
+            <div className="sticky top-24 h-[36rem] md:h-[48rem] overflow-hidden rounded-lg shadow-sm bg-card flex items-center justify-center p-4">
+              <AdBanner position="sidebar" className="w-full h-full rounded-lg" />
+            </div>
+          </aside>
+
           <div className="lg:col-span-8">
             <section>
               <div className="flex items-center justify-between mb-8">
