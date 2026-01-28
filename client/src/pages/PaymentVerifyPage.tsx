@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 
+// Handles payment verification responses from Paystack redirects (supports `reference` and legacy `trxref`).
 interface VerificationResult {
   verified: boolean;
   message: string;
