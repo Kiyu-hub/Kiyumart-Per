@@ -34,6 +34,8 @@ export default function AdBanner({ position, className = "", fullBleed = false }
 
   // Ensure hooks are invoked unconditionally — we need `navigate` available even if not used
   const [, navigate] = useLocation();
+  // Declare other hooks early so component doesn't change hook order between renders
+  const [imgError, setImgError] = useState(false);
 
   if (!settings?.adsEnabled) {
     return null;
@@ -67,7 +69,6 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   };
 
   const ad = getAdData();
-  const [imgError, setImgError] = useState(false);
 
   // If an ad image is missing or fails to load, render a branded fallback so the site always looks professional
   const hasImage = ad.image && !imgError;
