@@ -4233,223 +4233,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Payment reference is required", userMessage: "Invalid payment reference." });
       }
       
-      // Get platform settings for Paystack key
-      const settings = await storage.getPlatformSettings();
-      if (!settings.paystackSecretKey) {
-        return res.status(503).json({ 
-          error: "Payment gateway not configured",
-          userMessage: "Payment system is currently unavailable. Please contact support."
-        });
-      }
-      
-      // Check if transaction already exists (idempotency)
-      const existingTransaction = await storage.getTransactionByReference(reference);
-      if (existingTransaction) {
-        const order = await storage.getOrder(existingTransaction.orderId);
-        return res.json({ 
-          transaction: existingTransaction, 
-          verified: existingTransaction.status === "completed",
-          orderId: existingTransaction.orderId,
-          message: "Transaction already processed"
-        });
-      }
-
-      // Verify payment with Paystack with timeout
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      
-      try {
-        const response = await fetch(
-          `https://api.paystack.co/transaction/verify/${reference}`,
-          {
-            headers: {
-              Authorization: `Bearer ${settings.paystackSecretKey}`,
-            },
-            signal: controller.signal,
-          }
-        );
-        
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          return res.status(502).json({ 
-            error: errorData.message || "Payment verification failed",
-            userMessage: "Unable to verify payment. Please contact support with your payment reference."
-          });
-        }
-
-        const data = await response.json();
-        
-        if (!data.status) {
-          return res.status(400).json({ 
-            error: data.message || "Payment verification failed",
-            userMessage: data.message || "Unable to verify your payment. Please contact support."
-          });
-        }
-
-        // Determine if multi-vendor payment
-        const isMultiVendor = data.data.metadata?.isMultiVendor || false;
-        let orders: any[] = [];
-        
-        if (isMultiVendor) {
-          // Multi-vendor: Fetch all orders in the session
-          const checkoutSessionId = data.data.metadata.checkoutSessionId;
-          const orderIds = data.data.metadata.orderIds || [];
-          
-          if (!checkoutSessionId || !Array.isArray(orderIds) || orderIds.length === 0) {
-            return res.status(400).json({ 
-              error: "Invalid multi-vendor payment data",
-              userMessage: "Multi-vendor payment data is incomplete. Please contact support."
-            });
-          }
-          
-          // Fetch all orders
-          const allOrders = await storage.getAllOrders();
-          orders = allOrders.filter((o: any) => orderIds.includes(o.id));
-          
-          if (orders.length !== orderIds.length) {
-            return res.status(404).json({ 
-              error: "Some orders not found",
-              userMessage: "Some orders in this payment session could not be found."
-            });
-          }
-          
-          // Verify user owns all orders
-          const allOwnedByUser = orders.every((o: any) => o.buyerId === req.user!.id);
-          if (!allOwnedByUser) {
-            return res.status(403).json({ 
-              error: "Unauthorized",
-              userMessage: "You don't have permission to verify these payments."
-            });
-          }
-          
-          // Validate all orders have matching payment reference
-          const allMatchReference = orders.every((o: any) => o.paymentReference === reference);
-          if (!allMatchReference) {
-            return res.status(400).json({ 
-              error: "Payment reference mismatch",
-              userMessage: "Payment reference does not match all orders. Please contact support."
-            });
-          }
-          
-          // Validate total amount
-          const totalExpected = orders.reduce((sum: number, o: any) => sum + parseFloat(o.total), 0);
-          const expectedAmount = Math.round(totalExpected * 100);
-          
-          if (data.data.amount !== expectedAmount) {
-            return res.status(400).json({ 
-              error: "Payment amount mismatch",
-              userMessage: `Payment amount (${data.data.currency} ${(data.data.amount / 100).toFixed(2)}) does not match total (${orders[0].currency} ${totalExpected.toFixed(2)}).`,
-              expected: expectedAmount / 100,
-              received: data.data.amount / 100
-            });
-          }
-          
-          // Validate currency (use first order)
-          if (data.data.currency !== orders[0].currency) {
-            return res.status(400).json({ 
-              error: "Currency mismatch",
-              userMessage: `Payment currency (${data.data.currency}) does not match order currency (${orders[0].currency}).`
-            });
-          }
-          
-        } else {
-          // Single order
-          const orderId = data.data.metadata?.orderId;
-          if (!orderId) {
-            return res.status(400).json({ 
-              error: "Invalid payment data",
-              userMessage: "Payment verification returned invalid data. Please contact support."
-            });
-          }
-
-          const order = await storage.getOrder(orderId);
-          
-          if (!order) {
-            return res.status(404).json({ error: "Order not found", userMessage: "Order associated with this payment could not be found." });
-          }
-
-          // Verify the user owns this order
-          if (order.buyerId !== req.user!.id) {
-            return res.status(403).json({ error: "Unauthorized to verify payment for this order", userMessage: "You don't have permission to verify this payment." });
-          }
-
-          // Validate the payment reference matches
-          if (order.paymentReference !== reference) {
-            return res.status(400).json({ 
-              error: "Payment reference mismatch",
-              userMessage: "Payment reference does not match the order. Please contact support."
-            });
-          }
-
-          // Validate the payment amount matches the order total
-          const expectedAmount = Math.round(parseFloat(order.total) * 100);
-          if (data.data.amount !== expectedAmount) {
-            return res.status(400).json({ 
-              error: "Payment amount mismatch",
-              userMessage: `Payment amount (${data.data.currency} ${(data.data.amount / 100).toFixed(2)}) does not match order total (${order.currency} ${parseFloat(order.total).toFixed(2)}).`,
-              expected: expectedAmount / 100,
-              received: data.data.amount / 100
-          });
-        }
-
-        // Validate currency
-        if (data.data.currency !== order.currency) {
-          return res.status(400).json({ 
-            error: "Currency mismatch",
-            userMessage: `Payment currency (${data.data.currency}) does not match order currency (${order.currency}). Please contact support.`
-          });
-        }
-        
-        orders = [order];
-      }
-
-      // Establish primary order for consistent access (first order in array)
-      if (orders.length === 0) {
-        return res.status(500).json({
-          error: "No orders found in payment session",
-          userMessage: "Payment verification failed due to missing order data. Please contact support."
-        });
-      }
-      const primaryOrder = orders[0];
-
-      // Delegate transaction/order processing to shared helper to maintain idempotency and
-      // ensure consistent behavior between webhook and manual verify flow.
-      try {
-        const { processPaystackChargeSuccess } = await import('./payments');
-        await processPaystackChargeSuccess(data.data, storage, io);
-      } catch (procErr: any) {
-        console.error('[VERIFY] Error processing payment via shared helper:', procErr?.message || procErr);
-        // Continue - we will still attempt to return current transaction state if available
-      }
-
-      const transaction = await storage.getTransactionByReference(reference);
-
-      res.json({
-        transaction,
-        verified: data.data.status === 'success',
-        orderId: primaryOrder.id,
-        orderIds: orders.map((o: any) => o.id),
-        isMultiVendor,
-        orderCount: orders.length,
-        message: data.data.status === 'success' ? 'Payment verified successfully' : data.data.gateway_response || 'Payment failed'
-      });
-      } catch (fetchError: any) {
-        clearTimeout(timeout);
-        
-        if (fetchError.name === 'AbortError') {
-          return res.status(504).json({ 
-            error: "Payment verification timeout",
-            userMessage: "Payment verification is taking too long. Please check your order status or contact support."
-          });
-        }
-        
-        return res.status(502).json({ 
-          error: "Failed to verify payment",
-          userMessage: "Unable to reach payment gateway for verification. Please try again or contact support."
-        });
-      }
+      // Delegate to shared helper function (reused by public verification)
+      const result = await verifyReferenceAndProcess(reference, req.user?.id);
+      res.json(result);
     } catch (error: any) {
       console.error("Payment verification error:", error);
       res.status(500).json({ 
@@ -4458,6 +4244,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
   });
+
+  // Public verification endpoint used when the user is redirected from Paystack and may not be authenticated
+  app.get("/api/payments/verify-public/:reference", async (req, res) => {
+    try {
+      const { reference } = req.params;
+      if (!reference) {
+        return res.status(400).json({ error: "Payment reference is required", userMessage: "Invalid payment reference." });
+      }
+
+      // Reuse same verification helper but without a current user id (no ownership checks)
+      const result = await verifyReferenceAndProcess(reference, undefined);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Payment verification public error:", error);
+      res.status(500).json({ 
+        error: error.message || "Internal server error",
+        userMessage: "An unexpected error occurred while verifying your payment. Please contact support with your payment reference."
+      });
+    }
+  });
+
+  // Shared helper: verify reference with Paystack and process transaction; if `currentUserId` provided, perform ownership checks
+  async function verifyReferenceAndProcess(reference: string, currentUserId?: string | undefined) {
+    // Get platform settings for Paystack key
+    const settings = await storage.getPlatformSettings();
+    if (!settings.paystackSecretKey) {
+      throw new Error("Payment gateway not configured");
+    }
+
+    // Check if transaction already exists (idempotency)
+    const existingTransaction = await storage.getTransactionByReference(reference);
+    if (existingTransaction) {
+      const order = await storage.getOrder(existingTransaction.orderId);
+      return { transaction: existingTransaction, verified: existingTransaction.status === "completed", orderId: existingTransaction.orderId, message: "Transaction already processed" };
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
+        headers: { Authorization: `Bearer ${settings.paystackSecretKey}` },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Payment verification failed");
+      }
+
+      const data = await response.json();
+      if (!data.status) {
+        throw new Error(data.message || "Payment verification failed");
+      }
+
+      const isMultiVendor = data.data.metadata?.isMultiVendor || false;
+      let orders: any[] = [];
+
+      if (isMultiVendor) {
+        const orderIds = data.data.metadata.orderIds || [];
+        if (!Array.isArray(orderIds) || orderIds.length === 0) {
+          throw new Error("Invalid multi-vendor payment data");
+        }
+
+        const allOrders = await storage.getAllOrders();
+        orders = allOrders.filter((o: any) => orderIds.includes(o.id));
+        if (orders.length !== orderIds.length) {
+          throw new Error("Some orders not found");
+        }
+
+        // If a currentUserId is provided, ensure they own all orders; otherwise skip ownership check
+        if (currentUserId) {
+          const allOwnedByUser = orders.every((o: any) => o.buyerId === currentUserId);
+          if (!allOwnedByUser) throw new Error("Unauthorized to verify these payments");
+        }
+
+        const allMatchReference = orders.every((o: any) => o.paymentReference === reference);
+        if (!allMatchReference) throw new Error("Payment reference mismatch");
+
+        const totalExpected = orders.reduce((sum: number, o: any) => sum + parseFloat(o.total), 0);
+        const expectedAmount = Math.round(totalExpected * 100);
+        if (data.data.amount !== expectedAmount) throw new Error("Payment amount mismatch");
+
+      } else {
+        const orderId = data.data.metadata?.orderId;
+        if (!orderId) throw new Error("Invalid payment data");
+
+        const order = await storage.getOrder(orderId);
+        if (!order) throw new Error("Order not found");
+
+        if (currentUserId && order.buyerId !== currentUserId) throw new Error("Unauthorized to verify payment for this order");
+
+        if (order.paymentReference !== reference) throw new Error("Payment reference mismatch");
+
+        const expectedAmount = Math.round(parseFloat(order.total) * 100);
+        if (data.data.amount !== expectedAmount) throw new Error("Payment amount mismatch");
+
+        if (data.data.currency !== order.currency) throw new Error("Currency mismatch");
+
+        orders = [order];
+      }
+
+      if (orders.length === 0) throw new Error("No orders found in payment session");
+      const primaryOrder = orders[0];
+
+      try {
+        const { processPaystackChargeSuccess } = await import('./payments');
+        await processPaystackChargeSuccess(data.data, storage, io);
+      } catch (procErr: any) {
+        console.error('[VERIFY] Error processing payment via shared helper:', procErr?.message || procErr);
+      }
+
+      const transaction = await storage.getTransactionByReference(reference);
+
+      return {
+        transaction,
+        verified: data.data.status === 'success',
+        orderId: primaryOrder.id,
+        orderIds: orders.map((o: any) => o.id),
+        isMultiVendor,
+        orderCount: orders.length,
+        message: data.data.status === 'success' ? 'Payment verified successfully' : data.data.gateway_response || 'Payment failed'
+      };
+    } catch (fetchError: any) {
+      clearTimeout(timeout);
+
+      if (fetchError.name === 'AbortError') {
+        throw new Error('Payment verification timeout');
+      }
+      throw fetchError;
+    }
+  }
 
   // ============ Paystack Webhook Handler ============
   // Note: Uses raw body for HMAC signature verification (captured via express.json verify hook)
