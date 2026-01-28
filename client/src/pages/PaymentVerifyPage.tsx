@@ -26,8 +26,9 @@ export default function PaymentVerifyPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const ref = params.get("reference");
-    
+    // Accept both `reference` and legacy `trxref` query params from Paystack
+    const ref = params.get("reference") || params.get("trxref");
+
     if (ref) {
       setReference(ref);
     } else if (!authLoading) {
@@ -35,10 +36,11 @@ export default function PaymentVerifyPage() {
     }
   }, [authLoading, navigate]);
 
-  const { data: verification, isLoading, error } = useQuery<VerificationResult>({
-    queryKey: ["/api/payments/verify", reference],
+  const { data: verification, isLoading, error }, isAuthenticated],
     queryFn: async () => {
-      const res = await fetch(`/api/payments/verify/${reference}`);
+      // Choose public or authenticated verify endpoint depending on auth state
+      const url = isAuthenticated ? `/api/payments/verify/${reference}` : `/api/payments/verify-public/${reference}`;
+      const res = await fetch(url);
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         const errorMessage = errorData.userMessage || errorData.error || "Failed to verify payment. Please contact support with your payment reference.";
@@ -58,6 +60,7 @@ export default function PaymentVerifyPage() {
       
       return result;
     },
+    enabled: !!reference
     enabled: !!reference && isAuthenticated,
     retry: 2, // Retry up to 2 times for network errors
     retryDelay: 1000, // Wait 1 second between retries

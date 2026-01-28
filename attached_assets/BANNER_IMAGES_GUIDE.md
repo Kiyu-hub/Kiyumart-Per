@@ -102,6 +102,8 @@ All images are:
 2. **Event Planning**: Schedule banner changes ahead of major sales events
 3. **Testing**: Preview banners in the Media Library before implementing
 4. **Consistency**: Use matching banners across hero sections and marketplace carousels
+
+**Ad Links & Usage**: Ad placements configured in Admin Settings accept absolute URLs, relative paths (starting with `/`), anchors (starting with `#`), and protocol links such as `mailto:` and `tel:`. Use appropriate image sizes for hero, sidebar, and footer placements to ensure a pleasant, responsive display.
 5. **Mobile**: All banners are responsive and mobile-friendly
 
 ## 🔄 Adding More Banners

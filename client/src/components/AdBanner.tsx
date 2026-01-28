@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 
 interface PlatformSettings {
@@ -59,10 +60,10 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   };
 
   const ad = getAdData();
+  const [imgError, setImgError] = useState(false);
 
-  if (!ad.image) {
-    return null;
-  }
+  // If an ad image is missing or fails to load, render a branded fallback so the site always looks professional
+  const hasImage = ad.image && !imgError;
 
   const isFull = fullBleed || className.includes("rounded-none") || className.includes("border-0");
 
@@ -81,9 +82,9 @@ export default function AdBanner({ position, className = "", fullBleed = false }
       {/* Blurred background based on the ad image for a pleasant, professional backdrop */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
-          className="absolute inset-0 bg-center bg-no-repeat bg-cover"
+          className={`absolute inset-0 bg-center bg-no-repeat bg-cover ${!hasImage ? 'bg-gradient-to-r from-primary/40 to-black/40' : ''}`}
           style={{
-            backgroundImage: `url(${ad.image})`,
+            backgroundImage: hasImage ? `url(${ad.image})` : settings?.logo ? `url(${settings.logo})` : undefined,
             filter: 'blur(14px) saturate(1.05) brightness(0.85)',
             transform: 'scale(1.08)'
           }}
@@ -92,15 +93,30 @@ export default function AdBanner({ position, className = "", fullBleed = false }
         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/10 mix-blend-multiply" />
       </div>
 
-      {/* Center the actual ad image at its intrinsic size without stretching */}
+      {/* Center the actual ad image at its intrinsic size without stretching; fallback to branded placeholder */}
       <div className="relative flex items-center justify-center h-full">
-        <img
-          src={ad.image}
-          alt={ad.url ? 'Sponsored advertisement' : 'Advertisement'}
-          className={`max-h-full object-contain transition-transform duration-300 group-hover:scale-105`}
-          style={{ width: 'auto', maxWidth: '90%' }}
-          data-testid={`img-ad-${position}`}
-        />
+        {hasImage ? (
+          <img
+            src={ad.image}
+            alt={ad.url ? 'Sponsored advertisement' : 'Advertisement'}
+            onError={() => setImgError(true)}
+            className={`max-h-full object-contain transition-transform duration-300 group-hover:scale-105`}
+            style={{ width: 'auto', maxWidth: '90%' }}
+            data-testid={`img-ad-${position}`}
+          />
+        ) : (
+          <div className="flex items-center gap-4 p-6">
+            {settings?.logo ? (
+              <img src={settings.logo} alt={settings.platformName || 'KiyuMart'} className="h-12 w-auto object-contain" />
+            ) : (
+              <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">KM</div>
+            )}
+            <div className="text-left">
+              <div className="text-sm font-semibold text-white">Sponsored</div>
+              <div className="text-xs text-white/90">{settings?.platformName || 'KiyuMart'}</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sponsored pill (smaller, refined) */}

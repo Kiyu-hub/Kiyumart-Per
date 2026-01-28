@@ -574,8 +574,11 @@ POST   /api/auth/logout            # Logout
 
 ```
 GET    /api/products               # Get all products (with filters)
+# Note: Product objects include `costPrice` when set (string decimal)
 GET    /api/products/:id           # Get single product
-POST   /api/products               # Create product (admin/seller)
+POST   /api/products               # Create product (seller)
+POST   /api/admin/products         # Create product on behalf of a seller (admin/super_admin)
+# Note: The "original" price equals the product's `costPrice` (if set). When `costPrice` is higher than the selling `price`, it will be shown as the struck-through original price and the discount percent will be displayed.
 PATCH  /api/products/:id           # Update product (admin/seller)
 DELETE /api/products/:id           # Delete product (admin/seller)
 GET    /api/products/:id/variants  # Get product variants

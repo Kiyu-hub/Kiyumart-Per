@@ -1249,7 +1249,6 @@ export default function AdminSettings() {
                           />
                           <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p>
                         </div>
-                        </div>
                       </div>
 
                       <div className="space-y-4 p-4 border rounded-lg">

@@ -27,6 +27,8 @@ const productFormSchema = insertProductSchema.extend({
   stock: z.number().min(0, "Stock must be 0 or greater"),
   images: z.array(z.string().url()).min(5, "Exactly 5 product images are required").max(5, "Maximum 5 images allowed"),
   video: z.string().url("Product video is required").min(1, "Product video is required"),
+  // When an admin creates on behalf of a seller, they must pick a seller
+  sellerId: z.string().optional(),
 });
 
 type ProductFormData = z.infer<typeof productFormSchema>;
@@ -39,10 +41,22 @@ export default function AdminProductCreate() {
   const [videoUrl, setVideoUrl] = useState("");
 
   useEffect(() => {
-    if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
+    // Product creation via UI is allowed for sellers and admins (admins can create on behalf of sellers)
+    const allowedRoles = ["seller", "admin", "super_admin"];
+    if (!authLoading && (!isAuthenticated || !allowedRoles.includes(user?.role || ""))) {
       navigate("/auth");
     }
   }, [isAuthenticated, authLoading, user, navigate]);
+
+  // Admin-only: fetch sellers for "create on behalf" workflow
+  const { data: sellers = [] } = useQuery<any[]>({
+    queryKey: ["/api/users", "role=seller"],
+    queryFn: async () => {
+      const res = await fetch('/api/users?role=seller');
+      return res.json();
+    },
+    enabled: user?.role === 'admin' || user?.role === 'super_admin',
+  });
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productFormSchema),
@@ -60,11 +74,20 @@ export default function AdminProductCreate() {
 
   const createProductMutation = useMutation({
     mutationFn: async (data: ProductFormData) => {
-      return apiRequest("POST", "/api/products", {
+      const payload: any = {
         ...data,
         images: imageUrls,
         video: videoUrl,
-      });
+      };
+
+      // Admin creates on behalf of seller via admin endpoint
+      if (user?.role === 'admin' || user?.role === 'super_admin') {
+        if (!payload.sellerId) throw new Error('Please select a seller');
+        return apiRequest("POST", "/api/admin/products", payload);
+      }
+
+      // Seller creates their own product
+      return apiRequest("POST", "/api/products", payload);
     },
     onSuccess: () => {
       toast({
@@ -216,6 +239,22 @@ export default function AdminProductCreate() {
                       <p className="text-sm text-destructive mt-1">{form.formState.errors.price.message}</p>
                     )}
                   </div>
+
+                  {/* Admin only: pick seller to create on behalf */}
+                  {(user?.role === 'admin' || user?.role === 'super_admin') && (
+                    <div>
+                      <Label htmlFor="sellerId">Seller</Label>
+                      <select id="sellerId" {...form.register('sellerId')} className="w-full mt-1 p-2 border rounded" data-testid="select-seller">
+                        <option value="">Select seller</option>
+                        {sellers && sellers.map((s: any) => (
+                          <option key={s.id} value={s.id}>{s.name || s.email}</option>
+                        ))}
+                      </select>
+                      {form.formState.errors.sellerId && (
+                        <p className="text-sm text-destructive mt-1">{form.formState.errors.sellerId.message}</p>
+                      )}
+                    </div>
+                  )}
 
                   <div>
                     <Label htmlFor="costPrice">Cost Price (GHS)</Label>

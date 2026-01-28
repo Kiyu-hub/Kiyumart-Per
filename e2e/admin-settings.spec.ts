@@ -146,3 +146,27 @@ test('multi-vendor toggle via Admin Settings persists after save', async ({ page
     }
   }
 });
+
+test('ads accept relative and protocol links and persist', async ({ request }) => {
+  const token = await getTestToken(request, 'superadmin@kiyumart.com');
+
+  const patchBody = {
+    heroBannerAdUrl: '/category/abayas',
+    sidebarAdUrl: 'tel:+233123456789',
+    productPageAdUrl: 'mailto:ads@kiyumart.test',
+  };
+
+  const patch = await request.patch('http://localhost:5000/api/settings', {
+    data: patchBody,
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  expect(patch.ok()).toBeTruthy();
+
+  const settingsRes = await request.get('http://localhost:5000/api/settings');
+  const settings = await settingsRes.json();
+
+  expect(settings.heroBannerAdUrl).toBe(patchBody.heroBannerAdUrl);
+  expect(settings.sidebarAdUrl).toBe(patchBody.sidebarAdUrl);
+  expect(settings.productPageAdUrl).toBe(patchBody.productPageAdUrl);
+});

@@ -1162,7 +1162,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Product Routes ============
-  app.post("/api/products", requireAuth, requireRole("admin", "seller"), upload.fields([
+  // Only sellers may create products via this endpoint. Admins should not create products directly.
+  app.post("/api/products", requireAuth, requireRole("seller"), upload.fields([
     { name: "images", maxCount: 5 },
     { name: "video", maxCount: 1 }
   ]), async (req: AuthRequest, res) => {
@@ -1262,6 +1263,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "New product added",
         `A seller added a new product: ${product.name}`,
         { productId: product.id, sellerId: req.user!.id }
+      );
+
+      res.json(product);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: create product on behalf of a seller
+  app.post("/api/admin/products", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const sellerId = req.body.sellerId;
+      if (!sellerId) {
+        return res.status(400).json({ error: "sellerId is required to create product on behalf of a seller" });
+      }
+
+      const seller = await storage.getUser(sellerId);
+      if (!seller || seller.role !== "seller") {
+        return res.status(404).json({ error: "Seller not found or invalid" });
+      }
+
+      // Ensure seller has a store (requires approval)
+      let storeId: string | undefined = req.body.storeId;
+      try {
+        const sellerStore = await storage.ensureStoreForSeller(sellerId, { requireApproval: true });
+        storeId = sellerStore.id;
+      } catch (storeError: any) {
+        return res.status(400).json({ error: `Cannot create product for seller: ${storeError.message}` });
+      }
+
+      const productData = {
+        ...req.body,
+        images: req.body.images || [],
+        video: req.body.video || null,
+        videoDuration: req.body.videoDuration || undefined,
+        dynamicFields: req.body.dynamicFields ? JSON.parse(req.body.dynamicFields) : undefined,
+        price: req.body.price,
+        sellerId,
+        storeId: storeId || undefined,
+      };
+
+      const validatedData = insertProductSchema.parse(productData);
+      const product = await storage.createProduct({
+        ...validatedData,
+        sellerId,
+      });
+
+      await notifyAdmins(
+        "product",
+        "Product created by admin",
+        `An admin added a product for seller ${seller.email}: ${product.name}`,
+        { productId: product.id, sellerId }
       );
 
       res.json(product);
