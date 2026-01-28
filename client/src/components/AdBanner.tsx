@@ -144,13 +144,13 @@ export default function AdBanner({ position, className = "", fullBleed = false }
     const isExternal = /^https?:\/\//i.test(url);
 
     if (isInternal) {
-      const [, navigate] = require('wouter').useLocation();
       const handleClick = (e: React.MouseEvent) => {
         e.preventDefault();
         if (url.startsWith('#')) {
           const el = document.querySelector(url);
           if (el) el.scrollIntoView({ behavior: 'smooth' });
         } else {
+          // use the top-level navigate hook to avoid rendering hooks conditionally
           navigate(url);
         }
       };
