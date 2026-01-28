@@ -5,7 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Header from "@/components/Header";
-import HeroCarousel from "@/components/HeroCarousel";
+import MarketplaceBannerCarousel from "@/components/MarketplaceBannerCarousel";
 import CategoryCard from "@/components/CategoryCard";
 import StoreCard from "@/components/StoreCard";
 import ProductCard from "@/components/ProductCard";
@@ -79,11 +79,22 @@ export default function Home() {
   });
 
   // Filter products by primary store in single-store mode
-  const dbProducts = platformSettings?.isMultiVendor 
+  let dbProducts = platformSettings?.isMultiVendor 
     ? allDbProducts 
     : platformSettings?.primaryStoreId
       ? allDbProducts.filter(p => p.storeId === platformSettings.primaryStoreId)
       : allDbProducts;
+
+  // Fallback behavior when the configured primary store has no products
+  const primaryStoreIdMissingProducts = platformSettings?.isMultiVendor !== true && platformSettings?.primaryStoreId && dbProducts.length === 0 && allDbProducts.length > 0;
+
+  const isProduction = (import.meta.env.MODE === 'production');
+
+  // In non-production environments, fallback to showing all products (helpful for dev).
+  // In production, we DO NOT fall back to other stores; instead we'll render banners and a friendly message.
+  if (primaryStoreIdMissingProducts && !isProduction) {
+    dbProducts = allDbProducts; // show all products as a graceful fallback in dev
+  }
 
   const bannerSlides = [
     {
@@ -106,6 +117,28 @@ export default function Home() {
     image: cat.image,
     productCount: dbProducts.filter(p => p.category === cat.slug).length
   }));
+
+  // If we had to fall back because the primary store has no products, send a dev-only client log
+  if (primaryStoreIdMissingProducts) {
+    (async () => {
+      try {
+        await fetch('/api/test/client-log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            type: 'primary_store_missing_products',
+            primaryStoreId: platformSettings?.primaryStoreId,
+            availableProducts: allDbProducts.length,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+      } catch (e) {
+        // silent
+        console.debug('Client log failed to send:', (e as any)?.message || (e as any));
+      }
+    })();
+  }
 
   const products = [
     {
@@ -202,7 +235,7 @@ export default function Home() {
         onCartClick={() => setIsCartOpen(true)}
       />
 
-      <HeroCarousel />
+      <MarketplaceBannerCarousel />
 
       <main className="flex-1">
         <section className="max-w-7xl mx-auto px-4 py-12">

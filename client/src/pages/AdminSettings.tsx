@@ -73,14 +73,15 @@ const settingsSchema = z.object({
   showSocialLinks: z.boolean(),
   footerDescription: z.string().min(1, "Footer description is required"),
   adsEnabled: z.boolean(),
-  heroBannerAdImage: z.string().url().optional().or(z.literal("")),
-  heroBannerAdUrl: z.string().url().optional().or(z.literal("")),
-  sidebarAdImage: z.string().url().optional().or(z.literal("")),
-  sidebarAdUrl: z.string().url().optional().or(z.literal("")),
-  footerAdImage: z.string().url().optional().or(z.literal("")),
-  footerAdUrl: z.string().url().optional().or(z.literal("")),
-  productPageAdImage: z.string().url().optional().or(z.literal("")),
-  productPageAdUrl: z.string().url().optional().or(z.literal("")),
+  // Ad image and link fields accept absolute URLs, protocol links (mailto:, tel:), or relative/anchor paths (e.g. /category/abayas, #section)
+  heroBannerAdImage: z.string().optional().or(z.literal("")),
+  heroBannerAdUrl: z.string().optional().or(z.literal("")),
+  sidebarAdImage: z.string().optional().or(z.literal("")),
+  sidebarAdUrl: z.string().optional().or(z.literal("")),
+  footerAdImage: z.string().optional().or(z.literal("")),
+  footerAdUrl: z.string().optional().or(z.literal("")),
+  productPageAdImage: z.string().optional().or(z.literal("")),
+  productPageAdUrl: z.string().optional().or(z.literal("")),
 });
 
 type SettingsFormData = z.infer<typeof settingsSchema>;
@@ -1153,11 +1154,6 @@ export default function AdminSettings() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="GHS">GHS - Ghanaian Cedi</SelectItem>
-                        <SelectItem value="NGN">NGN - Nigerian Naira</SelectItem>
-                        <SelectItem value="XOF">XOF - West African CFA Franc</SelectItem>
-                        <SelectItem value="USD">USD - US Dollar</SelectItem>
-                        <SelectItem value="EUR">EUR - Euro</SelectItem>
-                        <SelectItem value="SAR">SAR - Saudi Riyal</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1212,13 +1208,14 @@ export default function AdminSettings() {
                           </p>
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="heroBannerAdUrl">Link URL (Optional)</Label>
+                          <Label htmlFor="heroBannerAdUrl">Link (Optional)</Label>
                           <Input
                             id="heroBannerAdUrl"
                             {...form.register("heroBannerAdUrl")}
-                            placeholder="https://example.com"
+                            placeholder="https://example.com or /category/abayas or mailto:hello@domain.com"
                             data-testid="input-hero-ad-url"
                           />
+                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths (starting with /), anchors (starting with #), and protocol links like mailto: and tel:</p>
                         </div>
                       </div>
 
@@ -1243,13 +1240,14 @@ export default function AdminSettings() {
                           </p>
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="sidebarAdUrl">Link URL (Optional)</Label>
+                          <Label htmlFor="sidebarAdUrl">Link (Optional)</Label>
                           <Input
                             id="sidebarAdUrl"
                             {...form.register("sidebarAdUrl")}
-                            placeholder="https://example.com"
+                            placeholder="https://example.com or /stores/123 or mailto:ads@domain.com"
                             data-testid="input-sidebar-ad-url"
                           />
+                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p>
                         </div>
                       </div>
 
@@ -1274,13 +1272,14 @@ export default function AdminSettings() {
                           </p>
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="productPageAdUrl">Link URL (Optional)</Label>
+                          <Label htmlFor="productPageAdUrl">Link (Optional)</Label>
                           <Input
                             id="productPageAdUrl"
                             {...form.register("productPageAdUrl")}
-                            placeholder="https://example.com"
+                            placeholder="https://example.com or /product/123 or tel:+233123456789"
                             data-testid="input-product-ad-url"
                           />
+                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p>
                         </div>
                       </div>
 
@@ -1305,13 +1304,14 @@ export default function AdminSettings() {
                           </p>
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="footerAdUrl">Link URL (Optional)</Label>
+                          <Label htmlFor="footerAdUrl">Link (Optional)</Label>
                           <Input
                             id="footerAdUrl"
                             {...form.register("footerAdUrl")}
-                            placeholder="https://example.com"
+                            placeholder="https://example.com or /contact or #newsletter"
                             data-testid="input-footer-ad-url"
                           />
+                          <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p>
                         </div>
                       </div>
                     </div>

@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
  * 
  * Required Environment Variables:
  * - SUPER_ADMIN_EMAIL (default: superadmin@kiyumart.com)
- * - SUPER_ADMIN_PASSWORD (default: SuperAdmin123! - for dev only)
+ * - SUPER_ADMIN_PASSWORD (set this via environment; no default printed to avoid exposure)
  * - ADMIN_EMAIL (default: admin@kiyumart.com)
  * - ADMIN_PASSWORD (default: Admin123! - for dev only)
  * 
@@ -35,7 +35,7 @@ async function seedAdminAccounts() {
   const adminAccounts = [
     {
       email: process.env.SUPER_ADMIN_EMAIL || "superadmin@kiyumart.com",
-      password: process.env.SUPER_ADMIN_PASSWORD || (isDevelopment ? "superadmin123" : ""),
+      password: process.env.SUPER_ADMIN_PASSWORD || (isDevelopment ? "" : ""),
       name: "Super Administrator",
       role: "super_admin" as const,
       phone: "+233000000001",
@@ -98,9 +98,9 @@ async function seedAdminAccounts() {
   }
   if (isDevelopment) {
     console.log("\n📝 Development credentials:");
-    console.log("Super Admin: superadmin@kiyumart.com / superadmin123");
-    console.log("Admin: admin@kiyumart.com / admin123");
-    console.log("\n⚠️  Using default development passwords. Set environment variables for production!");
+    console.log(`Super Admin: ${adminAccounts[0].email} (password configured via SUPER_ADMIN_PASSWORD env var)`);
+    console.log(`Admin: ${adminAccounts[1].email} (password configured via ADMIN_PASSWORD env var)`);
+    console.log("\n⚠️  Using development passwords. Set environment variables for production!");
   }
   console.log("===============================\n");
 }

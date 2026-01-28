@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: |
+          npm ci
+
+      - name: Install Playwright browsers
+        run: |
+          npx playwright install --with-deps chromium
+
+      - name: Run unit tests
+        run: |
+          npm run test:unit
+
+      - name: Start backend
+        run: |
+          npx tsx server/index.ts &
+          # allow server time to start
+          for i in {1..30}; do
+            if curl -sS http://localhost:5000/api/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+
+      - name: Start frontend
+        run: |
+          npm run dev:frontend &
+          # wait for vite
+          for i in {1..30}; do
+            if curl -sS http://localhost:5173/ >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+
+      - name: Run Playwright e2e
+        env:
+          SESSION_SECRET: testsecret
+        run: |
+          npx playwright test --project=chromium --reporter=dot

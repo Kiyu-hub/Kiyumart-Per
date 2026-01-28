@@ -24,10 +24,11 @@ import {
   wishlists,
   commissions,
   sellerPayouts,
-  platformEarnings
+  platformEarnings,
+  platformSettings
 } from "@shared/schema";
 import bcrypt from "bcryptjs";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm"; 
 
 const STORE_TYPES = [
   "clothing",
@@ -51,14 +52,15 @@ async function seed() {
 
   try {
     console.log("🧹 Clearing existing data...");
+    // platformEarnings references commissions; delete earnings first to avoid FK violations
+    await db.delete(platformEarnings);
+    await db.delete(sellerPayouts);
+    await db.delete(commissions);
     await db.delete(supportMessages);
     await db.delete(supportConversations);
     await db.delete(deliveryAssignments);
     await db.delete(mediaLibrary);
     await db.delete(wishlists);
-    await db.delete(sellerPayouts);
-    await db.delete(commissions);
-    await db.delete(platformEarnings);
     await db.delete(chatMessages);
     await db.delete(notifications);
     await db.delete(cart);
@@ -79,13 +81,45 @@ async function seed() {
     console.log("👥 Seeding users...");
     const hashedPassword = await bcrypt.hash("password123", 10);
 
+    // Super Admin: use environment password when available for consistency
+    // Use env-provided superadmin password if supplied; otherwise generate a random one (do NOT log or expose it)
+    const crypto = await import('crypto');
+    const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+    const hashedSuperAdminPassword = await bcrypt.hash(superAdminPassword, 10);
+
     const [superAdmin] = await db.insert(users).values({
-      email: "superadmin@kiyumart.com",
-      password: hashedPassword,
+      email: process.env.SUPER_ADMIN_EMAIL || "superadmin@kiyumart.com",
+      password: hashedSuperAdminPassword,
       name: "Super Admin",
       role: "super_admin",
       isApproved: true
     }).returning();
+
+    // Ensure super_admin role has all server features set (idempotent)
+    try {
+      const superAdminFeatures: Record<string, boolean> = {
+        canManageUsers: true,
+        canManageProducts: true,
+        canManageOrders: true,
+        canManageStores: true,
+        canManageCategories: true,
+        canManageAdmins: true,
+        canEditPasswords: true,
+        canManageRoles: true,
+        canManagePlatformSettings: true,
+        canViewAnalytics: true,
+        canManagePromotions: true,
+        canManageReviews: true,
+        canManagePayouts: true,
+        canViewPayouts: true,
+        canManageFeatures: true,
+      };
+      const { storage } = await import('./storage');
+      await storage.updateRoleFeatures('super_admin', superAdminFeatures, 'system');
+      console.log('Ensured super_admin role features set via seed');
+    } catch (e) {
+      console.warn('Could not ensure super_admin role features via seed:', (e as any)?.message || e);
+    }
 
     const [admin1] = await db.insert(users).values({
       email: "admin1@kiyumart.com",
@@ -1000,6 +1034,26 @@ async function seed() {
 
     console.log(`✅ Created ${clothingProducts.length} products with 4K images`);
 
+    // Ensure platform settings point to a store that actually has products (single-store local setups)
+    try {
+      const existing = await db.select().from(platformSettings).limit(1);
+      if (existing.length === 0) {
+        await db.insert(platformSettings).values({
+          isMultiVendor: false,
+          primaryStoreId: clothingStore.id,
+          defaultCurrency: "GHS"
+        });
+        console.log(`[seed] Created initial platform settings with primaryStoreId=${clothingStore.id}`);
+      } else {
+        await db.update(platformSettings)
+          .set({ isMultiVendor: false, primaryStoreId: clothingStore.id, defaultCurrency: "GHS" })
+          .where(eq(platformSettings.id, existing[0].id));
+        console.log(`[seed] Updated platform settings.primaryStoreId=${clothingStore.id}`);
+      }
+    } catch (err: any) {
+      console.warn("[seed] Failed to ensure platform settings:", err?.message || err);
+    }
+
     console.log("🎨 Seeding hero banners...");
     await db.insert(heroBanners).values([
       {
@@ -1154,6 +1208,14 @@ async function seed() {
     console.log(`   📄 Footer Pages: 2`);
     console.log(`   🚚 Delivery Zones: ${zones.length}`);
     console.log(`\n🔑 All passwords: password123`);
+
+// If this file is executed directly (e.g. `npx tsx server/seed.ts`), run the seed
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  seed().catch(err => {
+    console.error("Seed failed:", err?.stack || err);
+    process.exit(1);
+  });
+}
     console.log(`\n🌐 Try logging in:`);
     console.log(`   - superadmin@kiyumart.com`);
     console.log(`   - seller.clothing@kiyumart.com`);

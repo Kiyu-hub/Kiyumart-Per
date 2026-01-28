@@ -1,4 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import abaya1 from "@assets/stock_images/Elegant_black_abaya_with_gold_embroidery_cc860cad.png";
+import abaya2 from "@assets/stock_images/Navy_blue_embroidered_modest_dress_aa08f435.png";
+import abaya3 from "@assets/stock_images/Pink_lace_abaya_dress_53759991.png";
+import { useEffect } from "react";
 import {
   Carousel,
   CarouselContent,
@@ -46,13 +50,61 @@ export default function MarketplaceBannerCarousel({
     queryKey: ["/api/homepage/banners"],
   });
 
+  // Fetch platform settings to know whether we are in single-store mode
+  const { data: platformSettings } = useQuery<{ isMultiVendor?: boolean } | null>({
+    queryKey: ["/api/platform-settings"],
+  });
+
+  const isSingleStoreMode = platformSettings?.isMultiVendor !== true;
+
+  // Mandatory Islamic Fashion banners for Single Store Mode (always show these in single-store mode)
+  const mandatoryBanners: MarketplaceBanner[] = [
+    {
+      id: 'mandatory-islamic-1',
+      collectionId: null,
+      title: 'Islamic Fashion — Elegant Abayas',
+      subtitle: 'Timeless styles and modest elegance',
+      imageUrl: abaya1,
+      productRef: null,
+      storeRef: null,
+      ctaText: 'Shop Abayas',
+      ctaUrl: '/category/abayas',
+      displayOrder: 1,
+      startAt: null,
+      endAt: null,
+      isActive: true,
+      metadata: {},
+    },
+    {
+      id: 'mandatory-islamic-2',
+      collectionId: null,
+      title: 'Modest Dresses & Hijabs',
+      subtitle: 'Beautifully tailored modest wear',
+      imageUrl: abaya2,
+      productRef: null,
+      storeRef: null,
+      ctaText: 'Explore Hijabs',
+      ctaUrl: '/category/hijabs',
+      displayOrder: 2,
+      startAt: null,
+      endAt: null,
+      isActive: true,
+      metadata: {},
+    },
+  ];
+
+  // Prepare effective banners: if single-store mode, ensure mandatory banners are included
+  const effectiveBanners = isSingleStoreMode
+    ? [...banners, ...mandatoryBanners].filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i)
+    : banners;
+
   if (isLoading) {
     return (
       <div className="relative h-[350px] md:h-[450px] w-full bg-gradient-to-r from-primary/20 to-primary/10 rounded-lg animate-pulse" data-testid="skeleton-banner-carousel" />
     );
   }
 
-  if (banners.length === 0) {
+  if (effectiveBanners.length === 0) {
     return (
       <div className="relative h-[350px] md:h-[450px] w-full bg-gradient-to-r from-primary/20 to-primary/10 rounded-lg flex items-center justify-center" data-testid="empty-banner-carousel">
         <p className="text-muted-foreground">No active banners</p>
@@ -80,24 +132,26 @@ export default function MarketplaceBannerCarousel({
   };
 
   return (
+    // Make the carousel full-bleed horizontally so banners span the full viewport width
     <Carousel
       opts={{
         align: "start",
         loop: true,
       }}
       plugins={plugins}
-      className="w-full"
+      className="w-screen mx-auto"
       data-testid="carousel-marketplace-banners"
     >
       <CarouselContent>
-        {banners.map((banner) => (
+        {effectiveBanners.map((banner) => (
           <CarouselItem key={banner.id}>
             <Card className="overflow-hidden border-0">
               <div className="relative h-[350px] md:h-[450px] w-full group">
                 <img
                   src={banner.imageUrl}
                   alt={banner.title || "Banner"}
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  // Use viewport width so banner fills horizontally; keep object-cover for responsive cropping
+                  className="w-screen h-full object-cover transition-transform duration-300 group-hover:scale-105"
                   data-testid={`img-banner-${banner.id}`}
                 />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent" />

@@ -6,7 +6,7 @@ All test accounts have been created and are ready for testing.
 
 ### 1. Super Admin Account
 - **Email**: superadmin@kiyumart.com
-- **Password**: Smart@3990
+- **Password**: (configured via `SUPER_ADMIN_PASSWORD` environment variable)
 - **Features**: FULL platform access, manage admins, assign roles, edit passwords, all admin features plus special permissions
 
 ### 2. Admin Account

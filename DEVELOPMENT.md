@@ -703,6 +703,11 @@ async function fetchUser(id) {
 
 ### React Component Patterns
 
+#### Product Card Pricing
+
+- Product cards display a sale price and — when a product has a higher original/cost price (the system's `costPrice`, also called the original price) — the original price is shown with a strikethrough (line-through) to emphasize discounts. Maintain `costPrice` handling in components that render `<ProductCard />` and pass `costPrice` where available from the API. If a discount value is provided without `costPrice`, UI components should infer an original price for display to show the strike-through and percent-off badge consistently.
+
+
 ```typescript
 // ✅ Good: Functional component with hooks, memoized
 interface ProductCardProps {

@@ -86,9 +86,21 @@ export default function ProductCard({
   const originalPrice = costPrice ? (typeof costPrice === 'string' ? parseFloat(costPrice) : costPrice) : null;
   const ratingNum = typeof rating === 'string' ? parseFloat(rating) : rating;
   
-  const actualDiscount = originalPrice && originalPrice > sellingPrice 
+  // Determine final discount to display:
+  // - Prefer explicit `discount` prop if provided (> 0)
+  // - Otherwise compute from originalPrice and sellingPrice when possible
+  const discountProp = typeof discount === 'string' ? parseFloat(discount) : discount || 0;
+  const computedDiscount = originalPrice && originalPrice > sellingPrice
     ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
     : 0;
+  const actualDiscount = discountProp > 0 ? Math.round(discountProp) : computedDiscount;
+
+  // If no originalPrice was provided but we have a discount number (from admin),
+  // infer an original price for display so the strike-through can show (rounded to 2 decimals).
+  const inferredOriginalPrice = (!originalPrice && actualDiscount > 0 && actualDiscount < 100)
+    ? Math.round((sellingPrice / (1 - (actualDiscount / 100))) * 100) / 100
+    : null;
+  const displayOriginalPrice = originalPrice ?? inferredOriginalPrice;
 
   const handleWishlistToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -165,12 +177,12 @@ export default function ProductCard({
 
         {/* Price Row - Original Price (struck) + Sale Price (green) */}
         <div className="flex items-baseline gap-2">
-          {originalPrice && originalPrice > sellingPrice && (
+          {displayOriginalPrice && displayOriginalPrice > sellingPrice && (
             <span 
               className="text-sm text-gray-500 dark:text-gray-400 line-through"
               data-testid={`text-cost-price-${id}`}
             >
-              {formatPrice(originalPrice)}
+              {formatPrice(displayOriginalPrice)}
             </span>
           )}
           <span 

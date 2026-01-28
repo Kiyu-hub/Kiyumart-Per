@@ -12,6 +12,9 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import appLogo from "@assets/kiyumart_logo.png";
 
+// Use the dark logo as the heading image on the loading screen (served from attached_assets)
+const SCRIPT_HEADING_LOGO = "/attached_assets/kiyumart_logo_dark.png";
+
 interface LogoLoadingScreenProps {
   isLoading?: boolean;
   minDisplayTime?: number;
@@ -113,6 +116,8 @@ export default function LogoLoadingScreen({
           }}
           data-testid="logo-loading-screen"
         >
+          {/* small component that shows the heading either as an image or text */}
+          
           {/* Animated background circles */}
           <div className="absolute inset-0 overflow-hidden">
             {[...Array(5)].map((_, i) => (
@@ -215,14 +220,8 @@ export default function LogoLoadingScreen({
 
           {/* Brand name */}
           <motion.div variants={textVariants} className="text-center z-10 mb-6">
-            <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight">
-              <span className="bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm">
-                Kiyu
-              </span>
-              <span className="bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 bg-clip-text text-transparent drop-shadow-sm">
-                Mart
-              </span>
-            </h1>
+            {/* Use the script logo for the large heading; fall back to text if the image fails */}
+            <LogoHeading />
             <motion.p
               className="mt-3 text-lg text-teal-700 font-medium"
               animate={{ opacity: [0.6, 1, 0.6] }}
@@ -325,4 +324,52 @@ export function useAppLoading() {
   }, []);
 
   return { isLoading, setIsLoading };
+}
+
+
+/**
+ * LogoHeading - renders the big loading-screen heading.
+ * Uses a script-style logo image when available and falls back to the text heading.
+ */
+function LogoHeading() {
+  const [imageLoaded, setImageLoaded] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setImageLoaded(true);
+    img.onerror = () => setImageLoaded(false);
+    img.src = SCRIPT_HEADING_LOGO;
+  }, []);
+
+  if (imageLoaded === null) {
+    // While checking, render the text (avoids layout shift)
+    return (
+      <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight">
+        <span className="bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm">Kiyu</span>
+        <span className="bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 bg-clip-text text-transparent drop-shadow-sm">Mart</span>
+      </h1>
+    );
+  }
+
+  if (imageLoaded === true) {
+    return (
+      <motion.img
+        src={SCRIPT_HEADING_LOGO}
+        alt="KiyuMart"
+        className="w-56 md:w-72 h-auto object-contain mx-auto"
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }}
+        style={{ filter: 'drop-shadow(0 20px 40px rgba(13, 148, 136, 0.2))' }}
+      />
+    );
+  }
+
+  // Fallback to the original text heading
+  return (
+    <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight">
+      <span className="bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm">Kiyu</span>
+      <span className="bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 bg-clip-text text-transparent drop-shadow-sm">Mart</span>
+    </h1>
+  );
 }

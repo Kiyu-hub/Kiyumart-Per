@@ -37,7 +37,7 @@ const storeSettingsSchema = z.object({
   useCustomBranding: z.boolean().default(false),
   businessHoursOpen: z.string().default("09:00"),
   businessHoursClose: z.string().default("18:00"),
-  defaultCurrency: z.enum(["GHS", "EUR", "USD"]),
+  defaultCurrency: z.enum(["GHS"]),
   shippingZonesEnabled: z.boolean().default(true),
   isMultiVendor: z.boolean(),
   primaryStoreId: z.string().optional(),
@@ -88,7 +88,7 @@ export default function AdminStoreManager() {
       useCustomBranding: false,
       businessHoursOpen: "09:00",
       businessHoursClose: "18:00",
-      defaultCurrency: (settings.defaultCurrency as "GHS" | "EUR" | "USD") || "GHS",
+      defaultCurrency: (settings.defaultCurrency as "GHS") || "GHS",
       shippingZonesEnabled: true,
       isMultiVendor: settings.isMultiVendor || false,
       primaryStoreId: settings.primaryStoreId || "",
@@ -111,7 +111,7 @@ export default function AdminStoreManager() {
         useCustomBranding: false,
         businessHoursOpen: "09:00",
         businessHoursClose: "18:00",
-        defaultCurrency: (settings.defaultCurrency as "GHS" | "EUR" | "USD") || "GHS",
+        defaultCurrency: (settings.defaultCurrency as "GHS") || "GHS",
         shippingZonesEnabled: true,
         isMultiVendor: settings.isMultiVendor || false,
         primaryStoreId: settings.primaryStoreId || "",
@@ -453,15 +453,13 @@ export default function AdminStoreManager() {
                       <Label htmlFor="defaultCurrency">Default Currency</Label>
                       <Select
                         value={form.watch("defaultCurrency")}
-                        onValueChange={(value) => form.setValue("defaultCurrency", value as "GHS" | "EUR" | "USD")}
+                        onValueChange={(value) => form.setValue("defaultCurrency", value as "GHS")}
                       >
                         <SelectTrigger id="defaultCurrency" data-testid="select-currency">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="GHS">GHS - Ghanaian Cedi</SelectItem>
-                          <SelectItem value="EUR">EUR - Euro</SelectItem>
-                          <SelectItem value="USD">USD - US Dollar</SelectItem>
                         </SelectContent>
                       </Select>
                       <p className="text-xs text-muted-foreground">Currency for pricing and transactions</p>

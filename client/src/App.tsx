@@ -1,5 +1,5 @@
 import { Switch, Route } from "wouter";
-import { useState, useEffect } from "react";
+import * as React from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -191,19 +191,46 @@ function Router() {
 }
 
 function App() {
-  const [isAppReady, setIsAppReady] = useState(false);
+  const [isAppReady, setIsAppReady] = React.useState(false);
+  const [appInitError, setAppInitError] = React.useState<string | null>(null);
 
-  useEffect(() => {
-    // Initialize app - preload critical resources
+  React.useEffect(() => {
+    // Initialize app - preload critical resources and detect backend availability
+    const withTimeout = <T,>(p: Promise<T>, ms = 5000) => {
+      const timeout = new Promise<T>((_res, rej) => setTimeout(() => rej(new Error(`Request timed out after ${ms}ms`)), ms));
+      return Promise.race([p, timeout]);
+    };
+
     const initializeApp = async () => {
       try {
-        // Preload essential data
-        await Promise.all([
-          queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] }),
-          queryClient.prefetchQuery({ queryKey: ["/api/categories"] }),
-        ]);
-      } catch (error) {
-        console.log("Preload completed with some errors:", error);
+        // Use prefetch to warm the cache and detect errors early, but don't hang forever
+        await withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] }), 5000);
+        await withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/categories"] }), 5000);
+      } catch (error: any) {
+        console.warn("Preload completed with errors:", error?.message || error);
+        // Fire a lightweight client log to the server (development-only). Don't block the UI on this.
+        (async () => {
+          try {
+            await fetch('/api/test/client-log', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                type: 'init_timeout',
+                message: error?.message || String(error),
+                url: window.location.href,
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString(),
+              }),
+            });
+          } catch (e) {
+            // swallow network/logging errors - we don't want to worsen user experience
+            console.debug('Client log failed to send:', (e as any)?.message || (e as any));
+          }
+        })();
+
+        // Surface a helpful message if the API returned HTML, timed out, or was unreachable
+        setAppInitError(error?.message || String(error));
       } finally {
         setIsAppReady(true);
       }
@@ -211,6 +238,24 @@ function App() {
 
     initializeApp();
   }, []);
+
+  // If we detected an initialization error (e.g., backend not reachable), show a helpful full-screen message
+  if (appInitError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+        <div className="max-w-2xl text-center">
+          <h1 className="text-2xl font-bold mb-4">Application failed to initialize</h1>
+          <p className="text-muted-foreground mb-4">{appInitError}</p>
+          <p className="mb-4">Common fixes:</p>
+          <ul className="text-left list-disc list-inside text-sm text-muted-foreground">
+            <li>Ensure the backend is running locally: <code>SESSION_SECRET=testsecret npx tsx server/index.ts</code> (http://localhost:5000)</li>
+            <li>If your frontend is served from another origin (preview), set <code>VITE_API_URL</code> to your backend: <code>VITE_API_URL=http://localhost:5000 npm run dev:frontend</code></li>
+            <li>Check the browser devtools console for the full response details.</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <QueryClientProvider client={queryClient}>

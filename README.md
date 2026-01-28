@@ -23,6 +23,7 @@
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
 - [Getting Started](#getting-started)
+ - [Testing](#testing)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
 - [User Roles & Permissions](#user-roles--permissions)
@@ -36,7 +37,7 @@
 
 **KiyuMart** is a comprehensive local marketplace platform designed to empower entrepreneurs, small businesses, and artisans to reach customers in their local and regional markets. The platform operates as both a **single-store marketplace** and a **multi-vendor marketplace**, with dynamic switching controlled by super admin settings.
 
-Key capabilities include product inventory management, secure payment processing via Paystack, real-time order tracking with live map visualization, multi-currency and multi-language support, and comprehensive admin/seller dashboards for business management.
+Key capabilities include product inventory management, secure payment processing via Paystack, real-time order tracking with live map visualization, single-currency (GHS) operation and English-only UI, and comprehensive admin/seller dashboards for business management.
 
 ### 🎯 Business Vision
 
@@ -61,9 +62,8 @@ To be the leading online marketplace platform for local businesses, connecting q
 
 - **Shopping Experience**
   - Persistent shopping cart with real-time updates
-  - Multi-currency support (GHS, NGN, XOF, USD, EUR, SAR)
-  - Multi-language support (English, French, Arabic)
-  - Automatic currency switching based on language selection
+  - Single-currency support (GHS)
+  - English-only UI
   - Mobile-first responsive design
   - Dark/light mode theme support
   - One-click checkout
@@ -103,7 +103,7 @@ To be the leading online marketplace platform for local businesses, connecting q
   - **Cloudinary Storage**: Cloud name, API key, API secret for image storage
   - **Contact Information**: Phone, email, address, social media links
   - **Branding**: Primary color customization, logo upload
-  - **Currency**: Default currency selection
+  - **Currency**: Default currency selection (GHS)
   - **Footer Content**: Dynamic footer description and contact details
   - **Feature Toggles**: Enable/disable specific marketplace features
   - **Security Settings**: API rate limiting, request size limits
@@ -152,6 +152,15 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Image upload and positioning
   - Banner performance analytics
   - A/B testing support
+
+- **Ads Configuration**
+  - Manage homepage, sidebar, product-page, and footer ads via Admin Settings
+  - Ad links accept absolute URLs (https://...), relative paths (/category/...), anchors (#section), and protocol links like mailto: and tel:
+  - Recommended image sizes and responsive behavior are shown in the Admin Settings UI
+  - Ads respect `adsEnabled` flag and can be toggled on/off by admin
+
+- **Product Card Pricing**
+  - Product cards show a sale price and (when applicable) the original/cost price as a struck-through value to highlight discounts and savings.
 
 - **Rider Management** (Logistics Partner)
   - Register and manage delivery riders
@@ -226,6 +235,45 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Photo/signature capture for delivery proof
   - Delivery history and earnings
 
+  ## 🧪 Testing
+
+  This repository includes unit and Playwright e2e tests. The project includes a GitHub Actions workflow that runs tests on push and pull requests to `main`.
+
+  Refer to `TEST_CREDENTIALS.md` for a central, safe reference of test account emails and instructions for obtaining tokens (no plaintext passwords are included).
+
+  Local test commands:
+
+  ```bash
+  # Install deps
+  npm ci
+
+  # Run unit tests
+  npm run test:unit
+
+  # Start backend (in a separate terminal)
+  npx tsx server/index.ts (Backend: http://localhost:5000)
+
+  # Start frontend (in a separate terminal)
+  npm run dev:frontend (Vite frontend: http://localhost:5173)
+
+  ## Local dev URLs
+  - Frontend: http://localhost:5173
+  - Backend API: http://localhost:5000
+  - Playwright tests expect the backend and frontend to be running. Use the test-only helper `POST /api/test/token` (development only) to obtain JWTs for seeded users to avoid repeated UI logins and rate-limits in CI.
+
+  # Install Playwright browsers (first time)
+  npx playwright install chromium
+
+  # Run e2e tests (expects backend and frontend to be running)
+  npx playwright test --project=chromium
+  ```
+
+  Notes:
+  - In CI we install Playwright browsers with `--with-deps`. If you encounter Playwright browser errors locally, run `npx playwright install --with-deps` and ensure required system libraries are present.
+  - The tests assume `SESSION_SECRET` is set; the CI workflow sets `SESSION_SECRET=testsecret` for e2e runs.
+  - For faster, more reliable e2e runs that don't trigger rate limits, tests may obtain tokens using the test-only endpoint `POST /api/test/token` (development/testing only). This avoids repeated UI logins and prevents 429s in CI.
+
+
 ---
 
 ## � Documentation
@@ -294,7 +342,7 @@ To be the leading online marketplace platform for local businesses, connecting q
 ### External Services
 - **Payment Gateway**: Paystack API
 - **Media Storage**: Cloudinary (images, videos)
-- **Currency Conversion**: exchangerate.host API
+- **Currency Conversion**: Not used — platform operates in GHS only
 - **Maps**: OpenStreetMap with Leaflet.js
 
 ### Development Tools
@@ -461,8 +509,7 @@ The platform can be fully configured through the admin settings interface:
 - **Logo Upload**: Platform logo (light and dark versions)
 
 #### 6. Currency
-- **Default Currency**: GHS, NGN, XOF, USD, EUR, or SAR
-
+  - **Default Currency**: GHS (single-currency platform)
 ### Delivery Zones (`/admin/delivery-zones`)
 
 Configure delivery areas and pricing:
@@ -527,8 +574,11 @@ POST   /api/auth/logout            # Logout
 
 ```
 GET    /api/products               # Get all products (with filters)
+# Note: Product objects include `costPrice` when set (string decimal)
 GET    /api/products/:id           # Get single product
-POST   /api/products               # Create product (admin/seller)
+POST   /api/products               # Create product (seller)
+POST   /api/admin/products         # Create product on behalf of a seller (admin/super_admin)
+# Note: The "original" price equals the product's `costPrice` (if set). When `costPrice` is higher than the selling `price`, it will be shown as the struck-through original price and the discount percent will be displayed.
 PATCH  /api/products/:id           # Update product (admin/seller)
 DELETE /api/products/:id           # Delete product (admin/seller)
 GET    /api/products/:id/variants  # Get product variants
@@ -773,28 +823,9 @@ Upload custom logos via Admin Settings or replace:
 
 ---
 
-## 📱 Multi-Language Support
+## 📱 Language Support
 
-### Supported Languages
-
-1. **English** (USD currency)
-2. **French** (EUR currency)
-3. **Arabic** (SAR currency)
-
-### Adding New Languages
-
-1. Update `LanguageContext.tsx`:
-   ```typescript
-   const currencies = {
-     en: { symbol: "$", code: "USD" },
-     fr: { symbol: "€", code: "EUR" },
-     ar: { symbol: "﷼", code: "SAR" },
-     // Add new language
-   };
-   ```
-
-2. Add translations to components
-3. Update language selector in Header
+This platform uses English as the single supported language. Internationalization and automatic language-to-currency switching have been removed; the UI and documentation are English-only. To add languages later, implement a `LanguageContext` with translations and expose a selector in the header.
 
 ---
 
@@ -884,6 +915,18 @@ We welcome contributions! Please follow these guidelines:
 - Include data-testid attributes for UI elements
 - Validate forms with Zod schemas
 
+### Pre-push checks ✅
+
+To help prevent common problems from reaching CI or production, please run the following before pushing:
+
+- Typecheck: `npm run typecheck` — this runs `tsc --noEmit` and will catch TypeScript errors early.
+- Run tests: `npm run test:e2e` (Playwright) and `npm run test:unit` when relevant.
+
+Testing helpers:
+
+- `e2e/test-utils.ts#getTestToken(request, email)` is a small helper that returns a test JWT (via `/api/test/token`) for Playwright tests. Use it to avoid duplicated token-fetching logic and block-scoped redeclaration issues in tests.
+
+Adding these checks locally keeps CI fast and reduces churn in PRs.
 ---
 
 ## 📄 License

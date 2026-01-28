@@ -91,6 +91,16 @@ app.use(helmet({
   xssFilter: true,
 }));
 
+// During development remove any CSP headers that could block Vite's inline preamble
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    // Some middleware (or reverse proxies) may add CSP headers; ensure dev doesn't block inline scripts
+    res.removeHeader('Content-Security-Policy');
+    res.removeHeader('Content-Security-Policy-Report-Only');
+    next();
+  });
+}
+
 // Add request timeout handling (30 seconds)
 app.use((req, res, next) => {
   res.setTimeout(30000, () => {
@@ -264,6 +274,17 @@ app.use(cookieParser());
   // doesn't interfere with the other routes
   if (app.get("env") === "development") {
     await setupVite(app, server);
+
+    // In development, Vite's HMR injects inline scripts which can be blocked by strict CSP.
+    // Set a permissive CSP for dev to allow inline and eval needed by dev tools.
+    app.use((req, res, next) => {
+      // Allow inline scripts and eval in dev for the local dev server only.
+      res.setHeader(
+        'Content-Security-Policy',
+        "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self';"
+      );
+      next();
+    });
   } else {
     serveStatic(app);
   }

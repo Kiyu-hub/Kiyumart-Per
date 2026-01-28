@@ -20,6 +20,7 @@ import multer from "multer";
 import sharp from "sharp";
 import { insertUserSchema, insertProductSchema, insertDeliveryZoneSchema, insertOrderSchema, insertWishlistSchema, insertReviewSchema, insertRiderReviewSchema, insertBannerCollectionSchema, insertMarketplaceBannerSchema, insertFooterPageSchema, vehicleInfoSchema, type User } from "@shared/schema";
 import { getStoreTypeSchema, type StoreType, STORE_TYPES } from "@shared/storeTypes";
+import buildPaystackInitializePayload from './paystackUtils';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -1161,7 +1162,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Product Routes ============
-  app.post("/api/products", requireAuth, requireRole("admin", "seller"), upload.fields([
+  // Only sellers may create products via this endpoint. Admins should not create products directly.
+  app.post("/api/products", requireAuth, requireRole("seller"), upload.fields([
     { name: "images", maxCount: 5 },
     { name: "video", maxCount: 1 }
   ]), async (req: AuthRequest, res) => {
@@ -1261,6 +1263,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "New product added",
         `A seller added a new product: ${product.name}`,
         { productId: product.id, sellerId: req.user!.id }
+      );
+
+      res.json(product);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: create product on behalf of a seller
+  app.post("/api/admin/products", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const sellerId = req.body.sellerId;
+      if (!sellerId) {
+        return res.status(400).json({ error: "sellerId is required to create product on behalf of a seller" });
+      }
+
+      const seller = await storage.getUser(sellerId);
+      if (!seller || seller.role !== "seller") {
+        return res.status(404).json({ error: "Seller not found or invalid" });
+      }
+
+      // Ensure seller has a store (requires approval)
+      let storeId: string | undefined = req.body.storeId;
+      try {
+        const sellerStore = await storage.ensureStoreForSeller(sellerId, { requireApproval: true });
+        storeId = sellerStore.id;
+      } catch (storeError: any) {
+        return res.status(400).json({ error: `Cannot create product for seller: ${storeError.message}` });
+      }
+
+      const productData = {
+        ...req.body,
+        images: req.body.images || [],
+        video: req.body.video || null,
+        videoDuration: req.body.videoDuration || undefined,
+        dynamicFields: req.body.dynamicFields ? JSON.parse(req.body.dynamicFields) : undefined,
+        price: req.body.price,
+        sellerId,
+        storeId: storeId || undefined,
+      };
+
+      const validatedData = insertProductSchema.parse(productData);
+      const product = await storage.createProduct({
+        ...validatedData,
+        sellerId,
+      });
+
+      await notifyAdmins(
+        "product",
+        "Product created by admin",
+        `An admin added a product for seller ${seller.email}: ${product.name}`,
+        { productId: product.id, sellerId }
       );
 
       res.json(product);
@@ -1967,16 +2021,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sellersMap: Record<string, any> = {};
       for (const sid of sellerIds) {
         try {
-          const su = await db.select().from(users).where(eq(users.id, sid)).limit(1);
-          if (su[0]) sellersMap[sid] = { id: su[0].id, name: su[0].name };
+          const su = await db.select().from(users).where(eq(users.id, sid as string)).limit(1);
+          if (su[0]) sellersMap[sid as string] = { id: su[0].id, name: su[0].name };
         } catch (e) { continue; }
       }
 
       const storesMap: Record<string, any> = {};
       for (const stid of storeIds) {
         try {
-          const su = await db.select().from(stores).where(eq(stores.id, stid)).limit(1);
-          if (su[0]) storesMap[stid] = { id: su[0].id, name: su[0].name };
+          const su = await db.select().from(stores).where(eq(stores.id, stid as string)).limit(1);
+          if (su[0]) storesMap[stid as string] = { id: su[0].id, name: su[0].name };
         } catch (e) { continue; }
       }
 
@@ -1988,7 +2042,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             commissionRow = await db.select().from(commissions).where(eq(commissions.id, e.commissionId)).limit(1);
           } catch (err) {
-            console.warn('Warning: failed to load commission for id', e.commissionId, err?.message || err);
+            console.warn('Warning: failed to load commission for id', e.commissionId, (err as any)?.message || (err as any));
             commissionRow = [];
           }
         }
@@ -2060,13 +2114,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sellers = await storage.getUsersByRole('seller');
       const results: any[] = [];
+
+      // Import needed schema and db helpers here so the scope is clear
+      const { db } = await import("../db/index");
+      const { sellerPayouts } = await import("@shared/schema");
+      const { eq, sql } = await import("drizzle-orm");
+
       for (const s of sellers) {
-        // Aggregates for payouts
+        // Aggregates for payouts (use sql templates instead of db.raw)
         const totals = await db.select({
-          totalPaid: db.raw("COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0)"),
-          pending: db.raw("COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0)"),
-          count: db.raw("COALESCE(COUNT(*), 0)"),
-          lastPayoutAt: db.raw("MAX(processed_at)")
+          totalPaid: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'completed' THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
+          pending: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'pending' THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
+          count: sql`COALESCE(COUNT(*), 0)`,
+          lastPayoutAt: sql`MAX(${sellerPayouts.processedAt})`
         }).from(sellerPayouts).where(eq(sellerPayouts.sellerId, s.id));
 
         results.push({
@@ -2077,7 +2137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalPaid: (totals[0]?.totalPaid as any) || '0.00',
           pendingAmount: (totals[0]?.pending as any) || '0.00',
           payoutCount: (totals[0]?.count as any) || 0,
-          lastPayoutAt: totals[0]?.lastpayoutat || null
+          lastPayoutAt: totals[0]?.lastPayoutAt || null
         });
       }
       res.json(results);
@@ -2153,10 +2213,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Seed endpoints are disabled in production" });
       }
       
+      // Determine a non-exposed super-admin password: use env when provided, otherwise generate one at runtime (not logged)
+      const crypto = await import('crypto');
+      const resolvedSuperAdminPassword = process.env.SUPER_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+
       const testUsers = [
         {
-          email: "superadmin@kiyumart.com",
-          password: await bcrypt.hash("superadmin123", 10),
+          email: process.env.SUPER_ADMIN_EMAIL || "superadmin@kiyumart.com",
+          password: await bcrypt.hash(resolvedSuperAdminPassword, 10),
           name: "Super Admin",
           role: "super_admin",
           isActive: true,
@@ -2239,15 +2303,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         message: "Test users created/verified for all 6 roles",
         users: created,
+        // Note: Passwords are not included in responses for security. Set `SUPER_ADMIN_PASSWORD` and `ADMIN_PASSWORD` via environment variables.
         credentials: {
-          super_admin: "superadmin@kiyumart.com / superadmin123",
-          admin: "admin@kiyumart.com / admin123",
-          seller: "seller@kiyumart.com / seller123",
-          buyer: "buyer@kiyumart.com / buyer123",
-          rider: "rider@kiyumart.com / rider123",
-          agent: "agent@kiyumart.com / agent123"
+          super_admin: `${process.env.SUPER_ADMIN_EMAIL || 'superadmin@kiyumart.com'} (password set via SUPER_ADMIN_PASSWORD)`,
+          admin: `${process.env.ADMIN_EMAIL || 'admin@kiyumart.com'} (password set via ADMIN_PASSWORD)`,
+          seller: `seller@kiyumart.com`,
+          buyer: `buyer@kiyumart.com`,
+          rider: `rider@kiyumart.com`,
+          agent: `agent@kiyumart.com`
         }
       });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Test helper: create a JWT for a seeded user (Development/Testing only)
+  app.post('/api/test/token', async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked test endpoint /api/test/token in production`);
+        return res.status(403).json({ error: "Test endpoints are disabled in production" });
+      }
+
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ error: 'Email is required' });
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      const token = generateToken(user);
+
+      res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Dev-only helper to set an httpOnly auth cookie for a test user (useful for E2E tests)
+  app.get('/api/test/auth-cookie', async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked test endpoint /api/test/auth-cookie in production`);
+        return res.status(403).send('disabled in production');
+      }
+
+      const email = req.query.email as string | undefined;
+      if (!email) return res.status(400).send('email required');
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) return res.status(404).send('user not found');
+
+      const token = generateToken(user);
+      // Set cookie (httpOnly) so browser requests send it automatically
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: false,
+        sameSite: 'lax',
+        path: '/',
+      });
+
+      res.json({ success: true, user: { id: user.id, email: user.email, role: user.role } });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Dev-only endpoint for client-side logs (useful for diagnosing init timeouts and other client issues)
+  app.post('/api/test/client-log', async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY] Blocked test endpoint /api/test/client-log in production`);
+        return res.status(403).json({ error: "Test endpoints are disabled in production" });
+      }
+
+      const payload = req.body || {};
+      // Sanitize and log a short summary so logs don't fill up with huge payloads
+      const summary = {
+        type: payload.type || 'unknown',
+        message: (payload.message || '').toString().slice(0, 1000),
+        url: payload.url || '',
+        userAgent: (payload.userAgent || '').toString().slice(0, 200),
+        timestamp: payload.timestamp || new Date().toISOString(),
+      };
+
+      console.warn(`[CLIENT-LOG] ${summary.type} @ ${summary.timestamp} - ${summary.message} (url=${summary.url})`);
+
+      res.json({ success: true, received: true });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -2360,6 +2502,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         results.banners.push(created);
       }
 
+      // Ensure a store exists for the first seeded seller and set it as primary store (single-store mode)
+      try {
+        if (results.sellers.length > 0) {
+          const primarySeller = results.sellers[0];
+          const primaryStore = await storage.ensureStoreForSeller(primarySeller.id);
+          await storage.updatePlatformSettings({ isMultiVendor: false, primaryStoreId: primaryStore.id, defaultCurrency: 'GHS' });
+          console.log(`[seed/complete-marketplace] Set primaryStoreId=${primaryStore.id} for seeded marketplace`);
+        }
+      } catch (err: any) {
+        console.warn('[seed/complete-marketplace] Failed to set primary store:', err?.message || err);
+      }
+
       res.json({
         success: true,
         message: "Complete marketplace seeded successfully!",
@@ -2375,6 +2529,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Development helper: Ensure the platform primary store is set to a store that has active products
+  app.post('/api/seed/ensure-primary-store', async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('[SECURITY] Blocked /api/seed/ensure-primary-store in production');
+        return res.status(403).json({ error: 'Seed endpoints are disabled in production' });
+      }
+
+      // Find any active product and use its store as the primary store
+      const products = await storage.getProducts({ isActive: true });
+      if (!products || products.length === 0) return res.status(400).json({ error: 'No active products found' });
+
+      // Find the first active product that has an associated storeId
+      const candidate = products.find((p: any) => !!p.storeId);
+      if (!candidate) return res.status(400).json({ error: 'No active product with a storeId found' });
+
+  const store = await storage.getStore(candidate.storeId as string);
+      if (!store) return res.status(404).json({ error: 'Store not found' });
+
+      const updated = await storage.updatePlatformSettings({ isMultiVendor: false, primaryStoreId: store.id, defaultCurrency: 'GHS' });
+      res.json({ success: true, primaryStoreId: store.id, settings: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
   // Islamic Fashion Products Seed (Development/Testing only)
   app.post("/api/seed/islamic-fashion", async (req, res) => {
     try {
@@ -2387,22 +2567,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { createCompliantProductData, getAllProductBundles } = await import("./seedMediaLibrary");
       
       // Get or create a seller for the store
-      let seller;
-      try {
-        const existingSeller = await storage.getUserByEmail("store@kiyumart.com");
-        seller = existingSeller;
-      } catch {
-        seller = await storage.createUser({
-          email: "store@kiyumart.com",
-          password: await bcrypt.hash("store123", 10),
-          name: "KiyuMart Store",
-          role: "seller" as const,
-          storeName: "KiyuMart - Islamic Fashion",
-          storeType: "clothing"
-        });
-        // Approve the seller after creation
-        if (seller) {
-          await storage.updateUser(seller.id, { isApproved: true, isActive: true });
+      let seller = await storage.getUserByEmail("store@kiyumart.com");
+      console.log('[seed] existingSeller:', !!seller);
+      if (!seller) {
+        try {
+          seller = await storage.createUser({
+            email: "store@kiyumart.com",
+            password: await bcrypt.hash("store123", 10),
+            name: "KiyuMart Store",
+            role: "seller" as const,
+            storeName: "KiyuMart - Islamic Fashion",
+            storeType: "clothing"
+          });
+          console.log('[seed] created seller id:', seller?.id);
+        } catch (err: any) {
+          console.error('[seed] create seller failed:', err?.message || String(err));
+          // If creation failed due to a race or duplicate key, try to fetch the user again
+          seller = await storage.getUserByEmail("store@kiyumart.com");
+          console.log('[seed] re-fetched seller after failure:', !!seller);
         }
       }
 
@@ -2410,13 +2592,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("Failed to create or find seller");
       }
 
+      // Ensure seller is approved and active
+      if (!seller.isApproved || !seller.isActive) {
+        await storage.updateUser(seller.id, { isApproved: true, isActive: true });
+      }
+
       const products = [];
       const reviews = [];
 
-      // Create products using compliant bundles from media library
+      // Ensure this seller has an associated store, and create products for that store
+      const store = await storage.ensureStoreForSeller(seller.id, { requireApproval: false });
+
+      // Create products using compliant bundles from media library and attach storeId
       const clothingBundles = getAllProductBundles("clothing");
       for (let i = 0; i < Math.min(clothingBundles.length, 3); i++) {
-        const productData = createCompliantProductData(seller.id, "clothing", i);
+        const productData = createCompliantProductData(seller.id, "clothing", i, store.id);
         const product = await storage.createProduct(productData as any);
         products.push(product);
       }
@@ -2431,22 +2621,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ];
 
       for (const customer of customerData) {
-        try {
-          let user;
+        let user = await storage.getUserByEmail(customer.email);
+        if (!user) {
           try {
-            user = await storage.getUserByEmail(customer.email);
-          } catch {
             user = await storage.createUser({
               email: customer.email,
               password: await bcrypt.hash("customer123", 10),
               name: customer.name,
               role: "buyer"
             });
+          } catch (err: any) {
+            // If creation failed due to a race or duplicate key, try to fetch again
+            user = await storage.getUserByEmail(customer.email);
           }
-          customers.push(user);
-        } catch (error) {
-          console.log(`Customer ${customer.email} already exists`);
         }
+        if (user) customers.push(user);
       }
 
       // Add real customer reviews
@@ -3791,11 +3980,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
-      // Prepare payment payload (use first order's currency for consistency)
+      // Prepare payment payload (use helper for base structure)
       // Compute total processing fee across orders and ensure it is set as transaction_charge
       const processingFeeTotal = orders.reduce((s: number, o: any) => s + (parseFloat(o.processingFee || "0") || 0), 0);
 
+      // Use the Paystack payload builder for a consistent base payload, then extend
+      const baseForHelper = {
+        id: orders[0].id,
+        orderNumber: orders[0].orderNumber,
+        total: totalAmount.toFixed(2),
+        currency: orders[0].currency,
+        buyerId: req.user!.id,
+        paystackSubaccountId: undefined,
+      } as any;
+
+      const helperSettings = { defaultCommissionRate: settings.defaultCommissionRate } as any;
+      const basePayload = buildPaystackInitializePayload(baseForHelper, helperSettings);
+
       const paymentPayload: any = {
+        ...basePayload,
         email: req.user!.email,
         amount: Math.round(totalAmount * 100), // Total in kobo/pesewas (includes processing fee)
         currency: orders[0].currency,
@@ -3803,6 +4006,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         callback_url: callbackUrl,
         transaction_charge: Math.round(processingFeeTotal * 100), // pass processing fee to Paystack (kobo)
         metadata: {
+          ...(basePayload.metadata || {}),
           userId: req.user!.id,
           buyerId: req.user!.id,
           isMultiVendor,
@@ -4029,223 +4233,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Payment reference is required", userMessage: "Invalid payment reference." });
       }
       
-      // Get platform settings for Paystack key
-      const settings = await storage.getPlatformSettings();
-      if (!settings.paystackSecretKey) {
-        return res.status(503).json({ 
-          error: "Payment gateway not configured",
-          userMessage: "Payment system is currently unavailable. Please contact support."
-        });
-      }
-      
-      // Check if transaction already exists (idempotency)
-      const existingTransaction = await storage.getTransactionByReference(reference);
-      if (existingTransaction) {
-        const order = await storage.getOrder(existingTransaction.orderId);
-        return res.json({ 
-          transaction: existingTransaction, 
-          verified: existingTransaction.status === "completed",
-          orderId: existingTransaction.orderId,
-          message: "Transaction already processed"
-        });
-      }
-
-      // Verify payment with Paystack with timeout
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      
-      try {
-        const response = await fetch(
-          `https://api.paystack.co/transaction/verify/${reference}`,
-          {
-            headers: {
-              Authorization: `Bearer ${settings.paystackSecretKey}`,
-            },
-            signal: controller.signal,
-          }
-        );
-        
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          return res.status(502).json({ 
-            error: errorData.message || "Payment verification failed",
-            userMessage: "Unable to verify payment. Please contact support with your payment reference."
-          });
-        }
-
-        const data = await response.json();
-        
-        if (!data.status) {
-          return res.status(400).json({ 
-            error: data.message || "Payment verification failed",
-            userMessage: data.message || "Unable to verify your payment. Please contact support."
-          });
-        }
-
-        // Determine if multi-vendor payment
-        const isMultiVendor = data.data.metadata?.isMultiVendor || false;
-        let orders: any[] = [];
-        
-        if (isMultiVendor) {
-          // Multi-vendor: Fetch all orders in the session
-          const checkoutSessionId = data.data.metadata.checkoutSessionId;
-          const orderIds = data.data.metadata.orderIds || [];
-          
-          if (!checkoutSessionId || !Array.isArray(orderIds) || orderIds.length === 0) {
-            return res.status(400).json({ 
-              error: "Invalid multi-vendor payment data",
-              userMessage: "Multi-vendor payment data is incomplete. Please contact support."
-            });
-          }
-          
-          // Fetch all orders
-          const allOrders = await storage.getAllOrders();
-          orders = allOrders.filter((o: any) => orderIds.includes(o.id));
-          
-          if (orders.length !== orderIds.length) {
-            return res.status(404).json({ 
-              error: "Some orders not found",
-              userMessage: "Some orders in this payment session could not be found."
-            });
-          }
-          
-          // Verify user owns all orders
-          const allOwnedByUser = orders.every((o: any) => o.buyerId === req.user!.id);
-          if (!allOwnedByUser) {
-            return res.status(403).json({ 
-              error: "Unauthorized",
-              userMessage: "You don't have permission to verify these payments."
-            });
-          }
-          
-          // Validate all orders have matching payment reference
-          const allMatchReference = orders.every((o: any) => o.paymentReference === reference);
-          if (!allMatchReference) {
-            return res.status(400).json({ 
-              error: "Payment reference mismatch",
-              userMessage: "Payment reference does not match all orders. Please contact support."
-            });
-          }
-          
-          // Validate total amount
-          const totalExpected = orders.reduce((sum: number, o: any) => sum + parseFloat(o.total), 0);
-          const expectedAmount = Math.round(totalExpected * 100);
-          
-          if (data.data.amount !== expectedAmount) {
-            return res.status(400).json({ 
-              error: "Payment amount mismatch",
-              userMessage: `Payment amount (${data.data.currency} ${(data.data.amount / 100).toFixed(2)}) does not match total (${orders[0].currency} ${totalExpected.toFixed(2)}).`,
-              expected: expectedAmount / 100,
-              received: data.data.amount / 100
-            });
-          }
-          
-          // Validate currency (use first order)
-          if (data.data.currency !== orders[0].currency) {
-            return res.status(400).json({ 
-              error: "Currency mismatch",
-              userMessage: `Payment currency (${data.data.currency}) does not match order currency (${orders[0].currency}).`
-            });
-          }
-          
-        } else {
-          // Single order
-          const orderId = data.data.metadata?.orderId;
-          if (!orderId) {
-            return res.status(400).json({ 
-              error: "Invalid payment data",
-              userMessage: "Payment verification returned invalid data. Please contact support."
-            });
-          }
-
-          const order = await storage.getOrder(orderId);
-          
-          if (!order) {
-            return res.status(404).json({ error: "Order not found", userMessage: "Order associated with this payment could not be found." });
-          }
-
-          // Verify the user owns this order
-          if (order.buyerId !== req.user!.id) {
-            return res.status(403).json({ error: "Unauthorized to verify payment for this order", userMessage: "You don't have permission to verify this payment." });
-          }
-
-          // Validate the payment reference matches
-          if (order.paymentReference !== reference) {
-            return res.status(400).json({ 
-              error: "Payment reference mismatch",
-              userMessage: "Payment reference does not match the order. Please contact support."
-            });
-          }
-
-          // Validate the payment amount matches the order total
-          const expectedAmount = Math.round(parseFloat(order.total) * 100);
-          if (data.data.amount !== expectedAmount) {
-            return res.status(400).json({ 
-              error: "Payment amount mismatch",
-              userMessage: `Payment amount (${data.data.currency} ${(data.data.amount / 100).toFixed(2)}) does not match order total (${order.currency} ${parseFloat(order.total).toFixed(2)}).`,
-              expected: expectedAmount / 100,
-              received: data.data.amount / 100
-          });
-        }
-
-        // Validate currency
-        if (data.data.currency !== order.currency) {
-          return res.status(400).json({ 
-            error: "Currency mismatch",
-            userMessage: `Payment currency (${data.data.currency}) does not match order currency (${order.currency}). Please contact support.`
-          });
-        }
-        
-        orders = [order];
-      }
-
-      // Establish primary order for consistent access (first order in array)
-      if (orders.length === 0) {
-        return res.status(500).json({
-          error: "No orders found in payment session",
-          userMessage: "Payment verification failed due to missing order data. Please contact support."
-        });
-      }
-      const primaryOrder = orders[0];
-
-      // Delegate transaction/order processing to shared helper to maintain idempotency and
-      // ensure consistent behavior between webhook and manual verify flow.
-      try {
-        const { processPaystackChargeSuccess } = await import('./payments');
-        await processPaystackChargeSuccess(data.data, storage, io);
-      } catch (procErr: any) {
-        console.error('[VERIFY] Error processing payment via shared helper:', procErr?.message || procErr);
-        // Continue - we will still attempt to return current transaction state if available
-      }
-
-      const transaction = await storage.getTransactionByReference(reference);
-
-      res.json({
-        transaction,
-        verified: data.data.status === 'success',
-        orderId: primaryOrder.id,
-        orderIds: orders.map((o: any) => o.id),
-        isMultiVendor,
-        orderCount: orders.length,
-        message: data.data.status === 'success' ? 'Payment verified successfully' : data.data.gateway_response || 'Payment failed'
-      });
-      } catch (fetchError: any) {
-        clearTimeout(timeout);
-        
-        if (fetchError.name === 'AbortError') {
-          return res.status(504).json({ 
-            error: "Payment verification timeout",
-            userMessage: "Payment verification is taking too long. Please check your order status or contact support."
-          });
-        }
-        
-        return res.status(502).json({ 
-          error: "Failed to verify payment",
-          userMessage: "Unable to reach payment gateway for verification. Please try again or contact support."
-        });
-      }
+      // Delegate to shared helper function (reused by public verification)
+      const result = await verifyReferenceAndProcess(reference, req.user?.id);
+      res.json(result);
     } catch (error: any) {
       console.error("Payment verification error:", error);
       res.status(500).json({ 
@@ -4254,6 +4244,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
   });
+
+  // Public verification endpoint used when the user is redirected from Paystack and may not be authenticated
+  app.get("/api/payments/verify-public/:reference", async (req, res) => {
+    try {
+      const { reference } = req.params;
+      if (!reference) {
+        return res.status(400).json({ error: "Payment reference is required", userMessage: "Invalid payment reference." });
+      }
+
+      // Reuse same verification helper but without a current user id (no ownership checks)
+      const result = await verifyReferenceAndProcess(reference, undefined);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Payment verification public error:", error);
+      res.status(500).json({ 
+        error: error.message || "Internal server error",
+        userMessage: "An unexpected error occurred while verifying your payment. Please contact support with your payment reference."
+      });
+    }
+  });
+
+  // Shared helper: verify reference with Paystack and process transaction; if `currentUserId` provided, perform ownership checks
+  async function verifyReferenceAndProcess(reference: string, currentUserId?: string | undefined) {
+    // Get platform settings for Paystack key
+    const settings = await storage.getPlatformSettings();
+    if (!settings.paystackSecretKey) {
+      throw new Error("Payment gateway not configured");
+    }
+
+    // Check if transaction already exists (idempotency)
+    const existingTransaction = await storage.getTransactionByReference(reference);
+    if (existingTransaction) {
+      const order = await storage.getOrder(existingTransaction.orderId);
+      return { transaction: existingTransaction, verified: existingTransaction.status === "completed", orderId: existingTransaction.orderId, message: "Transaction already processed" };
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
+        headers: { Authorization: `Bearer ${settings.paystackSecretKey}` },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Payment verification failed");
+      }
+
+      const data = await response.json();
+      if (!data.status) {
+        throw new Error(data.message || "Payment verification failed");
+      }
+
+      const isMultiVendor = data.data.metadata?.isMultiVendor || false;
+      let orders: any[] = [];
+
+      if (isMultiVendor) {
+        const orderIds = data.data.metadata.orderIds || [];
+        if (!Array.isArray(orderIds) || orderIds.length === 0) {
+          throw new Error("Invalid multi-vendor payment data");
+        }
+
+        const allOrders = await storage.getAllOrders();
+        orders = allOrders.filter((o: any) => orderIds.includes(o.id));
+        if (orders.length !== orderIds.length) {
+          throw new Error("Some orders not found");
+        }
+
+        // If a currentUserId is provided, ensure they own all orders; otherwise skip ownership check
+        if (currentUserId) {
+          const allOwnedByUser = orders.every((o: any) => o.buyerId === currentUserId);
+          if (!allOwnedByUser) throw new Error("Unauthorized to verify these payments");
+        }
+
+        const allMatchReference = orders.every((o: any) => o.paymentReference === reference);
+        if (!allMatchReference) throw new Error("Payment reference mismatch");
+
+        const totalExpected = orders.reduce((sum: number, o: any) => sum + parseFloat(o.total), 0);
+        const expectedAmount = Math.round(totalExpected * 100);
+        if (data.data.amount !== expectedAmount) throw new Error("Payment amount mismatch");
+
+      } else {
+        const orderId = data.data.metadata?.orderId;
+        if (!orderId) throw new Error("Invalid payment data");
+
+        const order = await storage.getOrder(orderId);
+        if (!order) throw new Error("Order not found");
+
+        if (currentUserId && order.buyerId !== currentUserId) throw new Error("Unauthorized to verify payment for this order");
+
+        if (order.paymentReference !== reference) throw new Error("Payment reference mismatch");
+
+        const expectedAmount = Math.round(parseFloat(order.total) * 100);
+        if (data.data.amount !== expectedAmount) throw new Error("Payment amount mismatch");
+
+        if (data.data.currency !== order.currency) throw new Error("Currency mismatch");
+
+        orders = [order];
+      }
+
+      if (orders.length === 0) throw new Error("No orders found in payment session");
+      const primaryOrder = orders[0];
+
+      try {
+        const { processPaystackChargeSuccess } = await import('./payments');
+        await processPaystackChargeSuccess(data.data, storage, io);
+      } catch (procErr: any) {
+        console.error('[VERIFY] Error processing payment via shared helper:', procErr?.message || procErr);
+      }
+
+      const transaction = await storage.getTransactionByReference(reference);
+
+      return {
+        transaction,
+        verified: data.data.status === 'success',
+        orderId: primaryOrder.id,
+        orderIds: orders.map((o: any) => o.id),
+        isMultiVendor,
+        orderCount: orders.length,
+        message: data.data.status === 'success' ? 'Payment verified successfully' : data.data.gateway_response || 'Payment failed'
+      };
+    } catch (fetchError: any) {
+      clearTimeout(timeout);
+
+      if (fetchError.name === 'AbortError') {
+        throw new Error('Payment verification timeout');
+      }
+      throw fetchError;
+    }
+  }
 
   // ============ Paystack Webhook Handler ============
   // Note: Uses raw body for HMAC signature verification (captured via express.json verify hook)
