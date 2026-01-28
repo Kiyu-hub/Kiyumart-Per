@@ -3860,6 +3860,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin: Promotional ads CRUD (basic scaffolding)
+  app.post('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const { type, targetId, startAt, endAt } = req.body;
+      if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+      const created = await storage.createPromotionalAd({ type, targetId, startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id });
+      res.json(created);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const rows = await db.select().from(promotionalAds).orderBy(desc(promotionalAds.createdAt));
+      res.json(rows);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.patch('/api/admin/promotions/:id/expire', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const id = req.params.id;
+      await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(eq(promotionalAds.id, id));
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // Public: homepage promotions
+  app.get('/api/homepage/promotional', async (req, res) => {
+    try {
+      const rows = await storage.getActivePromotionalAds();
+      // Enrich with store or product info for frontend display
+      const enriched = await Promise.all(rows.map(async (r: any) => {
+        if (r.type === 'store') {
+          const store = await storage.getStoreById(r.targetId).catch(() => null);
+          return { ...r, store };
+        }
+        if (r.type === 'product') {
+          const product = await storage.getProductById(r.targetId).catch(() => null);
+          return { ...r, product };
+        }
+        return r;
+      }));
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
   // ============ Role Features Management (Super Admin Only) ============
   app.get("/api/role-features", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {

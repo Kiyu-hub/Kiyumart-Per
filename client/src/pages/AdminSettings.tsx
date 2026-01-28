@@ -73,6 +73,10 @@ const settingsSchema = z.object({
   showSocialLinks: z.boolean(),
   footerDescription: z.string().min(1, "Footer description is required"),
   adsEnabled: z.boolean(),
+  heroBannerEnabled: z.boolean(),
+  sidebarAdEnabled: z.boolean(),
+  footerAdEnabled: z.boolean(),
+  productPageAdEnabled: z.boolean(),
   // Ad image and link fields accept absolute URLs, protocol links (mailto:, tel:), or relative/anchor paths (e.g. /category/abayas, #section)
   heroBannerAdImage: z.string().optional().or(z.literal("")),
   heroBannerAdUrl: z.string().optional().or(z.literal("")),
@@ -170,6 +174,11 @@ export default function AdminSettings() {
       showWhatsapp: (settings as any).showWhatsapp ?? true,
       footerDescription: settings.footerDescription,
       adsEnabled: settings.adsEnabled || false,
+      adsEnabled: settings.adsEnabled || false,
+      heroBannerEnabled: (settings as any).heroBannerEnabled ?? true,
+      sidebarAdEnabled: (settings as any).sidebarAdEnabled ?? true,
+      footerAdEnabled: (settings as any).footerAdEnabled ?? true,
+      productPageAdEnabled: (settings as any).productPageAdEnabled ?? true,
       heroBannerAdImage: settings.heroBannerAdImage || "",
       heroBannerAdUrl: settings.heroBannerAdUrl || "",
       sidebarAdImage: settings.sidebarAdImage || "",
@@ -263,6 +272,10 @@ export default function AdminSettings() {
         showSocialLinks: data.showSocialLinks ?? true,
         footerDescription: data.footerDescription,
         adsEnabled: data.adsEnabled || false,
+        heroBannerEnabled: (data as any).heroBannerEnabled ?? true,
+        sidebarAdEnabled: (data as any).sidebarAdEnabled ?? true,
+        footerAdEnabled: (data as any).footerAdEnabled ?? true,
+        productPageAdEnabled: (data as any).productPageAdEnabled ?? true,
         heroBannerAdImage: data.heroBannerAdImage || "",
         heroBannerAdUrl: data.heroBannerAdUrl || "",
         sidebarAdImage: data.sidebarAdImage || "",
@@ -325,6 +338,10 @@ export default function AdminSettings() {
           showSocialLinks: (settings as any).showSocialLinks ?? true,
         footerDescription: settings.footerDescription,
         adsEnabled: settings.adsEnabled || false,
+        heroBannerEnabled: (settings as any).heroBannerEnabled ?? true,
+        sidebarAdEnabled: (settings as any).sidebarAdEnabled ?? true,
+        footerAdEnabled: (settings as any).footerAdEnabled ?? true,
+        productPageAdEnabled: (settings as any).productPageAdEnabled ?? true,
         heroBannerAdImage: settings.heroBannerAdImage || "",
         heroBannerAdUrl: settings.heroBannerAdUrl || "",
         sidebarAdImage: settings.sidebarAdImage || "",
@@ -1203,10 +1220,18 @@ export default function AdminSettings() {
                   {form.watch("adsEnabled") && (
                     <div className="space-y-6 pt-4">
                       <div className="space-y-4 p-4 border rounded-lg">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <ImageIcon className="h-4 w-4" />
-                          Hero Banner Ad
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <ImageIcon className="h-4 w-4" />
+                            Hero Banner Ad
+                          </h4>
+                          <Switch
+                            id="heroBannerEnabled"
+                            checked={form.watch("heroBannerEnabled")}
+                            onCheckedChange={(checked) => form.setValue("heroBannerEnabled", checked)}
+                            data-testid="switch-hero-enabled"
+                          />
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           Display an advertisement banner prominently on the homepage hero section
                         </p>
@@ -1235,10 +1260,18 @@ export default function AdminSettings() {
                       </div>
 
                       <div className="space-y-4 p-4 border rounded-lg">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <ImageIcon className="h-4 w-4" />
-                          Sidebar Ad
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <ImageIcon className="h-4 w-4" />
+                            Sidebar Ad
+                          </h4>
+                          <Switch
+                            id="sidebarAdEnabled"
+                            checked={form.watch("sidebarAdEnabled")}
+                            onCheckedChange={(checked) => form.setValue("sidebarAdEnabled", checked)}
+                            data-testid="switch-sidebar-enabled"
+                          />
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           Display an advertisement in the sidebar on product listing pages
                         </p>
@@ -1267,10 +1300,18 @@ export default function AdminSettings() {
                       </div>
 
                       <div className="space-y-4 p-4 border rounded-lg">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <ImageIcon className="h-4 w-4" />
-                          Product Page Ad
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <ImageIcon className="h-4 w-4" />
+                            Product Page Ad
+                          </h4>
+                          <Switch
+                            id="productPageAdEnabled"
+                            checked={form.watch("productPageAdEnabled")}
+                            onCheckedChange={(checked) => form.setValue("productPageAdEnabled", checked)}
+                            data-testid="switch-product-enabled"
+                          />
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           Display an advertisement below product details on individual product pages
                         </p>
@@ -1299,10 +1340,18 @@ export default function AdminSettings() {
                       </div>
 
                       <div className="space-y-4 p-4 border rounded-lg">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <ImageIcon className="h-4 w-4" />
-                          Footer Ad
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <ImageIcon className="h-4 w-4" />
+                            Footer Ad
+                          </h4>
+                          <Switch
+                            id="footerAdEnabled"
+                            checked={form.watch("footerAdEnabled")}
+                            onCheckedChange={(checked) => form.setValue("footerAdEnabled", checked)}
+                            data-testid="switch-footer-enabled"
+                          />
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           Display an advertisement in the footer section across all pages
                         </p>

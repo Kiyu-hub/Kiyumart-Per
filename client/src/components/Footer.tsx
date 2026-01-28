@@ -102,7 +102,7 @@ export default function Footer() {
     return acc;
   }, {} as Record<string, typeof footerPages>);
   
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
   const openSocialLink = (url?: string) => {
     if (url) {
@@ -278,15 +278,17 @@ export default function Footer() {
             <div>
               <h4 className="font-semibold mb-4">Customer Service</h4>
               <ul className="space-y-2 text-muted-foreground">
-                <li>
-                  <Link 
-                    href={isAuthenticated ? "/support" : "/auth"} 
-                    className="hover:text-foreground transition-colors"
-                    data-testid="link-support"
-                  >
-                    Customer Support
-                  </Link>
-                </li>
+                {(!user || (user.role !== 'super_admin' && user.role !== 'admin' && user.role !== 'agent')) && (
+                  <li>
+                    <Link 
+                      href={isAuthenticated ? "/support" : "/auth"} 
+                      className="hover:text-foreground transition-colors"
+                      data-testid="link-support"
+                    >
+                      Customer Support
+                    </Link>
+                  </li>
+                )}
                 <li>
                   <Link 
                     href={isAuthenticated ? "/orders" : "/auth"} 

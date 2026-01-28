@@ -158,6 +158,8 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Ad links accept absolute URLs (https://...), relative paths (/category/...), anchors (#section), and protocol links like mailto: and tel:
   - Recommended image sizes and responsive behavior are shown in the Admin Settings UI
   - Ads respect `adsEnabled` flag and can be toggled on/off by admin
+  - Individual ad placements (Hero, Sidebar, Footer, Product page) now have per-position toggles (`heroBannerEnabled`, `sidebarAdEnabled`, `footerAdEnabled`, `productPageAdEnabled`) in Admin Settings.
+  - External ad links now support protocol-relative URLs (`//host/path`) and external http(s) links open in a new tab (`target="_blank"`). Internal/anchor links remain SPA-friendly and use client navigation or smooth-scroll behavior.
   - UI Display: The platform now renders **Hero** (homepage), **Sidebar** (homepage - large screens), **Product Page** (product detail pages), and **Footer** ads when configured.
 
 Development notes:

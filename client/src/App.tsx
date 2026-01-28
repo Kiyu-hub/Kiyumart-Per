@@ -40,6 +40,7 @@ import AdminBranding from "@/pages/AdminBranding";
 import AdminDeliveryTracking from "@/pages/AdminDeliveryTracking";
 import AdminDeliveryZones from "@/pages/AdminDeliveryZones";
 import AdminBannerManager from "@/pages/AdminBannerManager";
+import AdminPromotions from "@/pages/AdminPromotions";
 import AdminCategoryManager from "@/pages/AdminCategoryManager";
 import AdminFooterPagesManager from "@/pages/AdminFooterPagesManager";
 import AdminPlatformEarnings from "@/pages/AdminPlatformEarnings";
@@ -135,6 +136,7 @@ function Router() {
       <Route path="/admin/zones" component={AdminDeliveryZones} />
       <Route path="/admin/delivery-zones" component={AdminDeliveryZones} />
       <Route path="/admin/banners" component={AdminBannerManager} />
+      <Route path="/admin/promotions" component={AdminPromotions} />
       <Route path="/admin/categories" component={AdminCategoryManager} />
       <Route path="/admin/footer-pages" component={AdminFooterPagesManager} />
       <Route path="/admin/platform-earnings" component={AdminPlatformEarnings} />

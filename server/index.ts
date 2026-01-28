@@ -311,4 +311,13 @@ app.use(cookieParser());
   } catch (e) {
     console.warn('[BOOT] Could not start payout worker:', (e as any)?.message ?? String(e));
   }
+
+  // Start promotional ads worker (optional)
+  try {
+    const { runPromotionalWorker } = await import('./workers/promotionalWorker');
+    runPromotionalWorker();
+    console.log('[BOOT] Promotional ads worker started');
+  } catch (e) {
+    console.warn('[BOOT] Could not start promotional worker:', (e as any)?.message ?? String(e));
+  }
 })();

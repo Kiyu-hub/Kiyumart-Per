@@ -41,6 +41,24 @@ export default function AdBanner({ position, className = "", fullBleed = false }
     return null;
   }
 
+  // Respect per-position enable flags so admins can toggle specific ad placements
+  const positionEnabled = (() => {
+    switch (position) {
+      case "hero":
+        return (settings as any).heroBannerEnabled;
+      case "sidebar":
+        return (settings as any).sidebarAdEnabled;
+      case "footer":
+        return (settings as any).footerAdEnabled;
+      case "product-page":
+        return (settings as any).productPageAdEnabled;
+      default:
+        return true;
+    }
+  })();
+
+  if (positionEnabled === false) return null;
+
   const getAdData = () => {
     switch (position) {
       case "hero":
@@ -142,7 +160,7 @@ export default function AdBanner({ position, className = "", fullBleed = false }
     const raw = ad.url.trim();
     // Normalize URL: accept 'category/..', '/category/..', '#anchor', 'mailto:', 'tel:', or full http(s)
     const isProtocol = /^mailto:|^tel:/i.test(raw);
-    const isHttp = /^https?:\/\//i.test(raw);
+    const isHttp = /^https?:\/\//i.test(raw) || /^\/\//.test(raw);
 
     let normalized = raw;
     if (!isHttp && !isProtocol && !raw.startsWith('#')) {

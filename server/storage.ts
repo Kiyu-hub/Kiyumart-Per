@@ -1214,6 +1214,30 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
+  // Promotional Ads management
+  async createPromotionalAd(payload: { type: 'store' | 'product'; targetId: string; startAt?: Date | null; endAt?: Date | null; createdBy?: string | null }) {
+    const [created] = await db.insert(promotionalAds).values({
+      type: payload.type,
+      targetId: payload.targetId,
+      startAt: payload.startAt || null,
+      endAt: payload.endAt || null,
+      isActive: true,
+      createdBy: payload.createdBy || null,
+    }).returning();
+    return created;
+  }
+
+  async getActivePromotionalAds(): Promise<any[]> {
+    const now = new Date();
+    const rows = await db.select().from(promotionalAds).where(and(eq(promotionalAds.isActive, true), or(promotionalAds.endAt.isNull(), promotionalAds.endAt.greaterThan(now))));
+    return rows;
+  }
+
+  async expirePromotionalAds() {
+    const now = new Date();
+    await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(and(eq(promotionalAds.isActive, true), promotionalAds.endAt.lessThanOrEqual(now)));
+  }
+
   // Cart operations
   async addToCart(userId: string, productId: string, quantity: number, variantId?: string, selectedColor?: string, selectedSize?: string, selectedImageIndex?: number): Promise<Cart> {
     // FIXED: Different images from same product should be separate cart items

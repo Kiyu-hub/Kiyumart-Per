@@ -15,7 +15,24 @@ export const mediaTypeEnum = pgEnum("media_type", ["image", "video"]);
 export const deliveryAssignmentStatusEnum = pgEnum("delivery_assignment_status", ["assigned", "en_route", "delivered", "cancelled"]);
 export const mediaCategoryEnum = pgEnum("media_category", ["banner", "category", "logo", "product", "general"]);
 export const storeTypeEnum = pgEnum("store_type", ["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness"]);
+export const promoTypeEnum = pgEnum("promo_type", ["store", "product"]);
 export const applicationStatusEnum = pgEnum("application_status", ["pending", "approved", "rejected"]);
+
+// Promotional Ads table for time-limited promoted stores/products
+export const promotionalAds = pgTable("promotional_ads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: promoTypeEnum("type").notNull(),
+  targetId: varchar("target_id").notNull(), // store id or product id
+  startAt: timestamp("start_at"),
+  endAt: timestamp("end_at"),
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  typeIdx: index("promotional_ads_type_idx").on(t.type),
+  activeIdx: index("promotional_ads_active_idx").on(t.isActive),
+}));
 export const payoutTypeEnum = pgEnum("payout_type", ["bank_account", "mobile_money"]);
 export const messageStatusEnum = pgEnum("message_status", ["sent", "delivered", "read"]);
 
@@ -132,6 +149,10 @@ export const platformSettings = pgTable("platform_settings", {
   bannerAutoplayEnabled: boolean("banner_autoplay_enabled").default(true),
   bannerAutoplayDuration: integer("banner_autoplay_duration").default(5000),
   adsEnabled: boolean("ads_enabled").default(false),
+  heroBannerEnabled: boolean("hero_banner_enabled").default(true),
+  sidebarAdEnabled: boolean("sidebar_ad_enabled").default(true),
+  footerAdEnabled: boolean("footer_ad_enabled").default(true),
+  productPageAdEnabled: boolean("product_page_ad_enabled").default(true),
   heroBannerAdImage: text("hero_banner_ad_image"),
   heroBannerAdUrl: text("hero_banner_ad_url"),
   sidebarAdImage: text("sidebar_ad_image"),
