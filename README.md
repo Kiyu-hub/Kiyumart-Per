@@ -158,6 +158,7 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Ad links accept absolute URLs (https://...), relative paths (/category/...), anchors (#section), and protocol links like mailto: and tel:
   - Recommended image sizes and responsive behavior are shown in the Admin Settings UI
   - Ads respect `adsEnabled` flag and can be toggled on/off by admin
+  - UI Display: The platform now renders **Hero** (homepage), **Sidebar** (homepage - large screens), **Product Page** (product detail pages), and **Footer** ads when configured.
 
 - **Product Card Pricing**
   - Product cards show a sale price and (when applicable) the original/cost price as a struck-through value to highlight discounts and savings.

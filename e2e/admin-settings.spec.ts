@@ -20,7 +20,8 @@ async function setAuthCookie(page: any, request: any, email: string) {
 
   // Navigate to the app root so the frontend is loaded and has a valid origin
   await page.goto('/');
-  await page.waitForLoadState('networkidle');
+  // Wait for DOM to be available and avoid long-running networkidle waits (HMR sockets can keep network busy)
+  await page.waitForLoadState('domcontentloaded');
 
   // Obtain a test token and set it as a cookie in the browser context using Playwright cookie API
   const res = await request.post('http://localhost:5000/api/test/token', { data: { email } });
@@ -169,4 +170,17 @@ test('ads accept relative and protocol links and persist', async ({ request }) =
   expect(settings.heroBannerAdUrl).toBe(patchBody.heroBannerAdUrl);
   expect(settings.sidebarAdUrl).toBe(patchBody.sidebarAdUrl);
   expect(settings.productPageAdUrl).toBe(patchBody.productPageAdUrl);
+});
+
+test('super admin does not see Branding and Currency tabs', async ({ page }) => {
+  // Visit Admin Settings as super admin (cookie set in beforeEach)
+  await page.goto('http://localhost:5000/admin/settings');
+  await page.waitForLoadState('networkidle');
+  // Short delay to allow client render
+  await page.waitForTimeout(500);
+
+  const brandingCount = await page.locator('[data-testid="tab-branding"]').count();
+  const currencyCount = await page.locator('[data-testid="tab-currency"]').count();
+  expect(brandingCount).toBe(0);
+  expect(currencyCount).toBe(0);
 });

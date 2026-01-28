@@ -129,6 +129,13 @@ export default function AdminSettings() {
     }
   }, [isAuthenticated, authLoading, user, navigate]);
 
+  // Ensure super admins don't see branding/currency tabs and reset active tab if needed
+  useEffect(() => {
+    if (user?.role === "super_admin" && (activeTab === "branding" || activeTab === "currency")) {
+      setActiveTab("general");
+    }
+  }, [user?.role, activeTab]);
+
   const form = useForm<SettingsFormData>({
     resolver: zodResolver(settingsSchema),
     values: settings ? {
@@ -378,14 +385,18 @@ export default function AdminSettings() {
                 <Mail className="h-4 w-4 mr-2" />
                 Contact
               </TabsTrigger>
-              <TabsTrigger value="branding" data-testid="tab-branding">
-                <Palette className="h-4 w-4 mr-2" />
-                Branding
-              </TabsTrigger>
-              <TabsTrigger value="currency" data-testid="tab-currency">
-                <DollarSign className="h-4 w-4 mr-2" />
-                Currency
-              </TabsTrigger>
+              {user?.role !== "super_admin" && (
+                <>
+                  <TabsTrigger value="branding" data-testid="tab-branding">
+                    <Palette className="h-4 w-4 mr-2" />
+                    Branding
+                  </TabsTrigger>
+                  <TabsTrigger value="currency" data-testid="tab-currency">
+                    <DollarSign className="h-4 w-4 mr-2" />
+                    Currency
+                  </TabsTrigger>
+                </>
+              )}
               <TabsTrigger value="ads" data-testid="tab-ads">
                 <ImageIcon className="h-4 w-4 mr-2" />
                 Ads
@@ -1097,69 +1108,73 @@ export default function AdminSettings() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="branding" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Branding & Appearance</CardTitle>
-                  <CardDescription>
-                    Customize your platform's visual identity
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="primaryColor">Primary Color</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="primaryColor"
-                        {...form.register("primaryColor")}
-                        placeholder="#1e7b5f"
-                        data-testid="input-primary-color"
-                        className="flex-1"
-                      />
-                      <div 
-                        className="w-12 h-10 rounded border"
-                        style={{ backgroundColor: form.watch("primaryColor") }}
-                      />
-                    </div>
-                    {form.formState.errors.primaryColor && (
-                      <p className="text-sm text-destructive">
-                        {form.formState.errors.primaryColor.message}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Hex color code for your brand's primary color
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+            {user?.role !== "super_admin" && (
+              <>
+                <TabsContent value="branding" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Branding & Appearance</CardTitle>
+                      <CardDescription>
+                        Customize your platform's visual identity
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="primaryColor">Primary Color</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="primaryColor"
+                            {...form.register("primaryColor")}
+                            placeholder="#1e7b5f"
+                            data-testid="input-primary-color"
+                            className="flex-1"
+                          />
+                          <div 
+                            className="w-12 h-10 rounded border"
+                            style={{ backgroundColor: form.watch("primaryColor") }}
+                          />
+                        </div>
+                        {form.formState.errors.primaryColor && (
+                          <p className="text-sm text-destructive">
+                            {form.formState.errors.primaryColor.message}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Hex color code for your brand's primary color
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
 
-            <TabsContent value="currency" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Currency Settings</CardTitle>
-                  <CardDescription>
-                    Configure your platform's default currency
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="defaultCurrency">Default Currency</Label>
-                    <Select
-                      value={form.watch("defaultCurrency")}
-                      onValueChange={(value) => form.setValue("defaultCurrency", value)}
-                    >
-                      <SelectTrigger data-testid="select-default-currency">
-                        <SelectValue placeholder="Select currency" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="GHS">GHS - Ghanaian Cedi</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+                <TabsContent value="currency" className="space-y-4">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Currency Settings</CardTitle>
+                        <CardDescription>
+                          Configure your platform's default currency
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="defaultCurrency">Default Currency</Label>
+                          <Select
+                            value={form.watch("defaultCurrency")}
+                            onValueChange={(value) => form.setValue("defaultCurrency", value)}
+                          >
+                            <SelectTrigger data-testid="select-default-currency">
+                              <SelectValue placeholder="Select currency" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="GHS">GHS - Ghanaian Cedi</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+              </>
+            )}
 
             <TabsContent value="ads" className="space-y-4">
               <Card>

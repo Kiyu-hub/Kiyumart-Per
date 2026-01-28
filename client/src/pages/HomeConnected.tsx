@@ -353,82 +353,85 @@ export default function HomeConnected() {
       </div>
 
       <main className="flex-1">
-        <section className="max-w-7xl mx-auto px-4 py-12">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-bold">{t("shopByCategory")}</h2>
-            {categories.length > 0 && (
-              <p className="text-sm text-muted-foreground">
-                Scroll to see more →
-              </p>
-            )}
-          </div>
-          {categories.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p className="text-lg">No categories available at the moment.</p>
-              <p className="text-sm mt-2">Please check back later.</p>
-            </div>
-          ) : (
-            <div className="relative">
-              <div className="flex gap-4 md:gap-6 overflow-x-auto pb-4 snap-x snap-mandatory [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50">
-                {categories.map((category) => (
-                  <div key={category.id} className="flex-shrink-0 w-[min(280px,80vw)] md:w-72 snap-start">
-                    <CategoryCard
-                      {...category}
-                      onClick={(id) => navigate(`/category/${id}`)}
-                    />
-                  </div>
-                ))}
+        {/* Main content with Sidebar for large screens */}
+        <div className="max-w-7xl mx-auto px-4 py-12 grid lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-8">
+            <section>
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-3xl font-bold">{t("shopByCategory")}</h2>
+                {categories.length > 0 && (
+                  <p className="text-sm text-muted-foreground">Scroll to see more →</p>
+                )}
               </div>
-            </div>
-          )}
-        </section>
+              {categories.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <p className="text-lg">No categories available at the moment.</p>
+                  <p className="text-sm mt-2">Please check back later.</p>
+                </div>
+              ) : (
+                <div className="relative">
+                  <div className="flex gap-4 md:gap-6 overflow-x-auto pb-4 snap-x snap-mandatory [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50">
+                    {categories.map((category) => (
+                      <div key={category.id} className="flex-shrink-0 w-[min(280px,80vw)] md:w-72 snap-start">
+                        <CategoryCard {...category} onClick={(id) => navigate(`/category/${id}`)} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
 
-        <section className="max-w-7xl mx-auto px-4 py-12">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-bold">
-              {searchQuery ? `${t("search").replace("...", "")} (${filteredProducts.length})` : t("featuredProducts")}
-            </h2>
+            <section className="mt-8">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-3xl font-bold">
+                  {searchQuery ? `${t("search").replace("...", "")} (${filteredProducts.length})` : t("featuredProducts")}
+                </h2>
+              </div>
+
+              {productsLoading ? (
+                <div className="text-center py-12">Loading products...</div>
+              ) : filteredProducts.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">No products found matching "{searchQuery}"</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {(searchQuery ? filteredProducts : filteredProducts.slice(0, 8)).map((product) => {
+                    const sellingPrice = parseFloat(product.price);
+                    const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
+                    const calculatedDiscount = originalPrice && originalPrice > sellingPrice
+                      ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
+                      : 0;
+
+                    const isWishlisted = wishlist.some(item => item.productId === product.id);
+                    const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : heroImage;
+
+                    return (
+                      <ProductCard
+                        key={product.id}
+                        id={product.id}
+                        name={product.name}
+                        price={sellingPrice}
+                        costPrice={originalPrice || undefined}
+                        currency={currencySymbol}
+                        image={productImage}
+                        discount={calculatedDiscount}
+                        rating={parseFloat(product.ratings) || 0}
+                        reviewCount={product.totalRatings}
+                        isWishlisted={isWishlisted}
+                        onToggleWishlist={handleToggleWishlist}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </div>
-          {productsLoading ? (
-            <div className="text-center py-12">Loading products...</div>
-          ) : filteredProducts.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              No products found matching "{searchQuery}"
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {(searchQuery ? filteredProducts : filteredProducts.slice(0, 8)).map((product) => {
-                const sellingPrice = parseFloat(product.price);
-                const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
-                const calculatedDiscount = originalPrice && originalPrice > sellingPrice
-                  ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
-                  : 0;
 
-                const isWishlisted = wishlist.some(item => item.productId === product.id);
-                const productImage = Array.isArray(product.images) && product.images.length > 0 
-                  ? product.images[0] 
-                  : heroImage;
-
-                return (
-                  <ProductCard
-                    key={product.id}
-                    id={product.id}
-                    name={product.name}
-                    price={sellingPrice}
-                    costPrice={originalPrice || undefined}
-                    currency={currencySymbol}
-                    image={productImage}
-                    discount={calculatedDiscount}
-                    rating={parseFloat(product.ratings) || 0}
-                    reviewCount={product.totalRatings}
-                    isWishlisted={isWishlisted}
-                    onToggleWishlist={handleToggleWishlist}
-                  />
-                );
-              })}
+          <aside className="hidden lg:block lg:col-span-4">
+            <div className="space-y-6 sticky top-24">
+              <AdBanner position="sidebar" className="h-64 rounded-lg shadow-sm" />
             </div>
-          )}
-        </section>
+          </aside>
+        </div>
       </main>
 
       {/* Full-bleed footer ad */}

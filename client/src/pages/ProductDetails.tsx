@@ -14,6 +14,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
 import { PriceDisplay } from "@/components/PriceDisplay";
+import AdBanner from "@/components/AdBanner";
 
 interface Product {
   id: string;
@@ -643,6 +644,11 @@ export default function ProductDetails() {
                   <ShoppingCart className="h-5 w-5 mr-2" />
                   {availableStock === 0 ? "Out of Stock" : "Add to Cart"}
                 </Button>
+
+                {/* Product page ad placement */}
+                <div className="mt-6">
+                  <AdBanner position="product-page" className="h-28 md:h-40 rounded-lg" />
+                </div>
               </div>
             </div>
           </div>
