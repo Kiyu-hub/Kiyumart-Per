@@ -12,6 +12,9 @@ interface PlatformSettings {
   footerAdUrl?: string;
   productPageAdImage?: string;
   productPageAdUrl?: string;
+  // branding fields (optional) used as a fallback when ads are missing
+  logo?: string;
+  platformName?: string;
 }
 
 type AdPosition = "hero" | "sidebar" | "footer" | "product-page";
