@@ -57,6 +57,9 @@ export default function PaymentVerifyPage() {
         queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
         queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
       }
+      // Debug log to trace verification in test runs
+      // eslint-disable-next-line no-console
+      console.log('PaymentVerifyPage: fetched verification', result);
       
       return result;
     },
@@ -68,13 +71,19 @@ export default function PaymentVerifyPage() {
 
   useEffect(() => {
     if (verification) {
+      // eslint-disable-next-line no-console
+      console.log('PaymentVerifyPage: verification result', verification);
       if (verification.verified && verification.orderId) {
         const timer = setTimeout(() => {
+          // eslint-disable-next-line no-console
+          console.log('PaymentVerifyPage: navigating to success', verification.orderId);
           navigate(`/payment/success?orderId=${verification.orderId}`);
         }, 500);
         return () => clearTimeout(timer);
       } else {
         const timer = setTimeout(() => {
+          // eslint-disable-next-line no-console
+          console.log('PaymentVerifyPage: navigating to failure', verification.message);
           navigate(`/payment/failure?reason=${encodeURIComponent(verification.message || "Payment failed")}`);
         }, 500);
         return () => clearTimeout(timer);
