@@ -3657,25 +3657,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let settings = await storage.getPlatformSettings();
 
       // Import env secrets to DB if missing (so they appear in admin dashboard)
-      const toUpdate: any = {};
-      if (!settings.paystackSecretKey && process.env.PAYSTACK_SECRET_KEY) {
-        toUpdate.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
-      }
-      if (!settings.paystackPublicKey && process.env.PAYSTACK_PUBLIC_KEY) {
-        toUpdate.paystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY;
-      }
-      if (!settings.cloudinaryApiSecret && process.env.CLOUDINARY_API_SECRET) {
-        toUpdate.cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
-      }
-      if (!settings.cloudinaryApiKey && process.env.CLOUDINARY_API_KEY) {
-        toUpdate.cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
-      }
-      if (!settings.cloudinaryCloudName && process.env.CLOUDINARY_CLOUD_NAME) {
-        toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
-      }
+      try {
+        const toUpdate: any = {};
+        if (!settings.paystackSecretKey && process.env.PAYSTACK_SECRET_KEY) {
+          toUpdate.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+        }
+        if (!settings.paystackPublicKey && process.env.PAYSTACK_PUBLIC_KEY) {
+          toUpdate.paystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY;
+        }
+        if (!settings.cloudinaryApiSecret && process.env.CLOUDINARY_API_SECRET) {
+          toUpdate.cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
+        }
+        if (!settings.cloudinaryApiKey && process.env.CLOUDINARY_API_KEY) {
+          toUpdate.cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
+        }
+        if (!settings.cloudinaryCloudName && process.env.CLOUDINARY_CLOUD_NAME) {
+          toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
+        }
 
-      if (Object.keys(toUpdate).length > 0) {
-        settings = await storage.updatePlatformSettings(toUpdate);
+        if (Object.keys(toUpdate).length > 0) {
+          settings = await storage.updatePlatformSettings(toUpdate);
+        }
+      } catch (err: any) {
+        console.warn('[ROUTES] Failed to persist env secrets to platform_settings, continuing with retrieved defaults:', (err?.message || err));
       }
 
       // Determine secret sources for transparency
