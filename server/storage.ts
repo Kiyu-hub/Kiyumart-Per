@@ -2,7 +2,7 @@ import { db } from "../db/index";
 import { 
   users, products, orders, orderItems, orderStatusHistory, deliveryZones, deliveryTracking,
   chatMessages, transactions, platformSettings, cart, wishlist, reviews, riderReviews,
-  productVariants, heroBanners, coupons, bannerCollections, marketplaceBanners,
+  productVariants, heroBanners, promotionalAds, coupons, bannerCollections, marketplaceBanners,
   stores, categoryFields, categories, notifications, mediaLibrary, footerPages,
   idempotencyKeys,
   commissions, platformEarnings, sellerPayouts, roleFeatures,
@@ -1199,8 +1199,27 @@ export class DbStorage implements IStorage {
         if (settings[key] === '__CLEAR__') settings[key] = null;
       }
       return settings;
-    } catch (err) {
-      console.error('ERROR getPlatformSettings query failed:', (err as any)?.stack || (err as any));
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      console.error('ERROR getPlatformSettings query failed:', msg);
+      // If the settings table or expected columns are not present (e.g., migrations not applied),
+      // return reasonable defaults so the frontend can continue to render without crashing.
+      if (msg.includes('does not exist') || msg.includes('column') || msg.includes('relation')) {
+        console.warn('[STORAGE] platform_settings table or columns missing; returning defaults');
+        return {
+          id: 'default',
+          isMultiVendor: false,
+          platformName: 'KiyuMart',
+          defaultCurrency: 'GHS',
+          adsEnabled: true,
+          heroBannerEnabled: true,
+          sidebarAdEnabled: true,
+          footerAdEnabled: true,
+          productPageAdEnabled: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as PlatformSettings;
+      }
       throw err;
     }
   }
@@ -1216,26 +1235,95 @@ export class DbStorage implements IStorage {
 
   // Promotional Ads management
   async createPromotionalAd(payload: { type: 'store' | 'product'; targetId: string; startAt?: Date | null; endAt?: Date | null; createdBy?: string | null }) {
-    const [created] = await db.insert(promotionalAds).values({
-      type: payload.type,
-      targetId: payload.targetId,
-      startAt: payload.startAt || null,
-      endAt: payload.endAt || null,
-      isActive: true,
-      createdBy: payload.createdBy || null,
-    }).returning();
-    return created;
+    try {
+      const [created] = await db.insert(promotionalAds).values({
+        type: payload.type,
+        targetId: payload.targetId,
+        startAt: payload.startAt || null,
+        endAt: payload.endAt || null,
+        isActive: true,
+        createdBy: payload.createdBy || null,
+      }).returning();
+      return created;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        throw new Error('Promotional ads table not present; please run migrations');
+      }
+      throw err;
+    }
   }
 
   async getActivePromotionalAds(): Promise<any[]> {
     const now = new Date();
-    const rows = await db.select().from(promotionalAds).where(and(eq(promotionalAds.isActive, true), or(promotionalAds.endAt.isNull(), promotionalAds.endAt.greaterThan(now))));
-    return rows;
+    try {
+      const rows = await db.select().from(promotionalAds).where(and(eq(promotionalAds.isActive, true), or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now))));
+      return rows;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        console.warn('[STORAGE] promotional_ads table missing; getActivePromotionalAds returning empty list');
+        return [];
+      }
+      throw err;
+    }
+  }
+
+  // Return all promotions (active + inactive) for admin listing; resilient if table missing
+  async getAllPromotionalAds(): Promise<any[]> {
+    try {
+      const rows = await db.select().from(promotionalAds).orderBy(desc(promotionalAds.createdAt));
+      return rows;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        console.warn('[STORAGE] promotional_ads table missing; getAllPromotionalAds returning empty list');
+        return [];
+      }
+      throw err;
+    }
   }
 
   async expirePromotionalAds() {
     const now = new Date();
-    await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(and(eq(promotionalAds.isActive, true), promotionalAds.endAt.lessThanOrEqual(now)));
+    try {
+      await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(and(eq(promotionalAds.isActive, true), lte(promotionalAds.endAt, now)));
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        console.warn('[STORAGE] promotional_ads table missing; expirePromotionalAds no-op');
+        return;
+      }
+      throw err;
+    }
+  }
+
+  async expirePromotionById(id: string) {
+    try {
+      await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(eq(promotionalAds.id, id));
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        console.warn('[STORAGE] promotional_ads table missing; expirePromotionById no-op');
+        return;
+      }
+      throw err;
+    }
+  }
+
+  // Check if promotions table exists in the database
+  async promotionsTableExists(): Promise<boolean> {
+    try {
+      // Try a harmless query to check table presence
+      const rows = await db.select().from(promotionalAds).limit(1);
+      return true;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        return false;
+      }
+      throw err;
+    }
   }
 
   // Cart operations

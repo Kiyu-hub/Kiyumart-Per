@@ -174,7 +174,6 @@ export default function AdminSettings() {
       showWhatsapp: (settings as any).showWhatsapp ?? true,
       footerDescription: settings.footerDescription,
       adsEnabled: settings.adsEnabled || false,
-      adsEnabled: settings.adsEnabled || false,
       heroBannerEnabled: (settings as any).heroBannerEnabled ?? true,
       sidebarAdEnabled: (settings as any).sidebarAdEnabled ?? true,
       footerAdEnabled: (settings as any).footerAdEnabled ?? true,
@@ -288,13 +287,15 @@ export default function AdminSettings() {
 
       toast({
         title: "Settings updated",
-        description: "Platform settings have been saved successfully. Branding colors updated!",
+        description: "Platform settings have been saved successfully.",
       });
     },
   });
 
-  const onSubmit = (data: SettingsFormData) => {
-    updateSettingsMutation.mutate(data);
+  const onSubmit = (_data: SettingsFormData) => {
+    // Use getValues to ensure controlled switches and all values are included
+    const payload = form.getValues();
+    updateSettingsMutation.mutate(payload as SettingsFormData);
   };
 
   // Keep form in sync when settings change externally

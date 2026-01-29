@@ -4,19 +4,26 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import ProductAutocomplete from "@/components/ProductAutocomplete";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export default function AdminPromotions() {
   const { toast } = useToast();
-  const { data: stores = [] } = useQuery(['/api/stores'], async () => {
-    const res = await fetch('/api/stores');
-    return res.json();
+  const { data: stores = [] } = useQuery<any[]>({
+    queryKey: ['/api/stores'],
+    queryFn: async () => {
+      const res = await fetch('/api/stores');
+      return res.json();
+    },
   });
 
-  const { data: sellers = [] } = useQuery(['/api/users/sellers'], async () => {
-    const res = await fetch('/api/users?role=seller');
-    return res.json();
+  const { data: sellers = [] } = useQuery<any[]>({
+    queryKey: ['/api/users/sellers'],
+    queryFn: async () => {
+      const res = await fetch('/api/users?role=seller');
+      return res.json();
+    },
   });
 
   const [type, setType] = useState<'store'|'product'>('store');
@@ -25,10 +32,11 @@ export default function AdminPromotions() {
   const [productId, setProductId] = useState<string | null>(null);
   const [duration, setDuration] = useState<number>(24);
 
-  const createPromotion = useMutation(async (payload: any) => {
-    const res = await apiRequest('POST', '/api/admin/promotions', payload);
-    return res.json();
-  }, {
+  const createPromotion = useMutation({
+    mutationFn: async (payload: any) => {
+      const res = await apiRequest('POST', '/api/admin/promotions', payload);
+      return res.json();
+    },
     onSuccess: () => {
       toast({ title: 'Created', description: 'Promotional ad created' });
     },
@@ -90,8 +98,8 @@ export default function AdminPromotions() {
               </div>
               <div className="mt-3">
                 <Label>Product (search after selecting seller)</Label>
-                <Input placeholder="Select product id directly for now" value={productId || ''} onChange={(e) => setProductId(e.target.value)} />
-                <p className="text-xs text-muted-foreground">Product selector will be improved in next phase (nested seller→product selection)</p>
+                <ProductAutocomplete sellerId={sellerId} value={productId} onChange={(v:any) => setProductId(v)} />
+                <p className="text-xs text-muted-foreground">Select a product from the chosen seller</p>
               </div>
             </div>
           )}
@@ -109,6 +117,8 @@ export default function AdminPromotions() {
     </DashboardLayout>
   );
 }
+
+
 
 function Label({ children }: { children: React.ReactNode }) {
   return <div className="font-medium mb-1">{children}</div>;

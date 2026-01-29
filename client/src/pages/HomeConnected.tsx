@@ -14,6 +14,7 @@ import Footer from "@/components/Footer";
 import CartSidebar from "@/components/CartSidebar";
 import ThemeToggle from "@/components/ThemeToggle";
 import AdBanner from "@/components/AdBanner";
+import PromotionalAd from "@/components/PromotionalAd";
 import MultiVendorHome from "./MultiVendorHome";
 import type { PlatformSettings } from "@shared/schema";
 
@@ -59,7 +60,17 @@ export default function HomeConnected() {
 
   const { data: platformSettings, isLoading: settingsLoading } = useQuery<PlatformSettings>({
     queryKey: ["/api/platform-settings"],
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000,
   });
+
+  // Defensive flags to avoid runtime errors when settings are undefined during hydration/HMR
+  const adsEnabled = platformSettings?.adsEnabled ?? true;
+  const heroBannerEnabled = platformSettings?.heroBannerEnabled ?? true;
+  const sidebarAdEnabled = platformSettings?.sidebarAdEnabled ?? true;
+  const footerAdEnabled = platformSettings?.footerAdEnabled ?? true;
+  const productPageAdEnabled = platformSettings?.productPageAdEnabled ?? true;
 
   const { data: allProducts = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["/api/products"],
@@ -347,53 +358,62 @@ export default function HomeConnected() {
       <HeroCarousel />
 
       {/* Full-bleed hero ad - stretches edge-to-edge and removes card borders for a flush look */}
-      <div className="w-screen -mx-4 md:-mx-8 py-3">
-        {/* much shorter hero ad height per request */}
-        <AdBanner position="hero" className="h-16 md:h-20 rounded-none border-0" fullBleed />
-      </div>
+      {/* Hero ad: render only when ads are enabled and hero is enabled */}
+      {adsEnabled && heroBannerEnabled && (
+        <div className="w-screen -mx-4 md:-mx-8 py-3">
+          {/* much shorter hero ad height per request */}
+          <AdBanner position="hero" className="h-16 md:h-20 rounded-none border-0" fullBleed />
+        </div>
+      )} 
 
       <main className="flex-1">
-        {/* Main content with Sidebar for large screens */}
-        <div className="max-w-7xl mx-auto px-4 py-12 grid lg:grid-cols-12 gap-6">
-          {/* Sidebar on the LEFT for better visibility and vertical space */}
-          <aside className="hidden lg:block lg:col-span-4">
-            <div className="sticky top-24 h-[36rem] md:h-[48rem] overflow-hidden rounded-lg shadow-sm bg-card flex items-center justify-center p-4">
-              <AdBanner position="sidebar" className="w-full h-full rounded-lg" />
-            </div>
-          </aside>
-
-          <div className="lg:col-span-8">
-            <section>
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-3xl font-bold">{t("shopByCategory")}</h2>
-                {categories.length > 0 && (
-                  <p className="text-sm text-muted-foreground">Scroll to see more →</p>
-                )}
-              </div>
-              {categories.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <p className="text-lg">No categories available at the moment.</p>
-                  <p className="text-sm mt-2">Please check back later.</p>
-                </div>
-              ) : (
-                <div className="relative">
-                  <div className="flex gap-4 md:gap-6 overflow-x-auto pb-4 snap-x snap-mandatory [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50">
-                    {categories.map((category) => (
-                      <div key={category.id} className="flex-shrink-0 w-[min(280px,80vw)] md:w-72 snap-start">
-                        <CategoryCard {...category} onClick={(id) => navigate(`/category/${id}`)} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
+        <div className="max-w-7xl mx-auto px-4 py-12">
+          {/* Shop by categories - full-width, above products and sidebar */}
+          <section>
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-3xl font-bold">{t("shopByCategory")}</h2>
+              {categories.length > 0 && (
+                <p className="text-sm text-muted-foreground">Scroll to see more →</p>
               )}
-            </section>
-
-            <section className="mt-8">
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-3xl font-bold">
-                  {searchQuery ? `${t("search").replace("...", "")} (${filteredProducts.length})` : t("featuredProducts")}
-                </h2>
+            </div>
+            {categories.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <p className="text-lg">No categories available at the moment.</p>
+                <p className="text-sm mt-2">Please check back later.</p>
               </div>
+            ) : (
+              <div className="relative">
+                <div className="flex gap-4 md:gap-6 overflow-x-auto pb-4 snap-x snap-mandatory [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50">
+                  {categories.map((category) => (
+                    <div key={category.id} className="flex-shrink-0 w-[min(280px,80vw)] md:w-72 snap-start">
+                      <CategoryCard {...category} onClick={(id) => navigate(`/category/${id}`)} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Products and Sidebar row */}
+          <div className="mt-8 grid lg:grid-cols-12 gap-6">
+            {/* Left Sidebar - only when enabled */}
+            {(adsEnabled && sidebarAdEnabled) && (
+              <aside className="hidden lg:block lg:col-span-4">
+                <div className="sticky top-24 flex flex-col gap-6">
+                  <PromotionalAd sidebar />
+                  <AdBanner position="sidebar" className="h-96 rounded-lg" />
+                </div>
+              </aside>
+            )}
+
+            {/* Products column */}
+            <div className={"lg:col-span-" + (adsEnabled && sidebarAdEnabled ? '8' : '12')}>
+              <section>
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-3xl font-bold">
+                    {searchQuery ? `${t("search").replace("...", "")} (${filteredProducts.length})` : t("featuredProducts")}
+                  </h2>
+                </div>
 
               {productsLoading ? (
                 <div className="text-center py-12">Loading products...</div>
@@ -433,13 +453,15 @@ export default function HomeConnected() {
             </section>
           </div>
         </div>
+        </div>
       </main>
-
-      {/* Full-bleed footer ad */}
-      <div className="w-screen -mx-4 md:-mx-8 pb-8">
-        {/* smaller footer ad */}
-        <AdBanner position="footer" className="h-12 md:h-16 rounded-none border-0" fullBleed />
-      </div>
+      {/* Full-bleed footer ad - show only when enabled */}
+      {(adsEnabled && footerAdEnabled) && (
+        <div className="w-screen -mx-4 md:-mx-8 pb-8">
+          {/* smaller footer ad */}
+          <AdBanner position="footer" className="h-12 md:h-16 rounded-none border-0" fullBleed />
+        </div>
+      )} 
 
       <Footer />
 

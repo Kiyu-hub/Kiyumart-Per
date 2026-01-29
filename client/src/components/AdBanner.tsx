@@ -13,6 +13,10 @@ interface PlatformSettings {
   footerAdUrl?: string;
   productPageAdImage?: string;
   productPageAdUrl?: string;
+  heroBannerEnabled?: boolean;
+  sidebarAdEnabled?: boolean;
+  footerAdEnabled?: boolean;
+  productPageAdEnabled?: boolean;
   // branding fields (optional) used as a fallback when ads are missing
   logo?: string;
   platformName?: string;
@@ -29,7 +33,16 @@ interface AdBannerProps {
 
 export default function AdBanner({ position, className = "", fullBleed = false }: AdBannerProps) {
   const { data: settings } = useQuery<PlatformSettings>({
-    queryKey: ["/api/settings"],
+    // Use the public platform view so children and parents fetch the same data source
+    queryKey: ["/api/platform-settings"],
+    // Be resilient during tests and slow networks: assume ads are enabled by default
+    // so ad placeholders render immediately while the real settings are fetched.
+    initialData: { adsEnabled: true },
+    retry: 2,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    // Proactively refetch so UI reflects server-side changes (admin PATCH) within seconds
+    refetchInterval: 5000,
   });
 
   // Ensure hooks are invoked unconditionally — we need `navigate` available even if not used
@@ -37,7 +50,9 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   // Declare other hooks early so component doesn't change hook order between renders
   const [imgError, setImgError] = useState(false);
 
-  if (!settings?.adsEnabled) {
+  // If settings are present and ads are explicitly disabled, don't render.
+  // If settings are still loading/undefined, assume enabled (see initialData above).
+  if (settings && settings.adsEnabled === false) {
     return null;
   }
 
@@ -45,13 +60,13 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   const positionEnabled = (() => {
     switch (position) {
       case "hero":
-        return (settings as any).heroBannerEnabled;
+        return settings?.heroBannerEnabled ?? true;
       case "sidebar":
-        return (settings as any).sidebarAdEnabled;
+        return settings?.sidebarAdEnabled ?? true;
       case "footer":
-        return (settings as any).footerAdEnabled;
+        return settings?.footerAdEnabled ?? true;
       case "product-page":
-        return (settings as any).productPageAdEnabled;
+        return settings?.productPageAdEnabled ?? true;
       default:
         return true;
     }

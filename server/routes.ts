@@ -4,7 +4,7 @@ import { Server as SocketIOServer } from "socket.io";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { db } from "../db";
-import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, commissions } from "@shared/schema";
+import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions } from "@shared/schema";
 import { eq, or, isNotNull, and, desc } from "drizzle-orm";
 import { 
   hashPassword, 
@@ -3874,7 +3874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
     try {
-      const rows = await db.select().from(promotionalAds).orderBy(desc(promotionalAds.createdAt));
+      const rows = await storage.getAllPromotionalAds();
       res.json(rows);
     } catch (e: any) {
       res.status(400).json({ error: e.message });
@@ -3884,7 +3884,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch('/api/admin/promotions/:id/expire', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
     try {
       const id = req.params.id;
-      await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(eq(promotionalAds.id, id));
+      await storage.expirePromotionById(id);
       res.json({ ok: true });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
@@ -3898,11 +3898,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Enrich with store or product info for frontend display
       const enriched = await Promise.all(rows.map(async (r: any) => {
         if (r.type === 'store') {
-          const store = await storage.getStoreById(r.targetId).catch(() => null);
+          const store = await storage.getStore(r.targetId).catch(() => null);
           return { ...r, store };
         }
         if (r.type === 'product') {
-          const product = await storage.getProductById(r.targetId).catch(() => null);
+          const product = await storage.getProduct(r.targetId).catch(() => null);
           return { ...r, product };
         }
         return r;
