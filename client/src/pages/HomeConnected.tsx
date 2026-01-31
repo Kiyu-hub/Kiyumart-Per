@@ -435,7 +435,7 @@ export default function HomeConnected() {
             )}
 
             {/* Products column */}
-            <div className={"lg:col-span-" + (adsEnabled && sidebarAdEnabled ? '8' : '12')}>
+            <div className={(adsEnabled && sidebarAdEnabled) ? 'lg:col-span-8' : 'lg:col-span-12'}>
               <section>
                 <div className="flex items-center justify-between mb-8">
                   <h2 className="text-3xl font-bold">
