@@ -453,7 +453,6 @@ export default function HomeConnected() {
             </section>
           </div>
         </div>
-        </div>
       </main>
       {/* Full-bleed footer ad - show only when enabled */}
       {(adsEnabled && footerAdEnabled) && (
