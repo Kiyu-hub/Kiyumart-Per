@@ -1275,7 +1275,6 @@ export class DbStorage implements IStorage {
           primaryStoreId: null,
           defaultCommissionRate: '1',
           updatedAt: new Date(),
-          enableRLS: false,
         };
         return defaults;
       }
