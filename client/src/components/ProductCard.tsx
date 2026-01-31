@@ -114,7 +114,7 @@ export default function ProductCard({
 
   return (
     <Card 
-      className="group overflow-hidden hover-elevate transition-all duration-300 cursor-pointer"
+      className={"group overflow-hidden hover-elevate transition-all duration-300 cursor-pointer " + (import.meta.env.DEV ? 'outline outline-1 outline-muted/30' : '')}
       onClick={handleCardClick}
       data-testid={`card-product-${id}`}
     >

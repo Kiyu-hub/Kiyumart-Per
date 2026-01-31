@@ -99,6 +99,28 @@ export default function HomeConnected() {
       ? allProducts.filter(p => p.storeId === platformSettings.primaryStoreId)
       : allProducts;
 
+  // Development-only fallback: show a few sample products when DB/products are not available
+  const sampleProducts: Product[] = [
+    { id: 'demo-1', name: 'Classic Abaya', price: '29.99', costPrice: '59.99', images: [heroImage], discount: 50, ratings: '4.7', totalRatings: 12, category: 'abayas' },
+    { id: 'demo-2', name: 'Luxe Hijab', price: '9.99', costPrice: '19.99', images: [hijabCategoryImage], discount: 50, ratings: '4.6', totalRatings: 8, category: 'hijabs' },
+    { id: 'demo-3', name: 'Evening Dress', price: '49.99', costPrice: '79.99', images: [eveningCategoryImage], discount: 38, ratings: '4.8', totalRatings: 21, category: 'evening' },
+    { id: 'demo-4', name: 'Abaya Set', price: '34.99', costPrice: '49.99', images: [abayaCategoryImage], discount: 29, ratings: '4.5', totalRatings: 10, category: 'abayas' },
+  ];
+
+  // Merge DB products with development sample products (DEV only) so the grid always has content for visual checks
+  const mergedProducts = (() => {
+    const seen = new Set<string>();
+    const combined = [ ...(products || []), ...(import.meta.env.DEV ? sampleProducts : []) ].filter((p) => {
+      if (!p || !p.id) return false;
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+    return combined;
+  })();
+
+  const availableProducts = mergedProducts;
+
   const { data: cartItems = [], isLoading: cartLoading } = useQuery<CartItem[]>({
     queryKey: ["/api/cart"],
     enabled: isAuthenticated && !authLoading,
@@ -325,11 +347,17 @@ export default function HomeConnected() {
 
   // Filter products based on search query
   const filteredProducts = searchQuery
-    ? products.filter(product => 
+    ? availableProducts.filter(product => 
         product.name.toLowerCase().includes(searchQuery) ||
-        product.category.toLowerCase().includes(searchQuery)
+        (product.category || '').toLowerCase().includes(searchQuery)
       )
-    : products;
+    : availableProducts;
+
+  // In development, log available products to help debug display issues
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.log('HOME: availableProducts', availableProducts.map(p => ({ id: p.id, name: p.name, images: (p as any).images?.length || 0 }))); 
+  }
 
   if (settingsLoading) {
     return (
@@ -453,6 +481,7 @@ export default function HomeConnected() {
             </section>
           </div>
         </div>
+      </div>
       </main>
       {/* Full-bleed footer ad - show only when enabled */}
       {(adsEnabled && footerAdEnabled) && (
