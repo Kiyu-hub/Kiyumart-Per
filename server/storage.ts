@@ -19,7 +19,7 @@ import {
   type SellerPayout, type InsertSellerPayout,
   type OrderStatusHistory, type InsertOrderStatusHistory
 } from "@shared/schema";
-import { eq, and, desc, sql, lte, gte, or, isNull } from "drizzle-orm";
+import { eq, and, desc, sql, lte, gte, or, isNull, isNotNull } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -1351,7 +1351,7 @@ export class DbStorage implements IStorage {
   async expirePromotionalAds() {
     const now = new Date();
     try {
-      await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(and(eq(promotionalAds.isActive, true), lte(promotionalAds.endAt, now)));
+      await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(and(eq(promotionalAds.isActive, true), isNotNull(promotionalAds.endAt), lte(promotionalAds.endAt, now)));
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {

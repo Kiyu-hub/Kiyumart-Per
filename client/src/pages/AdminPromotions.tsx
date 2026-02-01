@@ -74,9 +74,10 @@ export default function AdminPromotions() {
       const res = await apiRequest('PATCH', `/api/admin/promotions/${promoId}/expire`, {});
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/promotions'] });
-      refetch();
+    onSuccess: async () => {
+      // Invalidate AND immediately refetch to ensure UI updates
+      await queryClient.invalidateQueries({ queryKey: ['/api/admin/promotions'] });
+      await refetch();
       toast({ title: 'Ended', description: 'Promotion has been ended successfully', variant: 'default' });
     },
     onError: (e: any) => toast({ title: 'Error', description: e.message || String(e), variant: 'destructive' }),
@@ -175,9 +176,12 @@ export default function AdminPromotions() {
   };
 
   const getPromotionStatus = (promo: any) => {
+    // Use server-side isActive status first
+    if (promo.isActive === false) return 'expired';
+    
     const now = new Date();
     if (promo.endAt && new Date(promo.endAt) < now) return 'expired';
-    if (new Date(promo.startAt) > now) return 'scheduled';
+    if (promo.startAt && new Date(promo.startAt) > now) return 'scheduled';
     return 'active';
   };
 
