@@ -422,6 +422,52 @@ export default function AdminSettings() {
             </TabsList>
 
             <TabsContent value="general" className="space-y-4">
+              {user?.role === "super_admin" && (
+                <Card className="border-primary/50 bg-primary/5">
+                  <CardHeader>
+                    <CardTitle className="text-primary">Super Admin Profile</CardTitle>
+                    <CardDescription>
+                      Your administrator profile and account information
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-foreground font-semibold">Full Name</Label>
+                        <div className="p-3 bg-muted/50 rounded-lg border">
+                          <p className="text-foreground font-medium">{user?.name || "N/A"}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-foreground font-semibold">Email Address</Label>
+                        <div className="p-3 bg-muted/50 rounded-lg border">
+                          <p className="text-foreground font-medium">{user?.email || "N/A"}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-foreground font-semibold">Role</Label>
+                        <div className="p-3 bg-muted/50 rounded-lg border">
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-primary text-primary-foreground">
+                            Super Administrator
+                          </span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-foreground font-semibold">Phone</Label>
+                        <div className="p-3 bg-muted/50 rounded-lg border">
+                          <p className="text-foreground font-medium">{user?.phone || "Not provided"}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t">
+                      <Button variant="outline" onClick={() => navigate("/settings")}>
+                        Edit Profile Details
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <Card>
                 <CardHeader>
                   <CardTitle>General Settings</CardTitle>

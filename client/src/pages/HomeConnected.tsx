@@ -16,7 +16,6 @@ import ThemeToggle from "@/components/ThemeToggle";
 import AdBanner from "@/components/AdBanner";
 import PromotionalAd from "@/components/PromotionalAd";
 import MultiVendorHome from "./MultiVendorHome";
-import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import type { PlatformSettings } from "@shared/schema";
 
