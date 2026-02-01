@@ -427,9 +427,14 @@ export default function HomeConnected() {
             {/* Left Sidebar - only when enabled */}
             {(adsEnabled && sidebarAdEnabled) && (
               <aside className="hidden lg:block lg:col-span-4">
-                <div className="sticky top-24 flex flex-col gap-6">
-                  <PromotionalAd sidebar />
-                  <AdBanner position="sidebar" className="h-96 rounded-lg" />
+                <div className="sticky top-24 flex flex-col gap-6 h-[calc(100vh-6rem)]">
+                  {/* Make promo fill the remaining vertical space and keep the secondary sidebar ad below */}
+                  <div className="flex-1 overflow-hidden min-h-0">
+                    <PromotionalAd sidebar />
+                  </div>
+                  <div className="flex-none">
+                    <AdBanner position="sidebar" className="h-48 md:h-64 rounded-lg" />
+                  </div>
                 </div>
               </aside>
             )}

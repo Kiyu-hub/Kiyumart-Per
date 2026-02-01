@@ -37,11 +37,14 @@ export default function PromotionalAd({ sidebar = false }: { sidebar?: boolean }
 
   if (sidebar) {
     return (
-      <a href={link} className="block rounded-lg overflow-hidden bg-card border shadow-sm" data-testid="promo-ad-sidebar">
+      <a href={link} className="h-full flex flex-col rounded-lg overflow-hidden bg-card border shadow-sm" data-testid="promo-ad-sidebar" aria-label={`Promotional ${promo.type}`}>
         {image ? (
-          <div className="w-full h-96 bg-cover bg-center" style={{ backgroundImage: `url(${image})` }} />
+          <div className="w-full flex-1 bg-cover bg-center flex items-stretch min-h-0" style={{ backgroundImage: `url(${image})` }}>
+            {/* center cropped image inside container to preserve aspect and cover */}
+            <img src={image} alt={title} className="w-full h-full object-cover block" />
+          </div>
         ) : (
-          <div className="w-full h-96 bg-primary/10 flex items-center justify-center text-primary">Promo</div>
+          <div className="w-full flex-1 bg-primary/10 flex items-center justify-center text-primary">Promo</div>
         )}
         <div className="p-4">
           <div className="flex items-center justify-between gap-4">
