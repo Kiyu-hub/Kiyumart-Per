@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Clock, Plus, Trash2, Check, Loader2 } from "lucide-react";
+import { Clock, Plus, Trash2, Check, Loader2, Upload } from "lucide-react";
 
 export default function AdminPromotions() {
   const { toast } = useToast();
@@ -32,12 +32,13 @@ export default function AdminPromotions() {
     },
   });
 
-  const { data: allPromotions = [], refetch } = useQuery<any[]>({
+  const { data: allPromotions = [], refetch, isRefetching } = useQuery<any[]>({
     queryKey: ['/api/admin/promotions'],
     queryFn: async () => {
       const res = await fetch('/api/admin/promotions');
       return res.json();
     },
+    refetchInterval: 3000,
   });
 
 
@@ -52,8 +53,9 @@ export default function AdminPromotions() {
   const [description, setDescription] = useState<string>('');
   const [ctaText, setCtaText] = useState<string>('Shop now');
   const [ctaUrl, setCtaUrl] = useState<string>('');
-  const [themeColor, setThemeColor] = useState<string>('#16a34a');
   const [imageUrl, setImageUrl] = useState<string>('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const createPromotion = useMutation({
     mutationFn: async (payload: any) => {
@@ -74,12 +76,70 @@ export default function AdminPromotions() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/admin/promotions'] });
-      toast({ title: 'Success', description: 'Promotion ended' });
+      refetch();
+      toast({ title: 'Ended', description: 'Promotion has been ended successfully', variant: 'default' });
     },
     onError: (e: any) => toast({ title: 'Error', description: e.message || String(e), variant: 'destructive' }),
   });
 
+  const handleImageUpload = async (file: File) => {
+    if (!file) return;
+    
+    setImageFile(file);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      setUploading(true);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      
+      if (res.ok) {
+        const { url } = await res.json();
+        setImageUrl(url);
+        toast({ title: 'Success', description: 'Image uploaded successfully' });
+      } else {
+        toast({ title: 'Upload failed', description: 'Could not upload image', variant: 'destructive' });
+      }
+    } catch (e) {
+      toast({ title: 'Error', description: String(e), variant: 'destructive' });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleCreate = async () => {
+    // Auto-generate CTA URL based on selection
+    let finalCtaUrl = ctaUrl;
+    if (!finalCtaUrl) {
+      if (type === 'store' && storeId) {
+        finalCtaUrl = `/store/${storeId}`;
+      } else if (type === 'product' && productIds.length > 0) {
+        finalCtaUrl = `/product/${productIds[0]}`;
+      }
+    }
+
+    // Get default image from store/product if not uploaded
+    let finalImageUrl = imageUrl;
+    if (!finalImageUrl) {
+      try {
+        if (type === 'store' && storeId) {
+          const storeRes = await fetch(`/api/stores/${storeId}`);
+          const store = await storeRes.json();
+          finalImageUrl = store?.logo || store?.banner || '';
+        } else if (type === 'product' && productIds.length > 0) {
+          const prodRes = await fetch(`/api/products/${productIds[0]}`);
+          const prod = await prodRes.json();
+          finalImageUrl = prod?.images?.[0] || '';
+        }
+      } catch (e) {
+        console.error('Failed to get default image:', e);
+      }
+    }
+
     const now = new Date();
     const endAt = new Date(now.getTime() + duration * 60 * 60 * 1000);
 
@@ -89,10 +149,9 @@ export default function AdminPromotions() {
       endAt: endAt.toISOString(),
       title: title || null,
       description: description || null,
-      imageUrl: imageUrl || null,
+      imageUrl: finalImageUrl || null,
       ctaText: ctaText || null,
-      ctaUrl: ctaUrl || null,
-      themeColor: themeColor || null,
+      ctaUrl: finalCtaUrl || null,
     };
 
     if (type === 'store') {
@@ -209,7 +268,9 @@ export default function AdminPromotions() {
                   <label className="font-medium">Product(s) *</label>
                   <div className="flex gap-2 items-end">
                     <div className="flex-1">
-                      <ProductAutocomplete sellerId={sellerId} value={productId} onChange={(v: any) => setProductId(v)} />
+                      <div className="text-foreground">
+                        <ProductAutocomplete sellerId={sellerId} value={productId} onChange={(v: any) => setProductId(v)} />
+                      </div>
                     </div>
                     <Button 
                       onClick={async () => {
@@ -300,33 +361,44 @@ export default function AdminPromotions() {
               </div>
 
               <div>
-                <label className="font-medium">CTA URL</label>
+                <label className="font-medium">CTA URL (Optional)</label>
                 <Input 
                   value={ctaUrl} 
                   onChange={(e) => setCtaUrl(e.target.value)} 
-                  placeholder="/product/... or https://..." 
+                  placeholder="Leave empty for auto-redirect to store/product" 
                   className="text-foreground"
                 />
               </div>
 
-              <div>
-                <label className="font-medium">Image URL</label>
-                <Input 
-                  value={imageUrl} 
-                  onChange={(e) => setImageUrl(e.target.value)} 
-                  placeholder="https://..." 
-                  className="text-foreground"
-                />
-              </div>
-
-              <div>
-                <label className="font-medium">Theme Color</label>
-                <input 
-                  type="color" 
-                  value={themeColor} 
-                  onChange={(e) => setThemeColor(e.target.value)} 
-                  className="w-full h-10 p-1 border rounded cursor-pointer"
-                />
+              <div className="md:col-span-2">
+                <label className="font-medium">Promotion Image (Optional)</label>
+                <p className="text-xs text-muted-foreground mb-3">Upload an image or leave empty to use the store/product image automatically</p>
+                <label className="flex items-center justify-center w-full px-4 py-6 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary transition-colors bg-muted/30">
+                  <div className="text-center">
+                    <Upload className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
+                    <span className="text-sm font-medium">Click to upload or drag and drop</span>
+                    <p className="text-xs text-muted-foreground">PNG, JPG, GIF up to 5MB</p>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])}
+                    disabled={uploading}
+                    className="hidden"
+                  />
+                </label>
+                {imageUrl && (
+                  <div className="mt-4 relative inline-block">
+                    <img src={imageUrl} alt="Promotion" className="h-32 w-auto rounded border shadow-sm" />
+                    <button
+                      onClick={() => { setImageUrl(''); setImageFile(null); }}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 shadow-sm"
+                      type="button"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
