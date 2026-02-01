@@ -1292,7 +1292,7 @@ export class DbStorage implements IStorage {
   }
 
   // Promotional Ads management
-  async createPromotionalAd(payload: { type: 'store' | 'product'; targetId: string; startAt?: Date | null; endAt?: Date | null; createdBy?: string | null }) {
+  async createPromotionalAd(payload: { type: 'store' | 'product'; targetId: string; startAt?: Date | null; endAt?: Date | null; createdBy?: string | null; title?: string | null; description?: string | null; imageUrl?: string | null; ctaText?: string | null; ctaUrl?: string | null; themeColor?: string | null }) {
     try {
       const [created] = await db.insert(promotionalAds).values({
         type: payload.type,
@@ -1301,6 +1301,12 @@ export class DbStorage implements IStorage {
         endAt: payload.endAt || null,
         isActive: true,
         createdBy: payload.createdBy || null,
+        title: payload.title || null,
+        description: payload.description || null,
+        imageUrl: payload.imageUrl || null,
+        ctaText: payload.ctaText || null,
+        ctaUrl: payload.ctaUrl || null,
+        themeColor: payload.themeColor || null,
       }).returning();
       return created;
     } catch (err: any) {

@@ -16,6 +16,8 @@ import ThemeToggle from "@/components/ThemeToggle";
 import AdBanner from "@/components/AdBanner";
 import PromotionalAd from "@/components/PromotionalAd";
 import MultiVendorHome from "./MultiVendorHome";
+import { useQuery } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
 import type { PlatformSettings } from "@shared/schema";
 
 import heroImage from "@assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png";
@@ -371,6 +373,24 @@ export default function HomeConnected() {
     return <MultiVendorHome />;
   }
 
+  function SidebarPromotionsPlaceholder() {
+    const { data: proms = [] } = useQuery<any[]>({ queryKey: ['/api/homepage/promotional'], queryFn: async () => { const res = await fetch('/api/homepage/promotional'); return res.json(); }, refetchInterval: 5000 });
+
+    if (proms && proms.length > 0) {
+      return <div className="min-h-0"><PromotionalAd sidebar /></div>;
+    }
+
+    // No promos: render an expanded placeholder (fills vertical space)
+    return (
+      <div className="h-full flex items-center justify-center min-h-0">
+        <div className="w-full p-6 text-center">
+          <div className="mb-4 text-muted-foreground">No active promotions</div>
+          <AdBanner position="sidebar" className="mx-auto h-56 rounded-lg" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <div className="flex items-center justify-end p-2 border-b bg-background">
@@ -435,7 +455,7 @@ export default function HomeConnected() {
                 <div className="sticky top-24 flex flex-col gap-6 h-[calc(100vh-6rem)]">
                   {/* Make promo fill the remaining vertical space and keep the secondary sidebar ad below */}
                   <div className="flex-1 overflow-hidden min-h-0">
-                    <PromotionalAd sidebar />
+                    <SidebarPromotionsPlaceholder />
                   </div>
                   <div className="flex-none">
                     <AdBanner position="sidebar" className="h-48 md:h-64 rounded-lg" />

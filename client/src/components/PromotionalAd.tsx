@@ -24,49 +24,61 @@ export default function PromotionalAd({ sidebar = false }: { sidebar?: boolean }
 
   // For now render the first active promo prominently
   const promo = promos[0];
-  const target = promo.product || promo.store;
-  if (!target) return null;
+  const target = promo.product || promo.store || null;
 
   const endAt = promo.endAt ? new Date(promo.endAt) : null;
   const remaining = endAt ? Math.max(0, endAt.getTime() - now.getTime()) : null;
   const humanRemaining = endAt ? formatDistanceStrict(now, endAt, { unit: 'minute' }) : null;
 
-  const image = promo.type === 'product' ? (target.images && target.images[0]) : target.logo;
-  const title = promo.type === 'product' ? target.name : target.name;
-  const link = promo.type === 'product' ? `/product/${target.id}` : `/store/${target.id}`;
+  // Use explicitly provided image/title/cta when present, otherwise fall back to target data
+  const image = promo.imageUrl || (promo.type === 'product' ? (target?.images && target.images[0]) : target?.logo) || null;
+  const title = promo.title || target?.name || 'Promoted';
+  const subtitle = promo.description || (promo.type === 'product' ? 'Promoted product' : 'Promoted store');
+  const link = promo.ctaUrl || (promo.type === 'product' ? (target ? `/product/${target.id}` : '#') : (target ? `/store/${target.id}` : '#'));
+  const theme = promo.themeColor || '#16a34a';
 
   if (sidebar) {
     return (
       <a href={link} className="h-full flex flex-col rounded-lg overflow-hidden bg-card border shadow-sm focus:outline-none" data-testid="promo-ad-sidebar" aria-label={`Promotional ${promo.type}`}>
         {image ? (
-          <div className="w-full flex-1 flex items-stretch min-h-0 overflow-hidden">
+          <div className="w-full flex-1 flex items-stretch min-h-0 overflow-hidden relative">
             {/* center cropped image inside container to preserve aspect and cover */}
             <img src={image} alt={title} className="w-full h-full object-cover block" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/40" />
           </div>
         ) : (
           <div className="w-full flex-1 bg-primary/10 flex items-center justify-center text-primary">Promo</div>
         )}
-        <div className="p-4">
+        <div className="p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.95))' }}>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-lg font-semibold">{title}</div>
-              <div className="text-sm text-muted-foreground mt-1">{promo.type === 'product' ? 'Promoted product' : 'Promoted store'}</div>
+              <div className="text-lg font-semibold text-foreground">{title}</div>
+              <div className="text-sm text-muted-foreground mt-1">{subtitle}</div>
             </div>
-            {endAt && (
-              <div className="text-right">
-                <div className="text-xs text-muted-foreground">Ends in</div>
-                <div className="text-sm font-medium inline-flex items-center gap-2" aria-live="polite" role="status" aria-atomic="true">
-                  <span className="sr-only">Promotion ends in</span>
-                  <span
-                    data-testid="promo-countdown"
-                    className="inline-block px-2 py-1 rounded bg-primary text-white font-medium"
-                    aria-label={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
-                    title={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
-                    tabIndex={0}
-                  >{formatCountdown(remaining)}</span>
+            <div className="flex flex-col items-end gap-2">
+              {endAt && (
+                <div className="text-right">
+                  <div className="text-xs text-muted-foreground">Ends in</div>
+                  <div className="text-sm font-medium inline-flex items-center gap-2" aria-live="polite" role="status" aria-atomic="true">
+                    <span className="sr-only">Promotion ends in</span>
+                    <span
+                      data-testid="promo-countdown"
+                      className="inline-block px-2 py-1 rounded text-white font-medium"
+                      style={{ backgroundColor: theme }}
+                      aria-label={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
+                      title={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
+                      tabIndex={0}
+                    >{formatCountdown(remaining)}</span>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+
+              {promo.ctaText && (
+                <div>
+                  <button className="px-3 py-1 rounded-md text-sm font-medium" style={{ backgroundColor: theme, color: '#fff' }}>{promo.ctaText}</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </a>
@@ -79,7 +91,9 @@ export default function PromotionalAd({ sidebar = false }: { sidebar?: boolean }
         <a href={link} className="relative block rounded-lg overflow-hidden bg-card border shadow-sm" data-testid="promo-ad">
           <div className="md:flex items-center">
             {image ? (
-              <div className="md:w-1/3 w-full h-44 md:h-56 bg-cover bg-center" style={{ backgroundImage: `url(${image})` }} />
+              <div className="md:w-1/3 w-full h-44 md:h-56 overflow-hidden">
+                <img src={image} alt={title} className="w-full h-full object-cover" />
+              </div>
             ) : (
               <div className="md:w-1/3 w-full h-44 md:h-56 bg-primary/10 flex items-center justify-center text-primary">Promo</div>
             )}
@@ -87,24 +101,30 @@ export default function PromotionalAd({ sidebar = false }: { sidebar?: boolean }
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-lg font-semibold">{title}</div>
-                  <div className="text-sm text-muted-foreground mt-1">{promo.type === 'product' ? 'Promoted product' : 'Promoted store'}</div>
+                  <div className="text-sm text-muted-foreground mt-1">{subtitle}</div>
                 </div>
-                {endAt && (
-                  <div className="text-right">
-                    <div className="text-xs text-muted-foreground">Ends in</div>
-                    <div className="text-sm font-medium inline-flex items-center gap-2" aria-live="polite" role="status" aria-atomic="true">
-                      <span className="sr-only">Promotion ends in</span>
-                      <span className="sr-only">{humanRemaining ? `${humanRemaining} remaining` : ''}</span>
-                      <span
-                        data-testid="promo-countdown"
-                        className="inline-block px-2 py-1 rounded bg-primary text-white font-medium"
-                        aria-label={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
-                        title={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
-                        tabIndex={0}
-                      >{formatCountdown(remaining)}</span>
+                <div className="flex items-center gap-3">
+                  {promo.ctaText && (
+                    <a href={promo.ctaUrl || link} className="inline-block px-3 py-2 rounded-md text-sm font-medium" style={{ backgroundColor: theme, color: '#fff' }}>{promo.ctaText}</a>
+                  )}
+
+                  {endAt && (
+                    <div className="text-right">
+                      <div className="text-xs text-muted-foreground">Ends in</div>
+                      <div className="text-sm font-medium inline-flex items-center gap-2" aria-live="polite" role="status" aria-atomic="true">
+                        <span className="sr-only">Promotion ends in</span>
+                        <span
+                          data-testid="promo-countdown"
+                          className="inline-block px-2 py-1 rounded text-white font-medium"
+                          style={{ backgroundColor: theme }}
+                          aria-label={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
+                          title={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
+                          tabIndex={0}
+                        >{formatCountdown(remaining)}</span>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>

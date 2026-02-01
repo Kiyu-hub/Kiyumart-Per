@@ -26,11 +26,28 @@ export default function AdminPromotions() {
     },
   });
 
+  const { data: allPromotions = [], refetch } = useQuery<any[]>({
+    queryKey: ['/api/admin/promotions'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/promotions');
+      return res.json();
+    },
+  });
+
+
   const [type, setType] = useState<'store'|'product'>('store');
   const [storeId, setStoreId] = useState<string | null>(null);
   const [sellerId, setSellerId] = useState<string | null>(null);
   const [productId, setProductId] = useState<string | null>(null);
+  const [productIds, setProductIds] = useState<string[]>([]);
+  const [productLabels, setProductLabels] = useState<Record<string,string>>({});
   const [duration, setDuration] = useState<number>(24);
+  const [title, setTitle] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
+  const [ctaText, setCtaText] = useState<string>('Shop now');
+  const [ctaUrl, setCtaUrl] = useState<string>('');
+  const [themeColor, setThemeColor] = useState<string>('#16a34a');
+  const [imageUrl, setImageUrl] = useState<string>('');
 
   const createPromotion = useMutation({
     mutationFn: async (payload: any) => {
@@ -38,6 +55,7 @@ export default function AdminPromotions() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/promotions'] });
       toast({ title: 'Created', description: 'Promotional ad created' });
     },
     onError: (e: any) => toast({ title: 'Create failed', description: e.message || String(e), variant: 'destructive' }),
@@ -46,17 +64,37 @@ export default function AdminPromotions() {
   const handleCreate = async () => {
     const now = new Date();
     const endAt = new Date(now.getTime() + duration * 60 * 60 * 1000);
-    const payload: any = {
+
+    const basePayload: any = {
       type,
-      targetId: type === 'store' ? storeId : productId,
       startAt: now.toISOString(),
       endAt: endAt.toISOString(),
+      title: title || null,
+      description: description || null,
+      imageUrl: imageUrl || null,
+      ctaText: ctaText || null,
+      ctaUrl: ctaUrl || null,
+      themeColor: themeColor || null,
     };
-    if (!payload.targetId) {
-      toast({ title: 'Missing target', description: 'Please select a target store or product', variant: 'destructive' });
+
+    if (type === 'store') {
+      if (!storeId) {
+        toast({ title: 'Missing store', description: 'Please select a store to promote', variant: 'destructive' });
+        return;
+      }
+      createPromotion.mutate({ ...basePayload, targetId: storeId });
       return;
     }
-    createPromotion.mutate(payload);
+
+    // product type: allow creating for a single product or multiple selected products
+    const selectedIds = productIds.length > 0 ? productIds : (productId ? [productId] : []);
+    if (selectedIds.length === 0) {
+      toast({ title: 'Missing product', description: 'Please select at least one product', variant: 'destructive' });
+      return;
+    }
+
+    // bulk create by sending targetIds array
+    createPromotion.mutate({ ...basePayload, targetIds: selectedIds });
   };
 
   return (
@@ -97,20 +135,101 @@ export default function AdminPromotions() {
                 </Select>
               </div>
               <div className="mt-3">
-                <Label>Product (search after selecting seller)</Label>
-                <ProductAutocomplete sellerId={sellerId} value={productId} onChange={(v:any) => setProductId(v)} />
-                <p className="text-xs text-muted-foreground">Select a product from the chosen seller</p>
+                <Label>Product(s) (search after selecting seller)</Label>
+                <div className="flex gap-2 items-center">
+                  <ProductAutocomplete sellerId={sellerId} value={productId} onChange={(v:any) => setProductId(v)} />
+                  <Button onClick={async () => {
+                    if (!productId) return;
+                    // fetch product name for label and then add
+                    try {
+                      const res = await fetch(`/api/products/${productId}`);
+                      const json = res.ok ? await res.json() : null;
+                      const name = json?.name || productId;
+                      setProductLabels(pl => ({ ...pl, [productId]: name }));
+                      setProductIds(prev => Array.from(new Set([...prev, productId])));
+                      setProductId(null);
+                    } catch (e) {
+                      setProductIds(prev => Array.from(new Set([...prev, productId])));
+                      setProductId(null);
+                    }
+                  }} disabled={!productId} size="sm">Add</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">You may add multiple products; they'll each be created as separate promotions</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {productIds.map((pid) => (
+                    <div key={pid} className="px-2 py-1 bg-primary/10 text-primary rounded-full flex items-center gap-2">
+                      <span className="text-sm text-primary-foreground">{productLabels[pid] || pid}</span>
+                      <button onClick={() => { setProductIds(prev => prev.filter(x => x !== pid)); setProductLabels(pl => { const copy = {...pl}; delete copy[pid]; return copy; }); }} className="text-xs text-destructive">Remove</button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
 
-          <div className="p-4 border rounded-lg">
-            <Label>Duration (hours)</Label>
-            <Input type="number" min={1} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
+          <div className="p-4 border rounded-lg grid grid-cols-1 gap-3">
+            <div>
+              <Label>Duration (hours)</Label>
+              <Input type="number" min={1} value={duration} onChange={(e) => setDuration(Number(e.target.value))} className="text-foreground" />
+            </div>
+
+            <div>
+              <Label>Title</Label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Short headline for the promotion" className="text-foreground" />
+            </div>
+
+            <div>
+              <Label>Description</Label>
+              <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short description (optional)" className="text-foreground" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>CTA Text</Label>
+                <Input value={ctaText} onChange={(e) => setCtaText(e.target.value)} className="text-foreground" />
+              </div>
+              <div>
+                <Label>CTA Url</Label>
+                <Input value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} placeholder="/product/.. or https://.." className="text-foreground" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 items-end">
+              <div>
+                <Label>Theme color</Label>
+                <input type="color" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} className="w-full h-9 p-0 border rounded" />
+              </div>
+              <div>
+                <Label>Image URL</Label>
+                <Input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://..." className="text-foreground" />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={handleCreate} data-testid="button-create-promo">Create Promotion</Button>
+            </div>
           </div>
 
-          <div className="flex gap-2">
-            <Button onClick={handleCreate} data-testid="button-create-promo">Create Promotion</Button>
+          <div className="p-4 border rounded-lg">
+            <h2 className="text-lg font-semibold">Active & Recent Promotions</h2>
+            <div className="mt-3 space-y-2">
+              {allPromotions.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No promotions yet</div>
+              ) : (
+                allPromotions.map((p:any) => (
+                  <div key={p.id} className="p-3 border rounded flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="font-semibold">{p.title || (p.type === 'product' ? (p.product?.name || p.targetId) : (p.store?.name || p.targetId))}</div>
+                      <div className="text-xs text-muted-foreground mt-1">{p.description || ''}</div>
+                      <div className="text-xs text-muted-foreground mt-1">{p.type} • {new Date(p.startAt).toLocaleString()} → {p.endAt ? new Date(p.endAt).toLocaleString() : '—'}</div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Button variant="ghost" onClick={async () => { await fetch(`/api/admin/promotions/${p.id}/expire`, { method: 'PATCH' }); await refetch(); toast({ title: 'Ended', description: 'Promotion ended' }); }}>End</Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>

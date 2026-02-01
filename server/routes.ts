@@ -3867,9 +3867,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin: Promotional ads CRUD (basic scaffolding)
   app.post('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
     try {
-      const { type, targetId, startAt, endAt } = req.body;
+      const { type, targetId, targetIds, startAt, endAt, title, description, imageUrl, ctaText, ctaUrl, themeColor } = req.body;
       if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
-      const created = await storage.createPromotionalAd({ type, targetId, startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id });
+
+      // Support bulk creation for products when targetIds array is provided
+      if (type === 'product' && Array.isArray(targetIds) && targetIds.length > 0) {
+        const createdRows = [] as any[];
+        for (const tId of targetIds) {
+          const created = await storage.createPromotionalAd({ type, targetId: tId, startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null });
+          createdRows.push(created);
+        }
+        res.json(createdRows);
+        return;
+      }
+
+      const created = await storage.createPromotionalAd({ type, targetId: targetId || '', startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null });
       res.json(created);
     } catch (e: any) {
       res.status(400).json({ error: e.message });
@@ -3879,7 +3891,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
     try {
       const rows = await storage.getAllPromotionalAds();
-      res.json(rows);
+      // Enrich with store/product details for admin UI
+      const enriched = await Promise.all(rows.map(async (r: any) => {
+        if (r.type === 'store') {
+          const store = await storage.getStore(r.targetId).catch(() => null);
+          return { ...r, store };
+        }
+        if (r.type === 'product') {
+          const product = await storage.getProduct(r.targetId).catch(() => null);
+          return { ...r, product };
+        }
+        return r;
+      }));
+      res.json(enriched);
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
