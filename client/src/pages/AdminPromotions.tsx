@@ -272,9 +272,7 @@ export default function AdminPromotions() {
                   <label className="font-medium">Product(s) *</label>
                   <div className="flex gap-2 items-end">
                     <div className="flex-1">
-                      <div className="text-foreground">
-                        <ProductAutocomplete sellerId={sellerId} value={productId} onChange={(v: any) => setProductId(v)} />
-                      </div>
+                      <ProductAutocomplete sellerId={sellerId} value={productId} onChange={(v: any) => setProductId(v)} />
                     </div>
                     <Button 
                       onClick={async () => {
