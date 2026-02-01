@@ -256,7 +256,7 @@ This project has comprehensive documentation for every aspect of the platform. C
 
 **Admin Capabilities:**
 - [README.md](./README.md#-admin-features-super-admin) - All admin features listed
-- **Promotional Ads:** Admins can create time-limited promotions (store/product) via `/admin/promotions`. Promotions include a live countdown and are expired by admin action or the background worker.
+- **Promotional Ads:** Admins can create time-limited promotions (store/product) via `/admin/promotions`. Promotions include a live countdown and are expired by admin action or the background worker. The admin UI supports bulk product creation, rich metadata (title, description, image, CTA, theme color), and a list view where promotions can be ended manually.
 
 **Admin API:**
 - [ARCHITECTURE.md](./ARCHITECTURE.md#restful-endpoints-structure) - `/api/admin` endpoints
