@@ -57,11 +57,167 @@ npx drizzle-kit push:pg
 npm run seed-admins
 
 # 7. Start servers
-# Terminal 1:
+# Terminal 1: Backend Server
+npx tsx server/index.ts
+# Backend API: http://localhost:5000
+# Platform UI: http://localhost:5000/admin/dashboard
+# Socket.IO: wss://localhost:5000/socket.io/
+
+# Terminal 2: Frontend Dev Server
+npm run dev:frontend
+# Frontend: http://localhost:5173
+```
+
+---
+
+## Server Documentation
+
+### Backend Server Overview
+
+The KiyuMart backend is a **full-featured Express.js API server** running on **port 5000** with:
+
+- **REST API** for all platform operations
+- **Socket.IO** for real-time features (notifications, live tracking, video calls)
+- **PostgreSQL/Neon** database with Drizzle ORM
+- **Background workers** for async tasks (payouts, ad expiry, notifications)
+- **Server-side rendering** (SSR) capability for admin dashboard
+- **JWT authentication** with role-based access control
+
+### Core Server Features
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              KiyuMart Backend (Port 5000)                   │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ✅ REST API Endpoints (~120+ routes)                       │
+│     - Authentication & Authorization                         │
+│     - Product Management                                     │
+│     - Order Processing                                       │
+│     - Admin Panel                                            │
+│     - Seller Management                                      │
+│     - Payment Gateway Integration                            │
+│     - Delivery Zone Management                               │
+│     - Real-time Notifications                                │
+│                                                               │
+│  ✅ Real-Time Features (Socket.IO)                          │
+│     - Live Order Status Updates                              │
+│     - Instant Notifications                                  │
+│     - Rider Location Tracking                                │
+│     - Real-time Chat                                         │
+│     - WebRTC Video Calls                                     │
+│                                                               │
+│  ✅ Background Workers                                       │
+│     - Payout Processing Worker (every 15 seconds)           │
+│     - Promotional Ads Expiry Worker (every 60 seconds)      │
+│     - Order Status Auto-updates                              │
+│                                                               │
+│  ✅ Database Layer (Drizzle ORM + PostgreSQL)               │
+│     - 30+ tables for platform data                           │
+│     - RLS (Row Level Security) support                       │
+│     - Automatic migrations                                   │
+│                                                               │
+│  ✅ Security                                                 │
+│     - JWT Token Authentication                               │
+│     - CORS Protection                                        │
+│     - Request Rate Limiting                                  │
+│     - Input Validation                                       │
+│     - Secure Password Hashing                                │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Starting the Backend Server
+
+```bash
+# Development (with hot reload via tsx)
 npx tsx server/index.ts
 
-# Terminal 2:
-npm run dev:frontend
+# Production
+npm run build
+node dist/server/index.js
+
+# With debug logging
+DEBUG=* npx tsx server/index.ts
+```
+
+**Server Startup Output:**
+```
+[server] 🚀 Express server listening on http://0.0.0.0:5000
+[server] ✅ Database connected
+[server] ✅ Payout worker started (interval: 15000ms)
+[server] ✅ Promotional ads worker started (interval: 60000ms)
+[server] 🔌 Socket.IO ready for connections
+```
+
+### API Base URL
+
+- **Development:** `http://localhost:5000`
+- **Production:** `https://your-domain.com`
+
+When frontend is on a different port, set environment variable:
+```bash
+VITE_API_URL=http://localhost:5000
+```
+
+### Server Endpoints Structure
+
+```
+/api/auth                    # Authentication (login, register, logout)
+/api/users                   # User management
+/api/products                # Product catalog
+/api/products/:id            # Product details, variants, reviews
+/api/orders                  # Order operations
+/api/cart                    # Shopping cart
+/api/wishlist                # User wishlist
+/api/sellers                 # Seller operations
+/api/stores                  # Store management
+/api/riders                  # Rider management
+/api/admin                   # Admin operations (products, orders, sellers, payouts)
+/api/admin/promotions        # Promotional ads management
+/api/payments                # Payment processing (Paystack)
+/api/notifications           # Push notifications
+/api/delivery-zones          # Delivery coverage areas
+/api/categories              # Product categories
+/api/settings                # Platform settings
+/api/analytics               # Dashboard analytics
+/api/homepage                # Homepage data
+/api/platform-settings       # Global platform configuration
+```
+
+### Socket.IO Events
+
+**Authentication:**
+```javascript
+socket.emit('authenticate', { token: 'jwt_token' });
+socket.on('authenticated', (user) => { ... });
+```
+
+**Real-Time Updates:**
+```javascript
+// Order status updates
+socket.on('order:updated', (order) => { ... });
+
+// Rider location
+socket.on('rider:location', (location) => { ... });
+
+// Notifications
+socket.on('notification:new', (notification) => { ... });
+
+// Messages (Chat)
+socket.on('message:received', (message) => { ... });
+```
+
+### Database Connection
+
+The server automatically connects to PostgreSQL via Drizzle ORM:
+
+```typescript
+// From environment variable
+DATABASE_URL=postgresql://user:password@host:5432/kiyumart
+
+// Connection pooling is automatic
+// Max connections: 20 (configurable)
 ```
 
 ---
