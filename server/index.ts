@@ -48,13 +48,19 @@ app.use((req, res, next) => {
 const allowedOrigins = [
   'http://localhost:5000',
   'http://localhost:5173',
-  process.env.FRONTEND_URL,  // Netlify URL
+  'http://127.0.0.1:5000',
+  'http://127.0.0.1:5173',
+  process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
+
+    // In development, be permissive so Vite client and headless browsers can load dev assets
+    if (process.env.NODE_ENV !== 'production') return callback(null, true);
+
     if (allowedOrigins.some(allowed => origin.startsWith(allowed.replace(/\/$/, '')))) {
       return callback(null, true);
     }

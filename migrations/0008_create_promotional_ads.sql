@@ -15,3 +15,4 @@ CREATE TABLE IF NOT EXISTS promotional_ads (
 
 CREATE INDEX IF NOT EXISTS promotional_ads_type_idx ON promotional_ads(type);
 CREATE INDEX IF NOT EXISTS promotional_ads_active_idx ON promotional_ads(is_active);
+

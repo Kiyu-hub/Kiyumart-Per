@@ -423,6 +423,11 @@ export default function HomeConnected() {
           </section>
 
           {/* Products and Sidebar row */}
+          {/* Mobile promo: visible on small screens, hidden on large (sidebar shows on lg+) */}
+          <div className="lg:hidden mb-6">
+            <PromotionalAd />
+          </div>
+
           <div className="mt-8 grid lg:grid-cols-12 gap-6">
             {/* Left Sidebar - only when enabled */}
             {(adsEnabled && sidebarAdEnabled) && (

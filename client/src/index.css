@@ -138,6 +138,14 @@
   }
 }
 
+@layer components {
+  /* Ensure card fills grid cell */
+  .shadcn-card { width: 100%; }
+
+  /* Ensure child items can shrink/grow properly inside grid cells */
+  .mt-8.grid > * { min-width: 0; }
+}
+
 @layer utilities {
   .scrollbar-hide {
     -ms-overflow-style: none;

@@ -45,6 +45,7 @@ const routeToMenuId: Record<string, string> = {
   "/admin/messages": "messages",
   "/admin/analytics": "analytics",
   "/admin/settings": "settings",
+  "/admin/promotions": "promotions",
   "/seller": "dashboard",
   "/seller/media-library": "media-library",
   "/seller/products": "products",

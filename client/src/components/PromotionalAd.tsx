@@ -37,9 +37,9 @@ export default function PromotionalAd({ sidebar = false }: { sidebar?: boolean }
 
   if (sidebar) {
     return (
-      <a href={link} className="h-full flex flex-col rounded-lg overflow-hidden bg-card border shadow-sm" data-testid="promo-ad-sidebar" aria-label={`Promotional ${promo.type}`}>
+      <a href={link} className="h-full flex flex-col rounded-lg overflow-hidden bg-card border shadow-sm focus:outline-none" data-testid="promo-ad-sidebar" aria-label={`Promotional ${promo.type}`}>
         {image ? (
-          <div className="w-full flex-1 bg-cover bg-center flex items-stretch min-h-0" style={{ backgroundImage: `url(${image})` }}>
+          <div className="w-full flex-1 flex items-stretch min-h-0 overflow-hidden">
             {/* center cropped image inside container to preserve aspect and cover */}
             <img src={image} alt={title} className="w-full h-full object-cover block" />
           </div>

@@ -91,6 +91,8 @@ export default function AdminDashboardConnected() {
       setActiveItem("analytics");
     } else if (path.includes("/admin/settings")) {
       setActiveItem("settings");
+    } else if (path.includes("/admin/promotions")) {
+      setActiveItem("promotions");
     } else if (path.includes("/admin/banners")) {
       setActiveItem("banners");
     } else if (path.includes("/admin/media-library")) {
@@ -122,6 +124,7 @@ export default function AdminDashboardConnected() {
       id === "messages" ? "/admin/messages" :
       id === "analytics" ? "/admin/analytics" :
       id === "settings" ? "/admin/settings" :
+      id === "promotions" ? "/admin/promotions" :
       "/admin"
     );
   };
