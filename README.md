@@ -6,9 +6,9 @@
 >
 > A **fully functional, production-ready local marketplace platform** enabling small businesses, artisans, and entrepreneurs to sell their products to local and regional customers. Multi-vendor support, comprehensive admin management, real-time order tracking, and secure payment processing.
 > 
-> **Version:** 1.1.2 (Latest - Promotional Ads & UI Refinements)  
+> **Version:** 1.1.3 (Latest - Enhanced Promotional System & Admin Dashboard Improvements)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
-> **Last Updated:** February 1, 2026
+> **Last Updated:** February 2, 2026
 > 
 > **📚 Documentation:** Start with [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) for complete guides  
 > **🚀 Quick Start:** See [QUICK_START.md](./QUICK_START.md) to get running in 5 minutes  
@@ -994,6 +994,33 @@ For support and questions:
 
 ## 🔄 Recent Updates
 
+### February 2, 2026
+- **Enhanced Promotional System**: Complete overhaul of promotional ads with real-time updates and improvements
+  - Auto-generate CTA URLs based on store/product selection
+  - Image upload functionality with drag-drop support
+  - Automatic fallback to store logo/product image if no custom upload
+  - Real-time table updates using 3-second polling + instant mutation refetch
+  - Fixed status calculation to use server-side `isActive` field
+  - Fixed promotion expiry logic to handle NULL endAt values properly
+- **Admin UI Improvements**: 
+  - Fixed ProductAutocomplete visibility - now uses proper background/foreground colors
+  - Improved dropdown styling with better contrast and accessibility
+  - Fixed product input field visibility when seller is selected
+- **Bug Fixes**:
+  - Resolved multiple promotions showing as active but not updating
+  - Fixed end promotion action not reflecting changes in real-time
+  - Improved mutation refetch handling with proper async/await
+  - Added `isNotNull` check to promotional ads expiry query
+
+### February 1, 2026
+- **Comprehensive Promotions Overhaul**:
+  - Removed theme color input (now uses primary brand colors)
+  - Implemented auto-CTA URL generation
+  - Added image upload with default fallback
+  - Fixed promotions dashboard visibility
+  - Redesigned promotion cards with better display
+  - Implemented vertical space optimization
+
 ### November 6, 2025
 - **Fixed Admin Messaging**: AdminMessages now properly filters conversations by userId when clicking "Message" from AdminUsers page
 - **Renamed Delivery Partner**: Changed all "Become a Rider" references to "Become a Delivery Partner" throughout the platform
@@ -1016,4 +1043,5 @@ For support and questions:
 
 **Built with ❤️ for the Islamic Fashion Community**
 
-*Last Updated: November 6, 2025*
+*Last Updated: February 2, 2026*
+

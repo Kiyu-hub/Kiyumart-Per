@@ -2,7 +2,7 @@
 
 **Purpose:** Complete guide for developers working on KiyuMart  
 **Target Audience:** Backend developers, frontend developers, AI models  
-**Last Updated:** January 23, 2026
+**Last Updated:** February 2, 2026
 
 ---
 
@@ -1105,9 +1105,9 @@ app.use((req, res, next) => {
 
 ---
 
-## Recent Updates (February 1, 2026)
+## Recent Updates (February 1-2, 2026)
 
-### Promotional Ads System
+### Promotional Ads System (v1.1.3)
 
 ✅ **Comprehensive Admin Promotions Dashboard** 
 - Create store and product promotions with rich fields
@@ -1132,11 +1132,14 @@ app.use((req, res, next) => {
 
 ### UI/UX Improvements
 
-✅ **ProductAutocomplete Component**
-- Fixed white text/background visibility
-- Uses theme-aware bg-card and text-card-foreground
-- Improved dropdown styling with z-50 and shadow-xl
-- Better focus states and accessibility
+✅ **ProductAutocomplete Component** (February 2)
+- Fixed white text/background visibility issues
+- Changed from bg-card to bg-background for proper theming
+- Uses text-foreground instead of text-card-foreground
+- Improved dropdown styling with proper borders and shadows
+- Better focus states with ring-primary and border-input styling
+- Enhanced accessibility with proper ARIA labels and roles
+- Fixed dropdown items contrast when highlighted
 
 ✅ **AdminPromotions Component**
 - Removed hardcoded theme colors
@@ -1144,12 +1147,20 @@ app.use((req, res, next) => {
 - Status badges reflect server isActive state
 - Better form input styling
 - Proper text contrast in all fields
+- Product autocomplete wrapped in text-foreground div for visibility
 
-### Bug Fixes
+### Bug Fixes (February 2)
 
-✅ **Promotion Status Updates**
+✅ **Promotion Display Issues**
+- Fixed ProductAutocomplete white input field visibility
+- Fixed dropdown not showing with proper background color
+- Fixed product/store enrichment on homepage promotions
+- Ensured promotions API returns properly enriched data
+
+✅ **Real-Time Update Issues** (February 1)
 - Fixed real-time updates not reflecting after delete action
 - Added awaited refetch() in mutation onSuccess
 - Query now uses isNotNull check for NULL endAt values
 - Promotions properly expire when past endAt timestamp
+- Status calculation now checks server-side isActive field first
 
