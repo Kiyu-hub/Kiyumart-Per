@@ -38,44 +38,59 @@ export default function PromotionalAd({ sidebar = false }: { sidebar?: boolean }
 
   if (sidebar) {
     return (
-      <a href={link} className="h-full flex flex-col rounded-lg overflow-hidden bg-card border border-primary/20 shadow-sm hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-primary" data-testid="promo-ad-sidebar" aria-label={`Promotional ${promo.type}`}>
+      <a href={link} className="h-full flex flex-col rounded-lg overflow-hidden bg-card border-2 border-primary/30 shadow-md hover:shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-primary group" data-testid="promo-ad-sidebar" aria-label={`Promotional ${promo.type}`}>
         {image ? (
           <div className="w-full flex-1 flex items-stretch min-h-0 overflow-hidden relative bg-muted">
-            <img src={image} alt={title} className="w-full h-full object-cover block" />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/30" />
-          </div>
-        ) : (
-          <div className="w-full flex-1 bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center text-primary/60">
-            <div className="text-center">
-              <div className="text-lg font-semibold mb-1">{promo.type === 'product' ? '🛍️' : '🏪'}</div>
-              <div className="text-xs">Promoted</div>
+            <img src={image} alt={title} className="w-full h-full object-cover block group-hover:scale-105 transition-transform" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/40" />
+            
+            {/* Promoted Badge */}
+            <div className="absolute top-2 right-2 inline-flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground rounded text-xs font-bold">
+              <span>{promo.type === 'product' ? '🛍️' : '🏪'}</span>
             </div>
-          </div>
-        )}
-        <div className="p-3.5 bg-card">
-          <div className="space-y-2">
-            <div>
-              <div className="text-base font-semibold text-foreground line-clamp-2">{title}</div>
-              <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{subtitle}</div>
-            </div>
+
+            {/* Countdown - Very Prominent */}
             {endAt && (
-              <div className="flex items-center justify-between pt-1.5 border-t border-border">
-                <div className="text-xs text-muted-foreground">Ends in</div>
-                <div className="text-xs font-semibold text-primary inline-flex items-center gap-1.5 px-2 py-1 bg-primary/10 rounded-full" aria-live="polite" role="status" aria-atomic="true">
-                  <span className="sr-only">Promotion ends in</span>
-                  <span
-                    data-testid="promo-countdown"
-                    aria-label={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
-                    title={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
-                    tabIndex={0}
-                  >{formatCountdown(remaining)}</span>
-                </div>
+              <div className="absolute top-2 left-2 inline-flex items-center gap-1 px-2.5 py-1 bg-red-600 text-white rounded text-xs font-bold shadow-lg" aria-live="polite" role="status" aria-atomic="true">
+                <span>⏰</span>
+                <span
+                  data-testid="promo-countdown"
+                  aria-label={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
+                  title={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
+                >{formatCountdown(remaining)}</span>
               </div>
             )}
-            {promo.ctaText && (
-              <button className="w-full mt-2 px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">{promo.ctaText}</button>
+          </div>
+        ) : (
+          <div className="w-full flex-1 bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center text-primary/60 relative">
+            <div className="text-center">
+              <div className="text-2xl mb-1">{promo.type === 'product' ? '🛍️' : '🏪'}</div>
+              <div className="text-xs font-semibold">Promoted</div>
+            </div>
+            
+            {/* Countdown - Very Prominent */}
+            {endAt && (
+              <div className="absolute top-2 left-2 inline-flex items-center gap-1 px-2.5 py-1 bg-red-600 text-white rounded text-xs font-bold shadow-lg" aria-live="polite" role="status" aria-atomic="true">
+                <span>⏰</span>
+                <span
+                  data-testid="promo-countdown"
+                  aria-label={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
+                  title={humanRemaining ? `Ends in ${humanRemaining}` : `Ends in ${formatCountdown(remaining)}`}
+                >{formatCountdown(remaining)}</span>
+              </div>
             )}
           </div>
+        )}
+        <div className="p-3.5 bg-card space-y-2.5">
+          <div>
+            <div className="text-sm font-bold text-foreground line-clamp-2 group-hover:text-primary">{title}</div>
+            <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{subtitle}</div>
+          </div>
+          {promo.ctaText && (
+            <button className="w-full px-2 py-1.5 rounded text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+              {promo.ctaText}
+            </button>
+          )}
         </div>
       </a>
     );

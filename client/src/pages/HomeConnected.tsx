@@ -15,6 +15,7 @@ import CartSidebar from "@/components/CartSidebar";
 import ThemeToggle from "@/components/ThemeToggle";
 import AdBanner from "@/components/AdBanner";
 import PromotionalAd from "@/components/PromotionalAd";
+import PromotionalAdsGrid from "@/components/PromotionalAdsGrid";
 import MultiVendorHome from "./MultiVendorHome";
 import { Button } from '@/components/ui/button';
 import type { PlatformSettings } from "@shared/schema";
@@ -441,30 +442,19 @@ export default function HomeConnected() {
             )}
           </section>
 
-          {/* Products and Sidebar row */}
-          {/* Mobile promo: visible on small screens, hidden on large (sidebar shows on lg+) */}
-          <div className="lg:hidden mb-6">
-            <PromotionalAd />
-          </div>
-
-          <div className="mt-8 grid lg:grid-cols-12 gap-6">
-            {/* Left Sidebar - only when enabled */}
-            {(adsEnabled && sidebarAdEnabled) && (
-              <aside className="hidden lg:block lg:col-span-4">
-                <div className="sticky top-24 flex flex-col gap-6 h-[calc(100vh-6rem)]">
-                  {/* Make promo fill the remaining vertical space and keep the secondary sidebar ad below */}
-                  <div className="flex-1 overflow-hidden min-h-0">
-                    <SidebarPromotionsPlaceholder />
-                  </div>
-                  <div className="flex-none">
-                    <AdBanner position="sidebar" className="h-48 md:h-64 rounded-lg" />
-                  </div>
-                </div>
-              </aside>
-            )}
-
-            {/* Products column */}
-            <div className={(adsEnabled && sidebarAdEnabled) ? 'lg:col-span-8' : 'lg:col-span-12'}>
+          {/* Fetch promotions for conditional sidebar logic */}
+          <PromotionalGridAndSidebar 
+            adsEnabled={adsEnabled}
+            sidebarAdEnabled={sidebarAdEnabled}
+            filteredProducts={filteredProducts}
+            productsLoading={productsLoading}
+            searchQuery={searchQuery}
+            t={t}
+            heroImage={heroImage}
+            wishlist={wishlist}
+            currencySymbol={currencySymbol}
+            handleToggleWishlist={handleToggleWishlist}
+          />
               <section>
                 <div className="flex items-center justify-between mb-8">
                   <h2 className="text-3xl font-bold">
