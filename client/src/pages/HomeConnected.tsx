@@ -16,6 +16,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import AdBanner from "@/components/AdBanner";
 import PromotionalAd from "@/components/PromotionalAd";
 import PromotionalAdsGrid from "@/components/PromotionalAdsGrid";
+import SinglePromotionSidebar from "@/components/SinglePromotionSidebar";
 import MultiVendorHome from "./MultiVendorHome";
 import { Button } from '@/components/ui/button';
 import type { PlatformSettings } from "@shared/schema";
@@ -73,6 +74,21 @@ export default function HomeConnected() {
   const sidebarAdEnabled = platformSettings?.sidebarAdEnabled ?? true;
   const footerAdEnabled = platformSettings?.footerAdEnabled ?? true;
   const productPageAdEnabled = platformSettings?.productPageAdEnabled ?? true;
+
+  // Query promotions to determine sidebar display logic
+  const { data: allPromotions = [] } = useQuery<any[]>({
+    queryKey: ["/api/homepage/promotional"],
+    queryFn: async () => {
+      const res = await fetch("/api/homepage/promotional");
+      return res.json();
+    },
+    refetchInterval: 5000,
+  });
+
+  // Determine sidebar display logic based on promotion count
+  const hasExactlyOnePromotion = allPromotions.length === 1;
+  const hasMultiplePromotions = allPromotions.length > 1;
+  const singlePromotion = hasExactlyOnePromotion ? allPromotions[0] : null;
 
   const { data: allProducts = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["/api/products"],
@@ -442,19 +458,40 @@ export default function HomeConnected() {
             )}
           </section>
 
-          {/* Fetch promotions for conditional sidebar logic */}
-          <PromotionalGridAndSidebar 
-            adsEnabled={adsEnabled}
-            sidebarAdEnabled={sidebarAdEnabled}
-            filteredProducts={filteredProducts}
-            productsLoading={productsLoading}
-            searchQuery={searchQuery}
-            t={t}
-            heroImage={heroImage}
-            wishlist={wishlist}
-            currencySymbol={currencySymbol}
-            handleToggleWishlist={handleToggleWishlist}
-          />
+          {/* Promotional Ads Grid - Only show if 2+ promotions exist */}
+          {hasMultiplePromotions && <PromotionalAdsGrid />}
+
+          {/* Products and Sidebar row */}
+          {/* Mobile promo: visible on small screens, hidden on large (sidebar shows on lg+) */}
+          <div className="lg:hidden mb-6">
+            <PromotionalAd />
+          </div>
+
+          <div className="mt-8 grid lg:grid-cols-12 gap-6">
+            {/* Left Sidebar - Show promotion if exactly 1, OR ads if enabled */}
+            {(hasExactlyOnePromotion || (adsEnabled && sidebarAdEnabled)) && (
+              <aside className="hidden lg:block lg:col-span-4">
+                <div className="sticky top-24 flex flex-col gap-6 h-[calc(100vh-6rem)]">
+                  {/* Sidebar Content: Priority order - Single Promotion > Ads > Nothing */}
+                  {hasExactlyOnePromotion ? (
+                    <div className="flex-1 overflow-hidden min-h-0">
+                      <SinglePromotionSidebar promo={singlePromotion} />
+                    </div>
+                  ) : (adsEnabled && sidebarAdEnabled) ? (
+                    <>
+                      <div className="flex-1 overflow-hidden min-h-0">
+                        <div className="h-full flex items-center justify-center">
+                          <AdBanner position="sidebar" className="h-56 rounded-lg" />
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              </aside>
+            )}
+
+            {/* Products column - Adjust width based on sidebar visibility */}
+            <div className={(hasExactlyOnePromotion || (adsEnabled && sidebarAdEnabled)) ? 'lg:col-span-8' : 'lg:col-span-12'}>
               <section>
                 <div className="flex items-center justify-between mb-8">
                   <h2 className="text-3xl font-bold">
@@ -498,9 +535,9 @@ export default function HomeConnected() {
                 </div>
               )}
             </section>
+            </div>
           </div>
         </div>
-      </div>
       </main>
       {/* Full-bleed footer ad - show only when enabled */}
       {(adsEnabled && footerAdEnabled) && (
