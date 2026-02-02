@@ -478,13 +478,9 @@ export default function HomeConnected() {
                       <SinglePromotionSidebar promo={singlePromotion} />
                     </div>
                   ) : (adsEnabled && sidebarAdEnabled) ? (
-                    <>
-                      <div className="flex-1 overflow-hidden min-h-0">
-                        <div className="h-full flex items-center justify-center">
-                          <AdBanner position="sidebar" className="h-56 rounded-lg" />
-                        </div>
-                      </div>
-                    </>
+                    <div className="flex-1 overflow-hidden min-h-0 rounded-lg overflow-hidden border-2 border-primary/20 shadow-md">
+                      <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
+                    </div>
                   ) : null}
                 </div>
               </aside>
