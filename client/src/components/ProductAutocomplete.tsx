@@ -121,7 +121,7 @@ export default function ProductAutocomplete({ sellerId, value, onChange }: { sel
       <div className="flex items-center gap-2">
         <input
           ref={inputRef}
-          className="w-full px-3 py-2 border rounded-md bg-card text-card-foreground placeholder-muted-foreground disabled:opacity-50"
+          className="w-full px-3 py-2 border rounded-md bg-background text-foreground placeholder-muted-foreground border-input hover:border-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
           role="combobox"
           aria-label="Product search"
           aria-expanded={open}
@@ -151,7 +151,7 @@ export default function ProductAutocomplete({ sellerId, value, onChange }: { sel
           id="product-autocomplete-list"
           ref={listRef}
           role="listbox"
-          className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded-md border bg-card text-card-foreground shadow-xl"
+          className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded-md border border-input bg-background text-foreground shadow-xl"
         >
           {loading ? (
             <li className="p-2 text-sm text-muted-foreground">Searching…</li>
@@ -162,12 +162,12 @@ export default function ProductAutocomplete({ sellerId, value, onChange }: { sel
               key={p.id}
               role="option"
               aria-selected={highlight === i}
-              className={`px-3 py-2 cursor-pointer text-card-foreground hover:bg-muted/50 transition-colors ${highlight === i ? 'bg-primary/20' : ''}`}
+              className={`px-3 py-2 cursor-pointer text-foreground hover:bg-muted/50 transition-colors ${highlight === i ? 'bg-primary/20 text-primary-foreground' : ''}`}
               onMouseEnter={() => setHighlight(i)}
               onMouseDown={(e) => { e.preventDefault(); pick(p); }}
             >
               <div className="flex items-center justify-between">
-                <div className="text-sm font-medium text-card-foreground">{p.name}</div>
+                <div className="text-sm font-medium">{p.name}</div>
                 <div className="text-xs text-muted-foreground">{(p as any).price || ''}</div>
               </div>
             </li>

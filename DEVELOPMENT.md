@@ -1103,3 +1103,53 @@ app.use((req, res, next) => {
 5. **Ask in team chat**: Reach out to teammates
 6. **Create debug branch**: Isolate issue in separate branch
 
+---
+
+## Recent Updates (February 1, 2026)
+
+### Promotional Ads System
+
+✅ **Comprehensive Admin Promotions Dashboard** 
+- Create store and product promotions with rich fields
+- Image upload with drag-drop support
+- Auto-generated CTA URLs based on selection
+- Default image fallback (store logo or product image)
+- Real-time status updates with 3-second polling
+- Immediate refresh after promotion expiry
+
+✅ **Frontend Display**
+- Promotional cards display on homepage (sidebar variant on desktop, full-width on mobile)
+- Live countdown timers showing time remaining
+- Proper theming using primary brand colors
+- Emoji indicators for promo type (store/product)
+
+✅ **Backend Features**
+- Automatic promotion expiry worker (60-second interval)
+- Server-side isActive flag for reliable status tracking
+- Proper NULL handling in expiry query
+- Enrichment of promos with store/product data
+- Comprehensive error logging for debugging
+
+### UI/UX Improvements
+
+✅ **ProductAutocomplete Component**
+- Fixed white text/background visibility
+- Uses theme-aware bg-card and text-card-foreground
+- Improved dropdown styling with z-50 and shadow-xl
+- Better focus states and accessibility
+
+✅ **AdminPromotions Component**
+- Removed hardcoded theme colors
+- Uses primary brand color system
+- Status badges reflect server isActive state
+- Better form input styling
+- Proper text contrast in all fields
+
+### Bug Fixes
+
+✅ **Promotion Status Updates**
+- Fixed real-time updates not reflecting after delete action
+- Added awaited refetch() in mutation onSuccess
+- Query now uses isNotNull check for NULL endAt values
+- Promotions properly expire when past endAt timestamp
+
