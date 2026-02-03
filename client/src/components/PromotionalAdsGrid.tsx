@@ -22,17 +22,23 @@ export default function PromotionalAdsGrid() {
   if (isLoading) return null;
   if (!promos || promos.length === 0) return null;
 
+  // Dynamically adjust card size based on number of promotions
+  const cardSize = promos.length > 2 ? 'w-32 sm:w-40' : 'w-40 sm:w-48';
+
   return (
-    <div className="w-full py-6">
+    <div className="w-full py-4 bg-gradient-to-r from-transparent via-primary/5 to-transparent">
       <div className="max-w-7xl mx-auto px-4">
-        <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
-          <span className="text-2xl">⭐</span>
-          Featured Promotions
+        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+          <span className="text-xl">⭐</span>
+          <span>Featured</span>
         </h3>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* Single horizontal row with overflow scroll on mobile */}
+        <div className="flex gap-3 overflow-x-auto pb-2 scroll-smooth">
           {promos.map((promo, idx) => (
-            <PromotionalCard key={promo.id || idx} promo={promo} now={now} />
+            <div key={promo.id || idx} className={`flex-shrink-0 ${cardSize}`}>
+              <PromotionalCard promo={promo} now={now} isCompact={promos.length > 2} />
+            </div>
           ))}
         </div>
       </div>
@@ -40,7 +46,7 @@ export default function PromotionalAdsGrid() {
   );
 }
 
-function PromotionalCard({ promo, now }: { promo: any; now: Date }) {
+function PromotionalCard({ promo, now, isCompact = false }: { promo: any; now: Date; isCompact?: boolean }) {
   const target = promo.product || promo.store || null;
 
   const endAt = promo.endAt ? new Date(promo.endAt) : null;
@@ -52,6 +58,42 @@ function PromotionalCard({ promo, now }: { promo: any; now: Date }) {
   const title = promo.title || target?.name || 'Promoted';
   const subtitle = promo.description || (promo.type === 'product' ? 'Promoted product' : 'Promoted store');
   const link = promo.ctaUrl || (promo.type === 'product' ? (target ? `/product/${target.id}` : '#') : (target ? `/store/${target.id}` : '#'));
+
+  if (isCompact) {
+    return (
+      <a 
+        href={link} 
+        className="group flex flex-col h-full rounded-lg overflow-hidden bg-card border border-primary/20 shadow-sm hover:shadow-md hover:border-primary transition-all focus:outline-none focus:ring-2 focus:ring-primary"
+      >
+        {/* Image Section */}
+        {image ? (
+          <div className="relative w-full h-24 overflow-hidden bg-muted">
+            <img src={image} alt={title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/40" />
+            
+            {/* Countdown Badge - Compact */}
+            {endAt && (
+              <div className="absolute top-1 left-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-red-600 text-white rounded-full text-[10px] font-bold shadow-md">
+                <span>⏰</span>
+                <span>{formatCountdown(remaining)}</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="w-full h-24 bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center">
+            <div className="text-2xl">{promo.type === 'product' ? '🛍️' : '🏪'}</div>
+          </div>
+        )}
+
+        {/* Content Section - Minimal */}
+        <div className="p-2 bg-card flex flex-col flex-1 justify-between">
+          <div className="text-xs font-bold text-foreground line-clamp-2 group-hover:text-primary transition-colors">
+            {title}
+          </div>
+        </div>
+      </a>
+    );
+  }
 
   return (
     <a 
