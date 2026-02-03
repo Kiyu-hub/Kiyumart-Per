@@ -9,6 +9,8 @@ import CategoryCard from "@/components/CategoryCard";
 import ProductCard from "@/components/ProductCard";
 import PromotionalAdsGrid from "@/components/PromotionalAdsGrid";
 import AdBanner from "@/components/AdBanner";
+import SinglePromotionSidebar from "@/components/SinglePromotionSidebar";
+import PromotionalAd from "@/components/PromotionalAd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,6 +77,8 @@ export default function MultiVendorHome() {
   });
 
   const hasMultiplePromotions = promos && promos.length > 1;
+  const hasExactlyOnePromotion = promos && promos.length === 1;
+  const singlePromotion = hasExactlyOnePromotion ? promos[0] : null;
 
   const getCategoryProductCount = (categorySlug: string) => {
     return allProducts.filter((p) => p.category === categorySlug).length;
@@ -84,6 +88,7 @@ export default function MultiVendorHome() {
   const shopDisplayMode = (settings as any)?.shopDisplayMode || "by-store";
   const adsEnabled = (settings as any)?.adsEnabled ?? false;
   const heroBannerEnabled = (settings as any)?.heroBannerEnabled ?? true;
+  const sidebarAdEnabled = (settings as any)?.sidebarAdEnabled ?? true;
   const footerAdEnabled = (settings as any)?.footerAdEnabled ?? true;
 
   return (
@@ -197,6 +202,35 @@ export default function MultiVendorHome() {
             )}
           </section>
 
+          {/* Mobile promo: visible on small screens, hidden on large (sidebar shows on lg+) */}
+          {hasExactlyOnePromotion && (
+            <div className="lg:hidden mb-6">
+              <PromotionalAd />
+            </div>
+          )}
+
+          {/* Products and Sidebar row */}
+          <div className="grid lg:grid-cols-12 gap-6">
+            {/* Left Sidebar - Show promotion if exactly 1, OR ads if enabled */}
+            {(hasExactlyOnePromotion || (adsEnabled && sidebarAdEnabled)) && (
+              <aside className="hidden lg:block lg:col-span-4">
+                <div className="sticky top-24 flex flex-col gap-6 h-[calc(100vh-6rem)]">
+                  {/* Sidebar Content: Priority order - Single Promotion > Ads > Nothing */}
+                  {hasExactlyOnePromotion ? (
+                    <div className="flex-1 overflow-hidden min-h-0">
+                      <SinglePromotionSidebar promo={singlePromotion} />
+                    </div>
+                  ) : (adsEnabled && sidebarAdEnabled) ? (
+                    <div className="flex-1 overflow-hidden min-h-0 rounded-lg overflow-hidden border-2 border-primary/20 shadow-md">
+                      <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
+                    </div>
+                  ) : null}
+                </div>
+              </aside>
+            )}
+
+            {/* Products column - Adjust width based on sidebar visibility */}
+            <div className={(hasExactlyOnePromotion || (adsEnabled && sidebarAdEnabled)) ? 'lg:col-span-8' : 'lg:col-span-12'}>
           <section className="space-y-6">
             <div className="flex items-center gap-3">
               <TrendingUp className="w-6 h-6 text-primary" />
@@ -215,7 +249,7 @@ export default function MultiVendorHome() {
                 ))}
               </div>
             ) : featuredProducts.length > 0 ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" data-testid="grid-featured-products">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="grid-featured-products">
                 {featuredProducts.map((product) => (
                   <ProductCard
                     key={product.id}
@@ -250,7 +284,7 @@ export default function MultiVendorHome() {
               </h2>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" data-testid="grid-new-arrivals">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="grid-new-arrivals">
               {allProducts.slice(0, 10).map((product) => (
                 <ProductCard
                   key={product.id}
@@ -267,6 +301,8 @@ export default function MultiVendorHome() {
               ))}
             </div>
           </section>
+            </div>
+          </div>
 
           {/* Footer Ad - Only when ads are enabled */}
           {adsEnabled && footerAdEnabled && (

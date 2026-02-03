@@ -33,9 +33,9 @@ export default function StoreCard({
     if (onClick && id) {
       onClick(id);
     } else if (store) {
-      navigate(`/store/${store.id}`);
+      navigate(`/sellers/${store.id}`);
     } else if (id) {
-      navigate(`/store/${id}`);
+      navigate(`/sellers/${id}`);
     }
   };
 

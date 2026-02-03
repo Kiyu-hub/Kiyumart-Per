@@ -117,7 +117,7 @@ export default function AdminPromotions() {
     let finalCtaUrl = ctaUrl;
     if (!finalCtaUrl) {
       if (type === 'store' && storeId) {
-        finalCtaUrl = `/store/${storeId}`;
+        finalCtaUrl = `/sellers/${storeId}`;
       } else if (type === 'product' && productIds.length > 0) {
         finalCtaUrl = `/product/${productIds[0]}`;
       }
