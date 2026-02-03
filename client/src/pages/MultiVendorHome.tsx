@@ -7,6 +7,8 @@ import MarketplaceBannerCarousel from "@/components/MarketplaceBannerCarousel";
 import StoreCard from "@/components/StoreCard";
 import CategoryCard from "@/components/CategoryCard";
 import ProductCard from "@/components/ProductCard";
+import PromotionalAdsGrid from "@/components/PromotionalAdsGrid";
+import AdBanner from "@/components/AdBanner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,12 +64,27 @@ export default function MultiVendorHome() {
     },
   });
 
+  // Fetch active promotions
+  const { data: promos = [] } = useQuery<any[]>({
+    queryKey: ['/api/homepage/promotional'],
+    queryFn: async () => {
+      const res = await fetch('/api/homepage/promotional');
+      return res.json();
+    },
+    refetchInterval: 5000,
+  });
+
+  const hasMultiplePromotions = promos && promos.length > 1;
+
   const getCategoryProductCount = (categorySlug: string) => {
     return allProducts.filter((p) => p.category === categorySlug).length;
   };
   
   const isAdmin = user?.role === "admin";
   const shopDisplayMode = (settings as any)?.shopDisplayMode || "by-store";
+  const adsEnabled = (settings as any)?.adsEnabled ?? false;
+  const heroBannerEnabled = (settings as any)?.heroBannerEnabled ?? true;
+  const footerAdEnabled = (settings as any)?.footerAdEnabled ?? true;
 
   return (
     <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900">
@@ -79,6 +96,18 @@ export default function MultiVendorHome() {
             autoplayEnabled={settings?.bannerAutoplayEnabled ?? true}
             autoplayDuration={settings?.bannerAutoplayDuration ?? 5000}
           />
+
+          {/* Hero Ad - Only when ads are enabled */}
+          {adsEnabled && heroBannerEnabled && (
+            <div className="w-full">
+              <AdBanner position="hero" className="h-16 md:h-20 rounded-lg" />
+            </div>
+          )}
+
+          {/* Promotional Ads Grid - Show when 2+ promotions */}
+          {hasMultiplePromotions && (
+            <PromotionalAdsGrid />
+          )}
 
           <section className="space-y-6">
             <div className="flex items-center justify-between">
@@ -238,6 +267,13 @@ export default function MultiVendorHome() {
               ))}
             </div>
           </section>
+
+          {/* Footer Ad - Only when ads are enabled */}
+          {adsEnabled && footerAdEnabled && (
+            <div className="w-full">
+              <AdBanner position="footer" className="h-24 md:h-32 rounded-lg" />
+            </div>
+          )}
         </div>
       </main>
 

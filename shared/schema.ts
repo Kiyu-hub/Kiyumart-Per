@@ -27,6 +27,13 @@ export const promotionalAds = pgTable("promotional_ads", {
   endAt: timestamp("end_at"),
   isActive: boolean("is_active").default(true),
   createdBy: varchar("created_by").references(() => users.id),
+  // Promo display fields (migration 0009)
+  title: text("title"),
+  description: text("description"),
+  imageUrl: text("image_url"),
+  ctaText: varchar("cta_text"),
+  ctaUrl: text("cta_url"),
+  themeColor: varchar("theme_color"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => ({

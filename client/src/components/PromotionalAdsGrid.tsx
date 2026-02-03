@@ -57,7 +57,8 @@ function PromotionalCard({ promo, now, isCompact = false }: { promo: any; now: D
   const image = promo.imageUrl || (promo.type === 'product' ? (target?.images && target.images[0]) : target?.logo) || null;
   const title = promo.title || target?.name || 'Promoted';
   const subtitle = promo.description || (promo.type === 'product' ? 'Promoted product' : 'Promoted store');
-  const link = promo.ctaUrl || (promo.type === 'product' ? (target ? `/product/${target.id}` : '#') : (target ? `/store/${target.id}` : '#'));
+  // Route stores to /sellers/:id (the actual store page route)
+  const link = promo.ctaUrl || (promo.type === 'product' ? (target ? `/product/${target.id}` : '#') : (target ? `/sellers/${target.id}` : '#'));
 
   if (isCompact) {
     return (
