@@ -85,11 +85,16 @@ function PromotionalCard({ promo, now, isCompact = false }: { promo: any; now: D
           </div>
         )}
 
-        {/* Content Section - Minimal */}
+        {/* Content Section - Minimal but includes title and description */}
         <div className="p-2 bg-card flex flex-col flex-1 justify-between">
-          <div className="text-xs font-bold text-foreground line-clamp-2 group-hover:text-primary transition-colors">
+          <div className="text-xs font-bold text-foreground line-clamp-1 group-hover:text-primary transition-colors">
             {title}
           </div>
+          {subtitle && (
+            <div className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">
+              {subtitle}
+            </div>
+          )}
         </div>
       </a>
     );
