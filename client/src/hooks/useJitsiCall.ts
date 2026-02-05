@@ -23,6 +23,8 @@ interface JitsiRoom {
 interface JitsiConfig {
   domain: string;
   roomName: string;
+  roomUrl: string;
+  isModerator: boolean;
   configOverwrite: Record<string, any>;
   interfaceConfigOverwrite: Record<string, any>;
   userInfo: {
@@ -330,8 +332,9 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
   }, [endCallMutation]);
 
   const getJitsiUrl = useCallback(() => {
-    return currentRoom?.roomUrl || null;
-  }, [currentRoom]);
+    // Prefer config roomUrl which has pre-join skip parameters
+    return jitsiConfig?.roomUrl || currentRoom?.roomUrl || null;
+  }, [jitsiConfig, currentRoom]);
 
   return {
     inCall: !!currentRoom,

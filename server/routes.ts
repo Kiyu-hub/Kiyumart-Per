@@ -4136,10 +4136,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get current user info for Jitsi config
       const currentUser = await storage.getUser(req.user!.id);
+      // Admins and super_admins are automatically moderators
+      const isModerator = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
       const config = jitsiMeetService.getJitsiConfig(
         room.roomName,
         currentUser?.name || 'User',
-        currentUser?.email
+        currentUser?.email,
+        isModerator
       );
       
       // Notify target user about incoming call
@@ -4177,10 +4180,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get current user info
       const currentUser = await storage.getUser(req.user!.id);
+      // Admins and super_admins are automatically moderators
+      const isModerator = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
       const config = jitsiMeetService.getJitsiConfig(
         room.roomName,
         currentUser?.name || 'User',
-        currentUser?.email
+        currentUser?.email,
+        isModerator
       );
       
       // Notify all participants about the group call
@@ -4214,10 +4220,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const currentUser = await storage.getUser(req.user!.id);
+      // Admins joining become moderators, or the call creator is also moderator
+      const isModerator = currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || room.createdBy === req.user!.id;
       const config = jitsiMeetService.getJitsiConfig(
         room.roomName,
         currentUser?.name || 'User',
-        currentUser?.email
+        currentUser?.email,
+        isModerator
       );
       
       // Notify other participants

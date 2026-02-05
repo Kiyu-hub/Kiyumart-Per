@@ -222,18 +222,46 @@ class JitsiMeetService {
 
   /**
    * Get Jitsi configuration for frontend
+   * @param roomName - The Jitsi room name
+   * @param userDisplayName - User's display name
+   * @param userEmail - User's email
+   * @param isModerator - Whether user should have moderator privileges (admin/super_admin)
    */
-  getJitsiConfig(roomName: string, userDisplayName: string, userEmail?: string) {
+  getJitsiConfig(roomName: string, userDisplayName: string, userEmail?: string, isModerator: boolean = false) {
+    // Build URL with hash parameters to skip pre-join and set user info
+    const hashParams = new URLSearchParams({
+      'config.prejoinPageEnabled': 'false',
+      'config.startWithAudioMuted': 'false',
+      'config.startWithVideoMuted': 'false',
+      'config.disableDeepLinking': 'true',
+      'config.enableWelcomePage': 'false',
+      'userInfo.displayName': userDisplayName,
+    });
+    
+    if (userEmail) {
+      hashParams.set('userInfo.email', userEmail);
+    }
+    
+    const roomUrl = `https://${JITSI_CONFIG.domain}/${roomName}#${hashParams.toString()}`;
+    
     return {
       domain: JITSI_CONFIG.domain,
       roomName,
+      roomUrl,
+      isModerator,
       configOverwrite: {
         startWithAudioMuted: false,
         startWithVideoMuted: false,
         prejoinPageEnabled: false,
+        prejoinConfig: {
+          enabled: false,
+        },
         disableDeepLinking: true,
         enableWelcomePage: false,
         enableClosePage: false,
+        requireDisplayName: false,
+        // Moderator settings
+        moderator: isModerator,
         // Disable some features for simpler UI
         toolbarButtons: [
           'microphone',
@@ -248,7 +276,7 @@ class JitsiMeetService {
           'videoquality',
           'filmstrip',
           'tileview',
-          'mute-everyone',
+          ...(isModerator ? ['mute-everyone', 'mute-video-everyone', 'security'] : []),
         ],
       },
       interfaceConfigOverwrite: {
@@ -257,9 +285,11 @@ class JitsiMeetService {
         SHOW_BRAND_WATERMARK: false,
         BRAND_WATERMARK_LINK: '',
         MOBILE_APP_PROMO: false,
+        DISABLE_JOIN_LEAVE_NOTIFICATIONS: false,
         TOOLBAR_BUTTONS: [
           'microphone', 'camera', 'desktop', 'fullscreen',
           'hangup', 'chat', 'settings', 'raisehand',
+          ...(isModerator ? ['mute-everyone', 'security'] : []),
         ],
       },
       userInfo: {

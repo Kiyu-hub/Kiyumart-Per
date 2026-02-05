@@ -21,8 +21,8 @@ import { ParticipantSelectorDialog } from "@/components/ParticipantSelectorDialo
 import { GroupCallDialog } from "@/components/GroupCallDialog";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
 import { JitsiCallDialog } from "@/components/JitsiCallDialog";
-import { usePresence } from "@/hooks/usePresence";
-import { PresenceIndicator } from "@/components/PresenceIndicator";
+import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
+import { PresenceIndicator, AvatarWithPresence } from "@/components/PresenceIndicator";
 
 interface UserData {
   id: string;
@@ -491,6 +491,10 @@ export default function AdminMessages() {
     searchQuery
   );
 
+  // Get batch presence for all visible users (WhatsApp-style online indicators)
+  const userIds = filteredUsers.map(u => u.id);
+  const batchPresence = useBatchPresence(userIds);
+
   const rolesCounts = {
     all: otherUsers.length,
     admin: otherUsers.filter(u => u.role === "admin").length,
@@ -574,48 +578,84 @@ export default function AdminMessages() {
                     <p className="text-sm text-muted-foreground">No users found</p>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {filteredUsers.map((userData) => (
-                      <div
-                        key={userData.id}
-                        onClick={() => setSelectedUserId(userData.id)}
-                        className="p-3 rounded-lg border cursor-pointer hover:bg-accent flex items-center gap-3"
-                        data-testid={`user-mobile-${userData.id}`}
-                      >
-                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                          <User className="h-5 w-5 text-primary" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{userData.name || userData.username}</p>
-                          <div className="flex items-center gap-2">
-                            <Badge className={`${getRoleBadgeColor(userData.role)} text-xs`}>
-                              {userData.role}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground truncate">{userData.email}</span>
+                  <div className="space-y-1">
+                    {filteredUsers.map((userData) => {
+                      const userPresence = batchPresence.getPresence(userData.id);
+                      const isOnline = userPresence?.status === 'online';
+                      const isAway = userPresence?.status === 'away';
+                      
+                      return (
+                        <div
+                          key={userData.id}
+                          onClick={() => setSelectedUserId(userData.id)}
+                          className="p-3 rounded-lg cursor-pointer hover:bg-accent/50 flex items-center gap-3 active:scale-[0.98] transition-all"
+                          data-testid={`user-mobile-${userData.id}`}
+                        >
+                          {/* Avatar with presence */}
+                          <div className="relative flex-shrink-0">
+                            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                              <span className="text-base font-semibold text-primary">
+                                {(userData.name || userData.username || 'U').charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-background ${
+                              isOnline ? 'bg-green-500' : isAway ? 'bg-yellow-500' : 'bg-gray-400'
+                            }`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <p className="font-medium text-sm truncate">{userData.name || userData.username}</p>
+                              <span className={`text-xs ${isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'}`}>
+                                {isOnline ? 'Online' : isAway ? 'Away' : ''}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
+                                {userData.role}
+                              </Badge>
+                              {!isOnline && userPresence?.lastSeen && (
+                                <span className="text-xs text-muted-foreground">
+                                  {formatLastSeen(userPresence.lastSeen)}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </ScrollArea>
             </Card>
           ) : selectedUser && (
             <Card className="h-full flex flex-col">
-              {/* Mobile Chat Header */}
-              <div className="flex items-center gap-3 p-3 border-b bg-card">
-                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <User className="h-5 w-5 text-primary" />
+              {/* Mobile Chat Header - WhatsApp style */}
+              <div className="flex items-center gap-3 p-3 border-b bg-gradient-to-r from-primary/5 to-transparent">
+                {/* Avatar with presence */}
+                <div className="relative flex-shrink-0">
+                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                    <span className="text-sm font-semibold text-primary">
+                      {(selectedUser.name || selectedUser.username || 'U').charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
+                    selectedUserPresence.isOnline ? 'bg-green-500' : 
+                    selectedUserPresence.isAway ? 'bg-yellow-500' : 'bg-gray-400'
+                  }`} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-sm truncate">{selectedUser.name || selectedUser.username}</h3>
-                  <p className="text-xs text-muted-foreground truncate">{selectedUser.role}</p>
+                  <p className={`text-xs ${selectedUserPresence.isOnline ? 'text-green-600' : 'text-muted-foreground'}`}>
+                    {selectedUserPresence.isOnline ? 'Online' : 
+                     selectedUserPresence.isAway ? 'Away' :
+                     selectedUserPresence.presence?.lastSeen ? formatLastSeen(selectedUserPresence.presence.lastSeen) : selectedUser.role}
+                  </p>
                 </div>
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => startCall('voice')}
-                  disabled={!!ongoingCall || !!incomingCall}
+                  disabled={!!ongoingCall || !!incomingCall || jitsiCall.inCall}
                   className="h-8 w-8"
                 >
                   <Phone className="h-4 w-4" />
@@ -624,8 +664,8 @@ export default function AdminMessages() {
                   variant="ghost"
                   size="icon"
                   onClick={() => startCall('video')}
-                  disabled={!!ongoingCall || !!incomingCall}
-                  className="h-8 w-8"
+                  disabled={!!ongoingCall || !!incomingCall || jitsiCall.inCall}
+                  className="h-8 w-8 text-primary"
                 >
                   <Video className="h-4 w-4" />
                 </Button>
@@ -753,30 +793,55 @@ export default function AdminMessages() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {filteredUsers.map((userData) => (
-                    <div
-                      key={userData.id}
-                      onClick={() => setSelectedUserId(userData.id)}
-                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                        selectedUserId === userData.id
-                          ? "bg-primary/10 border-primary"
-                          : "hover:bg-accent border-transparent"
-                      }`}
-                      data-testid={`user-${userData.id}`}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        <p className="font-medium text-sm line-clamp-1">{userData.name || userData.username}</p>
+                <div className="space-y-1">
+                  {filteredUsers.map((userData) => {
+                    const userPresence = batchPresence.getPresence(userData.id);
+                    const isOnline = userPresence?.status === 'online';
+                    const isAway = userPresence?.status === 'away';
+                    
+                    return (
+                      <div
+                        key={userData.id}
+                        onClick={() => setSelectedUserId(userData.id)}
+                        className={`p-3 rounded-lg cursor-pointer transition-all ${
+                          selectedUserId === userData.id
+                            ? "bg-primary/10 border-l-4 border-l-primary"
+                            : "hover:bg-accent/50"
+                        }`}
+                        data-testid={`user-${userData.id}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {/* Avatar with presence indicator */}
+                          <div className="relative flex-shrink-0">
+                            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                              <span className="text-sm font-semibold text-primary">
+                                {(userData.name || userData.username || 'U').charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            {/* Online indicator dot */}
+                            <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
+                              isOnline ? 'bg-green-500' : isAway ? 'bg-yellow-500' : 'bg-gray-400'
+                            }`} />
+                          </div>
+                          
+                          {/* User info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-medium text-sm truncate">{userData.name || userData.username}</p>
+                              <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`} data-testid={`badge-role-${userData.id}`}>
+                                {userData.role}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`text-xs ${isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'}`}>
+                                {isOnline ? 'Online' : isAway ? 'Away' : userPresence?.lastSeen ? formatLastSeen(userPresence.lastSeen) : 'Offline'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={getRoleBadgeColor(userData.role)} data-testid={`badge-role-${userData.id}`}>
-                          {userData.role}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground truncate">{userData.email}</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </ScrollArea>
@@ -787,12 +852,33 @@ export default function AdminMessages() {
               <div className="flex flex-col h-[600px]">
                 <div className="flex items-center justify-between pb-4 border-b mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                      <User className="h-5 w-5 text-primary" />
+                    {/* Avatar with presence */}
+                    <div className="relative">
+                      <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                        <span className="text-lg font-semibold text-primary">
+                          {(selectedUser.name || selectedUser.username || 'U').charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-background ${
+                        selectedUserPresence.isOnline ? 'bg-green-500' : 
+                        selectedUserPresence.isAway ? 'bg-yellow-500' : 'bg-gray-400'
+                      }`} />
                     </div>
                     <div>
-                      <h3 className="font-semibold">{selectedUser.name || selectedUser.username}</h3>
-                      <p className="text-sm text-muted-foreground">{selectedUser.email} • {selectedUser.role}</p>
+                      <h3 className="font-semibold text-lg">{selectedUser.name || selectedUser.username}</h3>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm ${
+                          selectedUserPresence.isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'
+                        }`}>
+                          {selectedUserPresence.isOnline ? 'Online now' : 
+                           selectedUserPresence.isAway ? 'Away' :
+                           selectedUserPresence.presence?.lastSeen ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}` : 'Offline'}
+                        </span>
+                        <span className="text-muted-foreground">•</span>
+                        <Badge className={getRoleBadgeColor(selectedUser.role)} variant="secondary">
+                          {selectedUser.role}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
