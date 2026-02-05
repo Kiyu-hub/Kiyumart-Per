@@ -10,15 +10,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Search, Store, Edit, Ban, ArrowLeft, Plus, CheckCircle, XCircle, ShieldCheck, Clock, ExternalLink, Eye, CreditCard, User, MapPin } from "lucide-react";
+import { Loader2, Search, Store, Edit, Ban, ArrowLeft, Plus, CheckCircle, XCircle, ShieldCheck, Clock, ExternalLink, Eye, CreditCard, User, MapPin, Tag } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import MediaUploadInput from "@/components/MediaUploadInput";
+import { STORE_TYPES, STORE_TYPE_CONFIG } from "@shared/storeTypes";
 
 interface SellerData {
   id: string;
@@ -31,6 +33,7 @@ interface SellerData {
   storeName: string | null;
   storeDescription: string | null;
   storeBanner: string | null;
+  storeType: string | null;
   profileImage: string | null;
   ghanaCardFront: string | null;
   ghanaCardBack: string | null;
@@ -46,6 +49,8 @@ const createSellerSchema = z.object({
   phone: z.string().optional(),
   storeName: z.string().min(2, "Store name must be at least 2 characters"),
   storeDescription: z.string().optional(),
+  storeType: z.enum(STORE_TYPES, { required_error: "Store type is required" }),
+  businessAddress: z.string().min(5, "Business address is required"),
   storeBanner: z.string().optional(),
 });
 
@@ -75,6 +80,8 @@ function CreateSellerDialog() {
       phone: "",
       storeName: "",
       storeDescription: "",
+      storeType: undefined as any,
+      businessAddress: "",
       storeBanner: "",
     },
   });
@@ -191,6 +198,49 @@ function CreateSellerDialog() {
                   <FormControl>
                     <Input placeholder="My Fashion Store" {...field} data-testid="input-create-store-name" />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="storeType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Store Type *</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-create-store-type">
+                        <SelectValue placeholder="Select store type" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {STORE_TYPES.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {STORE_TYPE_CONFIG[type].icon} {STORE_TYPE_CONFIG[type].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    {field.value && STORE_TYPE_CONFIG[field.value as keyof typeof STORE_TYPE_CONFIG]?.description}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="businessAddress"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Business Address *</FormLabel>
+                  <FormControl>
+                    <Input placeholder="123 Main St, Accra, Ghana" {...field} data-testid="input-create-business-address" />
+                  </FormControl>
+                  <FormDescription>Physical location of the business</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -590,6 +640,18 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
                 <p className="text-muted-foreground">Store Name</p>
                 <p className="font-medium">{sellerData.storeName || 'N/A'}</p>
               </div>
+              {sellerData.storeType && (
+                <div>
+                  <p className="text-muted-foreground flex items-center gap-1">
+                    <Tag className="h-3 w-3" />
+                    Store Type
+                  </p>
+                  <p className="font-medium">
+                    {STORE_TYPE_CONFIG[sellerData.storeType as keyof typeof STORE_TYPE_CONFIG]?.icon}{' '}
+                    {STORE_TYPE_CONFIG[sellerData.storeType as keyof typeof STORE_TYPE_CONFIG]?.label || sellerData.storeType}
+                  </p>
+                </div>
+              )}
               <div>
                 <p className="text-muted-foreground">Store Description</p>
                 <p className="font-medium">{sellerData.storeDescription || 'N/A'}</p>
