@@ -310,21 +310,19 @@ export default function AdminDashboardConnected() {
               )
             )}
 
-            {/* Pending Payouts Widget - Super Admin Only */}
-            {user.role === "super_admin" && (
+            {/* Pending Payouts Widget - Super Admin Only, only show when there are pending payouts */}
+            {user.role === "super_admin" && pendingPayouts.length > 0 && (
               <Card className="border-orange-200 dark:border-orange-800">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <div className="flex items-center gap-2">
                     <Wallet className="h-5 w-5 text-orange-500" />
                     <CardTitle>Pending Rider Payouts</CardTitle>
-                    {pendingPayouts.length > 0 && (
-                      <Badge variant="destructive" className="ml-2">{pendingPayouts.length}</Badge>
-                    )}
+                    <Badge variant="destructive" className="ml-2">{pendingPayouts.length}</Badge>
                   </div>
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={() => navigate("/admin/rider-payouts")}
+                    onClick={() => navigate("/admin/riders-payouts")}
                   >
                     View All
                   </Button>
@@ -333,11 +331,6 @@ export default function AdminDashboardConnected() {
                   {payoutsLoading ? (
                     <div className="flex justify-center py-4">
                       <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  ) : pendingPayouts.length === 0 ? (
-                    <div className="text-center py-4 text-muted-foreground">
-                      <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
-                      <p>No pending payouts</p>
                     </div>
                   ) : (
                     <ScrollArea className="h-[300px]">
@@ -419,7 +412,7 @@ export default function AdminDashboardConnected() {
                           <Button 
                             variant="outline" 
                             className="w-full"
-                            onClick={() => navigate("/admin/rider-payouts")}
+                            onClick={() => navigate("/admin/riders-payouts")}
                           >
                             View {pendingPayouts.length - 5} more pending payouts
                           </Button>

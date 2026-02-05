@@ -297,9 +297,17 @@ export default function RealTimeRiderMap() {
 
   return (
     <>
+      {/* Fullscreen backdrop overlay */}
+      {isFullscreen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-[9998]" 
+          onClick={toggleFullscreen}
+        />
+      )}
+      
       <Card 
         data-testid="card-rider-map"
-        className={isFullscreen ? "fixed inset-0 z-50 rounded-none" : ""}
+        className={isFullscreen ? "fixed inset-0 z-[9999] rounded-none" : ""}
       >
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">

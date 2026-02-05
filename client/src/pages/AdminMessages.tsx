@@ -772,15 +772,15 @@ export default function AdminMessages() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0 overflow-hidden">
-            <Card className="md:col-span-1 p-4 flex flex-col">
-              <div className="flex items-center justify-between mb-4">
+            <Card className="md:col-span-1 p-4 flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between mb-4 flex-shrink-0">
                 <h3 className="font-semibold">Users</h3>
                 <Badge variant="secondary" data-testid="badge-total-count">
                   {filteredUsers.length}
                 </Badge>
               </div>
               
-              <Tabs value={selectedRole} onValueChange={setSelectedRole} className="mb-4">
+              <Tabs value={selectedRole} onValueChange={setSelectedRole} className="mb-4 flex-shrink-0">
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="all" data-testid="tab-all">All ({rolesCounts.all})</TabsTrigger>
                   <TabsTrigger value="seller" data-testid="tab-seller">Sellers ({rolesCounts.seller})</TabsTrigger>
@@ -793,7 +793,7 @@ export default function AdminMessages() {
               </TabsList>
             </Tabs>
 
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 min-h-0">
               {usersLoading ? (
                 <div className="text-center py-12">
                   <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />

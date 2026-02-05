@@ -3511,7 +3511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               title: "📦 Payout Action Required",
               message: `Order #${order.orderNumber} delivered by ${rider.name}. Amount: ${order.currency || 'GHS'} ${order.deliveryFee}. Status: Delivered & Verified.`,
               metadata: { 
-                link: `/admin/rider-payouts`,
+                link: `/admin/riders-payouts`,
                 payoutId: payout.id,
                 orderId,
                 riderId,
