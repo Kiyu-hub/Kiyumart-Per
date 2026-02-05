@@ -3385,7 +3385,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: "order",
         title: "Order Delivered!",
         message: `Your order #${order.orderNumber} has been successfully delivered. Thank you for shopping with us!`,
-        link: `/orders/${orderId}`,
+        metadata: { link: `/orders/${orderId}` } as any,
       });
 
       await storage.createNotification({
@@ -3393,7 +3393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: "order", 
         title: "Delivery Completed",
         message: `Order #${order.orderNumber} has been delivered to the customer.`,
-        link: `/seller/orders/${orderId}`,
+        metadata: { link: `/seller/orders/${orderId}` } as any,
       });
 
       // Emit real-time events
@@ -3468,9 +3468,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           and(
             eq(orders.riderId, riderId),
             or(
-              eq(orders.status, "assigned"),
-              eq(orders.status, "picked_up"),
-              eq(orders.status, "en_route"),
+              eq(orders.status, "processing"),
               eq(orders.status, "delivering")
             )
           )
@@ -3742,7 +3740,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: "order",
         title: "New Delivery Assigned",
         message: `You have been assigned to deliver order #${order.orderNumber}. Please pick up the order from the seller.`,
-        link: `/rider/deliveries/${orderId}`,
+        metadata: { link: `/rider/deliveries/${orderId}` } as any,
       });
 
       // Create notification for buyer
@@ -3751,7 +3749,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: "order",
         title: "Rider Assigned",
         message: `A rider has been assigned to deliver your order #${order.orderNumber}. You can track the delivery in real-time.`,
-        link: `/track-order/${orderId}`,
+        metadata: { link: `/track-order/${orderId}` } as any,
       });
 
       // Emit socket event for real-time update
@@ -3824,7 +3822,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: "order",
           title: "Auto-Assigned Delivery",
           message: `You have been auto-assigned to deliver order #${order.orderNumber}. This order has been waiting for pickup.`,
-          link: `/rider/deliveries/${order.id}`,
+          metadata: { link: `/rider/deliveries/${order.id}` } as any,
         });
 
         io.emit("order_rider_assigned", {

@@ -135,13 +135,17 @@ export default function RiderActiveRoute() {
                 }>
                   {activeDelivery.deliveryLatitude && activeDelivery.deliveryLongitude ? (
                     <RiderNavigationMap
-                      orderId={activeDelivery.id}
-                      destination={{
-                        lat: activeDelivery.deliveryLatitude,
-                        lng: activeDelivery.deliveryLongitude,
-                        address: activeDelivery.deliveryAddress,
+                      riderId={user?.id?.toString() || ""}
+                      delivery={{
+                        orderId: activeDelivery.id,
+                        orderNumber: activeDelivery.orderNumber,
+                        buyerName: activeDelivery.buyerName || "Customer",
+                        buyerPhone: activeDelivery.buyerPhone || "",
+                        deliveryAddress: activeDelivery.deliveryAddress,
+                        deliveryLatitude: activeDelivery.deliveryLatitude,
+                        deliveryLongitude: activeDelivery.deliveryLongitude,
+                        status: activeDelivery.status,
                       }}
-                      buyerPhone={activeDelivery.buyerPhone}
                     />
                   ) : (
                     <Card className="p-6">
@@ -187,8 +191,9 @@ export default function RiderActiveRoute() {
                     </div>
                     <DeliveryQRScanner
                       orderId={activeDelivery.id}
-                      expectedQrCode={activeDelivery.qrCode || ""}
-                      onSuccess={handleDeliveryComplete}
+                      orderNumber={activeDelivery.orderNumber}
+                      expectedQRCode={activeDelivery.qrCode || ""}
+                      onScanSuccess={handleDeliveryComplete}
                     />
                   </Card>
                 </Suspense>

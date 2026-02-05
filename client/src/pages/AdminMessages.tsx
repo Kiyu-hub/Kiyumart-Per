@@ -473,54 +473,231 @@ export default function AdminMessages() {
 
   return (
     <DashboardLayout role={user?.role as any}>
-      <div className="p-8">
-        <div className="flex items-center gap-4 mb-6">
+      <div className="p-4 md:p-6 lg:p-8 h-[calc(100vh-80px)]">
+        <div className="flex items-center gap-4 mb-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => selectedUserId ? setSelectedUserId(null) : window.history.back()}
+            data-testid="button-back"
+            className="md:hidden"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
             onClick={() => window.history.back()}
-            data-testid="button-back"
+            data-testid="button-back-desktop"
+            className="hidden md:flex"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">
-            <h1 className="text-3xl font-bold text-foreground" data-testid="heading-messages">Messages</h1>
-            <p className="text-muted-foreground mt-1">Chat with users on the platform</p>
+            <h1 className="text-xl md:text-2xl font-bold text-foreground" data-testid="heading-messages">Messages</h1>
+            <p className="text-muted-foreground text-sm hidden md:block">Chat with users on the platform</p>
           </div>
         </div>
 
-        <div className="mb-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search users..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-              data-testid="input-search-messages"
-            />
-          </div>
+        {/* Mobile: Show user list or chat based on selection */}
+        <div className="md:hidden h-[calc(100%-60px)]">
+          {!selectedUserId ? (
+            <Card className="h-full p-4 flex flex-col">
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search users..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                    data-testid="input-search-messages-mobile"
+                  />
+                </div>
+              </div>
+              
+              <Tabs value={selectedRole} onValueChange={setSelectedRole} className="mb-3">
+                <TabsList className="grid w-full grid-cols-3 h-auto">
+                  <TabsTrigger value="all" className="text-xs py-1">All</TabsTrigger>
+                  <TabsTrigger value="seller" className="text-xs py-1">Sellers</TabsTrigger>
+                  <TabsTrigger value="buyer" className="text-xs py-1">Buyers</TabsTrigger>
+                </TabsList>
+              </Tabs>
+
+              <ScrollArea className="flex-1">
+                {usersLoading ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+                  </div>
+                ) : filteredUsers.length === 0 ? (
+                  <div className="text-center py-12">
+                    <User className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No users found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredUsers.map((userData) => (
+                      <div
+                        key={userData.id}
+                        onClick={() => setSelectedUserId(userData.id)}
+                        className="p-3 rounded-lg border cursor-pointer hover:bg-accent flex items-center gap-3"
+                        data-testid={`user-mobile-${userData.id}`}
+                      >
+                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <User className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{userData.name || userData.username}</p>
+                          <div className="flex items-center gap-2">
+                            <Badge className={`${getRoleBadgeColor(userData.role)} text-xs`}>
+                              {userData.role}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground truncate">{userData.email}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </Card>
+          ) : selectedUser && (
+            <Card className="h-full flex flex-col">
+              {/* Mobile Chat Header */}
+              <div className="flex items-center gap-3 p-3 border-b bg-card">
+                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  <User className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-sm truncate">{selectedUser.name || selectedUser.username}</h3>
+                  <p className="text-xs text-muted-foreground truncate">{selectedUser.role}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => startCall('voice')}
+                  disabled={!!ongoingCall || !!incomingCall}
+                  className="h-8 w-8"
+                >
+                  <Phone className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => startCall('video')}
+                  disabled={!!ongoingCall || !!incomingCall}
+                  className="h-8 w-8"
+                >
+                  <Video className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* Mobile Chat Messages */}
+              <ScrollArea className="flex-1 p-3">
+                {messagesLoading ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="text-center py-12">
+                    <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No messages yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
+                      >
+                        <div
+                          className={`max-w-[85%] p-3 rounded-2xl ${
+                            msg.senderId === user?.id
+                              ? "bg-primary text-primary-foreground rounded-br-sm"
+                              : "bg-muted rounded-bl-sm"
+                          }`}
+                        >
+                          <p className="text-sm">{msg.message}</p>
+                          <div className="flex items-center gap-1 mt-1">
+                            <p className="text-[10px] opacity-70">
+                              {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                            </p>
+                            {msg.senderId === user?.id && (
+                              <MessageStatusTicks
+                                status={msg.status || "sent"}
+                                deliveredAt={msg.deliveredAt}
+                                readAt={msg.readAt}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+
+              {/* Mobile Input */}
+              <div className="p-3 border-t flex gap-2">
+                <Input
+                  placeholder="Type a message..."
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
+                  disabled={sendMessageMutation.isPending}
+                  className="flex-1"
+                />
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!message.trim() || sendMessageMutation.isPending}
+                  size="icon"
+                  className="rounded-full"
+                >
+                  {sendMessageMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </Card>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="md:col-span-1 p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold">Users</h3>
-              <Badge variant="secondary" data-testid="badge-total-count">
-                {filteredUsers.length}
-              </Badge>
+        {/* Desktop: Side-by-side layout */}
+        <div className="hidden md:block h-[calc(100%-60px)]">
+          <div className="mb-4">
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search users..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-messages"
+              />
             </div>
-            
-            <Tabs value={selectedRole} onValueChange={setSelectedRole} className="mb-4">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="all" data-testid="tab-all">All ({rolesCounts.all})</TabsTrigger>
-                <TabsTrigger value="seller" data-testid="tab-seller">Sellers ({rolesCounts.seller})</TabsTrigger>
-                <TabsTrigger value="buyer" data-testid="tab-buyer">Buyers ({rolesCounts.buyer})</TabsTrigger>
-              </TabsList>
-              <TabsList className="grid w-full grid-cols-3 mt-2">
-                <TabsTrigger value="rider" data-testid="tab-rider">Riders ({rolesCounts.rider})</TabsTrigger>
-                <TabsTrigger value="admin" data-testid="tab-admin">Admins ({rolesCounts.admin})</TabsTrigger>
-                <TabsTrigger value="agent" data-testid="tab-agent">Agents ({rolesCounts.agent})</TabsTrigger>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[calc(100%-60px)]">
+            <Card className="md:col-span-1 p-4 flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">Users</h3>
+                <Badge variant="secondary" data-testid="badge-total-count">
+                  {filteredUsers.length}
+                </Badge>
+              </div>
+              
+              <Tabs value={selectedRole} onValueChange={setSelectedRole} className="mb-4">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="all" data-testid="tab-all">All ({rolesCounts.all})</TabsTrigger>
+                  <TabsTrigger value="seller" data-testid="tab-seller">Sellers ({rolesCounts.seller})</TabsTrigger>
+                  <TabsTrigger value="buyer" data-testid="tab-buyer">Buyers ({rolesCounts.buyer})</TabsTrigger>
+                </TabsList>
+                <TabsList className="grid w-full grid-cols-3 mt-2">
+                  <TabsTrigger value="rider" data-testid="tab-rider">Riders ({rolesCounts.rider})</TabsTrigger>
+                  <TabsTrigger value="admin" data-testid="tab-admin">Admins ({rolesCounts.admin})</TabsTrigger>
+                  <TabsTrigger value="agent" data-testid="tab-agent">Agents ({rolesCounts.agent})</TabsTrigger>
               </TabsList>
             </Tabs>
 
@@ -696,6 +873,7 @@ export default function AdminMessages() {
               </div>
             )}
           </Card>
+          </div>
         </div>
       </div>
 
