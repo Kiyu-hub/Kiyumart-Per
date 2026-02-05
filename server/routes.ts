@@ -2223,7 +2223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: Approve rider payout
-  app.post('/api/admin/rider-payouts/:id/approve', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  app.post('/api/admin/rider-payouts/:id/approve', requireAuth, requireRole('super_admin'), async (req: AuthRequest, res) => {
     try {
       const payoutId = req.params.id;
       const adminId = req.user!.id;
@@ -2235,36 +2235,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Payout not found' });
       }
 
-      // Create a transaction record
+      // Get rider and order details to include in notification
+      const rider = await storage.getUser(updated.riderId);
+      const order = updated.orderId ? await storage.getOrder(updated.orderId) : null;
+      const orderNumber = order?.orderNumber || updated.orderId?.slice(0, 8) || 'Unknown';
+
+      // Create a transaction record (for auditing)
       await storage.createTransaction({
         type: 'payout',
         amount: updated.amount,
-        currency: 'GHS',
+        currency: updated.currency || 'GHS',
         status: 'completed',
-        description: `Rider payout approved - ${updated.notes || 'Delivery payment'}`,
+        description: `Rider payout approved - Order #${orderNumber} - Admin ID: ${adminId}`,
         paymentMethod: updated.method || 'mobile_money',
         userId: updated.riderId
       });
 
+      // Send notification to rider
+      await storage.createNotification({
+        userId: updated.riderId,
+        type: "payout",
+        title: "Payment Processed",
+        message: `Payment for Order #${orderNumber} has been processed. Amount: ${updated.currency || 'GHS'} ${updated.amount}`,
+        metadata: { 
+          link: `/rider/earnings`,
+          payoutId,
+          orderId: updated.orderId,
+          amount: updated.amount,
+          currency: updated.currency || "GHS"
+        } as any,
+      });
+
+      // Emit real-time event to rider
+      io.to(updated.riderId).emit("payout_completed", {
+        payoutId,
+        orderId: updated.orderId,
+        orderNumber,
+        amount: updated.amount,
+        currency: updated.currency || "GHS",
+        processedAt: new Date().toISOString(),
+      });
+
+      console.log(`Rider payout ${payoutId} approved by admin ${adminId} for order #${orderNumber}`);
       res.json({ success: true, payout: updated });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  // Admin: Reject rider payout
-  app.post('/api/admin/rider-payouts/:id/reject', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  // Admin: Reject rider payout (Super Admin only)
+  app.post('/api/admin/rider-payouts/:id/reject', requireAuth, requireRole('super_admin'), async (req: AuthRequest, res) => {
     try {
       const payoutId = req.params.id;
       const adminId = req.user!.id;
       const { reason } = req.body;
       
-      const updated = await storage.updateRiderPayoutStatus(payoutId, 'failed', adminId);
+      const updated = await storage.updateRiderPayoutStatus(payoutId, 'rejected', adminId);
       
       if (!updated) {
         return res.status(404).json({ error: 'Payout not found' });
       }
 
+      // Get rider and order details
+      const order = updated.orderId ? await storage.getOrder(updated.orderId) : null;
+      const orderNumber = order?.orderNumber || updated.orderId?.slice(0, 8) || 'Unknown';
+
+      // Create transaction record for auditing
+      await storage.createTransaction({
+        type: 'payout',
+        amount: updated.amount,
+        currency: updated.currency || 'GHS',
+        status: 'failed',
+        description: `Rider payout rejected - Order #${orderNumber} - Reason: ${reason || 'No reason provided'} - Admin ID: ${adminId}`,
+        paymentMethod: updated.method || 'mobile_money',
+        userId: updated.riderId
+      });
+
+      // Notify rider about rejection
+      await storage.createNotification({
+        userId: updated.riderId,
+        type: "payout",
+        title: "Payout Rejected",
+        message: `Your payment for Order #${orderNumber} was not approved. ${reason ? `Reason: ${reason}` : 'Please contact support for more information.'}`,
+        metadata: { 
+          link: `/rider/earnings`,
+          payoutId,
+          orderId: updated.orderId,
+          reason
+        } as any,
+      });
+
+      // Emit real-time event
+      io.to(updated.riderId).emit("payout_rejected", {
+        payoutId,
+        orderId: updated.orderId,
+        orderNumber,
+        reason,
+        rejectedAt: new Date().toISOString(),
+      });
+
+      console.log(`Rider payout ${payoutId} rejected by admin ${adminId} for order #${orderNumber}`);
       res.json({ success: true, payout: updated });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -3419,7 +3489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const rider = await storage.getUser(riderId);
         if (rider && order.deliveryFee) {
-          await storage.createRiderPayout({
+          const payout = await storage.createRiderPayout({
             riderId,
             orderId,
             amount: order.deliveryFee,
@@ -3428,6 +3498,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
             status: "pending_approval",
           });
           console.log(`Created rider payout for delivery ${orderId}`);
+
+          // Get all super admins and notify them about pending payout
+          const superAdmins = await storage.getUsersByRole("super_admin");
+          const buyer = await storage.getUser(order.buyerId);
+          
+          for (const admin of superAdmins) {
+            if (!admin.isActive) continue;
+            await storage.createNotification({
+              userId: admin.id,
+              type: "payout",
+              title: "📦 Payout Action Required",
+              message: `Order #${order.orderNumber} delivered by ${rider.name}. Amount: ${order.currency || 'GHS'} ${order.deliveryFee}. Status: Delivered & Verified.`,
+              metadata: { 
+                link: `/admin/rider-payouts`,
+                payoutId: payout.id,
+                orderId,
+                riderId,
+                riderName: rider.name,
+                amount: order.deliveryFee,
+                currency: order.currency || "GHS",
+                orderNumber: order.orderNumber,
+                buyerName: buyer?.name || "Customer",
+                deliveryAddress: order.deliveryAddress || ""
+              } as any,
+            });
+          }
+
+          // Emit real-time event for super admins
+          io.emit("admin_payout_pending", {
+            payoutId: payout.id,
+            orderId,
+            orderNumber: order.orderNumber,
+            riderId,
+            riderName: rider.name,
+            amount: order.deliveryFee,
+            currency: order.currency || "GHS",
+            createdAt: new Date().toISOString(),
+          });
         }
       } catch (payoutError) {
         console.error("Failed to create rider payout:", payoutError);

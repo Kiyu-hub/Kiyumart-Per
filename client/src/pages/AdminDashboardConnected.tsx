@@ -1,15 +1,18 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import OrderCard from "@/components/OrderCard";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle, UserCog, Ticket } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
 
 interface Analytics {
   totalOrders: number;
@@ -32,6 +35,17 @@ interface User {
   id: string;
   name: string;
   email: string;
+}
+
+interface PendingPayout {
+  id: string;
+  riderId: string;
+  orderId: string;
+  amount: string;
+  currency: string;
+  status: string;
+  createdAt: string;
+  notes?: string;
 }
 
 export default function AdminDashboardConnected() {
@@ -153,6 +167,66 @@ export default function AdminDashboardConnected() {
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // Fetch pending rider payouts (super_admin only)
+  const { data: pendingPayouts = [], isLoading: payoutsLoading } = useQuery<PendingPayout[]>({
+    queryKey: ["/api/admin/rider-payouts/pending"],
+    enabled: isAuthenticated && user?.role === "super_admin",
+    refetchInterval: 15000,
+  });
+
+  // Fetch riders for name lookup
+  const { data: riders = [] } = useQuery<User[]>({
+    queryKey: ["/api/users", "rider"],
+    queryFn: async () => {
+      const res = await fetch("/api/users?role=rider");
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: isAuthenticated && user?.role === "super_admin",
+  });
+
+  // Approve payout mutation
+  const approveMutation = useMutation({
+    mutationFn: async (payoutId: string) => {
+      const res = await fetch(`/api/admin/rider-payouts/${payoutId}/approve`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to approve payout");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/rider-payouts/pending"] });
+      toast({ title: "Payout Approved", description: "Rider has been notified" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to approve payout", variant: "destructive" });
+    }
+  });
+
+  // Reject payout mutation
+  const rejectMutation = useMutation({
+    mutationFn: async ({ payoutId, reason }: { payoutId: string; reason: string }) => {
+      const res = await fetch(`/api/admin/rider-payouts/${payoutId}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason })
+      });
+      if (!res.ok) throw new Error("Failed to reject payout");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/rider-payouts/pending"] });
+      toast({ title: "Payout Rejected", description: "Rider has been notified" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to reject payout", variant: "destructive" });
+    }
+  });
+
+  const riderMap = new Map(Array.isArray(riders) ? riders.map(r => [r.id, r]) : []);
+
   if (authLoading || !isAuthenticated || (user?.role !== "super_admin" && user?.role !== "admin")) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -234,6 +308,127 @@ export default function AdminDashboardConnected() {
                   </CardContent>
                 </Card>
               )
+            )}
+
+            {/* Pending Payouts Widget - Super Admin Only */}
+            {user.role === "super_admin" && (
+              <Card className="border-orange-200 dark:border-orange-800">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="h-5 w-5 text-orange-500" />
+                    <CardTitle>Pending Rider Payouts</CardTitle>
+                    {pendingPayouts.length > 0 && (
+                      <Badge variant="destructive" className="ml-2">{pendingPayouts.length}</Badge>
+                    )}
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => navigate("/admin/rider-payouts")}
+                  >
+                    View All
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {payoutsLoading ? (
+                    <div className="flex justify-center py-4">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    </div>
+                  ) : pendingPayouts.length === 0 ? (
+                    <div className="text-center py-4 text-muted-foreground">
+                      <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                      <p>No pending payouts</p>
+                    </div>
+                  ) : (
+                    <ScrollArea className="h-[300px]">
+                      <div className="space-y-3">
+                        {pendingPayouts.slice(0, 5).map((payout) => {
+                          const rider = riderMap.get(payout.riderId);
+                          return (
+                            <div key={payout.id} className="p-3 border rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                                      📦 Action Required
+                                    </Badge>
+                                  </div>
+                                  <p className="font-medium mt-1 text-sm">
+                                    Order #{payout.notes?.match(/#?(\w+)/)?.[1] || payout.orderId?.slice(0, 8)}
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    Rider: {rider?.name || "Unknown"}
+                                  </p>
+                                  <p className="text-lg font-bold text-green-600 mt-1">
+                                    {payout.currency} {parseFloat(payout.amount).toFixed(2)}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Status: Delivered & Verified
+                                  </p>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <Button
+                                    size="sm"
+                                    className="bg-green-600 hover:bg-green-700 text-white"
+                                    onClick={() => approveMutation.mutate(payout.id)}
+                                    disabled={approveMutation.isPending}
+                                  >
+                                    {approveMutation.isPending ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <CheckCircle className="h-3 w-3 mr-1" />
+                                    )}
+                                    Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-red-600 border-red-200 hover:bg-red-50"
+                                    onClick={() => rejectMutation.mutate({ payoutId: payout.id, reason: "Payment issue" })}
+                                    disabled={rejectMutation.isPending}
+                                  >
+                                    <XCircle className="h-3 w-3 mr-1" />
+                                    Reject
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className="flex gap-2 mt-2 pt-2 border-t">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-xs h-7"
+                                  onClick={() => navigate(`/admin/orders?orderId=${payout.orderId}`)}
+                                >
+                                  <ExternalLink className="h-3 w-3 mr-1" />
+                                  View Order
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-xs h-7"
+                                  onClick={() => navigate(`/admin/messages?userId=${payout.riderId}`)}
+                                >
+                                  <MessageCircle className="h-3 w-3 mr-1" />
+                                  Chat
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {pendingPayouts.length > 5 && (
+                          <Button 
+                            variant="outline" 
+                            className="w-full"
+                            onClick={() => navigate("/admin/rider-payouts")}
+                          >
+                            View {pendingPayouts.length - 5} more pending payouts
+                          </Button>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </CardContent>
+              </Card>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

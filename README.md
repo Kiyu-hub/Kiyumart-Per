@@ -6,9 +6,9 @@
 >
 > A **fully functional, production-ready local marketplace platform** enabling small businesses, artisans, and entrepreneurs to sell their products to local and regional customers. Multi-vendor support, comprehensive admin management, real-time order tracking, and secure payment processing.
 > 
-> **Version:** 1.1.4 (Latest - Multi-Vendor Promotional Ads Parity & Route Fixes)  
+> **Version:** 1.1.6 (Automated Rider Payout Notifications)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
-> **Last Updated:** February 3, 2026
+> **Last Updated:** February 5, 2026
 > 
 > **📚 Documentation:** Start with [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) for complete guides  
 > **🚀 Quick Start:** See [QUICK_START.md](./QUICK_START.md) to get running in 5 minutes  
@@ -181,6 +181,11 @@ Development notes:
   - View rider earnings and payouts
   - Approve/reject rider applications
   - Manage rider commissions
+  - **Automated payout notifications on delivery completion**
+  - **Pending Payouts Dashboard Widget for Super Admin**
+  - **Real-time rider notifications on payment processing**
+  - **Super Admin approval required for all payouts**
+  - **Complete audit trail with admin ID logging**
 
 - **Reporting & Analytics**
   - Sales reports by product, category, seller

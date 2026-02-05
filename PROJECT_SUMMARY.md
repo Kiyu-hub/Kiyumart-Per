@@ -1,7 +1,7 @@
-# KiyuMart v1.1.5 - Complete Project Summary
+# KiyuMart v1.1.6 - Complete Project Summary
 
 **Date:** February 5, 2026  
-**Version:** 1.1.5 (Rider Payouts with Admin Approval)  
+**Version:** 1.1.6 (Automated Rider Payout Notifications)  
 **Status:** ✅ **PRODUCTION READY**
 
 ---
@@ -30,11 +30,15 @@ KiyuMart is a **production-ready, enterprise-grade local marketplace platform** 
 - Real-time map tracking
 - Delivery zone configuration
 - Rider payouts with admin approval (v1.1.5)
+- Automated payout notifications (v1.1.6)
 
-✅ **Payout Management (v1.1.5)**
+✅ **Payout Management (v1.1.6)**
 - Standalone Seller Payouts page
 - Rider Payouts with pending approval workflow
 - Super admin approval required for all payouts
+- **Real-time notifications when deliveries complete**
+- **Dashboard widget for pending payout actions**
+- **Rider confirmation on payment processing**
 - Complete audit trail for payout approvals/rejections
 
 ✅ **Admin Control**

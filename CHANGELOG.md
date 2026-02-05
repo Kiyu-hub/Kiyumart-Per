@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-02-05 (v1.1.6)
+
+### Automated Rider Payout Notifications & Dashboard Widget
+- **Feature:** Real-time Super Admin payout notifications
+  - Automatic notification to all Super Admins when a delivery is completed
+  - Notification format: "📦 Payout Action Required - Order #1234 delivered by [Rider]. Amount: GHS [Value]. Status: Delivered & Verified."
+  - Socket.IO real-time event `admin_payout_pending` for instant alerts
+  - Includes order details, rider info, buyer name, and delivery address
+
+- **Feature:** Pending Payouts Dashboard Widget for Super Admin
+  - Prominent widget on Super Admin dashboard showing pending payouts
+  - Badge indicator showing count of pending approvals
+  - Quick approve/reject actions directly from widget
+  - Links to view order details and jump to delivery chat
+  - Auto-refreshes every 15 seconds
+
+- **Feature:** Rider payout confirmation notifications
+  - Riders receive notification when payment is processed
+  - Message: "Payment for Order #1234 has been processed. Amount: GHS [Value]"
+  - Real-time socket event `payout_completed` for instant notification
+  - Rejection notifications with reason included
+
+- **Security:** Super Admin role required for payout approval/rejection
+  - `POST /api/admin/rider-payouts/:id/approve` - Super Admin only
+  - `POST /api/admin/rider-payouts/:id/reject` - Super Admin only
+  - Full audit trail with admin ID logged in transactions
+
+### Audit & Compliance
+- Transaction records include admin ID for accountability
+- Rejection reasons logged and sent to riders
+- All payout actions create audit trail entries
+
+---
+
 ## 2026-02-05 (v1.1.5)
 
 ### Rider Payouts System with Admin Approval
