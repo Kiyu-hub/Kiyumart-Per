@@ -517,8 +517,8 @@ export default function AdminMessages() {
 
   return (
     <DashboardLayout role={user?.role as any}>
-      <div className="flex flex-col h-[calc(100vh-64px)] p-4 md:p-6 overflow-hidden">
-        <div className="flex items-center gap-4 mb-4">
+      <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
+        <div className="flex items-center gap-4 p-4 pb-0 md:p-6 md:pb-0 flex-shrink-0">
           <Button
             variant="ghost"
             size="icon"
@@ -544,9 +544,9 @@ export default function AdminMessages() {
         </div>
 
         {/* Mobile: Show user list or chat based on selection */}
-        <div className="md:hidden flex-1 min-h-0 flex flex-col">
+        <div className="md:hidden flex-1 min-h-0 flex flex-col p-4 pt-4">
           {!selectedUserId ? (
-            <Card className="h-full p-4 flex flex-col">
+            <Card className="flex-1 min-h-0 p-4 flex flex-col overflow-hidden">
               <div className="mb-4">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -757,8 +757,8 @@ export default function AdminMessages() {
         </div>
 
         {/* Desktop: Side-by-side layout */}
-        <div className="hidden md:flex md:flex-col flex-1 min-h-0">
-          <div className="mb-4">
+        <div className="hidden md:flex md:flex-col flex-1 min-h-0 p-4 md:p-6 pt-4">
+          <div className="mb-4 flex-shrink-0">
             <div className="relative max-w-md">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -860,9 +860,9 @@ export default function AdminMessages() {
             </ScrollArea>
           </Card>
 
-          <Card className="md:col-span-2 p-4 flex flex-col">
+          <Card className="md:col-span-2 p-4 flex flex-col overflow-hidden">
             {selectedUser ? (
-              <div className="flex flex-col flex-1 min-h-0">
+              <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
                 <div className="flex items-center justify-between pb-4 border-b mb-4">
                   <div className="flex items-center gap-3">
                     {/* Avatar with presence */}
@@ -922,7 +922,7 @@ export default function AdminMessages() {
                   </div>
                 </div>
 
-                <ScrollArea className="flex-1 mb-4">
+                <ScrollArea className="flex-1 min-h-0 mb-4">
                   {messagesLoading ? (
                     <div className="text-center py-12">
                       <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
@@ -992,13 +992,14 @@ export default function AdminMessages() {
                   )}
                 </ScrollArea>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-shrink-0 pt-2 border-t">
                   <Input
                     placeholder="Type a message..."
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
                     disabled={sendMessageMutation.isPending}
+                    className="flex-1"
                     data-testid="input-message"
                   />
                   <Button

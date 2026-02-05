@@ -4415,6 +4415,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const user1 = await storage.getUser(user1Id);
           const user2 = await storage.getUser(user2Id);
           
+          const presence1 = presenceService.getPresenceForApi(user1Id);
+          const presence2 = presenceService.getPresenceForApi(user2Id);
+          
+          // Determine if conversation is "active" (at least one participant online)
+          const isActive = presence1.status === 'online' || presence2.status === 'online';
+          
+          // Check if both participants are admins (should be filtered from support)
+          const adminRoles = ['admin', 'super_admin'];
+          const isAdminToAdmin = adminRoles.includes(user1?.role || '') && adminRoles.includes(user2?.role || '');
+          
           return {
             id: key,
             participants: [
@@ -4422,13 +4432,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 id: user1Id,
                 name: user1?.name || 'Unknown',
                 role: user1?.role || 'unknown',
-                presence: presenceService.getPresenceForApi(user1Id),
+                presence: presence1,
               },
               {
                 id: user2Id,
                 name: user2?.name || 'Unknown',
                 role: user2?.role || 'unknown',
-                presence: presenceService.getPresenceForApi(user2Id),
+                presence: presence2,
               },
             ],
             lastMessage: {
@@ -4438,19 +4448,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
             },
             messageCount: conv.messageCount,
             unreadCount: conv.unreadCount,
+            isActive, // New: indicates if conversation has online participants
+            isAdminToAdmin, // New: flag to filter admin-to-admin chats
           };
         })
       );
       
+      // Filter out admin-to-admin conversations from support
+      const supportConversations = enrichedConversations.filter(c => !c.isAdminToAdmin);
+      
       // Sort by most recent activity
-      enrichedConversations.sort((a, b) => 
+      supportConversations.sort((a, b) => 
         new Date(b.lastMessage.createdAt || 0).getTime() - new Date(a.lastMessage.createdAt || 0).getTime()
       );
       
+      // Separate active vs all for dashboard
+      const activeConversations = supportConversations.filter(c => c.isActive);
+      
       res.json({
-        conversations: enrichedConversations,
+        conversations: supportConversations,
+        activeConversations: activeConversations,
         stats: {
-          totalConversations: conversations.size,
+          totalConversations: supportConversations.length,
+          activeConversations: activeConversations.length,
           onlineUsers: presenceService.getStats().online,
           activeCalls: jitsiMeetService.getStats().activeCalls,
         },

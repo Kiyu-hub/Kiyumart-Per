@@ -218,11 +218,20 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   const defaultCenter = new LatLng(riderPosition?.[0] || 5.6037, riderPosition?.[1] || -0.1870);
 
   return (
-    <Card className={cn(
-      "overflow-hidden transition-all duration-300",
-      isFullscreen ? "fixed inset-4 z-50" : "",
-      className
-    )}>
+    <>
+      {/* Fullscreen backdrop overlay */}
+      {isFullscreen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-[9998]" 
+          onClick={toggleFullscreen}
+        />
+      )}
+      
+      <Card className={cn(
+        "overflow-hidden transition-all duration-300",
+        isFullscreen ? "fixed inset-0 z-[9999] rounded-none" : "",
+        className
+      )}>
       <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b bg-gradient-to-r from-primary/10 to-primary/5">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
@@ -314,7 +323,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
         <MapContainer
           center={defaultCenter}
           zoom={14}
-          className={cn("w-full", isFullscreen ? "h-[calc(100vh-180px)]" : "h-[350px]")}
+          className={cn("w-full", isFullscreen ? "h-[calc(100vh-80px)]" : "h-[350px]")}
           ref={mapRef}
         >
           <TileLayer
@@ -412,5 +421,6 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
         </div>
       </CardContent>
     </Card>
+    </>
   );
 }

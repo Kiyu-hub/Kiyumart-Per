@@ -63,6 +63,8 @@ interface Conversation {
   };
   messageCount: number;
   unreadCount: number;
+  isActive?: boolean;
+  isAdminToAdmin?: boolean;
 }
 
 interface ConversationDetails {
@@ -119,14 +121,16 @@ export default function AdminLiveSupportDashboard() {
   } | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [activeTab, setActiveTab] = useState('conversations');
+  const [conversationFilter, setConversationFilter] = useState<'active' | 'all'>('active');
 
   // Fetch live support data
   const { data: supportData, isLoading, refetch } = useQuery<{
     conversations: Conversation[];
-    stats: Stats;
+    activeConversations: Conversation[];
+    stats: { totalConversations: number; activeConversations: number; onlineUsers: number; activeCalls: number };
   }>({
     queryKey: ['/api/admin/live-support'],
-    refetchInterval: 10000, // Refresh every 10 seconds
+    refetchInterval: 5000, // Refresh every 5 seconds for live updates
   });
 
   // Fetch messaging stats
@@ -176,14 +180,18 @@ export default function AdminLiveSupportDashboard() {
     },
   });
 
-  // Filter conversations based on search
-  const filteredConversations = supportData?.conversations.filter(conv => {
+  // Filter conversations based on search and active/all filter
+  const baseConversations = conversationFilter === 'active' 
+    ? (supportData?.activeConversations || [])
+    : (supportData?.conversations || []);
+    
+  const filteredConversations = baseConversations.filter(conv => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return conv.participants.some(
       p => p.name.toLowerCase().includes(query) || p.role.toLowerCase().includes(query)
     );
-  }) || [];
+  });
 
   const handleJoinConversation = (conv: Conversation) => {
     setSelectedConversation({
@@ -311,9 +319,30 @@ export default function AdminLiveSupportDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Conversation List */}
               <div className="lg:col-span-1">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Active Chats</CardTitle>
+                <Card className="flex flex-col h-[600px]">
+                  <CardHeader className="pb-3 flex-shrink-0">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">Chats</CardTitle>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant={conversationFilter === 'active' ? 'default' : 'ghost'}
+                          onClick={() => setConversationFilter('active')}
+                          className="text-xs h-7 px-2"
+                        >
+                          <Circle className={`h-2 w-2 mr-1 ${conversationFilter === 'active' ? 'fill-green-400 text-green-400' : 'fill-green-500 text-green-500'}`} />
+                          Active ({supportData?.stats.activeConversations || 0})
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={conversationFilter === 'all' ? 'default' : 'ghost'}
+                          onClick={() => setConversationFilter('all')}
+                          className="text-xs h-7 px-2"
+                        >
+                          All ({supportData?.stats.totalConversations || 0})
+                        </Button>
+                      </div>
+                    </div>
                     <div className="relative mt-2">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
@@ -324,8 +353,8 @@ export default function AdminLiveSupportDashboard() {
                       />
                     </div>
                   </CardHeader>
-                  <CardContent className="p-0">
-                    <ScrollArea className="h-[500px]">
+                  <CardContent className="p-0 flex-1 min-h-0">
+                    <ScrollArea className="h-full">
                       {isLoading ? (
                         <div className="flex justify-center py-8">
                           <Loader2 className="h-6 w-6 animate-spin text-primary" />
