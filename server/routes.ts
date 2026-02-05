@@ -3502,6 +3502,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get all active deliveries for rider (for live map)
+  app.get("/api/rider/deliveries/active", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const riderId = req.user!.id;
+      
+      // Find all active orders assigned to this rider
+      const activeOrders = await db
+        .select({
+          id: orders.id,
+          orderNumber: orders.orderNumber,
+          status: orders.status,
+          deliveryAddress: orders.deliveryAddress,
+          deliveryLatitude: orders.deliveryLatitude,
+          deliveryLongitude: orders.deliveryLongitude,
+          buyerId: orders.buyerId,
+        })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.riderId, riderId),
+            or(
+              eq(orders.status, "processing"),
+              eq(orders.status, "delivering")
+            )
+          )
+        )
+        .orderBy(desc(orders.createdAt));
+
+      // Get buyer names for each order
+      const deliveriesWithBuyers = await Promise.all(
+        activeOrders.map(async (order) => {
+          const buyer = await storage.getUser(order.buyerId);
+          return {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: order.status,
+            deliveryAddress: order.deliveryAddress || "Address not available",
+            deliveryLatitude: order.deliveryLatitude ? parseFloat(order.deliveryLatitude) : null,
+            deliveryLongitude: order.deliveryLongitude ? parseFloat(order.deliveryLongitude) : null,
+            buyerName: buyer?.name || "Customer",
+          };
+        })
+      );
+
+      res.json(deliveriesWithBuyers);
+    } catch (error: any) {
+      console.error("Error fetching active deliveries:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============ Delivery Tracking Routes ============
   app.post("/api/delivery-tracking", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
     try {

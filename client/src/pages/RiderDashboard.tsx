@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -9,7 +9,11 @@ import OrderCard from "@/components/OrderCard";
 import DeliveryTracker from "@/components/DeliveryTracker";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { DollarSign, Package, MapPin, Star, Loader2 } from "lucide-react";
+
+// Lazy load the map component for better performance
+const RiderLiveMap = lazy(() => import("@/components/RiderLiveMap"));
 
 interface Order {
   id: string;
@@ -100,7 +104,18 @@ export default function RiderDashboard() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Live Map Section */}
+                <div className="mt-6">
+                  <Suspense fallback={
+                    <Card className="h-[400px] flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </Card>
+                  }>
+                    <RiderLiveMap className="h-[400px]" />
+                  </Suspense>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
                   <div className="space-y-4">
                     <h2 className="text-xl font-bold" data-testid="text-active-deliveries">Active Deliveries</h2>
                     {activeDeliveries.length > 0 ? (
