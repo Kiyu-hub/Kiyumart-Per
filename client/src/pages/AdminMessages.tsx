@@ -39,6 +39,7 @@ interface Message {
   senderId: string;
   receiverId: string;
   message: string;
+  messageType?: 'text' | 'missed_call' | 'call_started' | 'call_ended';
   createdAt: string;
   isRead: boolean;
   status: 'sent' | 'delivered' | 'read';
@@ -516,7 +517,7 @@ export default function AdminMessages() {
 
   return (
     <DashboardLayout role={user?.role as any}>
-      <div className="p-4 md:p-6 lg:p-8 h-[calc(100vh-80px)]">
+      <div className="flex flex-col h-[calc(100vh-64px)] p-4 md:p-6 overflow-hidden">
         <div className="flex items-center gap-4 mb-4">
           <Button
             variant="ghost"
@@ -543,7 +544,7 @@ export default function AdminMessages() {
         </div>
 
         {/* Mobile: Show user list or chat based on selection */}
-        <div className="md:hidden h-[calc(100%-60px)]">
+        <div className="md:hidden flex-1 min-h-0 flex flex-col">
           {!selectedUserId ? (
             <Card className="h-full p-4 flex flex-col">
               <div className="mb-4">
@@ -687,8 +688,17 @@ export default function AdminMessages() {
                     {messages.map((msg) => (
                       <div
                         key={msg.id}
-                        className={`flex ${msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
+                        className={`flex ${msg.messageType === 'missed_call' ? 'justify-center' : msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
                       >
+                        {msg.messageType === 'missed_call' ? (
+                          <div className="flex items-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-900/20 rounded-full text-red-600 dark:text-red-400 text-sm">
+                            <PhoneOff className="h-4 w-4" />
+                            <span>{msg.message}</span>
+                            <span className="text-xs opacity-70">
+                              {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                            </span>
+                          </div>
+                        ) : (
                         <div
                           className={`max-w-[85%] px-3 py-2 rounded-2xl ${
                             msg.senderId === user?.id
@@ -712,6 +722,7 @@ export default function AdminMessages() {
                             </span>
                           </div>
                         </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -746,7 +757,7 @@ export default function AdminMessages() {
         </div>
 
         {/* Desktop: Side-by-side layout */}
-        <div className="hidden md:block h-[calc(100%-60px)]">
+        <div className="hidden md:flex md:flex-col flex-1 min-h-0">
           <div className="mb-4">
             <div className="relative max-w-md">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -760,7 +771,7 @@ export default function AdminMessages() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[calc(100%-60px)]">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0 overflow-hidden">
             <Card className="md:col-span-1 p-4 flex flex-col">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">Users</h3>
@@ -926,6 +937,17 @@ export default function AdminMessages() {
                   ) : (
                     <div className="space-y-4">
                       {messages.map((msg) => (
+                        msg.messageType === 'missed_call' ? (
+                          <div key={msg.id} className="flex justify-center" data-testid={`message-${msg.id}`}>
+                            <div className="flex items-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-900/20 rounded-full text-red-600 dark:text-red-400 text-sm">
+                              <PhoneOff className="h-4 w-4" />
+                              <span>{msg.message}</span>
+                              <span className="text-xs opacity-70">
+                                {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
                         <div
                           key={msg.id}
                           className={`flex gap-3 ${msg.senderId === user?.id ? "flex-row-reverse" : ""}`}
@@ -964,6 +986,7 @@ export default function AdminMessages() {
                             </div>
                           </div>
                         </div>
+                        )
                       ))}
                     </div>
                   )}
@@ -992,7 +1015,7 @@ export default function AdminMessages() {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col h-[600px]">
+              <div className="flex flex-col flex-1 min-h-0">
                 <div className="flex-1 flex items-center justify-center">
                   <div className="text-center">
                     <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground mb-3" />

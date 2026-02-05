@@ -3497,6 +3497,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deliveryAddress: order.deliveryAddress || "Address not available",
         deliveryLatitude: order.deliveryLatitude ? parseFloat(order.deliveryLatitude) : null,
         deliveryLongitude: order.deliveryLongitude ? parseFloat(order.deliveryLongitude) : null,
+        buyerId: order.buyerId,
         buyerName: buyer?.name || "Customer",
         buyerPhone: buyer?.phone || null,
         qrCode: order.qrCode || null,
@@ -4268,6 +4269,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       res.json({ success });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Record a missed call (when call is rejected or not answered)
+  app.post("/api/calls/missed", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { targetUserId, callType } = req.body;
+      
+      if (!targetUserId) {
+        return res.status(400).json({ error: "targetUserId is required" });
+      }
+      
+      // Get caller info
+      const caller = await storage.getUser(req.user!.id);
+      
+      // Create a system message for missed call
+      const { db } = await import("../db/index");
+      const { chatMessages } = await import("@shared/schema");
+      
+      const missedCallMessage = await db.insert(chatMessages).values({
+        senderId: req.user!.id,
+        receiverId: targetUserId,
+        message: `📞 Missed ${callType || 'voice'} call from ${caller?.name || 'User'}`,
+        messageType: 'missed_call',
+        status: 'delivered',
+      }).returning();
+      
+      // Notify the target user about missed call
+      io.to(targetUserId).emit("missed_call", {
+        callerId: req.user!.id,
+        callerName: caller?.name || 'User',
+        callType: callType || 'voice',
+        messageId: missedCallMessage[0]?.id,
+      });
+      
+      res.json({ success: true, message: missedCallMessage[0] });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

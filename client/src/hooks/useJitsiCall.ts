@@ -315,13 +315,24 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     }
   }, [incomingCall, joinCall]);
 
-  const rejectIncomingCall = useCallback(() => {
+  const rejectIncomingCall = useCallback(async () => {
+    if (incomingCall) {
+      // Record the missed call in the chat
+      try {
+        await apiRequest('POST', '/api/calls/missed', {
+          targetUserId: incomingCall.callerId,
+          callType: incomingCall.callType,
+        });
+      } catch (error) {
+        console.error('Failed to record missed call:', error);
+      }
+    }
     setIncomingCall(null);
     toast({
       title: 'Call rejected',
       description: 'You declined the incoming call',
     });
-  }, [toast]);
+  }, [incomingCall, toast]);
 
   const leaveCall = useCallback(async () => {
     await leaveCallMutation.mutateAsync();

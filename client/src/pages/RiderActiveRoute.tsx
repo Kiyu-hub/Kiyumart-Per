@@ -1,12 +1,16 @@
 import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Loader2, MapPin, Navigation, Package, QrCode, Phone, User } from "lucide-react";
+import { Loader2, MapPin, Navigation, Package, QrCode, Phone, User, Video, MessageSquare } from "lucide-react";
+import { useJitsiCall } from "@/hooks/useJitsiCall";
+import { JitsiCallDialog } from "@/components/JitsiCallDialog";
+import { useToast } from "@/hooks/use-toast";
 
 // Lazy load heavy map components
 const RiderNavigationMap = lazy(() => import("@/components/RiderNavigationMap"));
@@ -19,6 +23,7 @@ interface ActiveDelivery {
   deliveryAddress: string;
   deliveryLatitude?: number;
   deliveryLongitude?: number;
+  buyerId?: string;
   buyerName?: string;
   buyerPhone?: string;
   qrCode?: string;
@@ -26,7 +31,10 @@ interface ActiveDelivery {
 
 export default function RiderActiveRoute() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("navigation");
+  const jitsiCall = useJitsiCall(user?.id || '');
 
   const { data: activeDelivery, isLoading, refetch } = useQuery<ActiveDelivery | null>({
     queryKey: ["/api/rider/active-delivery"],
@@ -81,16 +89,50 @@ export default function RiderActiveRoute() {
                   </div>
                 </div>
                 
-                {/* Buyer Contact */}
-                {activeDelivery.buyerPhone && (
-                  <a 
-                    href={`tel:${activeDelivery.buyerPhone}`}
-                    className="flex items-center gap-2 text-sm bg-green-100 text-green-700 px-3 py-2 rounded-lg hover:bg-green-200 transition"
-                  >
-                    <Phone className="h-4 w-4" />
-                    <span className="hidden sm:inline">Call Buyer</span>
-                  </a>
-                )}
+                {/* Buyer Contact - In-App Chat & Call */}
+                <div className="flex items-center gap-2">
+                  {activeDelivery.buyerId && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigate(`/chat?userId=${activeDelivery.buyerId}`)}
+                        className="flex items-center gap-1.5"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                        <span className="hidden sm:inline">Chat</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (activeDelivery.buyerId) {
+                            jitsiCall.startCall(activeDelivery.buyerId, 'voice');
+                          }
+                        }}
+                        disabled={jitsiCall.inCall}
+                        className="flex items-center gap-1.5"
+                      >
+                        <Phone className="h-4 w-4" />
+                        <span className="hidden sm:inline">Call</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => {
+                          if (activeDelivery.buyerId) {
+                            jitsiCall.startCall(activeDelivery.buyerId, 'video');
+                          }
+                        }}
+                        disabled={jitsiCall.inCall}
+                        className="flex items-center gap-1.5 bg-primary"
+                      >
+                        <Video className="h-4 w-4" />
+                        <span className="hidden sm:inline">Video</span>
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="mt-4 pt-4 border-t flex items-start gap-3">
@@ -202,6 +244,22 @@ export default function RiderActiveRoute() {
           </div>
         )}
       </div>
+
+      {/* Jitsi Call Dialog */}
+      <JitsiCallDialog
+        isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
+        roomUrl={jitsiCall.getJitsiUrl()}
+        roomName={jitsiCall.currentRoom?.roomName || null}
+        callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || 'voice'}
+        participants={[]}
+        isHost={true}
+        incomingCall={jitsiCall.incomingCall}
+        onAccept={jitsiCall.acceptIncomingCall}
+        onReject={jitsiCall.rejectIncomingCall}
+        onLeave={jitsiCall.leaveCall}
+        onEnd={jitsiCall.endCall}
+        isJoining={jitsiCall.isJoining}
+      />
     </DashboardLayout>
   );
 }
