@@ -3336,12 +3336,171 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Complete delivery with QR code verification (rider scans buyer's QR code)
+  app.post("/api/orders/:id/complete-delivery", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const { qrCode } = req.body;
+      const orderId = req.params.id;
+      const riderId = req.user!.id;
+
+      if (!qrCode) {
+        return res.status(400).json({ error: "QR code is required" });
+      }
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      // Verify the rider is assigned to this order
+      if (order.riderId !== riderId) {
+        return res.status(403).json({ error: "You are not assigned to this delivery" });
+      }
+
+      // Verify the order is in a valid state for completion
+      if (!["delivering", "en_route", "picked_up"].includes(order.status)) {
+        return res.status(400).json({ 
+          error: "Order cannot be completed",
+          details: `Order is currently in "${order.status}" status. Only orders in delivery can be completed.`
+        });
+      }
+
+      // Verify QR code matches
+      if (order.qrCode !== qrCode) {
+        return res.status(400).json({ 
+          error: "Invalid QR code",
+          details: "The scanned QR code does not match this order."
+        });
+      }
+
+      // Update order status to delivered
+      const updatedOrder = await storage.updateOrder(orderId, { 
+        status: "delivered" as any,
+        deliveredAt: new Date(),
+      });
+
+      // Create notifications
+      await storage.createNotification({
+        userId: order.buyerId,
+        type: "order",
+        title: "Order Delivered!",
+        message: `Your order #${order.orderNumber} has been successfully delivered. Thank you for shopping with us!`,
+        link: `/orders/${orderId}`,
+      });
+
+      await storage.createNotification({
+        userId: order.sellerId,
+        type: "order", 
+        title: "Delivery Completed",
+        message: `Order #${order.orderNumber} has been delivered to the customer.`,
+        link: `/seller/orders/${orderId}`,
+      });
+
+      // Emit real-time events
+      io.to(order.buyerId).emit("order_delivered", {
+        orderId,
+        orderNumber: order.orderNumber,
+        deliveredAt: new Date().toISOString(),
+      });
+
+      io.emit("admin_delivery_completed", {
+        orderId,
+        orderNumber: order.orderNumber,
+        riderId,
+        deliveredAt: new Date().toISOString(),
+      });
+
+      // Create rider payout record (if enabled)
+      try {
+        const rider = await storage.getUser(riderId);
+        if (rider && order.deliveryFee) {
+          await storage.createRiderPayout({
+            riderId,
+            orderId,
+            amount: order.deliveryFee,
+            currency: order.currency || "GHS",
+            method: "mobile_money",
+            status: "pending_approval",
+          });
+          console.log(`Created rider payout for delivery ${orderId}`);
+        }
+      } catch (payoutError) {
+        console.error("Failed to create rider payout:", payoutError);
+        // Don't fail the delivery completion even if payout creation fails
+      }
+
+      console.log(`Order ${orderId} delivered by rider ${riderId} via QR verification`);
+      res.json(updatedOrder);
+    } catch (error: any) {
+      console.error("Error completing delivery:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/riders/available", requireAuth, requireRole("admin", "seller", "super_admin"), async (req, res) => {
     try {
       const availableRiders = await storage.getAvailableRidersWithOrderCounts();
       res.json(availableRiders);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get rider's active delivery (for rider navigation page)
+  app.get("/api/rider/active-delivery", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const riderId = req.user!.id;
+      
+      // Find active order assigned to this rider
+      const activeOrders = await db
+        .select({
+          id: orders.id,
+          orderNumber: orders.orderNumber,
+          status: orders.status,
+          deliveryAddress: orders.deliveryAddress,
+          deliveryLatitude: orders.deliveryLatitude,
+          deliveryLongitude: orders.deliveryLongitude,
+          buyerId: orders.buyerId,
+          qrCode: orders.qrCode,
+        })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.riderId, riderId),
+            or(
+              eq(orders.status, "assigned"),
+              eq(orders.status, "picked_up"),
+              eq(orders.status, "en_route"),
+              eq(orders.status, "delivering")
+            )
+          )
+        )
+        .orderBy(desc(orders.createdAt))
+        .limit(1);
+
+      if (activeOrders.length === 0) {
+        return res.status(404).json({ error: "No active delivery" });
+      }
+
+      const order = activeOrders[0];
+      
+      // Get buyer info
+      const buyer = await storage.getUser(order.buyerId);
+      
+      res.json({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        deliveryAddress: order.deliveryAddress || "Address not available",
+        deliveryLatitude: order.deliveryLatitude ? parseFloat(order.deliveryLatitude) : null,
+        deliveryLongitude: order.deliveryLongitude ? parseFloat(order.deliveryLongitude) : null,
+        buyerName: buyer?.name || "Customer",
+        buyerPhone: buyer?.phone || null,
+        qrCode: order.qrCode || null,
+      });
+    } catch (error: any) {
+      console.error("Error fetching active delivery:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -3446,6 +3605,246 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(riderLocations.filter(Boolean));
     } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get pending orders that need rider assignment (for Command Center dispatch)
+  app.get("/api/admin/pending-orders", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const allOrders = await storage.getAllOrders();
+      
+      // Filter for orders that need rider assignment:
+      // - delivery method is "rider"
+      // - status is "processing" or "ready" (paid but not yet picked up)
+      // - no rider assigned yet
+      const pendingOrders = allOrders
+        .filter(order => 
+          order.deliveryMethod === "rider" &&
+          ["processing", "ready", "confirmed"].includes(order.status) &&
+          !order.riderId
+        )
+        .map(order => ({
+          id: order.id,
+          orderNumber: order.orderNumber,
+          buyerName: "Buyer", // Will be populated below
+          deliveryAddress: order.deliveryAddress,
+          deliveryPhone: order.deliveryPhone,
+          deliveryLatitude: order.deliveryLatitude,
+          deliveryLongitude: order.deliveryLongitude,
+          createdAt: order.createdAt,
+          total: order.total,
+          status: order.status,
+        }));
+
+      // Populate buyer names
+      const ordersWithBuyers = await Promise.all(
+        pendingOrders.map(async (order) => {
+          const fullOrder = allOrders.find(o => o.id === order.id);
+          if (fullOrder?.buyerId) {
+            const buyer = await storage.getUser(fullOrder.buyerId);
+            return { ...order, buyerName: buyer?.name || "Unknown" };
+          }
+          return order;
+        })
+      );
+
+      res.json(ordersWithBuyers);
+    } catch (error: any) {
+      console.error("Error fetching pending orders:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get available riders for dispatch (approved, active, not currently on delivery)
+  app.get("/api/admin/available-riders", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const { orderLat, orderLng } = req.query;
+      
+      // Get all approved and active riders
+      const allRiders = await storage.getUsersByRole("rider");
+      const activeRiders = allRiders.filter(r => r.isApproved && r.isActive);
+      
+      // Get orders currently being delivered
+      const allOrders = await storage.getAllOrders();
+      const ridersOnDelivery = new Set(
+        allOrders
+          .filter(o => ["delivering", "picked_up", "en_route"].includes(o.status) && o.riderId)
+          .map(o => o.riderId)
+      );
+      
+      // Filter out riders currently on delivery
+      const availableRiders = activeRiders
+        .filter(r => !ridersOnDelivery.has(r.id))
+        .map(rider => {
+          let distanceToOrder: number | undefined;
+          
+          // Calculate distance if order location provided
+          if (orderLat && orderLng && rider.businessAddress) {
+            // For now, we'll leave distance as undefined
+            // In production, you'd geocode the business address or store rider's current location
+          }
+          
+          return {
+            id: rider.id,
+            name: rider.name,
+            email: rider.email,
+            phone: rider.phone,
+            isAvailable: true,
+            distanceToOrder,
+          };
+        });
+
+      res.json(availableRiders);
+    } catch (error: any) {
+      console.error("Error fetching available riders:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Assign rider to order
+  app.post("/api/orders/:orderId/assign-rider", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const { riderId } = req.body;
+
+      if (!riderId) {
+        return res.status(400).json({ error: "Rider ID is required" });
+      }
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      if (order.riderId) {
+        return res.status(400).json({ error: "Order already has a rider assigned" });
+      }
+
+      const rider = await storage.getUser(riderId);
+      if (!rider || rider.role !== "rider") {
+        return res.status(404).json({ error: "Rider not found" });
+      }
+
+      if (!rider.isApproved || !rider.isActive) {
+        return res.status(400).json({ error: "Rider is not available for deliveries" });
+      }
+
+      // Update order with rider assignment
+      const updatedOrder = await storage.updateOrder(orderId, { 
+        riderId,
+        status: "assigned" as any,
+      });
+
+      // Create notification for rider
+      await storage.createNotification({
+        userId: riderId,
+        type: "order",
+        title: "New Delivery Assigned",
+        message: `You have been assigned to deliver order #${order.orderNumber}. Please pick up the order from the seller.`,
+        link: `/rider/deliveries/${orderId}`,
+      });
+
+      // Create notification for buyer
+      await storage.createNotification({
+        userId: order.buyerId,
+        type: "order",
+        title: "Rider Assigned",
+        message: `A rider has been assigned to deliver your order #${order.orderNumber}. You can track the delivery in real-time.`,
+        link: `/track-order/${orderId}`,
+      });
+
+      // Emit socket event for real-time update
+      io.emit("order_rider_assigned", {
+        orderId,
+        riderId,
+        riderName: rider.name,
+        orderNumber: order.orderNumber,
+      });
+
+      res.json(updatedOrder);
+    } catch (error: any) {
+      console.error("Error assigning rider to order:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Auto-dispatch: Assign unassigned orders older than 60 minutes to nearest available rider
+  // This should be called by a cron job or scheduled task
+  app.post("/api/admin/auto-dispatch", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const allOrders = await storage.getAllOrders();
+      const now = new Date();
+      const ONE_HOUR = 60 * 60 * 1000;
+
+      // Find orders that need auto-dispatch
+      const overdueOrders = allOrders.filter(order => {
+        if (order.deliveryMethod !== "rider") return false;
+        if (order.riderId) return false; // Already assigned
+        if (!["processing", "ready", "confirmed"].includes(order.status)) return false;
+        
+        const orderAge = now.getTime() - new Date(order.createdAt!).getTime();
+        return orderAge >= ONE_HOUR;
+      });
+
+      if (overdueOrders.length === 0) {
+        return res.json({ message: "No orders require auto-dispatch", assigned: 0 });
+      }
+
+      // Get available riders
+      const allRiders = await storage.getUsersByRole("rider");
+      const activeRiders = allRiders.filter(r => r.isApproved && r.isActive);
+      
+      const ridersOnDelivery = new Set(
+        allOrders
+          .filter(o => ["delivering", "picked_up", "en_route"].includes(o.status) && o.riderId)
+          .map(o => o.riderId)
+      );
+      
+      const availableRiders = activeRiders.filter(r => !ridersOnDelivery.has(r.id));
+
+      if (availableRiders.length === 0) {
+        return res.json({ message: "No available riders for auto-dispatch", assigned: 0, pending: overdueOrders.length });
+      }
+
+      let assignedCount = 0;
+      
+      // Simple round-robin assignment (in production, use proximity-based assignment)
+      for (let i = 0; i < overdueOrders.length && i < availableRiders.length; i++) {
+        const order = overdueOrders[i];
+        const rider = availableRiders[i];
+
+        await storage.updateOrder(order.id, { 
+          riderId: rider.id,
+          status: "assigned" as any,
+        });
+
+        await storage.createNotification({
+          userId: rider.id,
+          type: "order",
+          title: "Auto-Assigned Delivery",
+          message: `You have been auto-assigned to deliver order #${order.orderNumber}. This order has been waiting for pickup.`,
+          link: `/rider/deliveries/${order.id}`,
+        });
+
+        io.emit("order_rider_assigned", {
+          orderId: order.id,
+          riderId: rider.id,
+          riderName: rider.name,
+          orderNumber: order.orderNumber,
+          isAutoAssigned: true,
+        });
+
+        assignedCount++;
+      }
+
+      res.json({ 
+        message: `Auto-dispatch completed`, 
+        assigned: assignedCount,
+        pending: overdueOrders.length - assignedCount
+      });
+    } catch (error: any) {
+      console.error("Error in auto-dispatch:", error);
       res.status(400).json({ error: error.message });
     }
   });
