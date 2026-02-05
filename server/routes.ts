@@ -3688,29 +3688,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all active riders with their current locations (for admin tracking)
   app.get("/api/admin/active-riders", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
     try {
-      // Get all orders and filter for delivering status
+      // Get all orders and filter for processing or delivering status with assigned riders
       const allOrders = await storage.getAllOrders();
-      const activeOrders = allOrders.filter(order => order.status === "delivering");
+      const activeOrders = allOrders.filter(order => 
+        (order.status === "delivering" || order.status === "processing") && order.riderId
+      );
       
       const riderLocations = await Promise.all(
         activeOrders.map(async (order: any) => {
           if (!order.riderId) return null;
           
           const rider = await storage.getUser(order.riderId);
+          if (!rider) return null;
+          
           const latestLocation = await storage.getLatestDeliveryLocation(order.id);
           
-          if (!latestLocation || !rider) return null;
-          
+          // Return rider even without location data (they may not have started tracking)
           return {
             riderId: rider.id,
             riderName: rider.name,
             orderId: order.id,
             orderNumber: order.orderNumber,
-            latitude: latestLocation.latitude,
-            longitude: latestLocation.longitude,
-            speed: latestLocation.speed,
-            heading: latestLocation.heading,
-            timestamp: latestLocation.timestamp,
+            orderStatus: order.status,
+            latitude: latestLocation?.latitude ?? null,
+            longitude: latestLocation?.longitude ?? null,
+            speed: latestLocation?.speed ?? null,
+            heading: latestLocation?.heading ?? null,
+            timestamp: latestLocation?.timestamp ?? null,
+            hasLocation: !!latestLocation,
           };
         })
       );
@@ -4099,9 +4104,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       io.to(req.body.receiverId).emit("new_message", message);
       io.to(req.user!.id).emit("new_message", message);
       
-      // Notify admins about new messages to admin, agent, or super_admin
       const receiver = await storage.getUser(req.body.receiverId);
       const sender = await storage.getUser(req.user!.id);
+      
+      // Notify admins about new messages to admin, agent, or super_admin
       if (receiver && (receiver.role === "admin" || receiver.role === "super_admin" || receiver.role === "agent")) {
         await notifyAdmins(
           "message",
@@ -4109,6 +4115,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `You have a new message from ${sender?.name || sender?.email || 'a user'}`,
           { messageId: message.id, senderId: req.user!.id }
         );
+      }
+      
+      // Create notification for non-admin receivers (riders, sellers, customers)
+      if (receiver && !["admin", "super_admin", "agent"].includes(receiver.role || "")) {
+        await storage.createNotification({
+          userId: receiver.id,
+          type: "message",
+          title: "New message",
+          message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+        });
+        
+        // Also emit a notification event to the receiver's socket room
+        io.to(req.body.receiverId).emit("notification", {
+          type: "message",
+          title: "New message",
+          message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+          data: { messageId: message.id, senderId: req.user!.id },
+        });
       }
       
       res.json(message);
@@ -6467,6 +6491,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           createdAt: newMessage.createdAt
         });
 
+        // Create notification for the receiver
+        try {
+          const receiver = await storage.getUser(receiverId);
+          const sender = await storage.getUser(senderId);
+          
+          if (receiver) {
+            // Create notification in database
+            await storage.createNotification({
+              userId: receiverId,
+              type: "message",
+              title: "New message",
+              message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+            });
+            
+            // Emit notification event
+            io.to(receiverId).emit("notification", {
+              type: "message",
+              title: "New message",
+              message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+              data: { messageId: newMessage.id, senderId },
+            });
+          }
+        } catch (notifyError) {
+          console.error("Error creating message notification:", notifyError);
+        }
+
       } catch (error) {
         console.error("Error sending message:", error);
         socket.emit("error", { message: "Failed to send message" });
@@ -6885,7 +6935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Category Routes ============
-  app.post("/api/categories", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.post("/api/categories", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const category = await storage.createCategory(req.body);
       res.json(category);
@@ -6930,7 +6980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/categories/:id", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.patch("/api/categories/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const updated = await storage.updateCategory(req.params.id, req.body);
       if (!updated) {
@@ -6942,7 +6992,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/categories/:id", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.delete("/api/categories/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const success = await storage.deleteCategory(req.params.id);
       if (!success) {
@@ -6955,7 +7005,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Category Migration Endpoint (Admin only) - Backfill categoryId from legacy category text
-  app.post("/api/admin/migrate-categories", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/migrate-categories", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const { dryRun = true } = req.body;
       

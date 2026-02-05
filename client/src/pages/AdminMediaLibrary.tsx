@@ -53,6 +53,9 @@ export default function AdminMediaLibrary() {
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
   const [selectedAssets, setSelectedAssets] = useState<Set<string>>(new Set());
+  const [uploadMode, setUploadMode] = useState<"file" | "url">("file");
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Fetch available asset images
   const { data: assetImages = [], isLoading: assetsLoading } = useQuery<AssetImage[]>({
@@ -185,6 +188,92 @@ export default function AdminMediaLibrary() {
     },
   });
 
+  // File upload handler
+  const handleFileUpload = async (file: File) => {
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an image file",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Maximum file size is 10MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setIsUploading(true);
+      const res = await fetch('/api/upload/image', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      if (res.ok) {
+        const { url } = await res.json();
+        // Auto-fill the form with uploaded URL and filename
+        setUploadForm(prev => ({
+          ...prev,
+          url: url,
+          filename: prev.filename || file.name,
+        }));
+        toast({
+          title: "Upload successful",
+          description: "Image uploaded to Cloudinary. Fill in details and click Save.",
+        });
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        toast({
+          title: "Upload failed",
+          description: errorData.error || "Could not upload image",
+          variant: "destructive",
+        });
+      }
+    } catch (e) {
+      toast({
+        title: "Error",
+        description: String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      handleFileUpload(file);
+    }
+  };
+
   const toggleImageSelection = (id: string) => {
     const newSelected = new Set(selectedImages);
     if (newSelected.has(id)) {
@@ -275,24 +364,86 @@ export default function AdminMediaLibrary() {
               Upload New Media
             </Button>
           </DialogTrigger>
-          <DialogContent data-testid="dialog-upload-media">
+          <DialogContent data-testid="dialog-upload-media" className="max-w-md">
             <DialogHeader>
               <DialogTitle>Upload Media</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div>
-                <Label htmlFor="url">Image URL *</Label>
-                <Input
-                  id="url"
-                  value={uploadForm.url}
-                  onChange={(e) => setUploadForm({ ...uploadForm, url: e.target.value })}
-                  placeholder="https://example.com/image.jpg"
-                  data-testid="input-media-url"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Upload images to Cloudinary or use external URLs
-                </p>
-              </div>
+              {/* Upload Mode Tabs */}
+              <Tabs value={uploadMode} onValueChange={(v) => setUploadMode(v as "file" | "url")}>
+                <TabsList className="w-full">
+                  <TabsTrigger value="file" className="flex-1">
+                    <Upload className="mr-2 h-4 w-4" />
+                    Upload File
+                  </TabsTrigger>
+                  <TabsTrigger value="url" className="flex-1">
+                    <ImageIcon className="mr-2 h-4 w-4" />
+                    Enter URL
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="file" className="mt-4">
+                  {/* Drag and drop zone */}
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
+                      isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-primary/50'
+                    } ${isUploading ? 'pointer-events-none opacity-50' : ''}`}
+                    onClick={() => document.getElementById('file-upload-input')?.click()}
+                  >
+                    <input
+                      id="file-upload-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
+                      className="hidden"
+                      disabled={isUploading}
+                    />
+                    {isUploading ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        <p className="text-sm text-muted-foreground">Uploading to Cloudinary...</p>
+                      </div>
+                    ) : uploadForm.url ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Check className="h-8 w-8 text-green-500" />
+                        <p className="text-sm font-medium text-green-600">Image uploaded!</p>
+                        <img 
+                          src={uploadForm.url} 
+                          alt="Preview" 
+                          className="mt-2 max-h-24 rounded border" 
+                        />
+                        <p className="text-xs text-muted-foreground">Click to upload a different image</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <Upload className="h-8 w-8 text-muted-foreground" />
+                        <p className="text-sm font-medium">Drop image here or click to browse</p>
+                        <p className="text-xs text-muted-foreground">PNG, JPG, GIF up to 10MB</p>
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="url" className="mt-4">
+                  <div>
+                    <Label htmlFor="url">Image URL *</Label>
+                    <Input
+                      id="url"
+                      value={uploadForm.url}
+                      onChange={(e) => setUploadForm({ ...uploadForm, url: e.target.value })}
+                      placeholder="https://example.com/image.jpg"
+                      data-testid="input-media-url"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Paste a URL to an external image
+                    </p>
+                  </div>
+                </TabsContent>
+              </Tabs>
+              
               <div>
                 <Label htmlFor="category">Category *</Label>
                 <Select
@@ -343,17 +494,17 @@ export default function AdminMediaLibrary() {
               </div>
               <Button
                 onClick={() => uploadMutation.mutate(uploadForm)}
-                disabled={!uploadForm.url || !uploadForm.filename || uploadMutation.isPending}
+                disabled={!uploadForm.url || !uploadForm.filename || uploadMutation.isPending || isUploading}
                 className="w-full"
                 data-testid="button-submit-media"
               >
                 {uploadMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Uploading...
+                    Saving...
                   </>
                 ) : (
-                  "Upload"
+                  "Save to Library"
                 )}
               </Button>
             </div>

@@ -80,12 +80,14 @@ export default function Notifications() {
 
     // Redirect based on notification type and metadata
     const { metadata } = notification;
-    const rolePrefix = user?.role === "admin" ? "/admin" : `/${user?.role}`;
+    // super_admin uses the same /admin routes
+    const rolePrefix = (user?.role === "admin" || user?.role === "super_admin") ? "/admin" : `/${user?.role}`;
 
     if (metadata) {
+      const isAdmin = user?.role === "admin" || user?.role === "super_admin";
       switch (notification.type) {
         case "product":
-          if (metadata.productId && user?.role === "admin") {
+          if (metadata.productId && isAdmin) {
             // Admin: go to product edit page
             navigate(`${rolePrefix}/products/${metadata.productId}/edit`);
           } else {
@@ -98,10 +100,10 @@ export default function Notifications() {
           navigate(`${rolePrefix}/orders`);
           break;
         case "user":
-          if (metadata.userId && user?.role === "admin") {
+          if (metadata.userId && isAdmin) {
             // Admin: go to user edit page
             navigate(`${rolePrefix}/users/${metadata.userId}/edit`);
-          } else if (user?.role === "admin") {
+          } else if (isAdmin) {
             // Fallback to sellers page
             navigate("/admin/sellers");
           }

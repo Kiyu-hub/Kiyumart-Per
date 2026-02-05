@@ -34,11 +34,13 @@ interface RiderLocation {
   riderName: string;
   orderId: string;
   orderNumber: string;
-  latitude: number;
-  longitude: number;
+  orderStatus?: string;
+  latitude: number | null;
+  longitude: number | null;
   speed: number | null;
   heading: number | null;
-  timestamp: string;
+  timestamp: string | null;
+  hasLocation?: boolean;
   deliveryAddress?: string;
   deliveryPhone?: string;
   buyerName?: string;
@@ -96,7 +98,7 @@ function MapBoundsController({ riders, pendingOrders }: { riders: RiderLocation[
   
   useEffect(() => {
     const points: [number, number][] = [
-      ...riders.map(r => [r.latitude, r.longitude] as [number, number]),
+      ...riders.filter(r => r.latitude && r.longitude).map(r => [r.latitude, r.longitude] as [number, number]),
       ...pendingOrders.filter(o => o.deliveryLatitude && o.deliveryLongitude)
         .map(o => [Number(o.deliveryLatitude), Number(o.deliveryLongitude)] as [number, number])
     ];
@@ -237,7 +239,7 @@ export default function RealTimeRiderMap() {
 
   // Calculate route when rider is selected
   useEffect(() => {
-    if (selectedRider && selectedRider.deliveryAddress) {
+    if (selectedRider && selectedRider.deliveryAddress && selectedRider.latitude && selectedRider.longitude) {
       const order = pendingOrders.find(o => o.id === selectedRider.orderId);
       if (order && order.deliveryLatitude && order.deliveryLongitude) {
         calculateRoute(
@@ -385,7 +387,9 @@ export default function RealTimeRiderMap() {
                   
                   {/* Clustered rider markers */}
                   <MarkerClusterGroup chunkedLoading>
-                    {riders.map((rider) => (
+                    {riders.filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => 
+                      rider.latitude !== null && rider.longitude !== null
+                    ).map((rider) => (
                       <Marker
                         key={rider.riderId}
                         position={[rider.latitude, rider.longitude]}
@@ -575,12 +579,14 @@ export default function RealTimeRiderMap() {
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Last Update</span>
-                            <span className="font-medium">{formatTimestamp(selectedRider.timestamp)}</span>
+                            <span className="font-medium">{selectedRider.timestamp ? formatTimestamp(selectedRider.timestamp) : 'N/A'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Location</span>
                             <span className="font-mono text-xs">
-                              {selectedRider.latitude.toFixed(5)}, {selectedRider.longitude.toFixed(5)}
+                              {selectedRider.latitude && selectedRider.longitude 
+                                ? `${selectedRider.latitude.toFixed(5)}, ${selectedRider.longitude.toFixed(5)}`
+                                : 'No location data'}
                             </span>
                           </div>
                         </div>
@@ -591,9 +597,12 @@ export default function RealTimeRiderMap() {
                         <Button 
                           className="w-full"
                           variant="outline"
+                          disabled={!selectedRider.latitude || !selectedRider.longitude}
                           onClick={() => {
-                            const url = `https://www.google.com/maps?q=${selectedRider.latitude},${selectedRider.longitude}`;
-                            window.open(url, '_blank');
+                            if (selectedRider.latitude && selectedRider.longitude) {
+                              const url = `https://www.google.com/maps?q=${selectedRider.latitude},${selectedRider.longitude}`;
+                              window.open(url, '_blank');
+                            }
                           }}
                         >
                           <ExternalLink className="h-4 w-4 mr-2" />
