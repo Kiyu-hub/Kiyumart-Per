@@ -591,6 +591,39 @@ export const sellerPayouts = pgTable("seller_payouts", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Rider payouts table for automated rider payment with approval workflow
+export const riderPayouts = pgTable("rider_payouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riderId: varchar("rider_id").notNull().references(() => users.id),
+  orderId: varchar("order_id").references(() => orders.id), // Link to completed delivery order
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("GHS"),
+  method: text("method").notNull(), // bank_transfer, mobile_money, paystack
+  status: text("status").notNull().default("pending_approval"), // pending_approval, approved, processing, completed, failed, rejected
+  reference: text("reference").unique(),
+  paymentDetails: jsonb("payment_details").$type<{
+    accountName?: string;
+    accountNumber?: string;
+    bankCode?: string;
+    bankName?: string;
+    mobileNumber?: string;
+    provider?: string; // mtn, vodafone, airteltigo for mobile money
+  }>(),
+  notes: text("notes"),
+  approvedBy: varchar("approved_by").references(() => users.id), // Super admin who approved
+  approvedAt: timestamp("approved_at"),
+  processedBy: varchar("processed_by").references(() => users.id),
+  processedAt: timestamp("processed_at"),
+  rejectedBy: varchar("rejected_by").references(() => users.id),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  riderIdx: index("rider_payouts_rider_id_idx").on(table.riderId),
+  statusIdx: index("rider_payouts_status_idx").on(table.status),
+  createdAtIdx: index("rider_payouts_created_at_idx").on(table.createdAt),
+}));
+
 export const platformEarnings = pgTable("platform_earnings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   orderId: varchar("order_id").notNull().references(() => orders.id),
@@ -1079,6 +1112,10 @@ export type Commission = typeof commissions.$inferSelect;
 export const insertSellerPayoutSchema = createInsertSchema(sellerPayouts).omit({ id: true, createdAt: true });
 export type InsertSellerPayout = z.infer<typeof insertSellerPayoutSchema>;
 export type SellerPayout = typeof sellerPayouts.$inferSelect;
+
+export const insertRiderPayoutSchema = createInsertSchema(riderPayouts).omit({ id: true, createdAt: true });
+export type InsertRiderPayout = z.infer<typeof insertRiderPayoutSchema>;
+export type RiderPayout = typeof riderPayouts.$inferSelect;
 
 export const insertPlatformEarningSchema = createInsertSchema(platformEarnings).omit({ id: true, createdAt: true });
 export type InsertPlatformEarning = z.infer<typeof insertPlatformEarningSchema>;

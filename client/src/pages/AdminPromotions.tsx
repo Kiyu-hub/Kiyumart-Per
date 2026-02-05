@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -7,12 +7,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import ProductAutocomplete from "@/components/ProductAutocomplete";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Clock, Plus, Trash2, Check, Loader2, Upload } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Clock, Plus, Trash2, Check, Loader2, Upload, Store, ShoppingBag, Filter, RotateCcw } from "lucide-react";
 
 export default function AdminPromotions() {
   const { toast } = useToast();
@@ -57,6 +58,10 @@ export default function AdminPromotions() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Filter states
+  const [typeFilter, setTypeFilter] = useState<'all' | 'store' | 'product'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'scheduled' | 'expired'>('all');
+
   const createPromotion = useMutation({
     mutationFn: async (payload: any) => {
       const res = await apiRequest('POST', '/api/admin/promotions', payload);
@@ -92,7 +97,7 @@ export default function AdminPromotions() {
     
     try {
       setUploading(true);
-      const res = await fetch('/api/upload', {
+      const res = await fetch('/api/upload/image', {
         method: 'POST',
         body: formData,
         credentials: 'include',
@@ -103,7 +108,8 @@ export default function AdminPromotions() {
         setImageUrl(url);
         toast({ title: 'Success', description: 'Image uploaded successfully' });
       } else {
-        toast({ title: 'Upload failed', description: 'Could not upload image', variant: 'destructive' });
+        const errorData = await res.json().catch(() => ({}));
+        toast({ title: 'Upload failed', description: errorData.error || 'Could not upload image', variant: 'destructive' });
       }
     } catch (e) {
       toast({ title: 'Error', description: String(e), variant: 'destructive' });
@@ -183,6 +189,39 @@ export default function AdminPromotions() {
     if (promo.endAt && new Date(promo.endAt) < now) return 'expired';
     if (promo.startAt && new Date(promo.startAt) > now) return 'scheduled';
     return 'active';
+  };
+
+  // Filter promotions based on selected filters
+  const filteredPromotions = useMemo(() => {
+    return allPromotions.filter((p: any) => {
+      // Type filter
+      if (typeFilter !== 'all' && p.type !== typeFilter) return false;
+      
+      // Status filter
+      if (statusFilter !== 'all') {
+        const status = getPromotionStatus(p);
+        if (status !== statusFilter) return false;
+      }
+      
+      return true;
+    });
+  }, [allPromotions, typeFilter, statusFilter]);
+
+  // Stats for filter badges
+  const stats = useMemo(() => {
+    return {
+      total: allPromotions.length,
+      store: allPromotions.filter((p: any) => p.type === 'store').length,
+      product: allPromotions.filter((p: any) => p.type === 'product').length,
+      active: allPromotions.filter((p: any) => getPromotionStatus(p) === 'active').length,
+      scheduled: allPromotions.filter((p: any) => getPromotionStatus(p) === 'scheduled').length,
+      expired: allPromotions.filter((p: any) => getPromotionStatus(p) === 'expired').length,
+    };
+  }, [allPromotions]);
+
+  const resetFilters = () => {
+    setTypeFilter('all');
+    setStatusFilter('all');
   };
 
   const formatDate = (dateStr: string) => {
@@ -425,16 +464,105 @@ export default function AdminPromotions() {
           </CardContent>
         </Card>
 
-        {/* Promotions Table */}
+        {/* Promotions Table with Filters */}
         <Card>
-          <CardHeader>
-            <CardTitle>Active & Recent Promotions</CardTitle>
+          <CardHeader className="pb-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Filter className="h-5 w-5" />
+                  Promotions Management
+                </CardTitle>
+                <CardDescription>
+                  Showing {filteredPromotions.length} of {allPromotions.length} promotions
+                </CardDescription>
+              </div>
+              {(typeFilter !== 'all' || statusFilter !== 'all') && (
+                <Button variant="outline" size="sm" onClick={resetFilters}>
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Reset Filters
+                </Button>
+              )}
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex flex-col md:flex-row gap-4 mt-4">
+              {/* Type Filter */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground">Filter by Type</label>
+                <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
+                  <TabsList className="grid grid-cols-3">
+                    <TabsTrigger value="all" className="gap-1">
+                      All
+                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
+                        {stats.total}
+                      </Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="store" className="gap-1">
+                      <Store className="h-3.5 w-3.5" />
+                      Store
+                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
+                        {stats.store}
+                      </Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="product" className="gap-1">
+                      <ShoppingBag className="h-3.5 w-3.5" />
+                      Product
+                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
+                        {stats.product}
+                      </Badge>
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+
+              {/* Status Filter */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground">Filter by Status</label>
+                <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+                  <TabsList className="grid grid-cols-4">
+                    <TabsTrigger value="all">
+                      All
+                    </TabsTrigger>
+                    <TabsTrigger value="active" className="gap-1">
+                      🔴 Active
+                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs bg-green-100 text-green-800">
+                        {stats.active}
+                      </Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="scheduled" className="gap-1">
+                      ⏰ Scheduled
+                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs bg-blue-100 text-blue-800">
+                        {stats.scheduled}
+                      </Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="expired" className="gap-1">
+                      ✓ Expired
+                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs bg-gray-100 text-gray-800">
+                        {stats.expired}
+                      </Badge>
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            {allPromotions.length === 0 ? (
+            {filteredPromotions.length === 0 ? (
               <div className="text-center py-12">
                 <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">No promotions yet. Create one to get started!</p>
+                <p className="text-muted-foreground">
+                  {allPromotions.length === 0 
+                    ? "No promotions yet. Create one to get started!"
+                    : "No promotions match your filters."
+                  }
+                </p>
+                {allPromotions.length > 0 && (
+                  <Button variant="outline" className="mt-4" onClick={resetFilters}>
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Reset Filters
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -451,7 +579,7 @@ export default function AdminPromotions() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {allPromotions.map((p: any) => {
+                    {filteredPromotions.map((p: any) => {
                       const status = getPromotionStatus(p);
                       const targetName = p.type === 'product' 
                         ? (p.product?.name || p.targetId.slice(0, 8))

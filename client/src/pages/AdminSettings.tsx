@@ -460,7 +460,7 @@ export default function AdminSettings() {
                       </div>
                     </div>
                     <div className="pt-2 border-t">
-                      <Button variant="outline" onClick={() => navigate("/settings")}>
+                      <Button variant="outline" onClick={() => navigate("/profile")}>
                         Edit Profile Details
                       </Button>
                     </div>

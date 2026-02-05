@@ -1,7 +1,7 @@
-# KiyuMart v1.1.1 - Complete Project Summary
+# KiyuMart v1.1.4 - Complete Project Summary
 
-**Date:** January 23, 2026  
-**Version:** 1.1.1 (Security Hardened)  
+**Date:** February 3, 2026  
+**Version:** 1.1.4 (Multi-Vendor Promotional Ads Parity)  
 **Status:** ✅ **PRODUCTION READY**
 
 ---
@@ -15,17 +15,15 @@ KiyuMart is a **production-ready, enterprise-grade local marketplace platform** 
 - Shopping cart & checkout
 - Secure payment processing (Paystack)
 - Order management with real-time tracking
-- Multi-currency support (6 currencies)
-- Multi-language support (3 languages)
- - Order management with real-time tracking
- - Single-currency operation (GHS)
- - English-only UI
+- Single-currency operation (GHS)
+- English-only UI
 
 ✅ **Multi-Vendor Marketplace**
 - Seller onboarding & management
 - Commission-based revenue model
 - Seller earnings & payouts
 - Seller analytics dashboard
+- Full promotional ads support (v1.1.4)
 
 ✅ **Delivery Management**
 - Rider assignment

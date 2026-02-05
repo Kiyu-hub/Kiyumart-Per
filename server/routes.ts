@@ -2157,6 +2157,115 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Rider Payout Routes =====
+  
+  // Admin: Get all riders with payout summary
+  app.get('/api/admin/riders-payouts', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const riders = await storage.getUsersByRole('rider');
+      const { riderPayouts } = await import("@shared/schema");
+      const { eq, sql } = await import("drizzle-orm");
+      const { db } = await import("../db/index");
+      
+      const results: any[] = [];
+
+      for (const r of riders) {
+        const totals = await db.select({
+          totalPaid: sql`COALESCE(SUM(CASE WHEN ${riderPayouts.status} = 'completed' THEN ${riderPayouts.amount}::numeric ELSE 0 END), 0)`,
+          pending: sql`COALESCE(SUM(CASE WHEN ${riderPayouts.status} IN ('pending_approval', 'approved', 'processing') THEN ${riderPayouts.amount}::numeric ELSE 0 END), 0)`,
+          count: sql`COALESCE(COUNT(*), 0)`,
+          lastPayoutAt: sql`MAX(${riderPayouts.processedAt})`
+        }).from(riderPayouts).where(eq(riderPayouts.riderId, r.id));
+
+        results.push({
+          id: r.id,
+          name: r.name,
+          email: r.email,
+          phone: r.phone,
+          isApproved: r.isApproved,
+          isActive: r.isActive,
+          totalPaid: (totals[0]?.totalPaid as any) || '0.00',
+          pendingAmount: (totals[0]?.pending as any) || '0.00',
+          payoutCount: (totals[0]?.count as any) || 0,
+          lastPayoutAt: totals[0]?.lastPayoutAt || null
+        });
+      }
+      res.json(results);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Get payouts for a specific rider
+  app.get('/api/admin/riders/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const riderId = req.params.id;
+      const payouts = await storage.getRiderPayouts(riderId);
+      res.json(payouts);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Get all pending rider payouts awaiting approval
+  app.get('/api/admin/rider-payouts/pending', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const pending = await storage.getAllPendingRiderPayouts();
+      res.json(pending);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Approve rider payout
+  app.post('/api/admin/rider-payouts/:id/approve', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const payoutId = req.params.id;
+      const adminId = req.user!.id;
+      
+      // Update payout status to completed (in real implementation, trigger actual payment here)
+      const updated = await storage.updateRiderPayoutStatus(payoutId, 'completed', adminId);
+      
+      if (!updated) {
+        return res.status(404).json({ error: 'Payout not found' });
+      }
+
+      // Create a transaction record
+      await storage.createTransaction({
+        type: 'payout',
+        amount: updated.amount,
+        currency: 'GHS',
+        status: 'completed',
+        description: `Rider payout approved - ${updated.notes || 'Delivery payment'}`,
+        paymentMethod: updated.method || 'mobile_money',
+        userId: updated.riderId
+      });
+
+      res.json({ success: true, payout: updated });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Reject rider payout
+  app.post('/api/admin/rider-payouts/:id/reject', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const payoutId = req.params.id;
+      const adminId = req.user!.id;
+      const { reason } = req.body;
+      
+      const updated = await storage.updateRiderPayoutStatus(payoutId, 'failed', adminId);
+      
+      if (!updated) {
+        return res.status(404).json({ error: 'Payout not found' });
+      }
+
+      res.json({ success: true, payout: updated });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // Admin: recent transactions and logs
   app.get('/api/admin/transactions', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
     try {

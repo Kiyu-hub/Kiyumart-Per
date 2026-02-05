@@ -23,6 +23,7 @@ import {
   Home,
   DollarSign,
   UserCheck,
+  CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -64,6 +65,8 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
     { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
+    { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts" },
+    { icon: Truck, label: "Rider Payouts", id: "riders-payouts" },
     { icon: Tag, label: "Promotions", id: "promotions" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
@@ -83,6 +86,8 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
     { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
+    { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts" },
+    { icon: Truck, label: "Rider Payouts", id: "riders-payouts" },
     { icon: Tag, label: "Promotions", id: "promotions" },
   ],
   seller: [

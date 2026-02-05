@@ -5,7 +5,7 @@ import {
   productVariants, heroBanners, promotionalAds, coupons, bannerCollections, marketplaceBanners,
   stores, categoryFields, categories, notifications, mediaLibrary, footerPages,
   idempotencyKeys,
-  commissions, platformEarnings, sellerPayouts, roleFeatures,
+  commissions, platformEarnings, sellerPayouts, riderPayouts, roleFeatures,
   type User, type InsertUser, type Product, type InsertProduct,
   type Order, type InsertOrder, type DeliveryZone, type InsertDeliveryZone,
   type ChatMessage, type InsertChatMessage, type Transaction, type PlatformSettings,
@@ -17,6 +17,7 @@ import {
   type InsertMediaLibrary, type FooterPage, type InsertFooterPage,
   type Commission, type InsertCommission, type PlatformEarning, type InsertPlatformEarning,
   type SellerPayout, type InsertSellerPayout,
+  type RiderPayout, type InsertRiderPayout,
   type OrderStatusHistory, type InsertOrderStatusHistory
 } from "@shared/schema";
 import { eq, and, desc, sql, lte, gte, or, isNull, isNotNull } from "drizzle-orm";
@@ -86,6 +87,14 @@ export interface IStorage {
   getSellerPayouts(sellerId: string): Promise<SellerPayout[]>;
   getAllPendingPayouts(): Promise<SellerPayout[]>;
   updatePayoutStatus(payoutId: string, status: string, processedBy?: string): Promise<SellerPayout | undefined>;
+  
+  // Rider Payout operations
+  createRiderPayout(data: InsertRiderPayout): Promise<RiderPayout>;
+  getRiderPayouts(riderId: string): Promise<RiderPayout[]>;
+  getAllPendingRiderPayouts(): Promise<RiderPayout[]>;
+  updateRiderPayoutStatus(payoutId: string, status: string, processedBy?: string): Promise<RiderPayout | undefined>;
+  getRiderAvailableBalance(riderId: string): Promise<number>;
+  queueRiderPayout(riderId: string, amount: number, orderId: string): Promise<RiderPayout>;
   
   // Platform settings
   getPlatformSettings(): Promise<PlatformSettings>;
@@ -1177,6 +1186,74 @@ export class DbStorage implements IStorage {
 
       return updated;
     });
+  }
+
+  // ===== Rider Payout Operations =====
+  
+  // Create rider payout (for approved payouts after delivery completion)
+  async createRiderPayout(data: InsertRiderPayout): Promise<RiderPayout> {
+    const [payout] = await db.insert(riderPayouts)
+      .values(data as any)
+      .returning();
+    return payout;
+  }
+
+  // Get rider payouts
+  async getRiderPayouts(riderId: string): Promise<RiderPayout[]> {
+    return await db.select()
+      .from(riderPayouts)
+      .where(eq(riderPayouts.riderId, riderId))
+      .orderBy(desc(riderPayouts.createdAt));
+  }
+
+  // Get all pending rider payouts (for admin approval)
+  async getAllPendingRiderPayouts(): Promise<RiderPayout[]> {
+    return await db.select()
+      .from(riderPayouts)
+      .where(eq(riderPayouts.status, 'pending_approval'))
+      .orderBy(desc(riderPayouts.createdAt));
+  }
+
+  // Update rider payout status (admin processing)
+  async updateRiderPayoutStatus(payoutId: string, status: string, processedBy?: string): Promise<RiderPayout | undefined> {
+    const [updated] = await db.update(riderPayouts)
+      .set({
+        status,
+        processedBy: processedBy || undefined,
+        processedAt: status === 'completed' || status === 'failed' ? new Date() : undefined,
+      } as any)
+      .where(eq(riderPayouts.id, payoutId))
+      .returning();
+    return updated;
+  }
+
+  // Get rider's available balance (sum of pending payouts)
+  async getRiderAvailableBalance(riderId: string): Promise<number> {
+    const result = await db.select({
+      total: sql`COALESCE(SUM(${riderPayouts.amount}::numeric), 0)::numeric`
+    })
+      .from(riderPayouts)
+      .where(and(
+        eq(riderPayouts.riderId, riderId),
+        eq(riderPayouts.status, 'pending_approval')
+      ));
+    
+    return parseFloat(result[0]?.total as string || '0');
+  }
+
+  // Queue a payout for a completed delivery (called when delivery is marked complete)
+  async queueRiderPayout(riderId: string, amount: number, orderId: string): Promise<RiderPayout> {
+    const [payout] = await db.insert(riderPayouts)
+      .values({
+        riderId,
+        orderId,
+        amount: amount.toFixed(2),
+        method: 'mobile_money',
+        status: 'pending_approval',
+        notes: `Delivery fee for order ${orderId}`
+      })
+      .returning();
+    return payout;
   }
 
   // Platform settings

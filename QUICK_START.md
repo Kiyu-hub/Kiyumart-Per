@@ -2,7 +2,7 @@
 
 **Purpose:** Get up and running in 5 minutes  
 **Target:** New developers, AI models, quick reference  
-**Last Updated:** February 1, 2026
+**Last Updated:** February 3, 2026
 
 ---
 

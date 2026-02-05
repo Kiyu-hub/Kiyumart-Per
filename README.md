@@ -6,9 +6,9 @@
 >
 > A **fully functional, production-ready local marketplace platform** enabling small businesses, artisans, and entrepreneurs to sell their products to local and regional customers. Multi-vendor support, comprehensive admin management, real-time order tracking, and secure payment processing.
 > 
-> **Version:** 1.1.3 (Latest - Enhanced Promotional System & Admin Dashboard Improvements)  
+> **Version:** 1.1.4 (Latest - Multi-Vendor Promotional Ads Parity & Route Fixes)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
-> **Last Updated:** February 2, 2026
+> **Last Updated:** February 3, 2026
 > 
 > **📚 Documentation:** Start with [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) for complete guides  
 > **🚀 Quick Start:** See [QUICK_START.md](./QUICK_START.md) to get running in 5 minutes  
@@ -163,6 +163,8 @@ To be the leading online marketplace platform for local businesses, connecting q
   - UI Display: The platform now renders **Hero** (homepage), **Sidebar** (homepage - large screens), **Product Page** (product detail pages), and **Footer** ads when configured.
   
   - Promotional Ads: Admins can create time-limited promotional placements that feature a **store** or **product**. Promotions include a live client-side countdown, appear as a full-height sticky **Sidebar** variant on large screens and as a full-width block on mobile, and are automatically expired either by admin action or by the background worker. The Admin Promotions UI provides a seller→product selector, supports adding multiple products at once (bulk create for product promotions), and scheduling (start/end times). Promotions now support rich fields: **title**, **description**, **image URL**, **CTA text & URL**, and **theme color** for custom branding. Playwright e2e tests cover create → visible → expire → removal lifecycle.
+  
+  - **Multi-Vendor Mode Parity (v1.1.4):** Promotional ads and banner ads are now fully supported in multi-vendor mode. The MultiVendorHome component displays hero ads, promotional grids (for 2+ promotions), sidebar promotions/ads, and footer ads—identical to single-vendor mode. Store routes use `/sellers/:id` consistently across all components.
 
 Development notes:
   - The Vite dev server proxies `/api` to `http://localhost:5000` (backend) to keep client API calls consistent in development and avoid mismatches between ports (e.g., `5173`, `5174`). This is set in `vite.config.ts`.

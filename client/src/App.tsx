@@ -45,6 +45,7 @@ import AdminCategoryManager from "@/pages/AdminCategoryManager";
 import AdminFooterPagesManager from "@/pages/AdminFooterPagesManager";
 import AdminPlatformEarnings from "@/pages/AdminPlatformEarnings";
 import AdminSellersPayouts from "@/pages/AdminSellersPayouts";
+import AdminRiderPayouts from "@/pages/AdminRiderPayouts";
 import AdminProducts from "@/pages/AdminProducts";
 import AdminOrders from "@/pages/AdminOrders";
 import AdminUsers from "@/pages/AdminUsers";
@@ -130,7 +131,8 @@ function Router() {
       <Route path="/admin/stores" component={AdminStoresList} />
       <Route path="/admin/store" component={AdminStoreManager} />
       <Route path="/admin/settings" component={AdminSettings} />
-      <Route path="/admin/sellers" component={AdminSellersPayouts} />
+      <Route path="/admin/sellers-payouts" component={AdminSellersPayouts} />
+      <Route path="/admin/riders-payouts" component={AdminRiderPayouts} />
       <Route path="/admin/branding" component={AdminBranding} />
       <Route path="/admin/delivery-tracking" component={AdminDeliveryTracking} />
       <Route path="/admin/zones" component={AdminDeliveryZones} />
