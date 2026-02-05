@@ -683,31 +683,33 @@ export default function AdminMessages() {
                     <p className="text-sm text-muted-foreground">No messages yet</p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {messages.map((msg) => (
                       <div
                         key={msg.id}
                         className={`flex ${msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`max-w-[85%] p-3 rounded-2xl ${
+                          className={`max-w-[85%] px-3 py-2 rounded-2xl ${
                             msg.senderId === user?.id
                               ? "bg-primary text-primary-foreground rounded-br-sm"
                               : "bg-muted rounded-bl-sm"
                           }`}
                         >
-                          <p className="text-sm">{msg.message}</p>
-                          <div className="flex items-center gap-1 mt-1">
-                            <p className="text-[10px] opacity-70">
-                              {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
-                            </p>
-                            {msg.senderId === user?.id && (
-                              <MessageStatusTicks
-                                status={msg.status || "sent"}
-                                deliveredAt={msg.deliveredAt}
-                                readAt={msg.readAt}
-                              />
-                            )}
+                          <div className="flex items-end gap-2">
+                            <p className="text-sm flex-1">{msg.message}</p>
+                            <span className="flex items-center gap-0.5 flex-shrink-0">
+                              <span className="text-[10px] opacity-70 whitespace-nowrap">
+                                {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                              </span>
+                              {msg.senderId === user?.id && (
+                                <MessageStatusTicks
+                                  status={msg.status || "sent"}
+                                  deliveredAt={msg.deliveredAt}
+                                  readAt={msg.readAt}
+                                />
+                              )}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -780,7 +782,7 @@ export default function AdminMessages() {
               </TabsList>
             </Tabs>
 
-            <ScrollArea className="h-[500px]">
+            <ScrollArea className="flex-1">
               {usersLoading ? (
                 <div className="text-center py-12">
                   <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
@@ -847,9 +849,9 @@ export default function AdminMessages() {
             </ScrollArea>
           </Card>
 
-          <Card className="md:col-span-2 p-4">
+          <Card className="md:col-span-2 p-4 flex flex-col">
             {selectedUser ? (
-              <div className="flex flex-col h-[600px]">
+              <div className="flex flex-col flex-1 min-h-0">
                 <div className="flex items-center justify-between pb-4 border-b mb-4">
                   <div className="flex items-center gap-3">
                     {/* Avatar with presence */}
@@ -936,25 +938,29 @@ export default function AdminMessages() {
                           </div>
                           <div className={`flex-1 ${msg.senderId === user?.id ? "text-right" : ""}`}>
                             <div
-                              className={`inline-block p-3 rounded-lg max-w-[80%] ${
+                              className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${
                                 msg.senderId === user?.id
                                   ? "bg-primary text-primary-foreground"
                                   : "bg-accent"
                               }`}
                             >
-                              <p className="text-sm">{msg.message}</p>
-                            </div>
-                            <div className="flex items-center gap-1 mt-1">
-                              <p className="text-xs text-muted-foreground">
-                                {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
-                              </p>
-                              {msg.senderId === user?.id && (
-                                <MessageStatusTicks
-                                  status={msg.status || "sent"}
-                                  deliveredAt={msg.deliveredAt}
-                                  readAt={msg.readAt}
-                                />
-                              )}
+                              <div className="flex items-end gap-2">
+                                <p className="text-sm flex-1">{msg.message}</p>
+                                <span className="flex items-center gap-0.5 flex-shrink-0">
+                                  <span className={`text-[10px] whitespace-nowrap ${
+                                    msg.senderId === user?.id ? 'opacity-70' : 'text-muted-foreground'
+                                  }`}>
+                                    {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                                  </span>
+                                  {msg.senderId === user?.id && (
+                                    <MessageStatusTicks
+                                      status={msg.status || "sent"}
+                                      deliveredAt={msg.deliveredAt}
+                                      readAt={msg.readAt}
+                                    />
+                                  )}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>

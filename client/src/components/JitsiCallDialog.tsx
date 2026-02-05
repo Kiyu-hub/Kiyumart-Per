@@ -153,7 +153,7 @@ export function JitsiCallDialog({
   if (roomUrl) {
     return (
       <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-4xl h-[80vh] p-0 gap-0">
+        <DialogContent className="max-w-[95vw] w-full h-[90vh] max-h-[90vh] p-0 gap-0 overflow-hidden">
           <DialogHeader className="p-4 border-b flex-row items-center justify-between space-y-0">
             <div className="flex items-center gap-3">
               <Badge variant={callType === 'video' ? 'default' : 'secondary'}>
