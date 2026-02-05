@@ -1,12 +1,22 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Bell, Check, Trash2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Loader2, Bell, Check, Trash2, ExternalLink, Package, MessageSquare, AlertCircle, Tag, Truck, MapPin } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { formatDistanceToNow } from "date-fns";
 
 interface Notification {
   id: string;
@@ -15,11 +25,15 @@ interface Notification {
   type: string;
   isRead: boolean;
   createdAt: string;
+  metadata?: Record<string, any>;
 }
 
 export default function RiderNotifications() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const { data: notifications = [], isLoading } = useQuery<Notification[]>({
     queryKey: ["/api/notifications", user?.id],
@@ -61,9 +75,62 @@ export default function RiderNotifications() {
   const getTypeColor = (type: string) => {
     switch (type) {
       case "delivery": return "bg-blue-500";
+      case "order": return "bg-primary";
       case "payment": return "bg-green-500";
+      case "payout": return "bg-emerald-500";
+      case "message": return "bg-teal-500";
+      case "system": return "bg-orange-500";
       case "alert": return "bg-red-500";
+      case "pickup": return "bg-purple-500";
       default: return "bg-gray-500";
+    }
+  };
+
+  const getIcon = (type: string) => {
+    switch (type) {
+      case "delivery": return <Truck className="h-4 w-4" />;
+      case "order": return <Package className="h-4 w-4" />;
+      case "pickup": return <MapPin className="h-4 w-4" />;
+      case "message": return <MessageSquare className="h-4 w-4" />;
+      case "system": return <AlertCircle className="h-4 w-4" />;
+      case "payout": return <Tag className="h-4 w-4" />;
+      default: return <Bell className="h-4 w-4" />;
+    }
+  };
+
+  const handleNotificationClick = (notification: Notification) => {
+    if (!notification.isRead) {
+      markAsReadMutation.mutate(notification.id);
+    }
+    setSelectedNotification(notification);
+    setDialogOpen(true);
+  };
+
+  const handleAction = () => {
+    if (!selectedNotification) return;
+    setDialogOpen(false);
+    
+    const { metadata, type } = selectedNotification;
+    
+    if (metadata?.link) {
+      navigate(metadata.link);
+      return;
+    }
+
+    switch (type) {
+      case "delivery":
+      case "order":
+      case "pickup":
+        navigate("/rider/deliveries");
+        break;
+      case "message":
+        navigate("/rider/messages");
+        break;
+      case "payout":
+        navigate("/rider/earnings");
+        break;
+      default:
+        break;
     }
   };
 
@@ -104,32 +171,39 @@ export default function RiderNotifications() {
             {notifications.map((notification) => (
               <Card
                 key={notification.id}
-                className={`p-4 ${!notification.isRead ? "border-l-4 border-l-primary bg-muted/50" : ""}`}
+                className={`p-4 cursor-pointer hover:shadow-md transition-all ${!notification.isRead ? "border-l-4 border-l-primary bg-muted/50" : ""}`}
+                onClick={() => handleNotificationClick(notification)}
                 data-testid={`card-notification-${notification.id}`}
               >
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold">{notification.title}</h3>
-                      <Badge className={`${getTypeColor(notification.type)} text-white text-xs`}>
-                        {notification.type}
-                      </Badge>
-                      {!notification.isRead && (
-                        <Badge variant="secondary" className="text-xs">New</Badge>
-                      )}
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className={`p-2 rounded-full ${getTypeColor(notification.type)} text-white shrink-0`}>
+                      {getIcon(notification.type)}
                     </div>
-                    <p className="text-sm text-muted-foreground mb-2">{notification.message}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(notification.createdAt).toLocaleString()}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h3 className={`font-semibold ${!notification.isRead ? "text-foreground" : "text-muted-foreground"}`}>
+                          {notification.title}
+                        </h3>
+                        {!notification.isRead && (
+                          <Badge variant="default" className="text-xs">New</Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-2 line-clamp-2">{notification.message}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                     {!notification.isRead && (
                       <Button
                         variant="ghost"
                         size="icon"
+                        className="h-8 w-8"
                         onClick={() => markAsReadMutation.mutate(notification.id)}
                         data-testid={`button-mark-read-${notification.id}`}
+                        title="Mark as read"
                       >
                         <Check className="h-4 w-4" />
                       </Button>
@@ -137,8 +211,10 @@ export default function RiderNotifications() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
                       onClick={() => deleteNotificationMutation.mutate(notification.id)}
                       data-testid={`button-delete-${notification.id}`}
+                      title="Delete"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -149,6 +225,88 @@ export default function RiderNotifications() {
           </div>
         )}
       </div>
+
+      {/* Notification Detail Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedNotification && (
+                <>
+                  <span className={`p-1.5 rounded-full ${getTypeColor(selectedNotification.type)} text-white`}>
+                    {getIcon(selectedNotification.type)}
+                  </span>
+                  <span className="capitalize">{selectedNotification.type} Notification</span>
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Notification details
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedNotification && (
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-semibold text-base">{selectedNotification.title}</h4>
+                <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap">
+                  {selectedNotification.message}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Badge className={`text-xs text-white ${getTypeColor(selectedNotification.type)}`}>
+                  {selectedNotification.type}
+                </Badge>
+                <span>•</span>
+                <span>{formatDistanceToNow(new Date(selectedNotification.createdAt), { addSuffix: true })}</span>
+                {selectedNotification.isRead && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <Check className="h-3 w-3" /> Read
+                    </span>
+                  </>
+                )}
+              </div>
+
+              <div className="flex justify-between gap-2 pt-4 border-t">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    if (selectedNotification) {
+                      deleteNotificationMutation.mutate(selectedNotification.id);
+                      setDialogOpen(false);
+                    }
+                  }}
+                  data-testid="button-delete-notification"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDialogOpen(false)}
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleAction}
+                    data-testid="button-go-to-action"
+                  >
+                    View Details
+                    <ExternalLink className="h-3 w-3 ml-2" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

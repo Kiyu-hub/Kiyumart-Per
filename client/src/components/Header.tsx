@@ -1,7 +1,6 @@
-import { Search, Menu, User, Bell, LayoutDashboard, ShoppingBag, Store as StoreIcon, Truck } from "lucide-react";
+import { Search, Menu, User, LayoutDashboard, ShoppingBag, Store as StoreIcon, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useQuery } from "@tanstack/react-query";
@@ -15,6 +14,7 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import CartPopover from "@/components/CartPopover";
+import NotificationPopover from "@/components/NotificationPopover";
 import Logo from "@/components/Logo";
 
 interface HeaderProps {
@@ -34,20 +34,12 @@ export default function Header({
   const { t } = useLanguage();
   const { user, isAuthenticated } = useAuth();
 
-  const { data: notificationData } = useQuery<{ count: number }>({
-    queryKey: ["/api/notifications/unread-count"],
-    enabled: isAuthenticated,
-    refetchInterval: 30000, // Refetch every 30 seconds
-  });
-
   const { data: platformSettings } = useQuery<{ 
     allowSellerRegistration: boolean; 
     allowRiderRegistration: boolean; 
   }>({
     queryKey: ["/api/platform-settings"],
   });
-
-  const notificationCount = notificationData?.count || 0;
   
   // Show "Become a Seller" if enabled and user is not already a seller/admin/super_admin
   const showBecomeSeller = platformSettings?.allowSellerRegistration && 
@@ -147,23 +139,7 @@ export default function Header({
             )}
 
             {isAuthenticated && (
-              <Button 
-                variant="ghost" 
-                size="icon"
-                className="relative"
-                onClick={() => navigate("/notifications")}
-                data-testid="button-notifications"
-              >
-                <Bell className={`h-5 w-5 ${isActive("/notifications") ? "text-primary" : ""}`} />
-                {notificationCount > 0 && (
-                  <Badge 
-                    className="absolute -top-1 -right-1 min-w-[20px] h-5 flex items-center justify-center px-1.5 text-[10px] font-semibold bg-destructive text-destructive-foreground rounded-full border-2 border-background"
-                    data-testid="badge-notification-count"
-                  >
-                    {notificationCount > 9 ? "9+" : notificationCount}
-                  </Badge>
-                )}
-              </Button>
+              <NotificationPopover />
             )}
 
             {hasDashboard && (
