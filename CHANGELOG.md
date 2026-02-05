@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-02-05 (v1.1.5)
+
+### Rider Payouts System with Admin Approval
+- **Feature:** Complete rider payout workflow with super admin approval
+  - Added `riderPayouts` table for tracking delivery payment earnings
+  - Payouts automatically queued with `pending_approval` status on delivery completion
+  - Super admin approval required before funds are released (no automatic payments)
+  - Admin can approve or reject individual payouts with reason tracking
+
+### Admin Dashboard Improvements
+- **Feature:** Standalone Seller Payouts page at `/admin/sellers-payouts`
+- **Feature:** Rider Payouts page at `/admin/riders-payouts`
+  - View all riders with payout summary (total paid, pending, payout count)
+  - Drill down to individual rider payout history
+  - Approve/reject pending payouts with confirmation dialogs
+  - Alert banner for pending approvals count
+- **Feature:** Added "Seller Payouts" and "Rider Payouts" menu items to admin sidebar
+- **Fix:** Navbar active state now correctly highlights "Platform Earnings" menu item
+- **Fix:** Styled payout pages to match platform theme (removed colorful gradients)
+
+### API Routes Added
+- `GET /api/admin/riders-payouts` - List riders with payout summary
+- `GET /api/admin/riders/:id/payouts` - Get rider's payout history
+- `GET /api/admin/rider-payouts/pending` - Get payouts awaiting approval
+- `POST /api/admin/rider-payouts/:id/approve` - Approve and process payout
+- `POST /api/admin/rider-payouts/:id/reject` - Reject payout with reason
+
 ## 2026-02-03 (v1.1.4)
 
 ### Multi-Vendor Promotional Ads Parity

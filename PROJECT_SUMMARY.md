@@ -1,7 +1,7 @@
-# KiyuMart v1.1.4 - Complete Project Summary
+# KiyuMart v1.1.5 - Complete Project Summary
 
-**Date:** February 3, 2026  
-**Version:** 1.1.4 (Multi-Vendor Promotional Ads Parity)  
+**Date:** February 5, 2026  
+**Version:** 1.1.5 (Rider Payouts with Admin Approval)  
 **Status:** ✅ **PRODUCTION READY**
 
 ---
@@ -21,7 +21,7 @@ KiyuMart is a **production-ready, enterprise-grade local marketplace platform** 
 ✅ **Multi-Vendor Marketplace**
 - Seller onboarding & management
 - Commission-based revenue model
-- Seller earnings & payouts
+- Seller earnings & payouts (v1.1.5)
 - Seller analytics dashboard
 - Full promotional ads support (v1.1.4)
 
@@ -29,7 +29,13 @@ KiyuMart is a **production-ready, enterprise-grade local marketplace platform** 
 - Rider assignment
 - Real-time map tracking
 - Delivery zone configuration
-- Delivery partner earnings
+- Rider payouts with admin approval (v1.1.5)
+
+✅ **Payout Management (v1.1.5)**
+- Standalone Seller Payouts page
+- Rider Payouts with pending approval workflow
+- Super admin approval required for all payouts
+- Complete audit trail for payout approvals/rejections
 
 ✅ **Admin Control**
 - Comprehensive platform settings
