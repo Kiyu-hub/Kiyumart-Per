@@ -1,35 +1,44 @@
-import { useEffect, useState, useRef, lazy, Suspense } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import { Icon, LatLng } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { 
-  Navigation, 
-  MapPin, 
+  Truck, 
   Clock, 
-  Package, 
-  Maximize2,
-  Minimize2,
-  LocateFixed,
-  Loader2,
-  RefreshCcw
+  Maximize2, 
+  Minimize2, 
+  MapPin, 
+  Phone, 
+  Navigation,
+  Target,
+  RefreshCcw,
+  Loader2
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
 import { io, Socket } from "socket.io-client";
+import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 
 interface ActiveDelivery {
   id: string;
   orderNumber: string;
   status: string;
   deliveryAddress: string;
-  deliveryLatitude?: number;
-  deliveryLongitude?: number;
+  deliveryLatitude: number | null;
+  deliveryLongitude: number | null;
   buyerName?: string;
+  buyerPhone?: string;
 }
 
-// Custom icons
+interface RouteInfo {
+  distance: number; // km
+  duration: number; // minutes
+  geometry: [number, number][];
+}
+
 const riderIcon = new Icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
   iconSize: [45, 45],
@@ -37,109 +46,116 @@ const riderIcon = new Icon({
   popupAnchor: [0, -45],
 });
 
-const deliveryIcon = new Icon({
+const destinationIcon = new Icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
   iconSize: [36, 36],
   iconAnchor: [18, 36],
   popupAnchor: [0, -36],
 });
 
-const pendingIcon = new Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/1048/1048953.png",
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-  popupAnchor: [0, -32],
-});
-
-// Map controller for centering
-function MapController({ position, autoCenter }: { position: [number, number] | null; autoCenter: boolean }) {
+// Component to fit map bounds
+function MapBoundsController({ riderPos, destPos }: { riderPos: [number, number] | null; destPos: [number, number] | null }) {
   const map = useMap();
   
   useEffect(() => {
-    if (position && autoCenter) {
-      map.flyTo(position, 15, { duration: 1 });
+    const points: [number, number][] = [];
+    if (riderPos) points.push(riderPos);
+    if (destPos) points.push(destPos);
+    
+    if (points.length > 1) {
+      map.fitBounds(points, { padding: [60, 60], maxZoom: 15 });
+    } else if (points.length === 1) {
+      map.setView(points[0], 15);
     }
-  }, [map, position, autoCenter]);
+  }, [map, riderPos, destPos]);
   
   return null;
+}
+
+// OSRM Route calculation
+async function calculateRoute(from: [number, number], to: [number, number]): Promise<RouteInfo | null> {
+  try {
+    const response = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`
+    );
+    const data = await response.json();
+    
+    if (data.code === "Ok" && data.routes?.[0]) {
+      const route = data.routes[0];
+      return {
+        distance: route.distance / 1000,
+        duration: Math.round(route.duration / 60),
+        geometry: route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number])
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Route calculation failed:", error);
+    return null;
+  }
 }
 
 interface RiderLiveMapProps {
   className?: string;
 }
 
-export default function RiderLiveMap({ className = "" }: RiderLiveMapProps) {
+export default function RiderLiveMap({ className }: RiderLiveMapProps) {
+  const { user } = useAuth();
+  const [riderPosition, setRiderPosition] = useState<[number, number] | null>(null);
+  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
-  const [autoCenter, setAutoCenter] = useState(true);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const [gpsStatus, setGpsStatus] = useState<"acquiring" | "active" | "error">("acquiring");
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const watchIdRef = useRef<number | null>(null);
+  const mapRef = useRef<any>(null);
 
-  // Fetch rider's active deliveries
-  const { data: activeDeliveries = [], refetch } = useQuery<ActiveDelivery[]>({
-    queryKey: ["/api/rider/deliveries/active"],
-    queryFn: async () => {
-      const res = await fetch("/api/rider/deliveries/active");
-      if (!res.ok) {
-        if (res.status === 404) return [];
-        throw new Error("Failed to fetch deliveries");
-      }
-      return res.json();
-    },
-    refetchInterval: 30000, // Refetch every 30 seconds
+  // Fetch active delivery
+  const { data: activeDelivery, isLoading, refetch } = useQuery<ActiveDelivery | null>({
+    queryKey: ["/api/rider/active-delivery"],
+    refetchInterval: 30000,
   });
 
-  // Initialize geolocation tracking
+  const destPos: [number, number] | null = activeDelivery?.deliveryLatitude && activeDelivery?.deliveryLongitude
+    ? [activeDelivery.deliveryLatitude, activeDelivery.deliveryLongitude]
+    : null;
+
+  // GPS tracking
   useEffect(() => {
     if (!navigator.geolocation) {
-      setLocationError("Geolocation is not supported by your browser");
+      setGpsStatus("error");
       return;
     }
 
-    const successHandler = (position: GeolocationPosition) => {
-      const { latitude, longitude } = position.coords;
-      setCurrentPosition([latitude, longitude]);
-      setLocationError(null);
+    const handlePosition = (position: GeolocationPosition) => {
+      const { latitude, longitude, accuracy, speed, heading } = position.coords;
+      const newPos: [number, number] = [latitude, longitude];
+      setRiderPosition(newPos);
+      setGpsStatus("active");
+      setLastUpdate(new Date());
 
-      // Emit location to server
-      if (socketRef.current?.connected) {
+      // Send location to server
+      if (socketRef.current?.connected && activeDelivery) {
         socketRef.current.emit("rider_location_update", {
+          orderId: activeDelivery.id,
           latitude,
           longitude,
-          accuracy: position.coords.accuracy,
-          speed: position.coords.speed,
-          heading: position.coords.heading,
-          timestamp: new Date().toISOString(),
+          accuracy,
+          speed: speed || 0,
+          heading: heading || 0,
         });
       }
     };
 
-    const errorHandler = (error: GeolocationPositionError) => {
-      switch (error.code) {
-        case error.PERMISSION_DENIED:
-          setLocationError("Location permission denied. Please enable location access.");
-          break;
-        case error.POSITION_UNAVAILABLE:
-          setLocationError("Location information is unavailable.");
-          break;
-        case error.TIMEOUT:
-          setLocationError("Location request timed out.");
-          break;
-        default:
-          setLocationError("An unknown error occurred.");
-      }
+    const handleError = (error: GeolocationPositionError) => {
+      console.error("GPS Error:", error);
+      setGpsStatus("error");
     };
 
-    // Watch position continuously
     watchIdRef.current = navigator.geolocation.watchPosition(
-      successHandler,
-      errorHandler,
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 5000,
-      }
+      handlePosition,
+      handleError,
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
     );
 
     return () => {
@@ -147,12 +163,12 @@ export default function RiderLiveMap({ className = "" }: RiderLiveMapProps) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
     };
-  }, []);
+  }, [activeDelivery]);
 
-  // Socket connection for real-time updates
+  // Socket.IO connection
   useEffect(() => {
-    socketRef.current = io({
-      path: "/socket.io",
+    socketRef.current = io(window.location.origin, {
+      withCredentials: true,
       transports: ["websocket", "polling"],
     });
 
@@ -160,172 +176,238 @@ export default function RiderLiveMap({ className = "" }: RiderLiveMapProps) {
       console.log("Rider map socket connected");
     });
 
-    socketRef.current.on("new_delivery_assigned", () => {
-      refetch();
-    });
-
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [refetch]);
+  }, []);
 
-  const centerOnMe = () => {
-    setAutoCenter(true);
-  };
+  // Calculate route when positions change
+  useEffect(() => {
+    if (riderPosition && destPos) {
+      calculateRoute(riderPosition, destPos).then(route => {
+        if (route) setRouteInfo(route);
+      });
+    }
+  }, [riderPosition, destPos]);
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
   };
 
-  // Default to Ghana center if no position
-  const mapCenter = currentPosition || [5.6037, -0.1870];
+  const centerOnRider = useCallback(() => {
+    if (mapRef.current && riderPosition) {
+      mapRef.current.setView(riderPosition, 16);
+    }
+  }, [riderPosition]);
 
-  const containerClass = isFullscreen 
-    ? "fixed inset-0 z-50 bg-background" 
-    : `relative ${className}`;
+  const openGoogleMapsNav = () => {
+    if (destPos) {
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${destPos[0]},${destPos[1]}&travelmode=driving`;
+      window.open(url, "_blank");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <Card className={cn("flex items-center justify-center", className)}>
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </Card>
+    );
+  }
+
+  const defaultCenter = new LatLng(riderPosition?.[0] || 5.6037, riderPosition?.[1] || -0.1870);
 
   return (
-    <Card className={containerClass}>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <MapPin className="h-5 w-5 text-primary" />
-            Live Map
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="flex items-center gap-1">
-              <div className={`h-2 w-2 rounded-full ${currentPosition ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
-              {currentPosition ? 'GPS Active' : 'Locating...'}
-            </Badge>
-            <Button variant="ghost" size="icon" onClick={() => refetch()}>
-              <RefreshCcw className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={centerOnMe}>
-              <LocateFixed className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={toggleFullscreen}>
-              {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            </Button>
+    <Card className={cn(
+      "overflow-hidden transition-all duration-300",
+      isFullscreen ? "fixed inset-4 z-50" : "",
+      className
+    )}>
+      <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b bg-gradient-to-r from-primary/10 to-primary/5">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-primary/10">
+            <Navigation className="h-5 w-5 text-primary" />
           </div>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        <div className={`relative ${isFullscreen ? 'h-[calc(100vh-80px)]' : 'h-[400px]'}`}>
-          {locationError ? (
-            <div className="flex flex-col items-center justify-center h-full bg-muted/50 p-6 text-center">
-              <MapPin className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">{locationError}</p>
-              <Button 
+          <div>
+            <CardTitle className="text-base font-semibold">Live Navigation</CardTitle>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Badge 
                 variant="outline" 
-                className="mt-4"
-                onClick={() => window.location.reload()}
+                className={cn(
+                  "text-xs",
+                  gpsStatus === "active" ? "bg-green-100 text-green-700 border-green-300" :
+                  gpsStatus === "acquiring" ? "bg-yellow-100 text-yellow-700 border-yellow-300" :
+                  "bg-red-100 text-red-700 border-red-300"
+                )}
               >
-                <RefreshCcw className="h-4 w-4 mr-2" />
-                Retry
-              </Button>
-            </div>
-          ) : (
-            <MapContainer
-              center={mapCenter as [number, number]}
-              zoom={14}
-              className="h-full w-full z-0"
-              zoomControl={true}
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              
-              <MapController position={currentPosition} autoCenter={autoCenter} />
-              
-              {/* Rider's current position */}
-              {currentPosition && (
+                {gpsStatus === "active" ? "GPS Active" : 
+                 gpsStatus === "acquiring" ? "Acquiring GPS..." : "GPS Error"}
+              </Badge>
+              {routeInfo && (
                 <>
-                  <Marker position={currentPosition} icon={riderIcon}>
-                    <Popup>
-                      <div className="text-center">
-                        <strong>You are here</strong>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          GPS tracking active
-                        </p>
-                      </div>
-                    </Popup>
-                  </Marker>
-                  {/* Accuracy circle */}
-                  <Circle 
-                    center={currentPosition}
-                    radius={50}
-                    pathOptions={{ 
-                      color: '#3b82f6', 
-                      fillColor: '#3b82f6',
-                      fillOpacity: 0.1 
-                    }}
-                  />
+                  <span className="text-primary font-medium">{routeInfo.distance.toFixed(1)} km</span>
+                  <span>•</span>
+                  <span className="text-primary font-medium">{routeInfo.duration} min</span>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="icon" variant="outline" onClick={centerOnRider} title="Center on me">
+            <Target className="h-4 w-4" />
+          </Button>
+          <Button size="icon" variant="outline" onClick={() => refetch()} title="Refresh">
+            <RefreshCcw className="h-4 w-4" />
+          </Button>
+          <Button size="icon" variant="outline" onClick={toggleFullscreen}>
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
+        </div>
+      </CardHeader>
 
-              {/* Active delivery destinations */}
-              {activeDeliveries.map((delivery) => (
-                delivery.deliveryLatitude && delivery.deliveryLongitude && (
-                  <Marker
-                    key={delivery.id}
-                    position={[delivery.deliveryLatitude, delivery.deliveryLongitude]}
-                    icon={delivery.status === "delivering" ? deliveryIcon : pendingIcon}
-                  >
-                    <Popup>
-                      <div className="min-w-[180px]">
-                        <div className="font-semibold">Order #{delivery.orderNumber}</div>
-                        <Badge className="mt-1" variant={delivery.status === "delivering" ? "default" : "secondary"}>
-                          {delivery.status.replace(/_/g, " ")}
-                        </Badge>
-                        {delivery.buyerName && (
-                          <p className="text-sm mt-2">
-                            <strong>Customer:</strong> {delivery.buyerName}
-                          </p>
-                        )}
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {delivery.deliveryAddress}
-                        </p>
-                        <Button 
-                          size="sm" 
-                          className="w-full mt-2"
-                          onClick={() => {
-                            const lat = delivery.deliveryLatitude;
-                            const lng = delivery.deliveryLongitude;
-                            window.open(
-                              `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`,
-                              '_blank'
-                            );
-                          }}
-                        >
-                          <Navigation className="h-4 w-4 mr-2" />
-                          Navigate
-                        </Button>
-                      </div>
-                    </Popup>
-                  </Marker>
-                )
-              ))}
-            </MapContainer>
+      <CardContent className="p-0 relative">
+        {/* Active Delivery Info Bar */}
+        {activeDelivery && (
+          <div className="absolute top-2 left-2 right-2 z-[1000] bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-lg p-3 backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <Badge className="bg-blue-500 text-white text-xs">
+                    Order #{activeDelivery.orderNumber}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    {activeDelivery.status.replace(/_/g, " ").toUpperCase()}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                  <MapPin className="h-3 w-3 flex-shrink-0" />
+                  {activeDelivery.deliveryAddress || "No address"}
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                {activeDelivery.buyerPhone && (
+                  <a href={`tel:${activeDelivery.buyerPhone}`}>
+                    <Button size="sm" variant="outline" className="h-8 px-2">
+                      <Phone className="h-3 w-3 mr-1" />
+                      Call
+                    </Button>
+                  </a>
+                )}
+                <Button size="sm" onClick={openGoogleMapsNav} className="h-8 px-2" disabled={!destPos}>
+                  <Navigation className="h-3 w-3 mr-1" />
+                  Navigate
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!activeDelivery && (
+          <div className="absolute top-2 left-2 right-2 z-[1000] bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-lg p-4 backdrop-blur-sm text-center">
+            <Truck className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm font-medium">No Active Delivery</p>
+            <p className="text-xs text-muted-foreground">Accept a delivery to start navigation</p>
+          </div>
+        )}
+
+        <MapContainer
+          center={defaultCenter}
+          zoom={14}
+          className={cn("w-full", isFullscreen ? "h-[calc(100vh-180px)]" : "h-[350px]")}
+          ref={mapRef}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          
+          <MapBoundsController riderPos={riderPosition} destPos={destPos} />
+
+          {/* Route polyline */}
+          {routeInfo?.geometry && (
+            <Polyline 
+              positions={routeInfo.geometry} 
+              color="#3b82f6" 
+              weight={5} 
+              opacity={0.8}
+              dashArray="10, 10"
+            />
           )}
 
-          {/* Overlay with stats */}
-          <div className="absolute bottom-4 left-4 z-[1000] bg-background/95 backdrop-blur-sm rounded-lg p-3 shadow-lg">
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <Package className="h-4 w-4 text-primary" />
-                <span className="font-medium">{activeDeliveries.length}</span>
-                <span className="text-muted-foreground">Active</span>
-              </div>
-              {activeDeliveries.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-amber-500" />
-                  <span className="text-muted-foreground">
-                    {activeDeliveries.filter(d => d.status === "delivering").length} En Route
-                  </span>
+          {/* Rider position marker */}
+          {riderPosition && (
+            <Marker position={riderPosition} icon={riderIcon}>
+              <Popup>
+                <div className="text-center">
+                  <strong>Your Location</strong>
+                  {lastUpdate && (
+                    <p className="text-xs text-muted-foreground">
+                      Updated: {lastUpdate.toLocaleTimeString()}
+                    </p>
+                  )}
                 </div>
+              </Popup>
+            </Marker>
+          )}
+
+          {/* Destination marker */}
+          {destPos && activeDelivery && (
+            <Marker position={destPos} icon={destinationIcon}>
+              <Popup>
+                <div className="min-w-[180px]">
+                  <strong className="text-sm">Delivery Destination</strong>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {activeDelivery.deliveryAddress}
+                  </p>
+                  {activeDelivery.buyerName && (
+                    <p className="text-xs mt-1">
+                      <strong>Customer:</strong> {activeDelivery.buyerName}
+                    </p>
+                  )}
+                  {routeInfo && (
+                    <div className="flex gap-3 mt-2 text-xs">
+                      <span className="text-primary font-medium">
+                        <Clock className="h-3 w-3 inline mr-1" />
+                        {routeInfo.duration} min
+                      </span>
+                      <span className="text-primary font-medium">
+                        {routeInfo.distance.toFixed(1)} km
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          )}
+        </MapContainer>
+
+        {/* Bottom stats bar */}
+        <div className="absolute bottom-2 left-2 right-2 z-[1000]">
+          <div className="bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-lg px-4 py-2 backdrop-blur-sm flex items-center justify-between">
+            <div className="flex items-center gap-4 text-sm">
+              {routeInfo ? (
+                <>
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-4 w-4 text-blue-500" />
+                    <span className="font-semibold">{routeInfo.duration} min</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <MapPin className="h-4 w-4 text-green-500" />
+                    <span className="font-semibold">{routeInfo.distance.toFixed(1)} km</span>
+                  </div>
+                </>
+              ) : (
+                <span className="text-muted-foreground text-xs">
+                  {activeDelivery ? "Calculating route..." : "No active route"}
+                </span>
               )}
             </div>
+            {lastUpdate && (
+              <span className="text-xs text-muted-foreground">
+                GPS: {lastUpdate.toLocaleTimeString()}
+              </span>
+            )}
           </div>
         </div>
       </CardContent>
