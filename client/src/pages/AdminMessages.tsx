@@ -19,6 +19,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useGroupCall } from "@/hooks/useGroupCall";
 import { ParticipantSelectorDialog } from "@/components/ParticipantSelectorDialog";
 import { GroupCallDialog } from "@/components/GroupCallDialog";
+import { useJitsiCall } from "@/hooks/useJitsiCall";
+import { JitsiCallDialog } from "@/components/JitsiCallDialog";
+import { usePresence } from "@/hooks/usePresence";
+import { PresenceIndicator } from "@/components/PresenceIndicator";
 
 interface UserData {
   id: string;
@@ -63,6 +67,12 @@ export default function AdminMessages() {
   // Group call management
   const groupCall = useGroupCall(user?.id || '');
   const [groupCallInvite, setGroupCallInvite] = useState<{ callId: string; hostId: string; hostName: string; callType: 'voice' | 'video' } | null>(null);
+
+  // Jitsi Meet integration for video/voice calls
+  const jitsiCall = useJitsiCall(user?.id || '');
+  
+  // Selected user presence status
+  const selectedUserPresence = usePresence(selectedUserId || undefined);
 
   // Get userId from URL search params if present (when clicking from AdminUsers)
   const urlParams = new URLSearchParams(window.location.search);
@@ -279,7 +289,36 @@ export default function AdminMessages() {
     return pc;
   };
 
+  // Use Jitsi Meet for video/voice calls (more reliable than WebRTC)
   const startCall = async (callType: 'voice' | 'video') => {
+    if (!selectedUserId || !selectedUser) {
+      toast({
+        title: "No user selected",
+        description: "Please select a user to call",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    try {
+      console.log(`📞 Starting Jitsi ${callType} call with ${selectedUser.name}`);
+      await jitsiCall.startCall(selectedUserId, callType);
+      toast({
+        title: `${callType === 'video' ? 'Video' : 'Voice'} Call Started`,
+        description: `Connecting to ${selectedUser.name}...`
+      });
+    } catch (error) {
+      console.error("❌ Jitsi call start error:", error);
+      toast({
+        title: "Call Failed",
+        description: error instanceof Error ? error.message : "Could not start call",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Legacy WebRTC startCall (kept for reference)
+  const startCallWebRTC = async (callType: 'voice' | 'video') => {
     try {
       console.log(`📞 Starting ${callType} call with ${selectedUser?.name}`);
       
@@ -1045,6 +1084,25 @@ export default function AdminMessages() {
         onLeaveCall={groupCall.leaveGroupCall}
         onToggleMute={groupCall.toggleMute}
         onToggleVideo={groupCall.toggleVideo}
+      />
+
+      {/* Jitsi Meet Call Dialog */}
+      <JitsiCallDialog
+        isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
+        roomUrl={jitsiCall.getJitsiUrl()}
+        roomName={jitsiCall.currentRoom?.roomName || null}
+        callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || 'video'}
+        participants={jitsiCall.currentRoom?.participants?.map(id => ({ id, name: 'Participant' })) || []}
+        isHost={jitsiCall.currentRoom?.createdBy === user?.id}
+        incomingCall={jitsiCall.incomingCall ? {
+          callerName: jitsiCall.incomingCall.callerName,
+          callType: jitsiCall.incomingCall.callType,
+        } : null}
+        onAccept={() => jitsiCall.acceptIncomingCall()}
+        onReject={() => jitsiCall.rejectIncomingCall()}
+        onLeave={() => jitsiCall.leaveCall()}
+        onEnd={() => jitsiCall.endCall()}
+        isJoining={jitsiCall.isJoining}
       />
     </DashboardLayout>
   );

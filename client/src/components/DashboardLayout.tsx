@@ -45,6 +45,7 @@ const routeToMenuId: Record<string, string> = {
   "/admin/manual-rider-assignment": "manual-rider-assignment",
   "/admin/notifications": "notifications",
   "/admin/messages": "messages",
+  "/admin/live-support": "live-support",
   "/admin/analytics": "analytics",
   "/admin/platform-earnings": "platform-earnings",
   "/admin/settings": "settings",
