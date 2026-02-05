@@ -21,6 +21,11 @@ import sharp from "sharp";
 import { insertUserSchema, insertProductSchema, insertDeliveryZoneSchema, insertOrderSchema, insertWishlistSchema, insertReviewSchema, insertRiderReviewSchema, insertBannerCollectionSchema, insertMarketplaceBannerSchema, insertFooterPageSchema, vehicleInfoSchema, type User } from "@shared/schema";
 import { getStoreTypeSchema, type StoreType, STORE_TYPES } from "@shared/storeTypes";
 import buildPaystackInitializePayload from './paystackUtils';
+// WhatsApp-style messaging services
+import { presenceService } from "./services/presenceService";
+import { messageDeliveryService } from "./services/messageDeliveryService";
+import { chatPermissionService } from "./services/chatPermissionService";
+import { jitsiMeetService } from "./services/jitsiMeetService";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -4030,6 +4035,465 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============ Presence API Endpoints (WhatsApp-style) ============
+  
+  // Get single user presence
+  app.get("/api/presence/:userId", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const presence = presenceService.getPresenceForApi(req.params.userId);
+      res.json(presence);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get multiple users' presence (batch)
+  app.post("/api/presence/batch", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { userIds } = req.body;
+      if (!Array.isArray(userIds)) {
+        return res.status(400).json({ error: "userIds must be an array" });
+      }
+      const presences = presenceService.getBatchPresence(userIds);
+      res.json(presences);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get online users count (for dashboard)
+  app.get("/api/presence/stats", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const stats = presenceService.getStats();
+      res.json(stats);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Chat Permission API Endpoints (RBAC) ============
+  
+  // Check if current user can chat with target
+  app.get("/api/chat/can-message/:targetUserId", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const result = await chatPermissionService.canInitiateChat(
+        req.user!.id,
+        req.params.targetUserId
+      );
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get available chat contacts for current user
+  app.get("/api/chat/contacts", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const contacts = await chatPermissionService.getAvailableChatContacts(req.user!.id);
+      
+      // Also get support agents
+      const agents = await storage.getUsersByRole("agent");
+      const admins = await storage.getUsersByRole("admin");
+      
+      res.json({
+        support: [...agents, ...admins].map(u => ({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          profileImage: u.profileImage,
+          presence: presenceService.getPresenceForApi(u.id),
+        })),
+        orderRelated: contacts.orderRelated,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Jitsi Meet Video Call Endpoints ============
+  
+  // Start a call with another user
+  app.post("/api/calls/start", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { targetUserId, callType, orderId } = req.body;
+      
+      if (!targetUserId) {
+        return res.status(400).json({ error: "targetUserId is required" });
+      }
+      
+      // Check permission
+      const permission = await chatPermissionService.canInitiateChat(req.user!.id, targetUserId);
+      if (!permission.allowed) {
+        return res.status(403).json({ error: permission.reason });
+      }
+      
+      const room = jitsiMeetService.startCall({
+        initiatorId: req.user!.id,
+        targetId: targetUserId,
+        callType: callType || 'video',
+        orderId: permission.orderId || orderId,
+      });
+      
+      // Get current user info for Jitsi config
+      const currentUser = await storage.getUser(req.user!.id);
+      const config = jitsiMeetService.getJitsiConfig(
+        room.roomName,
+        currentUser?.name || 'User',
+        currentUser?.email
+      );
+      
+      // Notify target user about incoming call
+      io.to(targetUserId).emit("jitsi_call_incoming", {
+        roomName: room.roomName,
+        roomUrl: room.roomUrl,
+        callerId: req.user!.id,
+        callerName: currentUser?.name || 'User',
+        callType: room.callType,
+      });
+      
+      res.json({
+        room,
+        config,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Start a group call
+  app.post("/api/calls/group/start", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { participantIds, callType } = req.body;
+      
+      if (!Array.isArray(participantIds) || participantIds.length === 0) {
+        return res.status(400).json({ error: "participantIds array is required" });
+      }
+      
+      const room = jitsiMeetService.startGroupCall({
+        hostId: req.user!.id,
+        participantIds,
+        callType: callType || 'video',
+      });
+      
+      // Get current user info
+      const currentUser = await storage.getUser(req.user!.id);
+      const config = jitsiMeetService.getJitsiConfig(
+        room.roomName,
+        currentUser?.name || 'User',
+        currentUser?.email
+      );
+      
+      // Notify all participants about the group call
+      for (const participantId of participantIds) {
+        io.to(participantId).emit("jitsi_group_call_invite", {
+          roomName: room.roomName,
+          roomUrl: room.roomUrl,
+          hostId: req.user!.id,
+          hostName: currentUser?.name || 'User',
+          callType: room.callType,
+          participants: room.participants,
+        });
+      }
+      
+      res.json({
+        room,
+        config,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Join an existing call
+  app.post("/api/calls/:roomName/join", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const room = jitsiMeetService.joinCall(req.params.roomName, req.user!.id);
+      
+      if (!room) {
+        return res.status(404).json({ error: "Call not found or has ended" });
+      }
+      
+      const currentUser = await storage.getUser(req.user!.id);
+      const config = jitsiMeetService.getJitsiConfig(
+        room.roomName,
+        currentUser?.name || 'User',
+        currentUser?.email
+      );
+      
+      // Notify other participants
+      for (const participantId of room.participants) {
+        if (participantId !== req.user!.id) {
+          io.to(participantId).emit("jitsi_participant_joined", {
+            roomName: room.roomName,
+            userId: req.user!.id,
+            userName: currentUser?.name || 'User',
+          });
+        }
+      }
+      
+      res.json({
+        room,
+        config,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Leave a call
+  app.post("/api/calls/:roomName/leave", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const success = jitsiMeetService.leaveCall(req.params.roomName, req.user!.id);
+      
+      if (success) {
+        // Notify other participants
+        const room = jitsiMeetService.getRoom(req.params.roomName);
+        if (room) {
+          for (const participantId of room.participants) {
+            io.to(participantId).emit("jitsi_participant_left", {
+              roomName: req.params.roomName,
+              userId: req.user!.id,
+            });
+          }
+        }
+      }
+      
+      res.json({ success });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // End a call (host only or admin)
+  app.post("/api/calls/:roomName/end", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const room = jitsiMeetService.getRoom(req.params.roomName);
+      
+      if (!room) {
+        return res.status(404).json({ error: "Call not found" });
+      }
+      
+      // Only host or admin can end the call
+      const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin';
+      if (room.createdBy !== req.user!.id && !isAdmin) {
+        return res.status(403).json({ error: "Only call host or admin can end the call" });
+      }
+      
+      // Notify all participants before ending
+      for (const participantId of room.participants) {
+        io.to(participantId).emit("jitsi_call_ended", {
+          roomName: req.params.roomName,
+          endedBy: req.user!.id,
+        });
+      }
+      
+      const success = jitsiMeetService.endCall(req.params.roomName);
+      res.json({ success });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get active calls (admin dashboard)
+  app.get("/api/calls/active", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const activeCalls = jitsiMeetService.getActiveRooms();
+      const stats = jitsiMeetService.getStats();
+      
+      // Enrich with user details
+      const enrichedCalls = await Promise.all(activeCalls.map(async (call) => {
+        const participantDetails = await Promise.all(
+          call.participants.map(async (pId) => {
+            const user = await storage.getUser(pId);
+            return user ? { id: user.id, name: user.name, role: user.role } : { id: pId };
+          })
+        );
+        
+        return {
+          ...call,
+          participantDetails,
+        };
+      }));
+      
+      res.json({
+        calls: enrichedCalls,
+        stats,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Live Support Dashboard Endpoints ============
+  
+  // Get all active support conversations (admin)
+  app.get("/api/admin/live-support", requireAuth, requireRole("admin", "super_admin", "agent"), async (req: AuthRequest, res) => {
+    try {
+      // Get all recent messages grouped by conversation
+      const recentMessages = await db.select()
+        .from(chatMessages)
+        .orderBy(desc(chatMessages.createdAt))
+        .limit(500);
+      
+      // Group by conversation pairs
+      const conversations = new Map<string, {
+        participants: string[];
+        lastMessage: typeof recentMessages[0];
+        messageCount: number;
+        unreadCount: number;
+      }>();
+      
+      for (const msg of recentMessages) {
+        const key = [msg.senderId, msg.receiverId].sort().join('-');
+        const existing = conversations.get(key);
+        
+        if (!existing) {
+          conversations.set(key, {
+            participants: [msg.senderId, msg.receiverId],
+            lastMessage: msg,
+            messageCount: 1,
+            unreadCount: msg.isRead ? 0 : 1,
+          });
+        } else {
+          existing.messageCount++;
+          if (!msg.isRead) existing.unreadCount++;
+        }
+      }
+      
+      // Enrich with user details and presence
+      const enrichedConversations = await Promise.all(
+        Array.from(conversations.entries()).map(async ([key, conv]) => {
+          const [user1Id, user2Id] = conv.participants;
+          const user1 = await storage.getUser(user1Id);
+          const user2 = await storage.getUser(user2Id);
+          
+          return {
+            id: key,
+            participants: [
+              {
+                id: user1Id,
+                name: user1?.name || 'Unknown',
+                role: user1?.role || 'unknown',
+                presence: presenceService.getPresenceForApi(user1Id),
+              },
+              {
+                id: user2Id,
+                name: user2?.name || 'Unknown',
+                role: user2?.role || 'unknown',
+                presence: presenceService.getPresenceForApi(user2Id),
+              },
+            ],
+            lastMessage: {
+              message: conv.lastMessage.message,
+              createdAt: conv.lastMessage.createdAt,
+              senderId: conv.lastMessage.senderId,
+            },
+            messageCount: conv.messageCount,
+            unreadCount: conv.unreadCount,
+          };
+        })
+      );
+      
+      // Sort by most recent activity
+      enrichedConversations.sort((a, b) => 
+        new Date(b.lastMessage.createdAt || 0).getTime() - new Date(a.lastMessage.createdAt || 0).getTime()
+      );
+      
+      res.json({
+        conversations: enrichedConversations,
+        stats: {
+          totalConversations: conversations.size,
+          onlineUsers: presenceService.getStats().online,
+          activeCalls: jitsiMeetService.getStats().activeCalls,
+        },
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin join conversation (read messages between two users)
+  app.get("/api/admin/live-support/:user1Id/:user2Id", requireAuth, requireRole("admin", "super_admin", "agent"), async (req: AuthRequest, res) => {
+    try {
+      const { user1Id, user2Id } = req.params;
+      
+      const messages = await db.select()
+        .from(chatMessages)
+        .where(
+          or(
+            and(eq(chatMessages.senderId, user1Id), eq(chatMessages.receiverId, user2Id)),
+            and(eq(chatMessages.senderId, user2Id), eq(chatMessages.receiverId, user1Id))
+          )
+        )
+        .orderBy(chatMessages.createdAt);
+      
+      const user1 = await storage.getUser(user1Id);
+      const user2 = await storage.getUser(user2Id);
+      
+      res.json({
+        messages,
+        participants: [
+          {
+            id: user1Id,
+            name: user1?.name || 'Unknown',
+            role: user1?.role || 'unknown',
+            presence: presenceService.getPresenceForApi(user1Id),
+          },
+          {
+            id: user2Id,
+            name: user2?.name || 'Unknown',
+            role: user2?.role || 'unknown',
+            presence: presenceService.getPresenceForApi(user2Id),
+          },
+        ],
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin send message to conversation (as mediator)
+  app.post("/api/admin/live-support/:targetUserId/message", requireAuth, requireRole("admin", "super_admin", "agent"), async (req: AuthRequest, res) => {
+    try {
+      const { targetUserId } = req.params;
+      const { message } = req.body;
+      
+      const messageData = {
+        senderId: req.user!.id,
+        receiverId: targetUserId,
+        message,
+        messageType: "text",
+      };
+      
+      const newMessage = await storage.createMessage(messageData);
+      
+      // Emit to target user
+      io.to(targetUserId).emit("new_message", newMessage);
+      io.to(req.user!.id).emit("new_message", newMessage);
+      
+      res.json(newMessage);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Message Delivery Stats (Admin) ============
+  app.get("/api/admin/messaging-stats", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const presenceStats = presenceService.getStats();
+      const deliveryStats = messageDeliveryService.getStats();
+      const callStats = jitsiMeetService.getStats();
+      
+      res.json({
+        presence: presenceStats,
+        messageQueue: deliveryStats,
+        calls: callStats,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // ============ Admin Audit Endpoints ============
   app.get("/api/admin/audit/incomplete-sellers", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
     try {
@@ -5316,28 +5780,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
+  // ============ Initialize WhatsApp-style Services ============
+  presenceService.initialize(io);
+  messageDeliveryService.initialize(io);
+  // chatPermissionService uses storage adapter, initialize with storage functions
+  chatPermissionService.initialize({
+    getUser: async (userId: string) => {
+      const user = await storage.getUser(userId);
+      return user ? { id: user.id, role: user.role as any } : null;
+    },
+    getOrdersByBuyer: async (buyerId: string) => {
+      const buyerOrders = await storage.getAllOrders();
+      return buyerOrders.filter((o: any) => o.buyerId === buyerId);
+    },
+    getOrdersBySeller: async (sellerId: string) => {
+      const sellerOrders = await storage.getAllOrders();
+      return sellerOrders.filter((o: any) => o.sellerId === sellerId);
+    },
+    getOrdersByRider: async (riderId: string) => {
+      const riderOrders = await storage.getAllOrders();
+      return riderOrders.filter((o: any) => o.riderId === riderId);
+    },
+    getActiveOrderBetweenUsers: async (userId1: string, userId2: string) => {
+      const allOrders = await storage.getAllOrders();
+      return allOrders.find((o: any) => 
+        ((o.buyerId === userId1 && (o.sellerId === userId2 || o.riderId === userId2)) ||
+         (o.buyerId === userId2 && (o.sellerId === userId1 || o.riderId === userId1)) ||
+         (o.sellerId === userId1 && o.riderId === userId2) ||
+         (o.sellerId === userId2 && o.riderId === userId1)) &&
+        ['pending', 'confirmed', 'processing', 'ready_for_pickup', 'assigned_to_rider', 'picked_up', 'in_transit', 'out_for_delivery'].includes(o.status)
+      ) || null;
+    },
+  });
+  console.log('[BOOT] WhatsApp-style messaging services initialized');
+
   io.on("connection", (socket) => {
     const userId = socket.data.userId; // From authentication middleware
     const userEmail = socket.data.userEmail;
     
     console.log(`✅ User connected: ${userEmail} (${userId})`);
     
-    // Track user socket for online status
+    // Track user socket for online status (legacy)
     userSockets.set(userId, socket.id);
     io.emit("user_online", userId);
+    
+    // Register with presence service
+    presenceService.userConnected(userId, socket.id);
+    
+    // Deliver any queued messages for this user
+    messageDeliveryService.onUserOnline(userId);
 
     socket.on("disconnect", () => {
       console.log(`❌ User disconnected: ${userEmail} (${userId})`);
       userSockets.delete(userId);
       io.emit("user_offline", userId);
+      
+      // Update presence service
+      presenceService.userDisconnected(userId);
+    });
+
+    // Heartbeat for presence tracking
+    socket.on("heartbeat", () => {
+      presenceService.heartbeat(userId);
     });
 
     socket.on("typing", ({ receiverId }) => {
       io.to(receiverId).emit("user_typing", socket.id);
+      presenceService.setTyping(userId, receiverId);
     });
 
     socket.on("stop_typing", ({ receiverId }) => {
       io.to(receiverId).emit("user_stop_typing", socket.id);
+      presenceService.setTyping(userId, null);
+    });
+    
+    // Message acknowledgment events
+    socket.on("message_received", ({ messageId }) => {
+      messageDeliveryService.markDelivered(messageId, userId);
+    });
+    
+    socket.on("messages_read", ({ messageIds }) => {
+      messageDeliveryService.markRead(messageIds, userId);
     });
 
     // WebRTC Call Signaling Events

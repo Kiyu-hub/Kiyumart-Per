@@ -57,6 +57,7 @@ import AdminMessages from "@/pages/AdminMessages";
 import AdminAnalytics from "@/pages/AdminAnalytics";
 import AdminMediaLibrary from "@/pages/AdminMediaLibrary";
 import AdminNotifications from "@/pages/AdminNotifications";
+import AdminLiveSupportDashboard from "@/pages/AdminLiveSupportDashboard";
 import SellerMediaLibrary from "@/pages/SellerMediaLibrary";
 import SellerProducts from "@/pages/SellerProducts";
 import SellerOrders from "@/pages/SellerOrders";
@@ -160,6 +161,7 @@ function Router() {
       <Route path="/admin/applications" component={AdminApplications} />
       <Route path="/admin/permissions" component={SuperAdminPermissions} />
       <Route path="/admin/messages" component={AdminMessages} />
+      <Route path="/admin/live-support" component={AdminLiveSupportDashboard} />
       <Route path="/admin/analytics" component={AdminAnalytics} />
       <Route path="/admin/notifications" component={AdminNotifications} />
       <Route path="/seller" component={SellerDashboard} />

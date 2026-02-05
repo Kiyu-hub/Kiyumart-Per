@@ -251,7 +251,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
     setSocket(newSocket);
 
+    // Heartbeat interval for presence tracking (8 seconds)
+    const heartbeatInterval = setInterval(() => {
+      if (newSocket.connected) {
+        newSocket.emit("heartbeat");
+      }
+    }, 8000);
+
     return () => {
+      clearInterval(heartbeatInterval);
       newSocket.disconnect();
       setSocket(null);
       setIsConnected(false);
