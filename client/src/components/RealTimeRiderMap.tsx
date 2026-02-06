@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { 
   Truck, 
   Clock, 
@@ -23,7 +24,9 @@ import {
   AlertTriangle,
   X,
   ExternalLink,
-  RefreshCcw
+  RefreshCcw,
+  ChevronDown,
+  MapPinOff
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -319,6 +322,10 @@ export default function RealTimeRiderMap() {
   }, []);
 
   const mapHeight = isFullscreen ? "100vh" : "600px";
+  
+  // Count riders with valid location data
+  const ridersWithLocation = riders.filter(r => r.latitude !== null && r.longitude !== null);
+  const ridersWithoutLocation = riders.filter(r => r.latitude === null || r.longitude === null);
 
   return (
     <>
@@ -347,8 +354,13 @@ export default function RealTimeRiderMap() {
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="secondary" data-testid="badge-active-riders">
-                {riders.length} Active {riders.length === 1 ? "Rider" : "Riders"}
+                {ridersWithLocation.length}/{riders.length} On Map
               </Badge>
+              {ridersWithoutLocation.length > 0 && (
+                <Badge variant="outline" className="text-amber-600 border-amber-300" data-testid="badge-no-gps">
+                  {ridersWithoutLocation.length} No GPS
+                </Badge>
+              )}
               {pendingOrders.length > 0 && (
                 <Badge variant="destructive" data-testid="badge-pending-orders">
                   {pendingOrders.length} Pending
@@ -492,11 +504,22 @@ export default function RealTimeRiderMap() {
                   )}
 
                   {/* Empty state overlay */}
-                  {riders.length === 0 && pendingOrders.length === 0 && (
+                  {ridersWithLocation.length === 0 && pendingOrders.length === 0 && (
                     <div className="absolute inset-0 z-[1000] flex items-center justify-center pointer-events-none">
-                      <div className="bg-background/80 backdrop-blur-sm rounded-lg p-6 text-center">
+                      <div className="bg-background/80 backdrop-blur-sm rounded-lg p-6 text-center max-w-sm">
                         <Truck className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                        <p className="text-muted-foreground">No active deliveries or pending orders</p>
+                        {riders.length > 0 ? (
+                          <>
+                            <p className="text-muted-foreground font-medium mb-2">
+                              {riders.length} active {riders.length === 1 ? 'rider' : 'riders'} but no GPS data
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              Riders need to enable location sharing on their devices to appear on the map.
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-muted-foreground">No active deliveries or pending orders</p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -639,6 +662,44 @@ export default function RealTimeRiderMap() {
               </div>
             )}
           </div>
+          
+          {/* Riders without GPS section */}
+          {ridersWithoutLocation.length > 0 && (
+            <div className="border-t p-4">
+              <Collapsible>
+                <CollapsibleTrigger className="flex items-center justify-between w-full text-left">
+                  <div className="flex items-center gap-2">
+                    <MapPinOff className="h-4 w-4 text-amber-500" />
+                    <span className="font-medium text-sm">
+                      {ridersWithoutLocation.length} Rider{ridersWithoutLocation.length !== 1 ? 's' : ''} Without GPS Data
+                    </span>
+                  </div>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {ridersWithoutLocation.map((rider) => (
+                      <div
+                        key={rider.riderId}
+                        className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg"
+                      >
+                        <div className="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center flex-shrink-0">
+                          <User className="h-4 w-4 text-amber-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{rider.riderName}</p>
+                          <p className="text-xs text-muted-foreground truncate">Order #{rider.orderNumber}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    These riders have active deliveries but haven't shared their location yet.
+                  </p>
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+          )}
         </CardContent>
       </Card>
 
