@@ -11,6 +11,7 @@ import PromotionalAdsGrid from "@/components/PromotionalAdsGrid";
 import AdBanner from "@/components/AdBanner";
 import SinglePromotionSidebar from "@/components/SinglePromotionSidebar";
 import PromotionalAd from "@/components/PromotionalAd";
+import LocationPrompt from "@/components/LocationPrompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -314,6 +315,9 @@ export default function MultiVendorHome() {
       </main>
 
       <Footer />
+
+      {/* Location prompt for new users */}
+      <LocationPrompt />
 
       <style>{`
         .category-grid {

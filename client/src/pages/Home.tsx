@@ -12,6 +12,7 @@ import ProductCard from "@/components/ProductCard";
 import Footer from "@/components/Footer";
 import CartSidebar from "@/components/CartSidebar";
 import ThemeToggle from "@/components/ThemeToggle";
+import LocationPrompt from "@/components/LocationPrompt";
 
 import heroImage from "@assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png";
 import abaya1 from "@assets/stock_images/Elegant_black_abaya_with_gold_embroidery_cc860cad.png";
@@ -323,6 +324,9 @@ export default function Home() {
           navigate('/checkout');
         }}
       />
+      
+      {/* Location prompt for new users */}
+      <LocationPrompt />
     </div>
   );
 }

@@ -18,6 +18,7 @@ import PromotionalAd from "@/components/PromotionalAd";
 import PromotionalAdsGrid from "@/components/PromotionalAdsGrid";
 import SinglePromotionSidebar from "@/components/SinglePromotionSidebar";
 import MultiVendorHome from "./MultiVendorHome";
+import LocationPrompt from "@/components/LocationPrompt";
 import { Button } from '@/components/ui/button';
 import type { PlatformSettings } from "@shared/schema";
 
@@ -562,6 +563,9 @@ export default function HomeConnected() {
           }}
         />
       )}
+      
+      {/* Location prompt for new users */}
+      <LocationPrompt />
     </div>
   );
 }
