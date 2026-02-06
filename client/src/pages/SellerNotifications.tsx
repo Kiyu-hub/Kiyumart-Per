@@ -125,7 +125,12 @@ export default function SellerNotifications() {
         navigate("/seller/products");
         break;
       case "message":
-        navigate("/seller/messages");
+        // Navigate to messages with sender ID for direct chat
+        if (metadata?.senderId) {
+          navigate(`/seller/messages?userId=${metadata.senderId}`);
+        } else {
+          navigate("/seller/messages");
+        }
         break;
       case "payout":
         navigate("/seller/payouts");

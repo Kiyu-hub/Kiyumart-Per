@@ -14,30 +14,11 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      // New signups (buyers) go to homepage, existing users go to dashboard
-      if (isNewSignup && user.role === 'buyer') {
-        // Prompt for location on homepage
-        sessionStorage.setItem('kiyumart_new_user', 'true');
-        navigate("/");
-        return;
-      }
-      
-      // Redirect based on user role for logins
-      if (user.role === 'super_admin' || user.role === 'admin') {
-        navigate("/admin");
-      } else if (user.role === 'seller') {
-        navigate("/seller");
-      } else if (user.role === 'rider') {
-        navigate("/rider");
-      } else if (user.role === 'buyer') {
-        navigate("/buyer");
-      } else if (user.role === 'agent') {
-        navigate("/agent");
-      } else {
-        navigate("/");
-      }
+      // All users (both login and signup) go to homepage
+      // They can access their dashboard from the navigation menu
+      navigate("/");
     }
-  }, [isAuthenticated, user, navigate, isNewSignup]);
+  }, [isAuthenticated, user, navigate]);
 
   const handleLogin = async (email: string, password: string) => {
     try {

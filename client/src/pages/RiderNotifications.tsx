@@ -124,7 +124,12 @@ export default function RiderNotifications() {
         navigate("/rider/deliveries");
         break;
       case "message":
-        navigate("/rider/messages");
+        // Navigate to messages with sender ID for direct chat
+        if (metadata?.senderId) {
+          navigate(`/rider/messages?userId=${metadata.senderId}`);
+        } else {
+          navigate("/rider/messages");
+        }
         break;
       case "payout":
         navigate("/rider/earnings");

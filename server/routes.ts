@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { db } from "../db";
 import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions } from "@shared/schema";
-import { eq, or, isNotNull, and, desc } from "drizzle-orm";
+import { eq, or, isNotNull, and, desc, sql } from "drizzle-orm";
 import { 
   hashPassword, 
   comparePassword, 
@@ -111,6 +111,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       const user = await storage.createUser(userData);
+
+      // Send welcome message from KiyuMart Team
+      try {
+        // Find a super_admin to send the welcome message from
+        const superAdmins = await storage.getUsersByRole("super_admin");
+        const systemSender = superAdmins.length > 0 ? superAdmins[0] : null;
+        
+        if (systemSender) {
+          const welcomeMessage = `Welcome to KiyuMart, ${user.name || 'there'}! 🎉\n\nWe're thrilled to have you join our community. Here at KiyuMart, quality meets affordability.\n\nIf you have any questions or need assistance, feel free to message us here. Our team is always happy to help!\n\nHappy shopping!\n— The KiyuMart Team`;
+          
+          await storage.createMessage({
+            senderId: systemSender.id,
+            receiverId: user.id,
+            message: welcomeMessage,
+            messageType: "text",
+          });
+          
+          // Create notification for the welcome message
+          await storage.createNotification({
+            userId: user.id,
+            type: "message",
+            title: "Welcome to KiyuMart!",
+            message: "You have a welcome message from the KiyuMart Team",
+            metadata: { messageId: "welcome", senderId: systemSender.id } as any,
+          });
+          
+          // Emit real-time notification
+          io.to(user.id).emit("notification", {
+            type: "message",
+            title: "Welcome to KiyuMart!",
+            message: "You have a welcome message from the KiyuMart Team",
+            data: { senderId: systemSender.id },
+          });
+        }
+      } catch (welcomeError) {
+        console.error("Failed to send welcome message:", welcomeError);
+        // Don't fail signup if welcome message fails
+      }
 
       // Notify admins about new seller/rider registration
       if (requestedRole === "seller" || requestedRole === "rider") {
@@ -4170,6 +4208,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const count = await storage.getUnreadMessageCount(req.user!.id);
       res.json({ count });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get message contacts for sellers (admins, agents, and buyers who have messaged)
+  app.get("/api/seller/message-contacts", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      
+      // Get all admins, super_admins, and agents as potential contacts
+      const admins = await storage.getUsersByRole("admin");
+      const superAdmins = await storage.getUsersByRole("super_admin");
+      const agents = await storage.getUsersByRole("agent");
+      
+      // Get users who have had conversations with this seller
+      const allMessages = await db.select({
+        senderId: chatMessages.senderId,
+        receiverId: chatMessages.receiverId,
+      }).from(chatMessages).where(
+        sql`${chatMessages.senderId} = ${userId} OR ${chatMessages.receiverId} = ${userId}`
+      );
+      
+      const conversationPartners = new Set<string>();
+      allMessages.forEach(msg => {
+        if (msg.senderId !== userId) conversationPartners.add(msg.senderId);
+        if (msg.receiverId !== userId) conversationPartners.add(msg.receiverId);
+      });
+      
+      // Get user details for conversation partners
+      const partnerUsers = await Promise.all(
+        Array.from(conversationPartners).map(id => storage.getUser(id))
+      );
+      
+      // Combine all contacts (admins + agents + conversation partners)
+      const allContacts = [...admins, ...superAdmins, ...agents];
+      partnerUsers.forEach(u => {
+        if (u && !allContacts.some(c => c.id === u.id)) {
+          allContacts.push(u);
+        }
+      });
+      
+      // Remove passwords and return
+      const contacts = allContacts.map(u => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        phone: u.phone,
+        isActive: u.isActive,
+      }));
+      
+      res.json(contacts);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get message contacts for riders (admins, agents, sellers, and buyers who have messaged)
+  app.get("/api/rider/message-contacts", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      
+      // Get all admins, super_admins, and agents as potential contacts
+      const admins = await storage.getUsersByRole("admin");
+      const superAdmins = await storage.getUsersByRole("super_admin");
+      const agents = await storage.getUsersByRole("agent");
+      
+      // Get users who have had conversations with this rider
+      const allMessages = await db.select({
+        senderId: chatMessages.senderId,
+        receiverId: chatMessages.receiverId,
+      }).from(chatMessages).where(
+        sql`${chatMessages.senderId} = ${userId} OR ${chatMessages.receiverId} = ${userId}`
+      );
+      
+      const conversationPartners = new Set<string>();
+      allMessages.forEach(msg => {
+        if (msg.senderId !== userId) conversationPartners.add(msg.senderId);
+        if (msg.receiverId !== userId) conversationPartners.add(msg.receiverId);
+      });
+      
+      // Get user details for conversation partners
+      const partnerUsers = await Promise.all(
+        Array.from(conversationPartners).map(id => storage.getUser(id))
+      );
+      
+      // Combine all contacts (admins + agents + conversation partners)
+      const allContacts = [...admins, ...superAdmins, ...agents];
+      partnerUsers.forEach(u => {
+        if (u && !allContacts.some(c => c.id === u.id)) {
+          allContacts.push(u);
+        }
+      });
+      
+      // Remove passwords and return
+      const contacts = allContacts.map(u => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        phone: u.phone,
+        isActive: u.isActive,
+      }));
+      
+      res.json(contacts);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
