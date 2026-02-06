@@ -41,13 +41,13 @@ export default function Header({
     queryKey: ["/api/platform-settings"],
   });
   
-  // Show "Become a Seller" only for guests or customers (buyers)
+  // Show "Become a Seller" only for guests or buyers
   const showBecomeSeller = platformSettings?.allowSellerRegistration && 
-    (!isAuthenticated || user?.role === 'customer');
+    (!isAuthenticated || user?.role === 'buyer');
   
-  // Show "Become a Delivery Partner" only for guests or customers (buyers)
+  // Show "Become a Delivery Partner" only for guests or buyers
   const showBecomeRider = platformSettings?.allowRiderRegistration && 
-    (!isAuthenticated || user?.role === 'customer');
+    (!isAuthenticated || user?.role === 'buyer');
 
   const isActive = (path: string) => location === path;
 
