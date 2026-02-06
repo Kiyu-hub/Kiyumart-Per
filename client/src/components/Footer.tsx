@@ -215,7 +215,9 @@ export default function Footer() {
                   <li><Link href="/" className="hover:text-foreground transition-colors" data-testid="link-home">Home</Link></li>
                   <li><Link href="/products" className="hover:text-foreground transition-colors" data-testid="link-all-products">All Products</Link></li>
                   <li><Link href="/stores" className="hover:text-foreground transition-colors" data-testid="link-stores">Browse Stores</Link></li>
-                  <li><Link href="/become-seller" className="hover:text-foreground transition-colors" data-testid="link-become-seller">Become a Seller</Link></li>
+                  {(!isAuthenticated || user?.role === 'customer') && (
+                    <li><Link href="/become-seller" className="hover:text-foreground transition-colors" data-testid="link-become-seller">Become a Seller</Link></li>
+                  )}
                 </ul>
               </>
             ) : (

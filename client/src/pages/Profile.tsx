@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { User, MapPin, CreditCard, Package, LogOut, Settings, Camera, Loader2, Truck, Store } from "lucide-react";
+import MediaUploadInput from "@/components/MediaUploadInput";
 import { useLocation } from "wouter";
 
 interface UserProfile {
@@ -87,6 +88,7 @@ export default function Profile() {
         phone: profile.phone || "",
         storeName: profile.storeName || "",
         storeDescription: profile.storeDescription || "",
+        storeBanner: profile.storeBanner || "",
         vehicleInfo: profile.vehicleInfo || { type: "", plateNumber: "", license: "" },
       });
     }
@@ -372,6 +374,30 @@ export default function Profile() {
                               data-testid="input-store-description"
                               rows={3}
                             />
+                          </div>
+                          <div>
+                            <Label htmlFor="storeBanner">Store Banner</Label>
+                            {isEditing ? (
+                              <MediaUploadInput
+                                id="storeBanner"
+                                label=""
+                                value={formData.storeBanner || ""}
+                                onChange={(value) => handleInputChange("storeBanner", value)}
+                                accept="image"
+                                placeholder="Upload or enter banner URL..."
+                                description="Store banner image (recommended: 1200x300px)"
+                              />
+                            ) : (
+                              profile?.storeBanner ? (
+                                <img 
+                                  src={profile.storeBanner} 
+                                  alt="Store banner" 
+                                  className="w-full h-24 object-cover rounded-md mt-1"
+                                />
+                              ) : (
+                                <p className="text-sm text-muted-foreground mt-1">No banner set</p>
+                              )
+                            )}
                           </div>
                         </div>
                       </div>

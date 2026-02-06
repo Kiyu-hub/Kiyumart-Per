@@ -491,9 +491,17 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
               name="storeBanner"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Store Banner URL</FormLabel>
+                  <FormLabel>Store Banner Image</FormLabel>
                   <FormControl>
-                    <Input placeholder="https://..." {...field} data-testid="input-edit-store-banner" />
+                    <MediaUploadInput
+                      id="edit-store-banner"
+                      label=""
+                      value={field.value || ""}
+                      onChange={field.onChange}
+                      accept="image"
+                      placeholder="Upload or enter image URL..."
+                      description="Store banner image (optional)"
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
