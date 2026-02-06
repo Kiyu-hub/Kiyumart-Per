@@ -53,6 +53,27 @@ const destinationIcon = new Icon({
   popupAnchor: [0, -36],
 });
 
+// Component to invalidate map size on mount (fixes common Leaflet rendering issues)
+function MapInvalidator() {
+  const map = useMap();
+  
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      map.invalidateSize();
+    }, 100);
+    
+    const handleResize = () => map.invalidateSize();
+    window.addEventListener('resize', handleResize);
+    
+    return () => {
+      clearTimeout(timeout);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [map]);
+  
+  return null;
+}
+
 // Component to fit map bounds
 function MapBoundsController({ riderPos, destPos }: { riderPos: [number, number] | null; destPos: [number, number] | null }) {
   const map = useMap();
@@ -331,6 +352,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           
+          <MapInvalidator />
           <MapBoundsController riderPos={riderPosition} destPos={destPos} />
 
           {/* Route polyline */}

@@ -92,6 +92,29 @@ const pendingOrderIcon = new Icon({
   popupAnchor: [0, -36],
 });
 
+// Component to invalidate map size on mount (fixes common Leaflet rendering issues)
+function MapInvalidator() {
+  const map = useMap();
+  
+  useEffect(() => {
+    // Invalidate size after a short delay to ensure container is fully rendered
+    const timeout = setTimeout(() => {
+      map.invalidateSize();
+    }, 100);
+    
+    // Also invalidate on window resize
+    const handleResize = () => map.invalidateSize();
+    window.addEventListener('resize', handleResize);
+    
+    return () => {
+      clearTimeout(timeout);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [map]);
+  
+  return null;
+}
+
 // Component to fit map bounds to all markers
 function MapBoundsController({ riders, pendingOrders }: { riders: RiderLocation[]; pendingOrders: PendingOrder[] }) {
   const map = useMap();
@@ -373,6 +396,7 @@ export default function RealTimeRiderMap() {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   />
                   
+                  <MapInvalidator />
                   <MapBoundsController riders={riders} pendingOrders={pendingOrders} />
                   
                   {/* Route polyline */}
