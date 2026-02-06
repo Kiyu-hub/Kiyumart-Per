@@ -109,7 +109,12 @@ export default function Notifications() {
           }
           break;
         case "message":
-          navigate(`${rolePrefix}/messages`);
+          // Navigate to messages with specific user if senderId available
+          if (metadata.senderId) {
+            navigate(`${rolePrefix}/messages?userId=${metadata.senderId}`);
+          } else {
+            navigate(`${rolePrefix}/messages`);
+          }
           break;
         default:
           // Open preview dialog for other types

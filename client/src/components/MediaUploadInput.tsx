@@ -17,6 +17,10 @@ interface MediaUploadInputProps {
   description?: string;
   required?: boolean;
   disabled?: boolean;
+  /** Skip 4K resolution validation (for category images, logos, etc.) */
+  skip4KValidation?: boolean;
+  /** Minimum dimensions for images when skip4KValidation is true (default: 200x200) */
+  minDimensions?: { width: number; height: number };
 }
 
 export default function MediaUploadInput({
@@ -29,6 +33,8 @@ export default function MediaUploadInput({
   description,
   required = false,
   disabled = false,
+  skip4KValidation = false,
+  minDimensions = { width: 200, height: 200 },
 }: MediaUploadInputProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -130,20 +136,36 @@ export default function MediaUploadInput({
       return;
     }
 
-    // Validate 4K image dimensions (3840x2160 minimum)
+    // Validate image dimensions
     if (isImage) {
       try {
         setValidationStatus("Checking image dimensions...");
         const { width, height } = await validateImageDimensions(file);
-        if (width < 3840 || height < 2160) {
-          toast({
-            title: "Image resolution too low",
-            description: `Image is ${width}×${height}px. Minimum required: 3840×2160px (4K)`,
-            variant: "destructive",
-          });
-          e.target.value = "";
-          setFileInfo(null);
-          return;
+        
+        if (skip4KValidation) {
+          // Use minimum dimensions check when 4K is not required
+          if (width < minDimensions.width || height < minDimensions.height) {
+            toast({
+              title: "Image resolution too low",
+              description: `Image is ${width}×${height}px. Minimum required: ${minDimensions.width}×${minDimensions.height}px`,
+              variant: "destructive",
+            });
+            e.target.value = "";
+            setFileInfo(null);
+            return;
+          }
+        } else {
+          // Default 4K validation (3840x2160 minimum)
+          if (width < 3840 || height < 2160) {
+            toast({
+              title: "Image resolution too low",
+              description: `Image is ${width}×${height}px. Minimum required: 3840×2160px (4K)`,
+              variant: "destructive",
+            });
+            e.target.value = "";
+            setFileInfo(null);
+            return;
+          }
         }
         setValidationStatus(`✓ Image validated (${width}×${height}px)`);
       } catch (error) {

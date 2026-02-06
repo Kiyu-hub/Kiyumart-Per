@@ -55,7 +55,7 @@ export default function AuthPage() {
     }
   };
 
-  const handleSignup = async (name: string, email: string, password: string) => {
+  const handleSignup = async (name: string, email: string, password: string, location?: { latitude: number; longitude: number }) => {
     try {
       setIsNewSignup(true);
       await signup({ name, email, password, role: "buyer" });

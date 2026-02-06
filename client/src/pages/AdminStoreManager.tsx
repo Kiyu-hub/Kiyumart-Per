@@ -254,7 +254,9 @@ export default function AdminStoreManager() {
                       onChange={(value) => form.setValue("logo", value)}
                       accept="image"
                       placeholder="https://example.com/logo.png"
-                      description="Upload your store logo (recommended size: 200x200px)"
+                      description="Upload your store logo (min 200×200px)"
+                      skip4KValidation
+                      minDimensions={{ width: 200, height: 200 }}
                     />
 
                     <div className="space-y-2">

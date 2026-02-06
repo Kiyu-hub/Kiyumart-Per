@@ -279,7 +279,9 @@ function CreateSellerDialog() {
                       onChange={field.onChange}
                       accept="image"
                       placeholder="Upload or enter image URL..."
-                      description="Store banner image (optional)"
+                      description="Store banner image (min 800×200px)"
+                      skip4KValidation
+                      minDimensions={{ width: 800, height: 200 }}
                     />
                   </FormControl>
                   <FormMessage />
@@ -500,7 +502,9 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
                       onChange={field.onChange}
                       accept="image"
                       placeholder="Upload or enter image URL..."
-                      description="Store banner image (optional)"
+                      description="Store banner image (min 800×200px)"
+                      skip4KValidation
+                      minDimensions={{ width: 800, height: 200 }}
                     />
                   </FormControl>
                   <FormMessage />

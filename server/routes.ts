@@ -4091,21 +4091,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/messages", requireAuth, async (req: AuthRequest, res) => {
     try {
+      // Ensure IDs are strings for consistent socket room matching
+      const senderId = String(req.user!.id);
+      const receiverId = String(req.body.receiverId);
+      
       const messageData = {
-        senderId: req.user!.id,
-        receiverId: req.body.receiverId,
+        senderId,
+        receiverId,
         message: req.body.message,
         messageType: req.body.messageType || "text",
       };
 
       const message = await storage.createMessage(messageData);
       
-      // CRITICAL FIX: Broadcast to BOTH sender and receiver for instant message updates
-      io.to(req.body.receiverId).emit("new_message", message);
-      io.to(req.user!.id).emit("new_message", message);
+      console.log(`📤 Message sent from ${senderId} to ${receiverId}`);
       
-      const receiver = await storage.getUser(req.body.receiverId);
-      const sender = await storage.getUser(req.user!.id);
+      // CRITICAL FIX: Broadcast to BOTH sender and receiver for instant message updates
+      io.to(receiverId).emit("new_message", message);
+      io.to(senderId).emit("new_message", message);
+      
+      const receiver = await storage.getUser(receiverId);
+      const sender = await storage.getUser(senderId);
       
       // Notify admins about new messages to admin, agent, or super_admin
       if (receiver && (receiver.role === "admin" || receiver.role === "super_admin" || receiver.role === "agent")) {
@@ -4113,7 +4119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "message",
           "New message received",
           `You have a new message from ${sender?.name || sender?.email || 'a user'}`,
-          { messageId: message.id, senderId: req.user!.id }
+          { messageId: message.id, senderId }
         );
       }
       
@@ -4124,14 +4130,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: "message",
           title: "New message",
           message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+          metadata: { messageId: message.id, senderId } as any,
         });
         
         // Also emit a notification event to the receiver's socket room
-        io.to(req.body.receiverId).emit("notification", {
+        io.to(receiverId).emit("notification", {
           type: "message",
           title: "New message",
           message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
-          data: { messageId: message.id, senderId: req.user!.id },
+          data: { messageId: message.id, senderId },
         });
       }
       

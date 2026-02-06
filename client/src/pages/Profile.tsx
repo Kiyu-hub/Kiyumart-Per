@@ -386,6 +386,8 @@ export default function Profile() {
                                 accept="image"
                                 placeholder="Upload or enter banner URL..."
                                 description="Store banner image (recommended: 1200x300px)"
+                                skip4KValidation
+                                minDimensions={{ width: 800, height: 200 }}
                               />
                             ) : (
                               profile?.storeBanner ? (
