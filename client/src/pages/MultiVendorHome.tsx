@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
@@ -16,7 +17,7 @@ import LocationPrompt from "@/components/LocationPrompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, Star, ShoppingBag, ChevronRight, Sparkles } from "lucide-react";
+import { TrendingUp, Star, ShoppingBag, ChevronRight, Sparkles, Tag } from "lucide-react";
 import type { Product, PlatformSettings } from "@shared/schema";
 
 interface Category {
@@ -78,10 +79,6 @@ export default function MultiVendorHome() {
     refetchInterval: 5000,
   });
 
-  const hasMultiplePromotions = promos && promos.length > 1;
-  const hasExactlyOnePromotion = promos && promos.length === 1;
-  const singlePromotion = hasExactlyOnePromotion ? promos[0] : null;
-
   const getCategoryProductCount = (categorySlug: string) => {
     return allProducts.filter((p) => p.category === categorySlug).length;
   };
@@ -93,6 +90,17 @@ export default function MultiVendorHome() {
   const sidebarAdEnabled = (settings as any)?.sidebarAdEnabled ?? true;
   const footerAdEnabled = (settings as any)?.footerAdEnabled ?? true;
 
+  const hasMultiplePromotions = promos && promos.length > 1;
+  const hasExactlyOnePromotion = promos && promos.length === 1;
+  const singlePromotion = hasExactlyOnePromotion ? promos[0] : null;
+
+  // Products to auto-fill empty promo/ad areas
+  const sidebarProducts = allProducts.slice(0, 4);
+  const spotlightProducts = allProducts.filter(p => (p.discount || 0) > 0).slice(0, 3);
+
+  const [showAllCategories, setShowAllCategories] = useState(false);
+  const CATEGORY_VISIBLE_THRESHOLD = 6;
+
   return (
     <div className="mv-home min-h-screen flex flex-col relative overflow-hidden">
       {/* Animated gradient background */}
@@ -102,7 +110,7 @@ export default function MultiVendorHome() {
       <div className="mv-bg-orb mv-bg-orb-3" />
 
       {/* Top bar with theme toggle */}
-      <div className="relative z-20 flex items-center justify-end px-4 py-2 border-b border-white/10 backdrop-blur-md bg-white/5">
+      <div className="relative z-20 flex items-center justify-end px-4 py-2 border-b border-gray-200 dark:border-white/10 backdrop-blur-md bg-white/80 dark:bg-white/5">
         <ThemeToggle />
       </div>
       
@@ -118,12 +126,37 @@ export default function MultiVendorHome() {
       <main className="flex-1 relative z-10">
         <div className="container max-w-7xl mx-auto px-4 py-8 space-y-12">
 
-          {/* Hero Ad */}
-          {adsEnabled && heroBannerEnabled && (
+          {/* Hero Ad — or product spotlight when no ads */}
+          {adsEnabled && heroBannerEnabled ? (
             <div className="w-full">
               <AdBanner position="hero" className="h-16 md:h-20 rounded-xl" />
             </div>
-          )}
+          ) : spotlightProducts.length > 0 ? (
+            <section className="mv-glass-card rounded-2xl p-4 md:p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="mv-icon-badge" style={{ width: 32, height: 32, borderRadius: 8 }}>
+                  <Tag className="w-4 h-4 text-white" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Hot Deals</h3>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {spotlightProducts.map(product => (
+                  <ProductCard
+                    key={product.id}
+                    id={product.id}
+                    name={product.name}
+                    price={product.price}
+                    costPrice={product.costPrice || undefined}
+                    image={product.images[0] || ""}
+                    discount={product.discount || 0}
+                    rating={product.ratings || "0"}
+                    reviewCount={product.totalRatings || 0}
+                    inStock={(product.stock || 0) > 0}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           {/* Promotional Ads Grid */}
           {hasMultiplePromotions && (
@@ -138,7 +171,7 @@ export default function MultiVendorHome() {
                   <ShoppingBag className="w-5 h-5 text-white" />
                 </div>
                 <h2 
-                  className="text-2xl md:text-3xl font-bold text-white"
+                  className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white"
                   data-testid="heading-categories"
                 >
                   {shopDisplayMode === "by-category" ? "Shop by Categories" : "Shop by Store"}
@@ -153,15 +186,23 @@ export default function MultiVendorHome() {
                     }
                   </Badge>
                 )}
-                <Button 
-                  variant="ghost" 
-                  className="gap-1 text-blue-200 hover:text-white hover:bg-white/10"
-                  onClick={() => navigate(shopDisplayMode === "by-category" ? "/products" : "/stores")}
-                  data-testid="button-see-all-categories"
-                >
-                  See All
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
+                {(shopDisplayMode === "by-category" ? categories.length > CATEGORY_VISIBLE_THRESHOLD : true) && (
+                  <Button 
+                    variant="ghost" 
+                    className="gap-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-blue-200 dark:hover:text-white dark:hover:bg-white/10"
+                    onClick={() => {
+                      if (shopDisplayMode === "by-category") {
+                        setShowAllCategories(!showAllCategories);
+                      } else {
+                        navigate("/stores");
+                      }
+                    }}
+                    data-testid="button-see-all-categories"
+                  >
+                    {shopDisplayMode === "by-category" && showAllCategories ? "Show Less" : "See All"}
+                    <ChevronRight className={`w-4 h-4 transition-transform ${shopDisplayMode === "by-category" && showAllCategories ? "rotate-90" : ""}`} />
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -169,11 +210,11 @@ export default function MultiVendorHome() {
               categoriesLoading ? (
                 <div className="category-grid">
                   {[...Array(6)].map((_, i) => (
-                    <Skeleton key={i} className="aspect-[4/3] rounded-xl bg-white/10" data-testid={`skeleton-category-${i}`} />
+                    <Skeleton key={i} className="aspect-[4/3] rounded-xl bg-gray-200 dark:bg-white/10" data-testid={`skeleton-category-${i}`} />
                   ))}
                 </div>
               ) : categories.length > 0 ? (
-                <div className="category-grid" data-testid="grid-categories">
+                <div className={showAllCategories ? "category-grid-expanded" : "category-grid"} data-testid="grid-categories">
                   {categories.map((category) => (
                     <CategoryCard
                       key={category.id}
@@ -186,7 +227,7 @@ export default function MultiVendorHome() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12 text-blue-200/70" data-testid="empty-categories">
+                <div className="text-center py-12 text-gray-400 dark:text-blue-200/70" data-testid="empty-categories">
                   <ShoppingBag className="w-16 h-16 mx-auto mb-4 opacity-50" />
                   <p className="text-lg mb-2">No product categories are available at the moment</p>
                   <p className="text-sm">Please check back later or contact the administrator to add categories!</p>
@@ -196,7 +237,7 @@ export default function MultiVendorHome() {
               storesLoading ? (
                 <div className="category-grid">
                   {[...Array(6)].map((_, i) => (
-                    <Skeleton key={i} className="aspect-[4/3] rounded-xl bg-white/10" data-testid={`skeleton-store-${i}`} />
+                    <Skeleton key={i} className="aspect-[4/3] rounded-xl bg-gray-200 dark:bg-white/10" data-testid={`skeleton-store-${i}`} />
                   ))}
                 </div>
               ) : stores.length > 0 ? (
@@ -212,7 +253,7 @@ export default function MultiVendorHome() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12 text-blue-200/70" data-testid="empty-stores">
+                <div className="text-center py-12 text-gray-400 dark:text-blue-200/70" data-testid="empty-stores">
                   <ShoppingBag className="w-16 h-16 mx-auto mb-4 opacity-50" />
                   <p className="text-lg mb-2">No stores available at the moment</p>
                   <p className="text-sm">Please check back later or contact support!</p>
@@ -230,35 +271,61 @@ export default function MultiVendorHome() {
 
           {/* Products and Sidebar row */}
           <div className="grid lg:grid-cols-12 gap-6">
-            {/* Left Sidebar */}
-            {(hasExactlyOnePromotion || (adsEnabled && sidebarAdEnabled)) && (
-              <aside className="hidden lg:block lg:col-span-4">
-                <div className="sticky top-24 flex flex-col gap-6 h-[calc(100vh-6rem)]">
-                  {hasExactlyOnePromotion ? (
-                    <div className="flex-1 overflow-hidden min-h-0">
-                      <SinglePromotionSidebar promo={singlePromotion} />
+            {/* Left Sidebar — always visible: promo > ad > auto-fill products */}
+            <aside className="hidden lg:block lg:col-span-4">
+              <div className="sticky top-24 flex flex-col gap-6 max-h-[calc(100vh-6rem)]">
+                {hasExactlyOnePromotion ? (
+                  <div className="flex-1 overflow-hidden min-h-0">
+                    <SinglePromotionSidebar promo={singlePromotion} />
+                  </div>
+                ) : (adsEnabled && sidebarAdEnabled) ? (
+                  <div className="flex-1 overflow-hidden min-h-0 rounded-xl border border-gray-200 dark:border-white/10 shadow-lg">
+                    <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
+                  </div>
+                ) : sidebarProducts.length > 0 ? (
+                  <div className="mv-glass-card rounded-2xl p-5 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="mv-icon-badge mv-icon-badge-purple" style={{ width: 32, height: 32, borderRadius: 8 }}>
+                        <TrendingUp className="w-4 h-4 text-white" />
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-900 dark:text-white">Trending Now</h3>
                     </div>
-                  ) : (adsEnabled && sidebarAdEnabled) ? (
-                    <div className="flex-1 overflow-hidden min-h-0 rounded-xl overflow-hidden border border-white/10 shadow-lg">
-                      <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
+                    <div className="space-y-3">
+                      {sidebarProducts.map(product => (
+                        <div key={product.id} className="cursor-pointer" onClick={() => navigate(`/product/${product.id}`)}>
+                          <div className="flex gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
+                            <img
+                              src={product.images[0] || '/placeholder.png'}
+                              alt={product.name}
+                              className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{product.name}</p>
+                              <p className="text-sm font-bold text-primary mt-1">
+                                {(settings as any)?.defaultCurrency || 'GH\u20B5'}{Number(product.price).toFixed(2)}
+                              </p>
+                              {(product.discount || 0) > 0 && (
+                                <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded">{product.discount}% OFF</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ) : null}
-                </div>
-              </aside>
-            )}
+                  </div>
+                ) : null}
+              </div>
+            </aside>
 
             {/* Products column */}
-            <div className={(hasExactlyOnePromotion || (adsEnabled && sidebarAdEnabled)) ? 'lg:col-span-8' : 'lg:col-span-12'}>
+            <div className="lg:col-span-8">
               {/* Featured Products */}
               <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6 mb-8">
                 <div className="flex items-center gap-3">
                   <div className="mv-icon-badge mv-icon-badge-amber">
                     <TrendingUp className="w-5 h-5 text-white" />
                   </div>
-                  <h2 
-                    className="text-2xl md:text-3xl font-bold text-white"
-                    data-testid="heading-featured"
-                  >
+                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-featured">
                     Featured Products
                   </h2>
                   <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
@@ -267,7 +334,7 @@ export default function MultiVendorHome() {
                 {productsLoading ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                     {[...Array(10)].map((_, i) => (
-                      <Skeleton key={i} className="aspect-square rounded-xl bg-white/10" data-testid={`skeleton-product-${i}`} />
+                      <Skeleton key={i} className="aspect-square rounded-xl bg-gray-200 dark:bg-white/10" data-testid={`skeleton-product-${i}`} />
                     ))}
                   </div>
                 ) : featuredProducts.length > 0 ? (
@@ -288,7 +355,7 @@ export default function MultiVendorHome() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-12 text-blue-200/70" data-testid="empty-products">
+                  <div className="text-center py-12 text-gray-400 dark:text-blue-200/70" data-testid="empty-products">
                     <Star className="w-16 h-16 mx-auto mb-4 opacity-50" />
                     <p>No products available yet</p>
                   </div>
@@ -301,10 +368,7 @@ export default function MultiVendorHome() {
                   <div className="mv-icon-badge mv-icon-badge-purple">
                     <Star className="w-5 h-5 text-white" />
                   </div>
-                  <h2 
-                    className="text-2xl md:text-3xl font-bold text-white"
-                    data-testid="heading-new-arrivals"
-                  >
+                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-new-arrivals">
                     New Arrivals
                   </h2>
                 </div>
@@ -329,12 +393,39 @@ export default function MultiVendorHome() {
             </div>
           </div>
 
-          {/* Footer Ad */}
-          {adsEnabled && footerAdEnabled && (
+          {/* Footer Ad — or more products when ads are disabled */}
+          {adsEnabled && footerAdEnabled ? (
             <div className="w-full">
               <AdBanner position="footer" className="h-24 md:h-32 rounded-xl" />
             </div>
-          )}
+          ) : allProducts.length > 10 ? (
+            <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="mv-icon-badge" style={{ background: 'linear-gradient(135deg, #ec4899, #f43f5e)' }}>
+                  <Tag className="w-5 h-5 text-white" />
+                </div>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
+                  You Might Also Like
+                </h2>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                {allProducts.slice(10, 20).map(product => (
+                  <ProductCard
+                    key={product.id}
+                    id={product.id}
+                    name={product.name}
+                    price={product.price}
+                    costPrice={product.costPrice || undefined}
+                    image={product.images[0] || ""}
+                    discount={product.discount || 0}
+                    rating={product.ratings || "0"}
+                    reviewCount={product.totalRatings || 0}
+                    inStock={(product.stock || 0) > 0}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
       </main>
 
@@ -345,16 +436,16 @@ export default function MultiVendorHome() {
       <LocationPrompt />
 
       <style>{`
-        /* ── Glassmorphism Dark Blue Theme ────────────── */
+        /* Light Mode (Clean Professional) */
         .mv-home {
-          background: #080e27;
-          color: #e0e7ff;
+          background: #f8fafc;
+          color: #1e293b;
         }
 
         .mv-bg-gradient {
           position: fixed;
           inset: 0;
-          background: linear-gradient(135deg, #050810 0%, #080d1a 20%, #0a1224 40%, #0c1628 60%, #080d1a 80%, #040710 100%);
+          background: linear-gradient(135deg, #ffffff 0%, #f0f4ff 25%, #eef2ff 50%, #f5f3ff 75%, #f8fafc 100%);
           z-index: 0;
         }
 
@@ -362,7 +453,7 @@ export default function MultiVendorHome() {
           position: fixed;
           border-radius: 50%;
           filter: blur(120px);
-          opacity: 0.15;
+          opacity: 0.06;
           z-index: 1;
           animation: mv-float 25s ease-in-out infinite;
         }
@@ -370,7 +461,7 @@ export default function MultiVendorHome() {
         .mv-bg-orb-1 {
           width: 500px;
           height: 500px;
-          background: radial-gradient(circle, #1e3a8a 0%, transparent 70%);
+          background: radial-gradient(circle, #93c5fd 0%, transparent 70%);
           top: -200px;
           right: -100px;
           animation-delay: 0s;
@@ -379,7 +470,7 @@ export default function MultiVendorHome() {
         .mv-bg-orb-2 {
           width: 400px;
           height: 400px;
-          background: radial-gradient(circle, #4c1d95 0%, transparent 70%);
+          background: radial-gradient(circle, #c4b5fd 0%, transparent 70%);
           bottom: 10%;
           left: -150px;
           animation-delay: -8s;
@@ -388,7 +479,7 @@ export default function MultiVendorHome() {
         .mv-bg-orb-3 {
           width: 350px;
           height: 350px;
-          background: radial-gradient(circle, #0c4a6e 0%, transparent 70%);
+          background: radial-gradient(circle, #7dd3fc 0%, transparent 70%);
           top: 50%;
           right: 20%;
           animation-delay: -16s;
@@ -400,23 +491,19 @@ export default function MultiVendorHome() {
           66% { transform: translate(-20px, 15px) scale(0.95); }
         }
 
-        /* Glass card */
         .mv-glass-card {
-          background: rgba(255, 255, 255, 0.05);
+          background: rgba(255, 255, 255, 0.75);
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          box-shadow: 
-            0 8px 32px rgba(0, 0, 0, 0.3),
-            inset 0 1px 0 rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
         }
 
         .mv-glass-card:hover {
-          border-color: rgba(255, 255, 255, 0.12);
-          background: rgba(255, 255, 255, 0.07);
+          border-color: rgba(0, 0, 0, 0.12);
+          background: rgba(255, 255, 255, 0.85);
         }
 
-        /* Icon badges */
         .mv-icon-badge {
           display: flex;
           align-items: center;
@@ -425,27 +512,26 @@ export default function MultiVendorHome() {
           height: 40px;
           border-radius: 12px;
           background: linear-gradient(135deg, #2563eb, #1d4ed8);
-          box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+          box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
         }
 
         .mv-icon-badge-amber {
           background: linear-gradient(135deg, #f59e0b, #d97706);
-          box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+          box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
         }
 
         .mv-icon-badge-purple {
           background: linear-gradient(135deg, #7c3aed, #6d28d9);
-          box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+          box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
         }
 
         .mv-badge {
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          color: #c7d2fe;
+          background: rgba(59, 130, 246, 0.1);
+          border: 1px solid rgba(59, 130, 246, 0.2);
+          color: #3b82f6;
           backdrop-filter: blur(8px);
         }
 
-        /* Category grid scrollbar */
         .category-grid {
           display: flex;
           gap: 16px;
@@ -454,43 +540,85 @@ export default function MultiVendorHome() {
           scroll-behavior: smooth;
           -webkit-overflow-scrolling: touch;
           scrollbar-width: thin;
-          scrollbar-color: rgba(99, 102, 241, 0.4) transparent;
+          scrollbar-color: rgba(99, 102, 241, 0.3) transparent;
           padding-bottom: 8px;
         }
 
-        .category-grid::-webkit-scrollbar {
-          height: 6px;
-        }
-
-        .category-grid::-webkit-scrollbar-track {
-          background: transparent;
-        }
-
-        .category-grid::-webkit-scrollbar-thumb {
-          background-color: rgba(99, 102, 241, 0.4);
-          border-radius: 3px;
-        }
-
-        .category-grid::-webkit-scrollbar-thumb:hover {
-          background-color: rgba(99, 102, 241, 0.7);
-        }
+        .category-grid::-webkit-scrollbar { height: 6px; }
+        .category-grid::-webkit-scrollbar-track { background: transparent; }
+        .category-grid::-webkit-scrollbar-thumb { background-color: rgba(99, 102, 241, 0.3); border-radius: 3px; }
+        .category-grid::-webkit-scrollbar-thumb:hover { background-color: rgba(99, 102, 241, 0.5); }
 
         .category-grid > * {
           flex: 0 0 auto;
           width: 160px;
         }
 
+        .category-grid-expanded {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+          gap: 16px;
+          padding-bottom: 8px;
+        }
+
         @media (min-width: 640px) {
-          .category-grid > * {
-            width: 200px;
-          }
+          .category-grid > * { width: 200px; }
+          .category-grid-expanded { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
         }
 
         @media (min-width: 1024px) {
-          .category-grid > * {
-            width: 220px;
-          }
+          .category-grid > * { width: 220px; }
+          .category-grid-expanded { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
         }
+
+        /* Dark Mode Override */
+        .dark .mv-home {
+          background: #020305;
+          color: #e0e7ff;
+        }
+
+        .dark .mv-bg-gradient {
+          background: linear-gradient(135deg, #010203 0%, #020408 20%, #030610 40%, #040816 60%, #020408 80%, #010102 100%);
+        }
+
+        .dark .mv-bg-orb { opacity: 0.07; }
+
+        .dark .mv-bg-orb-1 {
+          background: radial-gradient(circle, #1e3a8a 0%, transparent 70%);
+        }
+
+        .dark .mv-bg-orb-2 {
+          background: radial-gradient(circle, #4c1d95 0%, transparent 70%);
+        }
+
+        .dark .mv-bg-orb-3 {
+          background: radial-gradient(circle, #0c4a6e 0%, transparent 70%);
+        }
+
+        .dark .mv-glass-card {
+          background: rgba(255, 255, 255, 0.025);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.04);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+        }
+
+        .dark .mv-glass-card:hover {
+          border-color: rgba(255, 255, 255, 0.07);
+          background: rgba(255, 255, 255, 0.04);
+        }
+
+        .dark .mv-badge {
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          color: #c7d2fe;
+        }
+
+        .dark .category-grid {
+          scrollbar-color: rgba(99, 102, 241, 0.4) transparent;
+        }
+        .dark .category-grid::-webkit-scrollbar-thumb { background-color: rgba(99, 102, 241, 0.4); }
+        .dark .category-grid::-webkit-scrollbar-thumb:hover { background-color: rgba(99, 102, 241, 0.7); }
       `}</style>
     </div>
   );

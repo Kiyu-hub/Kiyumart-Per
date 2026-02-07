@@ -33,15 +33,15 @@ interface PlatformSettings {
   isMultiVendor?: boolean;
 }
 
-interface Category {
+interface FooterPageItem {
   id: string;
-  name: string;
+  title: string;
   slug: string;
-}
-
-interface Product {
-  id: string;
-  category: string;
+  url: string | null;
+  group: string | null;
+  storeMode: string | null;
+  displayOrder: number | null;
+  openInNewTab: boolean | null;
 }
 
 interface Store {
@@ -61,7 +61,6 @@ export default function Footer() {
     queryKey: ["/api/settings"],
   });
   
-  // Fetch seller's store information if viewing a seller store page
   const { data: sellerStore } = useQuery<Store>({
     queryKey: ["/api/stores/by-seller", sellerId],
     queryFn: async () => {
@@ -72,55 +71,85 @@ export default function Footer() {
     enabled: !!sellerId,
   });
   
-  // Fetch products to get categories dynamically (filtered by primary store in single-store mode)
-  const { data: products = [] } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
-  });
-  
   // Fetch dynamic footer pages
-  const { data: footerPages = [] } = useQuery<Array<{
-    id: string;
-    title: string;
-    slug: string;
-    url: string | null;
-    group: string | null;
-    openInNewTab: boolean | null;
-  }>>({
+  const { data: allFooterPages = [] } = useQuery<FooterPageItem[]>({
     queryKey: ["/api/footer-pages"],
   });
   
-  // Get unique categories from products for single-store mode
-  const productCategories = Array.from(new Set(products.map(p => p.category)))
-    .filter(Boolean)
-    .slice(0, 3);
+  const { user, isAuthenticated } = useAuth();
+
+  // Filter footer pages by current store mode
+  const isMultiVendor = settings?.isMultiVendor ?? false;
+  const currentMode = isMultiVendor ? "multivendor" : "single";
   
-  // Group footer pages by group
+  const footerPages = allFooterPages.filter(page => {
+    const mode = page.storeMode || "both";
+    return mode === "both" || mode === currentMode;
+  });
+  
+  // Group pages by group
   const groupedPages = footerPages.reduce((acc, page) => {
     const group = page.group || 'general';
     if (!acc[group]) acc[group] = [];
     acc[group].push(page);
     return acc;
-  }, {} as Record<string, typeof footerPages>);
-  
-  const { user, isAuthenticated } = useAuth();
+  }, {} as Record<string, FooterPageItem[]>);
+
+  // Sort pages within each group by displayOrder
+  Object.values(groupedPages).forEach(pages => {
+    pages.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  });
 
   const openSocialLink = (url?: string) => {
-    if (url) {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    }
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const handleCustomerSupportClick = (e: React.MouseEvent) => {
-    if (!isAuthenticated) {
-      e.preventDefault();
-      window.location.href = '/auth';
-    }
-  };
-
-  // Use seller store info if viewing a seller store page, otherwise use platform settings
+  // Use seller store info if viewing a seller store page
   const displayName = sellerStore?.name || settings?.platformName || "KiyuMart";
   const displayLogo = sellerStore?.logo || settings?.logo;
   const displayDescription = sellerStore?.description || settings?.footerDescription || "Your trusted fashion marketplace. Quality products, fast delivery, and excellent service.";
+
+  // Helper to render a footer page link
+  const renderPageLink = (page: FooterPageItem) => {
+    if (page.url) {
+      return (
+        <a 
+          href={page.url}
+          target={page.openInNewTab ? "_blank" : undefined}
+          rel={page.openInNewTab ? "noopener noreferrer" : undefined}
+          className="hover:text-primary transition-colors"
+        >
+          {page.title}
+        </a>
+      );
+    }
+    return (
+      <Link href={`/page/${page.slug}`} className="hover:text-primary transition-colors">
+        {page.title}
+      </Link>
+    );
+  };
+
+  // Trust bar items from footer pages (group: trust_bar) OR defaults
+  const trustBarPages = groupedPages['trust_bar'] || [];
+  const defaultTrustItems = [
+    { icon: Truck, title: "Fast Delivery", subtitle: "Nationwide shipping" },
+    { icon: ShieldCheck, title: "Secure Shopping", subtitle: "100% protected payments" },
+    { icon: CreditCard, title: "Easy Payments", subtitle: "Mobile money & cards" },
+    { icon: Clock, title: "24/7 Support", subtitle: "Always here to help" },
+  ];
+
+  // Quick Links / Marketplace pages
+  const quickLinkPages = groupedPages['quick_links'] || [];
+  
+  // Customer Service pages
+  const customerServicePages = groupedPages['customer_service'] || [];
+  
+  // Legal pages (bottom bar)
+  const legalPages = groupedPages['legal'] || [];
+
+  // General / other pages (fallback)
+  const generalPages = groupedPages['general'] || [];
 
   return (
     <footer className="bg-gradient-to-b from-card to-card/95 border-t mt-16">
@@ -128,42 +157,35 @@ export default function Footer() {
       <div className="border-b bg-muted/30">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Truck className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">Fast Delivery</p>
-                <p className="text-xs text-muted-foreground">Nationwide shipping</p>
-              </div>
-            </div>
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <ShieldCheck className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">Secure Shopping</p>
-                <p className="text-xs text-muted-foreground">100% protected payments</p>
-              </div>
-            </div>
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <CreditCard className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">Easy Payments</p>
-                <p className="text-xs text-muted-foreground">Mobile money & cards</p>
-              </div>
-            </div>
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">24/7 Support</p>
-                <p className="text-xs text-muted-foreground">Always here to help</p>
-              </div>
-            </div>
+            {trustBarPages.length > 0 ? (
+              trustBarPages.slice(0, 4).map((page, i) => {
+                const icons = [Truck, ShieldCheck, CreditCard, Clock];
+                const Icon = icons[i % icons.length];
+                return (
+                  <div key={page.id} className="flex flex-col items-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <Icon className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">{page.title}</p>
+                      {page.url && <p className="text-xs text-muted-foreground">{page.url}</p>}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              defaultTrustItems.map((item, i) => (
+                <div key={i} className="flex flex-col items-center gap-2">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <item.icon className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{item.title}</p>
+                    <p className="text-xs text-muted-foreground">{item.subtitle}</p>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -192,236 +214,125 @@ export default function Footer() {
             {/* Social Links */}
             <div className="flex flex-wrap gap-2">
               {settings?.showSocialLinks !== false && settings?.facebookUrl && settings?.showFacebook !== false && (
-                <Button 
-                  variant="outline" 
-                  size="icon" 
-                  className="rounded-full h-9 w-9 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all"
-                  onClick={() => openSocialLink(settings.facebookUrl)}
-                  data-testid="button-facebook"
-                  aria-label="Facebook"
-                  title="Facebook"
-                >
+                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all" onClick={() => openSocialLink(settings.facebookUrl)} aria-label="Facebook" title="Facebook">
                   <FaFacebookF className="h-4 w-4" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.instagramUrl && settings?.showInstagram !== false && (
-                <Button 
-                  variant="outline" 
-                  size="icon"
-                  className="rounded-full h-9 w-9 hover:bg-gradient-to-br hover:from-purple-500 hover:to-pink-500 hover:text-white hover:border-pink-500 transition-all"
-                  onClick={() => openSocialLink(settings.instagramUrl)}
-                  data-testid="button-instagram"
-                  aria-label="Instagram"
-                  title="Instagram"
-                >
+                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-gradient-to-br hover:from-purple-500 hover:to-pink-500 hover:text-white hover:border-pink-500 transition-all" onClick={() => openSocialLink(settings.instagramUrl)} aria-label="Instagram" title="Instagram">
                   <FaInstagram className="h-4 w-4" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.twitterUrl && settings?.showTwitter !== false && (
-                <Button 
-                  variant="outline" 
-                  size="icon"
-                  className="rounded-full h-9 w-9 hover:bg-sky-500 hover:text-white hover:border-sky-500 transition-all"
-                  onClick={() => openSocialLink(settings.twitterUrl)}
-                  data-testid="button-twitter"
-                  aria-label="Twitter"
-                  title="Twitter"
-                >
+                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-sky-500 hover:text-white hover:border-sky-500 transition-all" onClick={() => openSocialLink(settings.twitterUrl)} aria-label="Twitter" title="Twitter">
                   <FaTwitter className="h-4 w-4" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.linkedinUrl && settings?.showLinkedin !== false && (
-                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-blue-700 hover:text-white hover:border-blue-700 transition-all" onClick={() => openSocialLink(settings.linkedinUrl)} data-testid="button-linkedin">
+                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-blue-700 hover:text-white hover:border-blue-700 transition-all" onClick={() => openSocialLink(settings.linkedinUrl)} aria-label="LinkedIn" title="LinkedIn">
                   <FaLinkedin className="h-4 w-4" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.youtubeUrl && settings?.showYoutube !== false && (
-                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all" onClick={() => openSocialLink(settings.youtubeUrl)} data-testid="button-youtube">
+                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all" onClick={() => openSocialLink(settings.youtubeUrl)} aria-label="YouTube" title="YouTube">
                   <FaYoutube className="h-4 w-4" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.tiktokUrl && settings?.showTiktok !== false && (
-                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-black hover:text-white hover:border-black transition-all" onClick={() => openSocialLink(settings.tiktokUrl)} data-testid="button-tiktok" aria-label="TikTok" title="TikTok">
+                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-black hover:text-white hover:border-black transition-all" onClick={() => openSocialLink(settings.tiktokUrl)} aria-label="TikTok" title="TikTok">
                   <FaTiktok className="h-4 w-4" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.pinterestUrl && settings?.showPinterest !== false && (
-                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all" onClick={() => openSocialLink(settings.pinterestUrl)} data-testid="button-pinterest" aria-label="Pinterest" title="Pinterest">
+                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all" onClick={() => openSocialLink(settings.pinterestUrl)} aria-label="Pinterest" title="Pinterest">
                   <FaPinterest className="h-4 w-4" />
                 </Button>
               )}
               {settings?.showSocialLinks !== false && settings?.whatsappPage && settings?.showWhatsapp !== false && (
-                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-green-500 hover:text-white hover:border-green-500 transition-all" onClick={() => openSocialLink(settings.whatsappPage)} data-testid="button-whatsapp" aria-label="WhatsApp" title="WhatsApp">
+                <Button variant="outline" size="icon" className="rounded-full h-9 w-9 hover:bg-green-500 hover:text-white hover:border-green-500 transition-all" onClick={() => openSocialLink(settings.whatsappPage)} aria-label="WhatsApp" title="WhatsApp">
                   <FaWhatsapp className="h-4 w-4" />
                 </Button>
               )}
             </div>
           </div>
 
-          {/* Quick Links / Marketplace Column */}
+          {/* Quick Links Column — fully dynamic */}
           <div>
-            {settings?.isMultiVendor ? (
-              <>
-                <h4 className="font-semibold mb-4 text-foreground">Marketplace</h4>
-                <ul className="space-y-2.5 text-muted-foreground text-sm">
-                  <li><Link href="/" className="hover:text-primary transition-colors" data-testid="link-home">Home</Link></li>
-                  <li><Link href="/products" className="hover:text-primary transition-colors" data-testid="link-all-products">All Products</Link></li>
-                  <li><Link href="/stores" className="hover:text-primary transition-colors" data-testid="link-stores">Browse Stores</Link></li>
-                  <li><Link href="/products" className="hover:text-primary transition-colors" data-testid="link-deals">Today's Deals</Link></li>
-                  {(!isAuthenticated || user?.role === 'buyer') && (
-                    <li><Link href="/become-seller" className="hover:text-primary transition-colors" data-testid="link-become-seller">Become a Seller</Link></li>
+            <h4 className="font-semibold mb-4 text-foreground">
+              {isMultiVendor ? "Marketplace" : "Quick Links"}
+            </h4>
+            <ul className="space-y-2.5 text-muted-foreground text-sm">
+              {/* Always show Home */}
+              <li><Link href="/" className="hover:text-primary transition-colors">Home</Link></li>
+              
+              {/* Dynamic quick link pages from admin */}
+              {quickLinkPages.map(page => (
+                <li key={page.id}>{renderPageLink(page)}</li>
+              ))}
+
+              {/* Default links when no admin pages exist */}
+              {quickLinkPages.length === 0 && (
+                <>
+                  <li><Link href="/products" className="hover:text-primary transition-colors">All Products</Link></li>
+                  {isMultiVendor && (
+                    <li><Link href="/stores" className="hover:text-primary transition-colors">Browse Stores</Link></li>
                   )}
-                  {(!isAuthenticated || user?.role === 'buyer') && (
-                    <li><Link href="/become-rider" className="hover:text-primary transition-colors" data-testid="link-become-rider">Become a Rider</Link></li>
-                  )}
-                </ul>
-              </>
-            ) : (
-              <>
-                <h4 className="font-semibold mb-4 text-foreground">Shop</h4>
-                <ul className="space-y-2.5 text-muted-foreground text-sm">
-                  <li><Link href="/" className="hover:text-primary transition-colors" data-testid="link-home">Home</Link></li>
-                  {productCategories.length > 0 ? (
-                    productCategories.map((category) => (
-                      <li key={category}>
-                        <Link 
-                          href={`/category/${category.toLowerCase()}`} 
-                          className="hover:text-primary transition-colors capitalize" 
-                          data-testid={`link-${category.toLowerCase()}`}
-                        >
-                          {category}
-                        </Link>
-                      </li>
-                    ))
-                  ) : (
-                    <li><Link href="/products" className="hover:text-primary transition-colors" data-testid="link-all-products">All Products</Link></li>
-                  )}
-                  <li><Link href="/products" className="hover:text-primary transition-colors" data-testid="link-new-arrivals-foot">New Arrivals</Link></li>
-                </ul>
-              </>
-            )}
+                </>
+              )}
+
+              {/* Conditional registration links */}
+              {isMultiVendor && (!isAuthenticated || user?.role === 'buyer') && (
+                <>
+                  <li><Link href="/become-seller" className="hover:text-primary transition-colors">Become a Seller</Link></li>
+                  <li><Link href="/become-rider" className="hover:text-primary transition-colors">Become a Rider</Link></li>
+                </>
+              )}
+            </ul>
           </div>
 
-          {/* Customer Service Column */}
-          {groupedPages['customer_service'] && groupedPages['customer_service'].length > 0 ? (
-            <div>
-              <h4 className="font-semibold mb-4 text-foreground">Customer Service</h4>
-              <ul className="space-y-2.5 text-muted-foreground text-sm">
-                {groupedPages['customer_service'].map(page => (
-                  <li key={page.id}>
-                    {page.url ? (
-                      <a 
-                        href={page.url}
-                        target={page.openInNewTab ? "_blank" : undefined}
-                        rel={page.openInNewTab ? "noopener noreferrer" : undefined}
-                        className="hover:text-primary transition-colors"
-                        data-testid={`link-${page.slug}`}
-                      >
-                        {page.title}
-                      </a>
-                    ) : (
-                      <Link 
-                        href={`/page/${page.slug}`}
-                        className="hover:text-primary transition-colors"
-                        data-testid={`link-${page.slug}`}
-                      >
-                        {page.title}
+          {/* Customer Service Column — fully dynamic */}
+          <div>
+            <h4 className="font-semibold mb-4 text-foreground">Customer Service</h4>
+            <ul className="space-y-2.5 text-muted-foreground text-sm">
+              {/* Dynamic customer service pages from admin */}
+              {customerServicePages.map(page => (
+                <li key={page.id}>{renderPageLink(page)}</li>
+              ))}
+
+              {/* Default links when no admin pages exist */}
+              {customerServicePages.length === 0 && (
+                <>
+                  {(!user || !['super_admin', 'admin', 'agent'].includes(user.role as string)) && (
+                    <li>
+                      <Link href={isAuthenticated ? "/support" : "/auth"} className="hover:text-primary transition-colors">
+                        Customer Support
                       </Link>
-                    )}
-                  </li>
-                ))}
-                {/* Always show these essentials */}
-                {(!user || (user.role !== 'super_admin' && user.role !== 'admin' && user.role !== 'agent')) && (
-                  <li>
-                    <Link 
-                      href={isAuthenticated ? "/support" : "/auth"} 
-                      className="hover:text-primary transition-colors"
-                      data-testid="link-support"
-                    >
-                      Customer Support
-                    </Link>
-                  </li>
-                )}
-              </ul>
-            </div>
-          ) : (
-            <div>
-              <h4 className="font-semibold mb-4 text-foreground">Customer Service</h4>
-              <ul className="space-y-2.5 text-muted-foreground text-sm">
-                {(!user || (user.role !== 'super_admin' && user.role !== 'admin' && user.role !== 'agent')) && (
-                  <li>
-                    <Link 
-                      href={isAuthenticated ? "/support" : "/auth"} 
-                      className="hover:text-primary transition-colors"
-                      data-testid="link-support"
-                    >
-                      Customer Support
-                    </Link>
-                  </li>
-                )}
-                <li>
-                  <Link 
-                    href={isAuthenticated ? "/orders" : "/auth"} 
-                    className="hover:text-primary transition-colors" 
-                    data-testid="link-orders"
-                  >
-                    Track My Order
-                  </Link>
-                </li>
-                <li>
-                  <Link 
-                    href={isAuthenticated ? "/wishlist" : "/auth"} 
-                    className="hover:text-primary transition-colors" 
-                    data-testid="link-wishlist"
-                  >
-                    My Wishlist
-                  </Link>
-                </li>
-                <li>
-                  <Link 
-                    href={isAuthenticated ? "/profile" : "/auth"} 
-                    className="hover:text-primary transition-colors" 
-                    data-testid="link-profile"
-                  >
-                    My Account
-                  </Link>
-                </li>
-                <li>
-                  <Link 
-                    href={isAuthenticated ? "/notifications" : "/auth"} 
-                    className="hover:text-primary transition-colors"
-                    data-testid="link-notifications"
-                  >
-                    Notifications
-                  </Link>
-                </li>
-                {/* Dynamic footer pages from other groups */}
-                {Object.entries(groupedPages)
-                  .filter(([group]) => group !== 'customer_service')
-                  .flatMap(([_, pages]) => pages)
-                  .slice(0, 3)
-                  .map(page => (
-                    <li key={page.id}>
-                      {page.url ? (
-                        <a 
-                          href={page.url}
-                          target={page.openInNewTab ? "_blank" : undefined}
-                          rel={page.openInNewTab ? "noopener noreferrer" : undefined}
-                          className="hover:text-primary transition-colors"
-                        >
-                          {page.title}
-                        </a>
-                      ) : (
-                        <Link href={`/page/${page.slug}`} className="hover:text-primary transition-colors">
-                          {page.title}
-                        </Link>
-                      )}
                     </li>
-                  ))
-                }
-              </ul>
-            </div>
-          )}
+                  )}
+                  <li>
+                    <Link href={isAuthenticated ? "/orders" : "/auth"} className="hover:text-primary transition-colors">
+                      Track My Order
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href={isAuthenticated ? "/wishlist" : "/auth"} className="hover:text-primary transition-colors">
+                      My Wishlist
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href={isAuthenticated ? "/profile" : "/auth"} className="hover:text-primary transition-colors">
+                      My Account
+                    </Link>
+                  </li>
+                </>
+              )}
+
+              {/* General pages overflow into customer service if present */}
+              {generalPages.slice(0, 3).map(page => (
+                <li key={page.id}>{renderPageLink(page)}</li>
+              ))}
+            </ul>
+          </div>
 
           {/* Contact Column */}
           <div>
@@ -441,14 +352,13 @@ export default function Footer() {
               </li>
             </ul>
 
-            {/* Newsletter/CTA */}
             <div className="mt-6">
               <h5 className="font-medium text-sm mb-2 text-foreground">Quick Access</h5>
               <div className="flex flex-col gap-2">
-                <Link href="/products">
+                <Link href={isMultiVendor ? "/products" : "/"}>
                   <Button variant="outline" size="sm" className="w-full text-xs justify-start">
                     <ShieldCheck className="h-3.5 w-3.5 mr-2" />
-                    Browse All Products
+                    {isMultiVendor ? "Browse All Products" : "Browse Our Store"}
                   </Button>
                 </Link>
                 {!isAuthenticated && (
@@ -472,21 +382,9 @@ export default function Footer() {
               &copy; 2024 {settings?.platformName || "KiyuMart"}. All rights reserved.
             </p>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              {footerPages.filter(p => p.group === 'legal').length > 0 ? (
-                footerPages.filter(p => p.group === 'legal').map(page => (
-                  <Link key={page.id} href={page.url || `/page/${page.slug}`} className="hover:text-primary transition-colors">
-                    {page.title}
-                  </Link>
-                ))
-              ) : (
-                <>
-                  <Link href="/page/privacy-policy" className="hover:text-primary transition-colors">Privacy Policy</Link>
-                  <span className="text-muted-foreground/40">|</span>
-                  <Link href="/page/terms-of-service" className="hover:text-primary transition-colors">Terms of Service</Link>
-                  <span className="text-muted-foreground/40">|</span>
-                  <Link href="/page/return-policy" className="hover:text-primary transition-colors">Return Policy</Link>
-                </>
-              )}
+              {legalPages.map(page => (
+                <span key={page.id}>{renderPageLink(page)}</span>
+              ))}
             </div>
             <Button 
               variant="ghost" 

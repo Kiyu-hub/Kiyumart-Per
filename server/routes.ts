@@ -4,7 +4,7 @@ import { Server as SocketIOServer } from "socket.io";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { db } from "../db";
-import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions } from "@shared/schema";
+import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable } from "@shared/schema";
 import { eq, or, isNotNull, and, desc, sql } from "drizzle-orm";
 import { 
   hashPassword, 
@@ -118,8 +118,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const superAdmins = await storage.getUsersByRole("super_admin");
         const systemSender = superAdmins.length > 0 ? superAdmins[0] : null;
         
+        // Get platform name from settings
+        const platformSettingsArr = await db.select().from(platformSettingsTable).limit(1);
+        const platformName = platformSettingsArr[0]?.platformName || "KiyuMart";
+        
         if (systemSender) {
-          const welcomeMessage = `Welcome to KiyuMart, ${user.name || 'there'}! 🎉\n\nWe're thrilled to have you join our community. Here at KiyuMart, quality meets affordability.\n\nIf you have any questions or need assistance, feel free to message us here. Our team is always happy to help!\n\nHappy shopping!\n— The KiyuMart Team`;
+          const displayName = user.name || user.email?.split('@')[0] || 'there';
+          const welcomeMessage = `Hi ${displayName}! 👋\n\nWelcome to ${platformName}! 🎉\n\nWe're absolutely thrilled to have you join our growing community. Whether you're here to discover amazing products, find great deals, or simply explore what we have to offer — you've come to the right place.\n\nHere's what you can do to get started:\n• 🛍️ Browse our wide selection of quality products\n• ❤️ Save items to your wishlist for later\n• 🔔 Turn on notifications so you never miss a deal\n• 💬 Message us anytime — we're here to help!\n\nIf you ever need assistance, our support team is just a message away. We're committed to making your experience seamless and enjoyable.\n\nHappy shopping, ${displayName}!\nWith love,\n— The ${platformName} Team 💚`;
           
           await storage.createMessage({
             senderId: systemSender.id,
@@ -128,20 +133,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
             messageType: "text",
           });
           
-          // Create notification for the welcome message
+          // Create notification with FULL welcome message so dialog shows actual content
           await storage.createNotification({
             userId: user.id,
             type: "message",
-            title: "Welcome to KiyuMart!",
-            message: "You have a welcome message from the KiyuMart Team",
+            title: `Welcome to ${platformName}, ${displayName}! 🎉`,
+            message: welcomeMessage,
             metadata: { messageId: "welcome", senderId: systemSender.id } as any,
           });
           
           // Emit real-time notification
           io.to(user.id).emit("notification", {
             type: "message",
-            title: "Welcome to KiyuMart!",
-            message: "You have a welcome message from the KiyuMart Team",
+            title: `Welcome to ${platformName}, ${displayName}! 🎉`,
+            message: welcomeMessage,
             data: { senderId: systemSender.id },
           });
         }
