@@ -156,7 +156,7 @@ export default function MultiVendorHome() {
                 <Button 
                   variant="ghost" 
                   className="gap-1 text-blue-200 hover:text-white hover:bg-white/10"
-                  onClick={() => navigate(shopDisplayMode === "by-category" ? "/categories" : "/stores")}
+                  onClick={() => navigate(shopDisplayMode === "by-category" ? "/products" : "/stores")}
                   data-testid="button-see-all-categories"
                 >
                   See All
@@ -354,44 +354,44 @@ export default function MultiVendorHome() {
         .mv-bg-gradient {
           position: fixed;
           inset: 0;
-          background: linear-gradient(135deg, #0a1628 0%, #0d1f4a 25%, #111d42 50%, #0c1a3d 75%, #060d24 100%);
+          background: linear-gradient(135deg, #050810 0%, #080d1a 20%, #0a1224 40%, #0c1628 60%, #080d1a 80%, #040710 100%);
           z-index: 0;
         }
 
         .mv-bg-orb {
           position: fixed;
           border-radius: 50%;
-          filter: blur(100px);
-          opacity: 0.3;
+          filter: blur(120px);
+          opacity: 0.15;
           z-index: 1;
-          animation: mv-float 20s ease-in-out infinite;
+          animation: mv-float 25s ease-in-out infinite;
         }
 
         .mv-bg-orb-1 {
-          width: 600px;
-          height: 600px;
-          background: radial-gradient(circle, #1e40af 0%, transparent 70%);
+          width: 500px;
+          height: 500px;
+          background: radial-gradient(circle, #1e3a8a 0%, transparent 70%);
           top: -200px;
           right: -100px;
           animation-delay: 0s;
         }
 
         .mv-bg-orb-2 {
-          width: 500px;
-          height: 500px;
-          background: radial-gradient(circle, #7c3aed 0%, transparent 70%);
+          width: 400px;
+          height: 400px;
+          background: radial-gradient(circle, #4c1d95 0%, transparent 70%);
           bottom: 10%;
           left: -150px;
-          animation-delay: -7s;
+          animation-delay: -8s;
         }
 
         .mv-bg-orb-3 {
-          width: 400px;
-          height: 400px;
-          background: radial-gradient(circle, #0ea5e9 0%, transparent 70%);
+          width: 350px;
+          height: 350px;
+          background: radial-gradient(circle, #0c4a6e 0%, transparent 70%);
           top: 50%;
           right: 20%;
-          animation-delay: -14s;
+          animation-delay: -16s;
         }
 
         @keyframes mv-float {

@@ -165,7 +165,9 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
     
     // Navigate based on type and metadata
     const { metadata } = notification;
-    const rolePrefix = user?.role === "admin" || user?.role === "super_admin" 
+    const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+    const isBuyer = user?.role === "buyer";
+    const rolePrefix = isAdmin
       ? "/admin" 
       : user?.role === "seller" 
         ? "/seller"
@@ -180,18 +182,33 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
 
     switch (notification.type) {
       case "order":
-        navigate(`${rolePrefix}/orders`);
+        if (isBuyer) {
+          navigate(metadata?.orderId ? `/orders/${metadata.orderId}` : "/orders");
+        } else {
+          navigate(`${rolePrefix}/orders`);
+        }
         break;
       case "product":
-        navigate(`${rolePrefix}/products`);
+        if (isBuyer && metadata?.productId) {
+          navigate(`/product/${metadata.productId}`);
+        } else if (isBuyer) {
+          navigate("/products");
+        } else {
+          navigate(`${rolePrefix}/products`);
+        }
         break;
       case "user":
-        if (rolePrefix === "/admin") {
+        if (isAdmin) {
           navigate("/admin/users");
         }
         break;
       case "message":
-        navigate(`${rolePrefix}/messages`);
+        // Buyers don't have a /buyer/messages route — navigate to notifications page
+        if (isBuyer) {
+          navigate("/notifications");
+        } else {
+          navigate(`${rolePrefix}/messages`);
+        }
         break;
       case "payout":
         if (user?.role === "seller") {

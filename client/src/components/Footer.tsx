@@ -469,7 +469,7 @@ export default function Footer() {
         <div className="max-w-7xl mx-auto px-4 py-5">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-xs text-muted-foreground text-center md:text-left">
-              &copy; {new Date().getFullYear()} {settings?.platformName || "KiyuMart"}. All rights reserved.
+              &copy; 2024 {settings?.platformName || "KiyuMart"}. All rights reserved.
             </p>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
               {footerPages.filter(p => p.group === 'legal').length > 0 ? (
