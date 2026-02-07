@@ -10,7 +10,7 @@ import {
   type Order, type InsertOrder, type DeliveryZone, type InsertDeliveryZone,
   type ChatMessage, type InsertChatMessage, type Transaction, type PlatformSettings,
   type Cart, type Wishlist, type DeliveryTracking, type InsertDeliveryTracking,
-  type Review, type InsertReview, type RiderReview, type InsertRiderReview, type ProductVariant, type HeroBanner,
+  type Review, type InsertReview, type RiderReview, type InsertRiderReview, type ProductVariant, type HeroBanner, type InsertHeroBanner,
   type Coupon, type InsertCoupon, type BannerCollection, type InsertBannerCollection,
   type MarketplaceBanner, type InsertMarketplaceBanner, type Store, type CategoryField,
   type Category, type Notification, type InsertNotification, type MediaLibrary,
@@ -158,7 +158,12 @@ export interface IStorage {
   deleteCategory(id: string): Promise<boolean>;
   
   // Hero Banner operations
-  getHeroBanners(): Promise<HeroBanner[]>;
+  getHeroBanners(storeMode?: string): Promise<HeroBanner[]>;
+  getAllHeroBanners(): Promise<HeroBanner[]>;
+  getHeroBanner(id: string): Promise<HeroBanner | undefined>;
+  createHeroBanner(banner: InsertHeroBanner): Promise<HeroBanner>;
+  updateHeroBanner(id: string, data: Partial<HeroBanner>): Promise<HeroBanner | undefined>;
+  deleteHeroBanner(id: string): Promise<boolean>;
   
   // Coupon operations
   createCoupon(coupon: InsertCoupon & { sellerId: string }): Promise<Coupon>;
@@ -1731,10 +1736,49 @@ export class DbStorage implements IStorage {
   }
 
   // Hero Banner operations
-  async getHeroBanners(): Promise<HeroBanner[]> {
+  async getHeroBanners(storeMode?: string): Promise<HeroBanner[]> {
+    if (storeMode && storeMode !== 'both') {
+      return await db.select().from(heroBanners)
+        .where(and(
+          eq(heroBanners.isActive, true),
+          or(
+            eq(heroBanners.storeMode, storeMode as any),
+            eq(heroBanners.storeMode, 'both')
+          )
+        ))
+        .orderBy(heroBanners.displayOrder);
+    }
     return await db.select().from(heroBanners)
       .where(eq(heroBanners.isActive, true))
       .orderBy(heroBanners.displayOrder);
+  }
+  
+  async getAllHeroBanners(): Promise<HeroBanner[]> {
+    return await db.select().from(heroBanners)
+      .orderBy(heroBanners.displayOrder);
+  }
+  
+  async getHeroBanner(id: string): Promise<HeroBanner | undefined> {
+    const [banner] = await db.select().from(heroBanners).where(eq(heroBanners.id, id));
+    return banner;
+  }
+  
+  async createHeroBanner(banner: InsertHeroBanner): Promise<HeroBanner> {
+    const [newBanner] = await db.insert(heroBanners).values(banner).returning();
+    return newBanner;
+  }
+  
+  async updateHeroBanner(id: string, data: Partial<HeroBanner>): Promise<HeroBanner | undefined> {
+    const [updated] = await db.update(heroBanners)
+      .set(data)
+      .where(eq(heroBanners.id, id))
+      .returning();
+    return updated;
+  }
+  
+  async deleteHeroBanner(id: string): Promise<boolean> {
+    const result = await db.delete(heroBanners).where(eq(heroBanners.id, id)).returning();
+    return result.length > 0;
   }
 
   // Delivery Tracking operations

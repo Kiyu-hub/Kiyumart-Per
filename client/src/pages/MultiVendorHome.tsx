@@ -3,7 +3,8 @@ import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import MarketplaceBannerCarousel from "@/components/MarketplaceBannerCarousel";
+import HeroCarousel from "@/components/HeroCarousel";
+import ThemeToggle from "@/components/ThemeToggle";
 import StoreCard from "@/components/StoreCard";
 import CategoryCard from "@/components/CategoryCard";
 import ProductCard from "@/components/ProductCard";
@@ -94,14 +95,17 @@ export default function MultiVendorHome() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900">
+      <div className="flex items-center justify-end p-2 border-b bg-background">
+        <ThemeToggle />
+      </div>
+      
       <Header />
+      
+      {/* Full-width Hero Carousel - same as single store mode */}
+      <HeroCarousel />
       
       <main className="flex-1">
         <div className="container max-w-7xl mx-auto px-4 py-6 space-y-12">
-          <MarketplaceBannerCarousel
-            autoplayEnabled={settings?.bannerAutoplayEnabled ?? true}
-            autoplayDuration={settings?.bannerAutoplayDuration ?? 5000}
-          />
 
           {/* Hero Ad - Only when ads are enabled */}
           {adsEnabled && heroBannerEnabled && (

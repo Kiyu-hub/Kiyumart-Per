@@ -27,7 +27,15 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Trash2, Copy, Loader2, Image as ImageIcon, Check, FolderOpen } from "lucide-react";
+import { Upload, Trash2, Copy, Loader2, Image as ImageIcon, Check, FolderOpen, MoreHorizontal, ImagePlus } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { MediaLibrary } from "@shared/schema";
 
 interface AssetImage {
@@ -183,6 +191,34 @@ export default function AdminMediaLibrary() {
       toast({
         title: "Error",
         description: error.message || "Failed to delete assets",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Add image to library with category
+  const addToLibraryMutation = useMutation({
+    mutationFn: async (data: { url: string; filename: string; category: string }) => {
+      return apiRequest("POST", "/api/media-library", {
+        url: data.url,
+        filename: data.filename,
+        category: data.category,
+        altText: "",
+        tags: [],
+        isTemporary: false,
+      });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/media-library"] });
+      toast({
+        title: "Added to Library",
+        description: `Image saved as ${variables.category}`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add to library",
         variant: "destructive",
       });
     },
@@ -627,6 +663,29 @@ export default function AdminMediaLibrary() {
                           </>
                         )}
                       </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" data-testid={`button-use-as-asset-${index}`}>
+                            <ImagePlus className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Add to Library as...</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => addToLibraryMutation.mutate({ url: asset.url, filename: asset.filename, category: "banner" })}>
+                            Banner
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => addToLibraryMutation.mutate({ url: asset.url, filename: asset.filename, category: "category" })}>
+                            Category Image
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => addToLibraryMutation.mutate({ url: asset.url, filename: asset.filename, category: "logo" })}>
+                            Logo
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => addToLibraryMutation.mutate({ url: asset.url, filename: asset.filename, category: "product" })}>
+                            Product Image
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <Button
                         variant="destructive"
                         size="sm"
@@ -769,6 +828,41 @@ export default function AdminMediaLibrary() {
                           </>
                         )}
                       </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" data-testid={`button-change-category-${item.id}`}>
+                            <ImagePlus className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Change Category to...</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem 
+                            onClick={() => addToLibraryMutation.mutate({ url: item.url, filename: item.filename, category: "banner" })}
+                            disabled={item.category === "banner"}
+                          >
+                            Banner {item.category === "banner" && "✓"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => addToLibraryMutation.mutate({ url: item.url, filename: item.filename, category: "category" })}
+                            disabled={item.category === "category"}
+                          >
+                            Category Image {item.category === "category" && "✓"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => addToLibraryMutation.mutate({ url: item.url, filename: item.filename, category: "logo" })}
+                            disabled={item.category === "logo"}
+                          >
+                            Logo {item.category === "logo" && "✓"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => addToLibraryMutation.mutate({ url: item.url, filename: item.filename, category: "product" })}
+                            disabled={item.category === "product"}
+                          >
+                            Product Image {item.category === "product" && "✓"}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <Button
                         variant="destructive"
                         size="sm"

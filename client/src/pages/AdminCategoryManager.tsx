@@ -354,6 +354,7 @@ export default function AdminCategoryManager() {
                             required
                             skip4KValidation
                             minDimensions={{ width: 300, height: 300 }}
+                            mediaCategory="category"
                           />
                         </FormControl>
                         <FormMessage />

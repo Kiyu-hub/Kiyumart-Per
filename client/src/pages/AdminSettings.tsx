@@ -15,7 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud } from "lucide-react";
+import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -127,6 +128,104 @@ export default function AdminSettings() {
     },
   });
 
+  // Fetch hero banners for preview
+  interface HeroBannerPreview {
+    id: string;
+    title: string;
+    subtitle: string | null;
+    image: string;
+    storeMode: "single" | "multivendor" | "both";
+    isActive: boolean;
+    displayOrder: number;
+  }
+
+  const { data: heroBanners = [] } = useQuery<HeroBannerPreview[]>({
+    queryKey: ["/api/admin/hero-banners"],
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+  });
+
+  // Filter banners by store mode
+  const singleStoreBanners = heroBanners.filter(b => b.storeMode === "single" || b.storeMode === "both");
+  const multiVendorBanners = heroBanners.filter(b => b.storeMode === "multivendor" || b.storeMode === "both");
+
+  // Delete banner mutation
+  const deleteBannerMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/admin/hero-banners/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/hero-banners"] });
+      toast({ title: "Success", description: "Banner deleted successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Toggle banner active status
+  const toggleBannerMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      return apiRequest("PATCH", `/api/admin/hero-banners/${id}`, { isActive });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/hero-banners"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Banner preview component
+  const BannerPreviewCard = ({ banner }: { banner: HeroBannerPreview }) => (
+    <div className="relative group border rounded-lg overflow-hidden bg-background">
+      <div className="aspect-[16/6] relative">
+        <img
+          src={banner.image}
+          alt={banner.title}
+          className="w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => navigate(`/admin/hero-banners?edit=${banner.id}`)}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => window.open(banner.image, "_blank")}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              if (confirm(`Delete banner "${banner.title}"?`)) {
+                deleteBannerMutation.mutate(banner.id);
+              }
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="p-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-medium text-sm truncate">{banner.title}</p>
+          <Badge variant={banner.isActive ? "default" : "secondary"} className="text-xs">
+            {banner.isActive ? "Active" : "Inactive"}
+          </Badge>
+        </div>
+        {banner.subtitle && (
+          <p className="text-xs text-muted-foreground truncate">{banner.subtitle}</p>
+        )}
+      </div>
+    </div>
+  );
+
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
       navigate("/auth");
@@ -228,6 +327,9 @@ export default function AdminSettings() {
       await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
       await queryClient.refetchQueries({ queryKey: ["/api/settings", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/platform-settings"] });
+      
+      // Invalidate hero banners so they refetch with new store mode
+      queryClient.invalidateQueries({ queryKey: ["/api/hero-banners"] });
 
       // Reset cleared keys after successful update
       setClearedSocialKeys([]);
@@ -538,20 +640,66 @@ export default function AdminSettings() {
 
                   {form.watch("isMultiVendor") && (
                     <div className="p-4 border rounded-lg bg-muted/50 space-y-4">
-                      <div className="space-y-2">
-                        <Label>Multi-Vendor Features</Label>
-                        <p className="text-sm text-muted-foreground mb-3">
-                          Manage marketplace banners, collections, and homepage layout
-                        </p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Layers className="h-5 w-5 text-primary" />
+                          <div>
+                            <Label className="text-base font-semibold">Multi-Vendor Mode</Label>
+                            <p className="text-sm text-muted-foreground">
+                              Marketplace banners, collections, and homepage layout
+                            </p>
+                          </div>
+                        </div>
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => navigate("/admin/banners")}
-                          data-testid="button-banner-manager"
+                          size="sm"
+                          onClick={() => form.setValue("isMultiVendor", false)}
+                          className="gap-2"
                         >
-                          <ImageIcon className="w-4 h-4 mr-2" />
-                          Manage Banners
+                          <ArrowRightLeft className="h-4 w-4" />
+                          Switch to Single Store
                         </Button>
+                      </div>
+
+                      {/* Hero Banner Management */}
+                      <div className="space-y-3 pt-3 border-t">
+                        <div className="flex items-center justify-between">
+                          <Label>Hero Banners for Multi-Vendor Mode</Label>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => navigate("/admin/hero-banners")}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Manage Banners
+                          </Button>
+                        </div>
+                        {multiVendorBanners.length === 0 ? (
+                          <div className="text-center py-6 border border-dashed rounded-lg">
+                            <ImageIcon className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                            <p className="text-sm text-muted-foreground">No banners configured for multi-vendor mode</p>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => navigate("/admin/hero-banners")}
+                            >
+                              Create your first banner
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {multiVendorBanners.slice(0, 6).map((banner) => (
+                              <BannerPreviewCard key={banner.id} banner={banner} />
+                            ))}
+                          </div>
+                        )}
+                        {multiVendorBanners.length > 6 && (
+                          <p className="text-sm text-muted-foreground text-center">
+                            +{multiVendorBanners.length - 6} more banners. <Button variant="ghost" className="p-0 h-auto" onClick={() => navigate("/admin/hero-banners")}>View all</Button>
+                          </p>
+                        )}
                       </div>
                       
                       <div className="space-y-2 pt-2 border-t">
@@ -577,8 +725,30 @@ export default function AdminSettings() {
 
                   {!form.watch("isMultiVendor") && (
                     <div className="p-4 border rounded-lg bg-muted/50 space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="primaryStoreId">Primary Store (Single-Store Mode)</Label>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Store className="h-5 w-5 text-primary" />
+                          <div>
+                            <Label className="text-base font-semibold">Single Store Mode</Label>
+                            <p className="text-sm text-muted-foreground">
+                              Display products from one primary store
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => form.setValue("isMultiVendor", true)}
+                          className="gap-2"
+                        >
+                          <ArrowRightLeft className="h-4 w-4" />
+                          Switch to Multi-Vendor
+                        </Button>
+                      </div>
+                      
+                      <div className="space-y-2 pt-2 border-t">
+                        <Label htmlFor="primaryStoreId">Primary Store</Label>
                         <Select
                           value={form.watch("primaryStoreId") || "none"}
                           onValueChange={(value) => form.setValue("primaryStoreId", value === "none" ? null : value)}
@@ -598,6 +768,45 @@ export default function AdminSettings() {
                         <p className="text-xs text-muted-foreground">
                           Select the store to display in single-store mode. Only one store can be primary. Leave empty to show the first active store.
                         </p>
+                      </div>
+                      {/* Single-Store Banner Preview */}
+                      <div className="space-y-3 pt-3 border-t">
+                        <div className="flex items-center justify-between">
+                          <Label>Hero Banners for Single-Store Mode</Label>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => navigate("/admin/hero-banners")}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Manage Banners
+                          </Button>
+                        </div>
+                        {singleStoreBanners.length === 0 ? (
+                          <div className="text-center py-6 border border-dashed rounded-lg">
+                            <ImageIcon className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                            <p className="text-sm text-muted-foreground">No banners configured for single-store mode</p>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => navigate("/admin/hero-banners")}
+                            >
+                              Create your first banner
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {singleStoreBanners.slice(0, 6).map((banner) => (
+                              <BannerPreviewCard key={banner.id} banner={banner} />
+                            ))}
+                          </div>
+                        )}
+                        {singleStoreBanners.length > 6 && (
+                          <p className="text-sm text-muted-foreground text-center">
+                            +{singleStoreBanners.length - 6} more banners. <Button variant="ghost" className="p-0 h-auto" onClick={() => navigate("/admin/hero-banners")}>View all</Button>
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}

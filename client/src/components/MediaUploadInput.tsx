@@ -1,11 +1,29 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { Upload, Link as LinkIcon, Loader2, X, Image, Video, CheckCircle } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Upload, Link as LinkIcon, Loader2, X, Image, Video, CheckCircle, FolderOpen, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+interface MediaLibraryItem {
+  id: string;
+  url: string;
+  filename: string;
+  category: string;
+  altText: string | null;
+  tags: string[] | null;
+}
+
+interface AssetImage {
+  filename: string;
+  url: string;
+  path: string;
+  size: number;
+}
 
 interface MediaUploadInputProps {
   id: string;
@@ -21,6 +39,8 @@ interface MediaUploadInputProps {
   skip4KValidation?: boolean;
   /** Minimum dimensions for images when skip4KValidation is true (default: 200x200) */
   minDimensions?: { width: number; height: number };
+  /** Category filter for media library (banner, product, category, logo) */
+  mediaCategory?: string;
 }
 
 export default function MediaUploadInput({
@@ -35,13 +55,38 @@ export default function MediaUploadInput({
   disabled = false,
   skip4KValidation = false,
   minDimensions = { width: 200, height: 200 },
+  mediaCategory,
 }: MediaUploadInputProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [validationStatus, setValidationStatus] = useState("");
   const [fileInfo, setFileInfo] = useState<{ name: string; size: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<"url" | "upload">("url");
+  const [activeTab, setActiveTab] = useState<"url" | "upload" | "library">("url");
   const { toast } = useToast();
+
+  // Fetch media library items
+  const { data: mediaItems = [], isLoading: mediaLoading } = useQuery<MediaLibraryItem[]>({
+    queryKey: ["/api/media-library", mediaCategory || "all"],
+    queryFn: async () => {
+      const params = mediaCategory ? `?category=${mediaCategory}` : "";
+      const res = await fetch(`/api/media-library${params}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: activeTab === "library",
+  });
+
+  // Fetch asset images (stock images)
+  const { data: assetImages = [], isLoading: assetsLoading } = useQuery<AssetImage[]>({
+    queryKey: ["/api/assets/images"],
+    enabled: activeTab === "library",
+  });
+
+  // Combine media library items and asset images for the library view
+  const allLibraryImages = [
+    ...mediaItems.map(item => ({ url: item.url, name: item.filename, source: "uploaded" as const })),
+    ...assetImages.map(asset => ({ url: asset.url, name: asset.filename, source: "asset" as const })),
+  ];
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
@@ -307,15 +352,19 @@ export default function MediaUploadInput({
         {label} {required && <span className="text-destructive">*</span>}
       </Label>
       
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "url" | "upload")} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "url" | "upload" | "library")} className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="url" disabled={disabled}>
             <LinkIcon className="h-4 w-4 mr-2" />
-            Enter URL
+            URL
           </TabsTrigger>
           <TabsTrigger value="upload" disabled={disabled}>
             <Upload className="h-4 w-4 mr-2" />
-            Upload File
+            Upload
+          </TabsTrigger>
+          <TabsTrigger value="library" disabled={disabled}>
+            <FolderOpen className="h-4 w-4 mr-2" />
+            Library
           </TabsTrigger>
         </TabsList>
 
@@ -427,6 +476,70 @@ export default function MediaUploadInput({
             <p className="text-xs text-muted-foreground break-all">
               Current: {value}
             </p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="library" className="space-y-2">
+          {(mediaLoading || assetsLoading) ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : allLibraryImages.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No images in library</p>
+              <p className="text-xs">Upload images or add from assets</p>
+            </div>
+          ) : (
+            <ScrollArea className="h-48 border rounded-md p-2">
+              <div className="grid grid-cols-3 gap-2">
+                {allLibraryImages.map((img, idx) => (
+                  <button
+                    key={`${img.source}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      onChange(img.url);
+                      toast({ title: "Image Selected", description: img.name });
+                    }}
+                    className={`relative aspect-square rounded-md overflow-hidden border-2 transition-all hover:opacity-80 ${
+                      value === img.url 
+                        ? "border-primary ring-2 ring-primary/30" 
+                        : "border-transparent hover:border-muted-foreground/30"
+                    }`}
+                  >
+                    <img
+                      src={img.url}
+                      alt={img.name}
+                      className="w-full h-full object-cover"
+                    />
+                    {value === img.url && (
+                      <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                        <Check className="h-6 w-6 text-primary drop-shadow-lg" />
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5">
+                      <p className="text-[10px] text-white truncate">{img.name}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+          {value && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground break-all flex-1">
+                Selected: {value.split('/').pop()}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleClearValue}
+                disabled={disabled}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           )}
         </TabsContent>
       </Tabs>

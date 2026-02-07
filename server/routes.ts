@@ -1825,8 +1825,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/hero-banners", async (req, res) => {
     try {
-      const banners = await storage.getHeroBanners();
+      const { storeMode } = req.query;
+      const banners = await storage.getHeroBanners(storeMode as string | undefined);
       res.json(banners);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Hero Banner Admin Management ============
+  // Get all banners (including inactive) for admin
+  app.get("/api/admin/hero-banners", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const banners = await storage.getAllHeroBanners();
+      res.json(banners);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Get single banner
+  app.get("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const banner = await storage.getHeroBanner(req.params.id);
+      if (!banner) {
+        return res.status(404).json({ error: "Banner not found" });
+      }
+      res.json(banner);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Create banner with storeMode selection
+  app.post("/api/admin/hero-banners", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { title, subtitle, image, ctaText, ctaLink, storeMode, isActive, displayOrder } = req.body;
+      
+      if (!title || !image) {
+        return res.status(400).json({ error: "Title and image are required" });
+      }
+      
+      const validStoreModes = ['single', 'multivendor', 'both'];
+      const selectedStoreMode = validStoreModes.includes(storeMode) ? storeMode : 'both';
+      
+      const banner = await storage.createHeroBanner({
+        title,
+        subtitle: subtitle || null,
+        image,
+        ctaText: ctaText || null,
+        ctaLink: ctaLink || null,
+        storeMode: selectedStoreMode,
+        isActive: isActive !== false,
+        displayOrder: displayOrder || 0,
+      });
+      
+      res.json(banner);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Update banner
+  app.patch("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const banner = await storage.getHeroBanner(req.params.id);
+      if (!banner) {
+        return res.status(404).json({ error: "Banner not found" });
+      }
+      
+      const validStoreModes = ['single', 'multivendor', 'both'];
+      const updates: any = {};
+      
+      if (req.body.title !== undefined) updates.title = req.body.title;
+      if (req.body.subtitle !== undefined) updates.subtitle = req.body.subtitle;
+      if (req.body.image !== undefined) updates.image = req.body.image;
+      if (req.body.ctaText !== undefined) updates.ctaText = req.body.ctaText;
+      if (req.body.ctaLink !== undefined) updates.ctaLink = req.body.ctaLink;
+      if (req.body.storeMode !== undefined && validStoreModes.includes(req.body.storeMode)) {
+        updates.storeMode = req.body.storeMode;
+      }
+      if (req.body.isActive !== undefined) updates.isActive = req.body.isActive;
+      if (req.body.displayOrder !== undefined) updates.displayOrder = req.body.displayOrder;
+      
+      const updated = await storage.updateHeroBanner(req.params.id, updates);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Delete banner
+  app.delete("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const banner = await storage.getHeroBanner(req.params.id);
+      if (!banner) {
+        return res.status(404).json({ error: "Banner not found" });
+      }
+      
+      await storage.deleteHeroBanner(req.params.id);
+      res.json({ success: true, message: "Banner deleted successfully" });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

@@ -487,6 +487,9 @@ export const productVariants = pgTable("product_variants", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Store mode enum for banners
+export const storeModeEnum = pgEnum("store_mode", ["single", "multivendor", "both"]);
+
 export const heroBanners = pgTable("hero_banners", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
@@ -494,6 +497,7 @@ export const heroBanners = pgTable("hero_banners", {
   image: text("image").notNull(),
   ctaText: text("cta_text"),
   ctaLink: text("cta_link"),
+  storeMode: storeModeEnum("store_mode").default("both"),
   isActive: boolean("is_active").default(true),
   displayOrder: integer("display_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
@@ -882,6 +886,7 @@ export const insertHeroBannerSchema = createInsertSchema(heroBanners).pick({
   image: true,
   ctaText: true,
   ctaLink: true,
+  storeMode: true,
   isActive: true,
   displayOrder: true,
 });

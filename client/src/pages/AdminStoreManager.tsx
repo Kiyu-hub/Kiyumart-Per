@@ -257,6 +257,7 @@ export default function AdminStoreManager() {
                       description="Upload your store logo (min 200×200px)"
                       skip4KValidation
                       minDimensions={{ width: 200, height: 200 }}
+                      mediaCategory="logo"
                     />
 
                     <div className="space-y-2">
