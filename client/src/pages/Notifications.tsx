@@ -81,43 +81,59 @@ export default function Notifications() {
     // Redirect based on notification type and metadata
     const { metadata } = notification;
     // super_admin uses the same /admin routes
-    const rolePrefix = (user?.role === "admin" || user?.role === "super_admin") ? "/admin" : `/${user?.role}`;
+    const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+    const isBuyer = user?.role === "buyer";
+    const rolePrefix = isAdmin ? "/admin" : `/${user?.role}`;
 
+    // Buyers don't have dedicated dashboard sub-pages for messages/products/orders,
+    // so we route them to the public-facing pages or open preview dialogs instead.
     if (metadata) {
-      const isAdmin = user?.role === "admin" || user?.role === "super_admin";
       switch (notification.type) {
         case "product":
           if (metadata.productId && isAdmin) {
-            // Admin: go to product edit page
             navigate(`${rolePrefix}/products/${metadata.productId}/edit`);
+          } else if (metadata.productId) {
+            // Buyers/others: go to public product page
+            navigate(`/product/${metadata.productId}`);
           } else {
-            // Others: go to products list
-            navigate(`${rolePrefix}/products`);
+            navigate(isBuyer ? "/products" : `${rolePrefix}/products`);
           }
           break;
         case "order":
-          // Orders don't have detail pages, just go to orders list
-          navigate(`${rolePrefix}/orders`);
+          if (isBuyer) {
+            // Buyers use the public orders page
+            if (metadata.orderId) {
+              navigate(`/orders/${metadata.orderId}`);
+            } else {
+              navigate("/orders");
+            }
+          } else {
+            navigate(`${rolePrefix}/orders`);
+          }
           break;
         case "user":
           if (metadata.userId && isAdmin) {
-            // Admin: go to user edit page
             navigate(`${rolePrefix}/users/${metadata.userId}/edit`);
           } else if (isAdmin) {
-            // Fallback to sellers page
             navigate("/admin/sellers");
+          } else {
+            // Buyers: just show the notification detail
+            setSelectedNotification(notification);
+            setPreviewOpen(true);
           }
           break;
         case "message":
-          // Navigate to messages with specific user if senderId available
-          if (metadata.senderId) {
+          if (isBuyer) {
+            // Buyers don't have /buyer/messages — show in preview dialog
+            setSelectedNotification(notification);
+            setPreviewOpen(true);
+          } else if (metadata.senderId) {
             navigate(`${rolePrefix}/messages?userId=${metadata.senderId}`);
           } else {
             navigate(`${rolePrefix}/messages`);
           }
           break;
         default:
-          // Open preview dialog for other types
           setSelectedNotification(notification);
           setPreviewOpen(true);
           break;
