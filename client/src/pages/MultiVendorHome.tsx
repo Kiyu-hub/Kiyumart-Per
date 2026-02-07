@@ -92,7 +92,12 @@ export default function MultiVendorHome() {
 
   const hasMultiplePromotions = promos && promos.length > 1;
   const hasExactlyOnePromotion = promos && promos.length === 1;
-  const singlePromotion = hasExactlyOnePromotion ? promos[0] : null;
+  const hasPromotion = promos && promos.length >= 1;
+  const singlePromotion = hasPromotion ? promos[0] : null;
+
+  // Sidebar content stacking: both promo + ad can coexist
+  const hasSidebarAd = adsEnabled && sidebarAdEnabled;
+  const sidebarItemCount = (hasPromotion ? 1 : 0) + (hasSidebarAd ? 1 : 0);
 
   // Products to auto-fill empty promo/ad areas
   const sidebarProducts = allProducts.slice(0, 4);
@@ -273,15 +278,29 @@ export default function MultiVendorHome() {
           <div className="grid lg:grid-cols-12 gap-6">
             {/* Left Sidebar — always visible: promo > ad > auto-fill products */}
             <aside className="hidden lg:block lg:col-span-4">
-              <div className="sticky top-24 flex flex-col gap-6 max-h-[calc(100vh-6rem)]">
-                {hasExactlyOnePromotion ? (
-                  <div className="flex-1 overflow-hidden min-h-0">
-                    <SinglePromotionSidebar promo={singlePromotion} />
-                  </div>
-                ) : (adsEnabled && sidebarAdEnabled) ? (
-                  <div className="flex-1 overflow-hidden min-h-0 rounded-xl border border-gray-200 dark:border-white/10 shadow-lg">
-                    <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
-                  </div>
+              <div className="sticky top-24 flex flex-col gap-4 max-h-[calc(100vh-6rem)]">
+                {/* Dynamic sidebar stacking: promo + ad share space via flexbox */}
+                {sidebarItemCount > 0 ? (
+                  <>
+                    {/* Promotion — flex-1 when sharing, full when alone */}
+                    {hasPromotion && (
+                      <div
+                        className="overflow-hidden min-h-0 rounded-xl"
+                        style={{ flex: sidebarItemCount > 1 ? '1 1 0%' : '1 1 auto' }}
+                      >
+                        <SinglePromotionSidebar promo={singlePromotion} />
+                      </div>
+                    )}
+                    {/* Advertisement — flex-1 when sharing, full when alone */}
+                    {hasSidebarAd && (
+                      <div
+                        className="overflow-hidden min-h-0 rounded-xl border border-gray-200 dark:border-white/10 shadow-lg"
+                        style={{ flex: sidebarItemCount > 1 ? '1 1 0%' : '1 1 auto' }}
+                      >
+                        <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
+                      </div>
+                    )}
+                  </>
                 ) : sidebarProducts.length > 0 ? (
                   <div className="mv-glass-card rounded-2xl p-5 space-y-4">
                     <div className="flex items-center gap-2">
