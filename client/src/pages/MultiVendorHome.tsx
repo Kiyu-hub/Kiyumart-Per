@@ -110,12 +110,14 @@ export default function MultiVendorHome() {
   const CATEGORY_VISIBLE_THRESHOLD = 6;
 
   return (
-    <div className="mv-home min-h-screen flex flex-col relative overflow-x-hidden">
-      {/* Animated gradient background */}
-      <div className="mv-bg-gradient" />
-      <div className="mv-bg-orb mv-bg-orb-1" />
-      <div className="mv-bg-orb mv-bg-orb-2" />
-      <div className="mv-bg-orb mv-bg-orb-3" />
+    <div className="mv-home min-h-screen flex flex-col relative">
+      {/* Animated gradient background — contained to prevent horizontal overflow */}
+      <div className="overflow-hidden absolute inset-0 pointer-events-none">
+        <div className="mv-bg-gradient" />
+        <div className="mv-bg-orb mv-bg-orb-1" />
+        <div className="mv-bg-orb mv-bg-orb-2" />
+        <div className="mv-bg-orb mv-bg-orb-3" />
+      </div>
 
       {/* Top bar with theme toggle */}
       <div className="relative z-20 flex items-center justify-end px-4 py-2 border-b border-gray-200 dark:border-white/10 backdrop-blur-md bg-white/80 dark:bg-white/5">
