@@ -110,7 +110,7 @@ export default function MultiVendorHome() {
   const CATEGORY_VISIBLE_THRESHOLD = 6;
 
   return (
-    <div className="mv-home min-h-screen flex flex-col relative overflow-hidden">
+    <div className="mv-home min-h-screen flex flex-col relative overflow-x-hidden">
       {/* Animated gradient background */}
       <div className="mv-bg-gradient" />
       <div className="mv-bg-orb mv-bg-orb-1" />
