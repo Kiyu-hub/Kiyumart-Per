@@ -198,7 +198,7 @@ export default function AdminFooterPagesManager() {
       content: "",
       url: "",
       group: "general",
-      storeMode: "both",
+      storeMode: activeStoreModeFilter || "both",
       displayOrder: pages.length,
       isActive: true,
       openInNewTab: false,
@@ -213,11 +213,12 @@ export default function AdminFooterPagesManager() {
     }
   };
 
-  // Filtering
-  const activeStoreModeFilter = storeModeFilter ?? "all";
+  // Filtering — strictly match selected mode: show items that are specifically for this mode OR marked as "both"
+  const activeStoreModeFilter = storeModeFilter ?? (settings?.isMultiVendor ? "multivendor" : "single");
   const filteredPages = pages.filter((page) => {
     const sm = (page as any).storeMode || "both";
-    const matchesStore = activeStoreModeFilter === "all" || sm === activeStoreModeFilter || sm === "both";
+    // Only show items that belong to the selected mode or are shared ("both")
+    const matchesStore = sm === activeStoreModeFilter || sm === "both";
     const matchesGroup = groupFilter === "all" || (page.group || "general") === groupFilter;
     return matchesStore && matchesGroup;
   });
@@ -266,14 +267,12 @@ export default function AdminFooterPagesManager() {
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Store Mode:</span>
             <Select value={activeStoreModeFilter} onValueChange={setStoreModeFilter}>
-              <SelectTrigger className="w-[160px]" data-testid="select-store-mode-filter">
+              <SelectTrigger className="w-[180px]" data-testid="select-store-mode-filter">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Modes</SelectItem>
-                {STORE_MODES.map(m => (
-                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                ))}
+                <SelectItem value="single">Single Store</SelectItem>
+                <SelectItem value="multivendor">Multi-Vendor</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -375,10 +374,20 @@ export default function AdminFooterPagesManager() {
 
                   <FormField control={form.control} name="content" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Page Content (HTML)</FormLabel>
+                      <FormLabel>Description / Content</FormLabel>
                       <FormControl>
-                        <Textarea {...field} rows={8} placeholder="Enter page content (HTML supported)..." data-testid="textarea-content" />
+                        <Textarea
+                          rows={6}
+                          placeholder="Enter description or content..."
+                          data-testid="textarea-content"
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
+                        />
                       </FormControl>
+                      <p className="text-xs text-muted-foreground">For trust bar items this is the subtitle text. For legal pages this can be the full page content.</p>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -441,8 +450,7 @@ export default function AdminFooterPagesManager() {
           </Badge>
           <span className="text-muted-foreground">•</span>
           <span className="text-muted-foreground">
-            Showing {filteredPages.length} of {pages.length} items
-            {activeStoreModeFilter !== "all" && ` (${activeStoreModeFilter === "multivendor" ? "multi-vendor" : activeStoreModeFilter} + both)`}
+            Showing {filteredPages.length} of {pages.length} items for {activeStoreModeFilter === "multivendor" ? "multi-vendor" : "single store"} mode
           </span>
         </div>
 
@@ -475,6 +483,12 @@ export default function AdminFooterPagesManager() {
                               {getStoreModeLabel((page as any).storeMode || 'both')}
                             </Badge>
                           </div>
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-md">
+                            {(() => {
+                              const text = (page.content || '').replace(/<[^>]*>/g, '').trim();
+                              return text ? (text.slice(0, 80) + (text.length > 80 ? '…' : '')) : <span className="italic">No description</span>;
+                            })()}
+                          </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {page.url || `/page/${page.slug}`} • Order: {page.displayOrder}
                           </p>
@@ -499,7 +513,9 @@ export default function AdminFooterPagesManager() {
         ) : (
           <Card>
             <CardContent className="p-8 text-center text-muted-foreground" data-testid="text-empty-state">
-              {pages.length === 0 ? "No footer items yet. Click \"Add Footer Item\" to create one." : "No items match the current filters."}
+              {pages.length === 0
+                ? "No footer items found. Restart the server to auto-populate defaults."
+                : "No items match the current filters. Try changing the store mode or section filter."}
             </CardContent>
           </Card>
         )}

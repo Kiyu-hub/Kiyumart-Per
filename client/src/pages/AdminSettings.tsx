@@ -129,7 +129,7 @@ export default function AdminSettings() {
   // Footer Management state
   const [footerDialogOpen, setFooterDialogOpen] = useState(false);
   const [editingFooterPage, setEditingFooterPage] = useState<FooterPage | null>(null);
-  const [footerStoreModeFilter, setFooterStoreModeFilter] = useState("all");
+  const [footerStoreModeFilter, setFooterStoreModeFilter] = useState<string | null>(null);
   const [footerGroupFilter, setFooterGroupFilter] = useState("all");
 
   const FOOTER_GROUPS = [
@@ -245,20 +245,6 @@ export default function AdminSettings() {
     }
   };
 
-  const filteredFooterPages = footerPages.filter((page) => {
-    const sm = (page as any).storeMode || "both";
-    const matchesStore = footerStoreModeFilter === "all" || sm === footerStoreModeFilter || sm === "both";
-    const matchesGroup = footerGroupFilter === "all" || (page.group || "general") === footerGroupFilter;
-    return matchesStore && matchesGroup;
-  });
-
-  const groupedFooterPages = filteredFooterPages.reduce((acc, page) => {
-    const g = page.group || "general";
-    if (!acc[g]) acc[g] = [];
-    acc[g].push(page);
-    return acc;
-  }, {} as Record<string, FooterPage[]>);
-
   const getFooterGroupLabel = (g: string) => FOOTER_GROUPS.find(f => f.value === g)?.label || g;
   const getFooterStoreModeLabel = (m: string) => STORE_MODES_FOOTER.find(s => s.value === m)?.label || m;
   const getFooterStoreModeBadgeClass = (m: string) => {
@@ -270,6 +256,21 @@ export default function AdminSettings() {
   const { data: settings, isLoading } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
   });
+
+  const activeFooterModeFilter = footerStoreModeFilter ?? (settings?.isMultiVendor ? "multivendor" : "single");
+  const filteredFooterPages = footerPages.filter((page) => {
+    const sm = (page as any).storeMode || "both";
+    const matchesStore = sm === activeFooterModeFilter || sm === "both";
+    const matchesGroup = footerGroupFilter === "all" || (page.group || "general") === footerGroupFilter;
+    return matchesStore && matchesGroup;
+  });
+
+  const groupedFooterPages = filteredFooterPages.reduce((acc, page) => {
+    const g = page.group || "general";
+    if (!acc[g]) acc[g] = [];
+    acc[g].push(page);
+    return acc;
+  }, {} as Record<string, FooterPage[]>);
 
   const { data: stores = [] } = useQuery<Array<{id: string; name: string; isActive: boolean}>>({
     queryKey: ["/api/stores"],
@@ -1890,11 +1891,11 @@ export default function AdminSettings() {
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-muted-foreground">Store Mode:</span>
-                      <Select value={footerStoreModeFilter} onValueChange={setFooterStoreModeFilter}>
-                        <SelectTrigger className="w-[160px]" data-testid="select-footer-mode-filter"><SelectValue /></SelectTrigger>
+                      <Select value={activeFooterModeFilter} onValueChange={setFooterStoreModeFilter}>
+                        <SelectTrigger className="w-[180px]" data-testid="select-footer-mode-filter"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all">All Modes</SelectItem>
-                          {STORE_MODES_FOOTER.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                          <SelectItem value="single">Single Store</SelectItem>
+                          <SelectItem value="multivendor">Multi-Vendor</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

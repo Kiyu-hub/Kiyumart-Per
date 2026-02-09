@@ -329,47 +329,34 @@ export function useAppLoading() {
 
 /**
  * LogoHeading - renders the big loading-screen heading.
- * Uses a script-style logo image when available and falls back to the text heading.
+ * Always uses the logo image; shows a transparent placeholder while loading
+ * so the old text never flashes on screen.
  */
 function LogoHeading() {
-  const [imageLoaded, setImageLoaded] = useState<boolean | null>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
 
-  useEffect(() => {
-    const img = new Image();
-    img.onload = () => setImageLoaded(true);
-    img.onerror = () => setImageLoaded(false);
-    img.src = SCRIPT_HEADING_LOGO;
-  }, []);
-
-  if (imageLoaded === null) {
-    // While checking, render the text (avoids layout shift)
-    return (
-      <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight">
-        <span className="bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm">Kiyu</span>
-        <span className="bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 bg-clip-text text-transparent drop-shadow-sm">Mart</span>
-      </h1>
-    );
-  }
-
-  if (imageLoaded === true) {
-    return (
+  return (
+    <div className="w-56 md:w-72 h-16 md:h-20 relative mx-auto flex items-center justify-center">
+      {/* Always render the image so the browser starts fetching immediately */}
       <motion.img
         src={SCRIPT_HEADING_LOGO}
         alt="KiyuMart"
         className="w-56 md:w-72 h-auto object-contain mx-auto"
         initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }}
+        animate={{ opacity: imageLoaded ? 1 : 0, scale: imageLoaded ? 1 : 0.9 }}
+        transition={{ duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
         style={{ filter: 'drop-shadow(0 20px 40px rgba(13, 148, 136, 0.2))' }}
+        onLoad={() => setImageLoaded(true)}
+        onError={() => setImageFailed(true)}
       />
-    );
-  }
-
-  // Fallback to the original text heading
-  return (
-    <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight">
-      <span className="bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm">Kiyu</span>
-      <span className="bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 bg-clip-text text-transparent drop-shadow-sm">Mart</span>
-    </h1>
+      {/* Only show text fallback if the image actually fails to load */}
+      {imageFailed && (
+        <h1 className="absolute inset-0 flex items-center justify-center text-5xl md:text-6xl font-extrabold tracking-tight">
+          <span className="bg-gradient-to-r from-teal-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm">Kiyu</span>
+          <span className="bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 bg-clip-text text-transparent drop-shadow-sm">Mart</span>
+        </h1>
+      )}
+    </div>
   );
 }
