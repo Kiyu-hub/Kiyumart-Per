@@ -477,29 +477,15 @@ export default function HomeConnected() {
             {sidebarItemCount > 0 && (
               <aside className="hidden lg:block lg:col-span-4">
                 <div className="sticky top-24 flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
-                  {/* Promotion — shares height when stacked with ad */}
+                  {/* Promotion — fills available height, splits evenly when stacked */}
                   {hasPromotion && (
-                    <div
-                      className="overflow-hidden rounded-xl"
-                      style={{
-                        flex: '1 1 0%',
-                        minHeight: sidebarItemCount > 1 ? '200px' : '300px',
-                        maxHeight: sidebarItemCount > 1 ? '50%' : '100%',
-                      }}
-                    >
+                    <div className="overflow-hidden rounded-xl flex-1 min-h-0">
                       <SinglePromotionSidebar promo={singlePromotion} />
                     </div>
                   )}
-                  {/* Advertisement — shares height when stacked with promo */}
+                  {/* Advertisement — fills available height, splits evenly when stacked */}
                   {hasSidebarAd && (
-                    <div
-                      className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md"
-                      style={{
-                        flex: '1 1 0%',
-                        minHeight: sidebarItemCount > 1 ? '200px' : '300px',
-                        maxHeight: sidebarItemCount > 1 ? '50%' : '100%',
-                      }}
-                    >
+                    <div className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md flex-1 min-h-0">
                       <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
                     </div>
                   )}

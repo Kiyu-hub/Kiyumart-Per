@@ -290,28 +290,18 @@ export default function MultiVendorHome() {
                   {/* Dynamic sidebar stacking: promo + ad share space via flexbox */}
                   {sidebarItemCount > 0 ? (
                     <>
-                    {/* Promotion — shares height equally when stacked, full height when alone */}
+                    {/* Promotion — fills available height, splits evenly when stacked */}
                     {hasPromotion && (
                       <div
-                        className="overflow-hidden rounded-xl"
-                        style={{
-                          flex: sidebarItemCount > 1 ? '1 1 0%' : '1 1 0%',
-                          minHeight: sidebarItemCount > 1 ? '200px' : '300px',
-                          maxHeight: sidebarItemCount > 1 ? '50%' : '100%',
-                        }}
+                        className="overflow-hidden rounded-xl flex-1 min-h-0"
                       >
                         <SinglePromotionSidebar promo={singlePromotion} />
                       </div>
                     )}
-                    {/* Advertisement — shares height equally when stacked, full height when alone */}
+                    {/* Advertisement — fills available height, splits evenly when stacked */}
                     {hasSidebarAd && (
                       <div
-                        className="overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 shadow-lg"
-                        style={{
-                          flex: sidebarItemCount > 1 ? '1 1 0%' : '1 1 0%',
-                          minHeight: sidebarItemCount > 1 ? '200px' : '300px',
-                          maxHeight: sidebarItemCount > 1 ? '50%' : '100%',
-                        }}
+                        className="overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 shadow-lg flex-1 min-h-0"
                       >
                         <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
                       </div>
