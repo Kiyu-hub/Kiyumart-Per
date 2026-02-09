@@ -7,6 +7,67 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
 
+/**
+ * Converts content to proper HTML for rendering.
+ * - If content is already HTML (has tags), it processes newlines within text nodes
+ * - If content is plain text, it converts newlines to paragraphs and detects headings
+ */
+function formatContent(content: string): string {
+  // Check if the content contains HTML tags
+  const hasHtml = /<[a-z][\s\S]*>/i.test(content);
+  
+  if (hasHtml) {
+    // Content has HTML — convert plain \n within <p> or after tags to <br>
+    // Split on existing tags, process text between them
+    return content
+      .replace(/\n\n+/g, '</p><p>')  // Double newlines become paragraph breaks
+      .replace(/(?<!\>)\n(?!\<)/g, '<br>');  // Single newlines within text become <br>
+  }
+  
+  // Plain text — convert to HTML with paragraphs
+  const lines = content.split('\n');
+  let html = '';
+  let inList = false;
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (inList) { html += '</ul>'; inList = false; }
+      continue;
+    }
+    
+    // Detect numbered headings like "1. Introduction" or "2.1 Personal Information"
+    if (/^\d+\.?\d*\.?\s+[A-Z]/.test(trimmed) && trimmed.length < 100) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h3><strong>${trimmed}</strong></h3>`;
+    }
+    // Detect markdown-style headings
+    else if (trimmed.startsWith('# ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h1>${trimmed.slice(2)}</h1>`;
+    } else if (trimmed.startsWith('## ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h2>${trimmed.slice(3)}</h2>`;
+    } else if (trimmed.startsWith('### ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h3>${trimmed.slice(4)}</h3>`;
+    }
+    // Short standalone lines that look like list items (no period at end, short)
+    else if (trimmed.length < 60 && !trimmed.endsWith('.') && !trimmed.endsWith(':')) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += `<li>${trimmed}</li>`;
+    }
+    // Regular paragraph
+    else {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<p>${trimmed}</p>`;
+    }
+  }
+  if (inList) html += '</ul>';
+  
+  return html;
+}
+
 interface FooterPage {
   id: string;
   title: string;
@@ -108,7 +169,7 @@ export default function DynamicPage() {
               {page.content ? (
                 <div 
                   className="prose prose-slate dark:prose-invert max-w-none"
-                  dangerouslySetInnerHTML={{ __html: page.content }}
+                  dangerouslySetInnerHTML={{ __html: formatContent(page.content) }}
                   data-testid="text-page-content"
                 />
               ) : (

@@ -2,7 +2,7 @@ import { Mail, Phone, MapPin, ShieldCheck, Truck, CreditCard, Clock, ArrowUp } f
 import { FaFacebookF, FaInstagram, FaTwitter, FaLinkedin, FaYoutube, FaTiktok, FaPinterest, FaWhatsapp } from 'react-icons/fa';
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useRoute } from "wouter";
+import { Link, useRoute, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import Logo from "@/components/Logo";
 
@@ -56,6 +56,7 @@ interface Store {
 
 export default function Footer() {
   const [match, params] = useRoute("/sellers/:id");
+  const [, navigate] = useLocation();
   const sellerId = match ? params?.id : null;
   
   const { data: settings } = useQuery<PlatformSettings>({
@@ -79,22 +80,34 @@ export default function Footer() {
   
   const { user, isAuthenticated } = useAuth();
 
-  // Filter footer pages by current store mode
+  // Determine current store mode
   const isMultiVendor = settings?.isMultiVendor ?? false;
   const currentMode = isMultiVendor ? "multivendor" : "single";
   
-  const footerPages = allFooterPages.filter(page => {
-    const mode = page.storeMode || "both";
-    return mode === "both" || mode === currentMode;
-  });
-  
-  // Group pages by group
-  const groupedPages = footerPages.reduce((acc, page) => {
+  // Group all pages first, then apply mode filtering per section:
+  // - legal: always show all items regardless of store mode
+  // - trust_bar, quick_links, customer_service, general: strict mode filtering
+  const allGrouped = allFooterPages.reduce((acc, page) => {
     const group = page.group || 'general';
     if (!acc[group]) acc[group] = [];
     acc[group].push(page);
     return acc;
   }, {} as Record<string, FooterPageItem[]>);
+
+  // Apply mode filtering per group
+  const groupedPages: Record<string, FooterPageItem[]> = {};
+  for (const [group, pages] of Object.entries(allGrouped)) {
+    if (group === 'legal') {
+      // Legal pages are shared across all store modes
+      groupedPages[group] = pages;
+    } else {
+      // All other groups: strict mode filtering
+      groupedPages[group] = pages.filter(page => {
+        const mode = page.storeMode || "both";
+        return mode === "both" || mode === currentMode;
+      });
+    }
+  }
 
   // Sort pages within each group by displayOrder
   Object.values(groupedPages).forEach(pages => {
