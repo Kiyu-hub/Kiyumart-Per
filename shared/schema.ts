@@ -539,6 +539,7 @@ export const footerPages = pgTable("footer_pages", {
   url: text("url"),
   group: text("group").default("general"),
   storeMode: text("store_mode").default("both"), // "single", "multivendor", or "both"
+  icon: text("icon"),
   displayOrder: integer("display_order").default(0),
   isActive: boolean("is_active").default(true),
   openInNewTab: boolean("open_in_new_tab").default(false),
@@ -932,6 +933,7 @@ export const insertFooterPageSchema = createInsertSchema(footerPages).pick({
   content: true,
   url: true,
   storeMode: true,
+  icon: true,
   group: true,
   displayOrder: true,
   isActive: true,

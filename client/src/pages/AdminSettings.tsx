@@ -15,7 +15,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid } from "lucide-react";
+import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid,
+  Truck, ShieldCheck, Clock, Heart, Star, Zap, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Sparkles, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind
+} from "lucide-react";
 import { insertFooterPageSchema, type FooterPage } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Badge } from "@/components/ui/badge";
@@ -149,9 +151,69 @@ export default function AdminSettings() {
   const footerForm = useForm({
     defaultValues: {
       title: "", slug: "", content: "", url: "", group: "general",
-      storeMode: "both", displayOrder: 0, isActive: true, openInNewTab: false,
+      storeMode: "both", icon: "", displayOrder: 0, isActive: true, openInNewTab: false,
     },
   });
+
+  // Icon options for trust bar items
+  const TRUST_BAR_ICONS: { value: string; label: string; icon: any }[] = [
+    { value: "Truck", label: "Delivery Truck", icon: Truck },
+    { value: "ShieldCheck", label: "Shield Check", icon: ShieldCheck },
+    { value: "CreditCard", label: "Credit Card", icon: CreditCard },
+    { value: "Clock", label: "Clock", icon: Clock },
+    { value: "Heart", label: "Heart", icon: Heart },
+    { value: "Star", label: "Star", icon: Star },
+    { value: "Zap", label: "Lightning", icon: Zap },
+    { value: "Award", label: "Award", icon: Award },
+    { value: "Gift", label: "Gift", icon: Gift },
+    { value: "Shield", label: "Shield", icon: Shield },
+    { value: "Lock", label: "Lock", icon: Lock },
+    { value: "Headphones", label: "Headphones", icon: Headphones },
+    { value: "Phone", label: "Phone", icon: Phone },
+    { value: "MapPin", label: "Location", icon: MapPin },
+    { value: "Package", label: "Package", icon: Package },
+    { value: "Percent", label: "Percent", icon: Percent },
+    { value: "ThumbsUp", label: "Thumbs Up", icon: ThumbsUp },
+    { value: "CheckCircle", label: "Check Circle", icon: CheckCircle },
+    { value: "Users", label: "Users", icon: Users },
+    { value: "Sparkles", label: "Sparkles", icon: Sparkles },
+    { value: "Flame", label: "Flame", icon: Flame },
+    { value: "Gem", label: "Gem", icon: Gem },
+    { value: "Crown", label: "Crown", icon: Crown },
+    { value: "BadgeCheck", label: "Badge Check", icon: BadgeCheck },
+    { value: "Wallet", label: "Wallet", icon: Wallet },
+    { value: "RefreshCcw", label: "Refresh", icon: RefreshCcw },
+    { value: "LifeBuoy", label: "Life Buoy", icon: LifeBuoy },
+    { value: "Rocket", label: "Rocket", icon: Rocket },
+    { value: "Timer", label: "Timer", icon: Timer },
+    { value: "Tag", label: "Tag", icon: Tag },
+    { value: "ShoppingBag", label: "Shopping Bag", icon: ShoppingBag },
+    { value: "ShoppingCart", label: "Shopping Cart", icon: ShoppingCart },
+    { value: "Home", label: "Home", icon: Home },
+    { value: "Search", label: "Search", icon: Search },
+    { value: "Bell", label: "Bell", icon: Bell },
+    { value: "MessageCircle", label: "Message", icon: MessageCircle },
+    { value: "Wifi", label: "Wifi", icon: Wifi },
+    { value: "Sun", label: "Sun", icon: Sun },
+    { value: "Moon", label: "Moon", icon: Moon },
+    { value: "BarChart", label: "Chart", icon: BarChart },
+    { value: "Key", label: "Key", icon: Key },
+    { value: "Fingerprint", label: "Fingerprint", icon: Fingerprint },
+    { value: "Globe2", label: "Globe", icon: Globe2 },
+    { value: "Umbrella", label: "Umbrella", icon: Umbrella },
+    { value: "Coffee", label: "Coffee", icon: Coffee },
+    { value: "Music", label: "Music", icon: Music },
+    { value: "Camera", label: "Camera", icon: Camera },
+    { value: "Target", label: "Target", icon: Target },
+    { value: "Compass", label: "Compass", icon: Compass },
+    { value: "Anchor", label: "Anchor", icon: Anchor },
+    { value: "Feather", label: "Feather", icon: Feather },
+    { value: "Leaf", label: "Leaf", icon: Leaf },
+    { value: "Droplets", label: "Droplets", icon: Droplets },
+    { value: "Wind", label: "Wind", icon: Wind },
+    { value: "DollarSign", label: "Dollar", icon: DollarSign },
+    { value: "Mail", label: "Mail", icon: Mail },
+  ];
 
   const { data: footerPages = [], isLoading: footerPagesLoading } = useQuery<FooterPage[]>({
     queryKey: ["/api/admin/footer-pages"],
@@ -233,6 +295,7 @@ export default function AdminSettings() {
       title: page.title, slug: page.slug, content: page.content || "",
       url: page.url || "", group: page.group || "general",
       storeMode: (page as any).storeMode || "both",
+      icon: (page as any).icon || "",
       displayOrder: page.displayOrder || 0,
       isActive: page.isActive ?? true, openInNewTab: page.openInNewTab ?? false,
     });
@@ -1839,7 +1902,7 @@ export default function AdminSettings() {
                     </div>
                     <Dialog open={footerDialogOpen} onOpenChange={setFooterDialogOpen}>
                       <DialogTrigger asChild>
-                        <Button onClick={() => { setEditingFooterPage(null); footerForm.reset({ title: "", slug: "", content: "", url: "", group: "general", storeMode: "both", displayOrder: footerPages.length, isActive: true, openInNewTab: false }); }} data-testid="button-add-footer-page">
+                        <Button onClick={() => { setEditingFooterPage(null); footerForm.reset({ title: "", slug: "", content: "", url: "", group: "general", storeMode: "both", icon: "", displayOrder: footerPages.length, isActive: true, openInNewTab: false }); }} data-testid="button-add-footer-page">
                           <Plus className="mr-2 h-4 w-4" />
                           Add Footer Item
                         </Button>
@@ -1878,6 +1941,39 @@ export default function AdminSettings() {
                               <p className="text-xs text-muted-foreground">Controls which storefront mode shows this link</p>
                             </div>
                           </div>
+                          {/* Icon Picker - only shown for Trust Bar items */}
+                          {footerForm.watch("group") === "trust_bar" && (
+                            <div className="space-y-2">
+                              <Label>Trust Bar Icon</Label>
+                              <p className="text-xs text-muted-foreground mb-2">Select an icon to display next to this trust bar item</p>
+                              <div className="grid grid-cols-8 sm:grid-cols-10 gap-1.5 max-h-[200px] overflow-y-auto border rounded-lg p-3 bg-muted/20">
+                                {TRUST_BAR_ICONS.map((iconItem) => {
+                                  const IconComp = iconItem.icon;
+                                  const isSelected = footerForm.watch("icon") === iconItem.value;
+                                  return (
+                                    <button
+                                      key={iconItem.value}
+                                      type="button"
+                                      title={iconItem.label}
+                                      onClick={() => footerForm.setValue("icon", isSelected ? "" : iconItem.value)}
+                                      className={`flex items-center justify-center w-9 h-9 rounded-md transition-all ${isSelected ? "bg-primary text-white ring-2 ring-primary ring-offset-1 scale-110" : "bg-background hover:bg-muted border border-border hover:border-primary/50"}`}
+                                    >
+                                      <IconComp className="h-4 w-4" />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {footerForm.watch("icon") && (
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-xs text-muted-foreground">Selected:</span>
+                                  <Badge variant="secondary" className="gap-1">
+                                    {(() => { const found = TRUST_BAR_ICONS.find(i => i.value === footerForm.watch("icon")); const IC = found?.icon; return IC ? <><IC className="h-3 w-3" />{found?.label}</> : footerForm.watch("icon"); })()}
+                                  </Badge>
+                                  <Button type="button" variant="ghost" size="sm" className="h-6 text-xs text-destructive" onClick={() => footerForm.setValue("icon", "")}>Clear</Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <div className="space-y-2">
                             <Label htmlFor="footerUrl">External URL (optional)</Label>
                             <Input id="footerUrl" {...footerForm.register("url")} placeholder="https://... (leave empty for internal page)" data-testid="input-footer-url" />

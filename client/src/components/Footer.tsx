@@ -1,4 +1,6 @@
-import { Mail, Phone, MapPin, ShieldCheck, Truck, CreditCard, Clock, ArrowUp } from "lucide-react";
+import { Mail, Phone, MapPin, ShieldCheck, Truck, CreditCard, Clock, ArrowUp,
+  Heart, Star, Zap, Award, Gift, Shield, Lock, Headphones, Package, Percent, ThumbsUp, CheckCircle, Users, Sparkles, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home as HomeIcon, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe as Globe2Icon, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, DollarSign, type LucideIcon
+} from "lucide-react";
 import { FaFacebookF, FaInstagram, FaTwitter, FaLinkedin, FaYoutube, FaTiktok, FaPinterest, FaWhatsapp } from 'react-icons/fa';
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
@@ -41,6 +43,7 @@ interface FooterPageItem {
   url: string | null;
   group: string | null;
   storeMode: string | null;
+  icon: string | null;
   displayOrder: number | null;
   openInNewTab: boolean | null;
 }
@@ -135,6 +138,17 @@ export default function Footer() {
     );
   };
 
+  // Icon map for trust bar — maps icon name strings to Lucide components
+  const iconMap: Record<string, LucideIcon> = {
+    Truck, ShieldCheck, CreditCard, Clock, Heart, Star, Zap, Award, Gift, Shield, Lock,
+    Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Sparkles,
+    Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag,
+    ShoppingBag, ShoppingCart, Home: HomeIcon, Search, Bell, MessageCircle, Wifi, Sun, Moon,
+    BarChart, Key, Fingerprint, Globe2: Globe2Icon, Umbrella, Coffee, Music, Camera, Target,
+    Compass, Anchor, Feather, Leaf, Droplets, Wind, DollarSign, Mail,
+  };
+  const fallbackIcons: LucideIcon[] = [Truck, ShieldCheck, CreditCard, Clock];
+
   // Helper to render a footer page link — uses Wouter <Link> for internal paths to avoid page refresh
   const renderPageLink = (page: FooterPageItem) => {
     const url = page.url || `/page/${page.slug}`;
@@ -190,11 +204,15 @@ export default function Footer() {
       {/* Trust Bar */}
       <div className="border-b bg-muted/30">
         <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 text-center">
-            {trustBarPages.length > 0 ? (
-              trustBarPages.map((page, i) => {
-                const icons = [Truck, ShieldCheck, CreditCard, Clock];
-                const Icon = icons[i % icons.length];
+          {trustBarPages.length > 0 ? (
+            <div
+              className="grid gap-6 text-center"
+              style={{
+                gridTemplateColumns: `repeat(${Math.min(trustBarPages.length, 6)}, minmax(0, 1fr))`,
+              }}
+            >
+              {trustBarPages.map((page, i) => {
+                const Icon = (page.icon && iconMap[page.icon]) || fallbackIcons[i % fallbackIcons.length];
                 return (
                   <div key={page.id} className="flex flex-col items-center gap-2">
                     <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -206,9 +224,11 @@ export default function Footer() {
                     </div>
                   </div>
                 );
-              })
-            ) : (
-              defaultTrustItems.map((item, i) => (
+              })}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+              {defaultTrustItems.map((item, i) => (
                 <div key={i} className="flex flex-col items-center gap-2">
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                     <item.icon className="h-5 w-5 text-primary" />
@@ -218,9 +238,9 @@ export default function Footer() {
                     <p className="text-xs text-muted-foreground">{item.subtitle}</p>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
