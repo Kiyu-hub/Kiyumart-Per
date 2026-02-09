@@ -84,15 +84,12 @@ export default function Home() {
     queryKey: ["/api/homepage/featured-products"],
   });
 
-  // Filter products by primary store in single-store mode
-  let dbProducts = platformSettings?.isMultiVendor 
-    ? allDbProducts 
-    : platformSettings?.primaryStoreId
-      ? allDbProducts.filter(p => p.storeId === platformSettings.primaryStoreId)
-      : allDbProducts;
+  // Products are already filtered server-side by primary store's sellerId in single-store mode
+  // No additional client-side filtering needed — /api/products handles store mode correctly
+  let dbProducts = allDbProducts;
 
   // Fallback behavior when the configured primary store has no products
-  const primaryStoreIdMissingProducts = platformSettings?.isMultiVendor !== true && platformSettings?.primaryStoreId && dbProducts.length === 0 && allDbProducts.length > 0;
+  const primaryStoreIdMissingProducts = platformSettings?.isMultiVendor !== true && platformSettings?.primaryStoreId && dbProducts.length === 0;
 
   const isProduction = (import.meta.env.MODE === 'production');
 

@@ -116,12 +116,9 @@ export default function HomeConnected() {
     enabled: platformSettings?.isMultiVendor === true && platformSettings?.shopDisplayMode === "by-store",
   });
 
-  // Filter products by primary store in single-store mode
-  const products = platformSettings?.isMultiVendor 
-    ? allProducts 
-    : platformSettings?.primaryStoreId
-      ? allProducts.filter(p => p.storeId === platformSettings.primaryStoreId)
-      : allProducts;
+  // Products are already filtered server-side by primary store's sellerId in single-store mode
+  // No additional client-side filtering needed — /api/products handles store mode correctly
+  const products = allProducts;
 
   // Development-only fallback: show a few sample products when DB/products are not available
   const sampleProducts: Product[] = [

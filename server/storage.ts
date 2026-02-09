@@ -262,6 +262,9 @@ export class DbStorage implements IStorage {
     if (filters?.sellerId) {
       query = query.where(eq(products.sellerId, filters.sellerId)) as any;
     }
+    if (filters?.category) {
+      query = query.where(eq(products.category, filters.category)) as any;
+    }
     if (filters?.isActive !== undefined) {
       query = query.where(eq(products.isActive, filters.isActive)) as any;
     }
