@@ -293,7 +293,8 @@ export default function MultiVendorHome() {
                     {/* Promotion — fills available height, splits evenly when stacked */}
                     {hasPromotion && (
                       <div
-                        className="overflow-hidden rounded-xl flex-1 min-h-0"
+                        className="overflow-hidden rounded-xl"
+                        style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
                       >
                         <SinglePromotionSidebar promo={singlePromotion} />
                       </div>
@@ -301,9 +302,10 @@ export default function MultiVendorHome() {
                     {/* Advertisement — fills available height, splits evenly when stacked */}
                     {hasSidebarAd && (
                       <div
-                        className="overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 shadow-lg flex-1 min-h-0"
+                        className="overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 shadow-lg"
+                        style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
                       >
-                        <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
+                        <AdBanner position="sidebar" className="w-full h-full rounded-none border-0 flex-1" />
                       </div>
                     )}
                   </>

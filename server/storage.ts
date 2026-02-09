@@ -1334,6 +1334,7 @@ export class DbStorage implements IStorage {
           showTiktok: true,
           showPinterest: true,
           showWhatsapp: true,
+          showShopBySection: true,
           footerDescription: null,
           footerLinks: [],
           footerPaymentIcons: [],

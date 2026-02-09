@@ -27,18 +27,21 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
 
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
+    // Verbose logging: always log requests with errors (4xx/5xx), and
+    // also log API responses to capture useful JSON payloads for debugging.
+    if (!path.startsWith("/api") && res.statusCode < 400) return;
 
-      log(logLine);
+    let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+    if (path.startsWith("/api") && capturedJsonResponse) {
+      logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
     }
+
+    if (logLine.length > 200) {
+      logLine = logLine.slice(0, 199) + "…";
+    }
+
+    log(logLine);
   });
 
   next();

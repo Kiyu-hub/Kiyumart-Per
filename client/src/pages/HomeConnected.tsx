@@ -401,10 +401,12 @@ export default function HomeConnected() {
 
     // No promos: render an expanded placeholder (fills vertical space)
     return (
-      <div className="h-full flex items-center justify-center min-h-0">
-        <div className="w-full p-6 text-center">
-          <div className="mb-4 text-muted-foreground">No active promotions</div>
-          <AdBanner position="sidebar" className="mx-auto h-56 rounded-lg" />
+      <div className="h-full flex flex-col min-h-0">
+        <div className="w-full flex-1 flex flex-col justify-center min-h-0">
+          <div className="mb-4 text-muted-foreground text-center">No active promotions</div>
+          <div className="flex-1 flex min-h-0">
+            <AdBanner position="sidebar" className="w-full h-full flex-1 rounded-lg" />
+          </div>
         </div>
       </div>
     );
@@ -479,14 +481,20 @@ export default function HomeConnected() {
                 <div className="sticky top-24 flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
                   {/* Promotion — fills available height, splits evenly when stacked */}
                   {hasPromotion && (
-                    <div className="overflow-hidden rounded-xl flex-1 min-h-0">
+                    <div
+                      className="overflow-hidden rounded-xl"
+                      style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
+                    >
                       <SinglePromotionSidebar promo={singlePromotion} />
                     </div>
                   )}
                   {/* Advertisement — fills available height, splits evenly when stacked */}
                   {hasSidebarAd && (
-                    <div className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md flex-1 min-h-0">
-                      <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
+                    <div
+                      className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md"
+                      style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
+                    >
+                      <AdBanner position="sidebar" className="w-full h-full rounded-none border-0 flex-1" />
                     </div>
                   )}
                 </div>

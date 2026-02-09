@@ -29,9 +29,11 @@ interface AdBannerProps {
   className?: string;
   /** When true, render as a full-bleed ad (no rounded corners or card background) */
   fullBleed?: boolean;
+  /** Optional inline styles for the wrapper */
+  style?: React.CSSProperties;
 }
 
-export default function AdBanner({ position, className = "", fullBleed = false }: AdBannerProps) {
+export default function AdBanner({ position, className = "", fullBleed = false, style }: AdBannerProps) {
   const { data: settings } = useQuery<PlatformSettings>({
     // Use the public platform view so children and parents fetch the same data source
     queryKey: ["/api/platform-settings"],
@@ -78,23 +80,23 @@ export default function AdBanner({ position, className = "", fullBleed = false }
     switch (position) {
       case "hero":
         return {
-          image: settings.heroBannerAdImage,
-          url: settings.heroBannerAdUrl,
+          image: settings?.heroBannerAdImage,
+          url: settings?.heroBannerAdUrl,
         };
       case "sidebar":
         return {
-          image: settings.sidebarAdImage,
-          url: settings.sidebarAdUrl,
+          image: settings?.sidebarAdImage,
+          url: settings?.sidebarAdUrl,
         };
       case "footer":
         return {
-          image: settings.footerAdImage,
-          url: settings.footerAdUrl,
+          image: settings?.footerAdImage,
+          url: settings?.footerAdUrl,
         };
       case "product-page":
         return {
-          image: settings.productPageAdImage,
-          url: settings.productPageAdUrl,
+          image: settings?.productPageAdImage,
+          url: settings?.productPageAdUrl,
         };
       default:
         return { image: undefined, url: undefined };
@@ -202,7 +204,7 @@ export default function AdBanner({ position, className = "", fullBleed = false }
 
     if (isInternal) {
       return (
-        <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
+        <div className={wrapperClasses} style={style} data-testid={`ad-banner-${position}`}>
           <a
             href={normalized}
             onClick={handleInternalClick}
@@ -218,7 +220,7 @@ export default function AdBanner({ position, className = "", fullBleed = false }
 
     if (isProtocol) {
       return (
-        <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
+        <div className={wrapperClasses} style={style} data-testid={`ad-banner-${position}`}>
           <a
             href={normalized}
             className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
@@ -233,7 +235,7 @@ export default function AdBanner({ position, className = "", fullBleed = false }
 
     // external http(s)
     return (
-      <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
+      <div className={wrapperClasses} style={style} data-testid={`ad-banner-${position}`}>
         <a
           href={normalized}
           target="_blank"
@@ -249,7 +251,7 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   }
 
   return (
-    <div className={wrapperClasses} data-testid={`ad-banner-${position}`} role="img" aria-label="Advertisement">
+    <div className={wrapperClasses} style={style} data-testid={`ad-banner-${position}`} role="img" aria-label="Advertisement">
       <div className="w-full h-full relative">
         {AdInner}
       </div>
