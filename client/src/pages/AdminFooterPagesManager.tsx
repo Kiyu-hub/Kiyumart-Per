@@ -54,7 +54,7 @@ export default function AdminFooterPagesManager() {
   const [, navigate] = useLocation();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPage, setEditingPage] = useState<FooterPage | null>(null);
-  const [storeModeFilter, setStoreModeFilter] = useState<string>("all");
+  const [storeModeFilter, setStoreModeFilter] = useState<string | null>(null);
   const [groupFilter, setGroupFilter] = useState<string>("all");
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -65,6 +65,13 @@ export default function AdminFooterPagesManager() {
   const { data: settings } = useQuery<{ isMultiVendor?: boolean }>({
     queryKey: ["/api/settings"],
   });
+
+  // Default the store mode filter to current platform mode so admins see what's live
+  useEffect(() => {
+    if (storeModeFilter === null && settings) {
+      setStoreModeFilter(settings.isMultiVendor ? "multivendor" : "single");
+    }
+  }, [settings, storeModeFilter]);
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -207,9 +214,10 @@ export default function AdminFooterPagesManager() {
   };
 
   // Filtering
+  const activeStoreModeFilter = storeModeFilter ?? "all";
   const filteredPages = pages.filter((page) => {
     const sm = (page as any).storeMode || "both";
-    const matchesStore = storeModeFilter === "all" || sm === storeModeFilter || sm === "both";
+    const matchesStore = activeStoreModeFilter === "all" || sm === activeStoreModeFilter || sm === "both";
     const matchesGroup = groupFilter === "all" || (page.group || "general") === groupFilter;
     return matchesStore && matchesGroup;
   });
@@ -257,7 +265,7 @@ export default function AdminFooterPagesManager() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Store Mode:</span>
-            <Select value={storeModeFilter} onValueChange={setStoreModeFilter}>
+            <Select value={activeStoreModeFilter} onValueChange={setStoreModeFilter}>
               <SelectTrigger className="w-[160px]" data-testid="select-store-mode-filter">
                 <SelectValue />
               </SelectTrigger>
@@ -325,7 +333,7 @@ export default function AdminFooterPagesManager() {
                     <FormField control={form.control} name="group" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Footer Section</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger data-testid="select-group"><SelectValue placeholder="Select section" /></SelectTrigger>
                           </FormControl>
@@ -340,7 +348,7 @@ export default function AdminFooterPagesManager() {
                     <FormField control={form.control} name="storeMode" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Store Mode</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger data-testid="select-store-mode"><SelectValue placeholder="Select mode" /></SelectTrigger>
                           </FormControl>
@@ -425,14 +433,17 @@ export default function AdminFooterPagesManager() {
         </div>
 
         {/* Mode indicator */}
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border text-sm">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border text-sm flex-wrap">
           <Store className="h-4 w-4 text-muted-foreground" />
-          <span className="text-muted-foreground">Current store mode:</span>
+          <span className="text-muted-foreground">Active store mode:</span>
           <Badge variant="outline" className={settings?.isMultiVendor ? "border-purple-500 text-purple-500" : "border-blue-500 text-blue-500"}>
             {settings?.isMultiVendor ? "Multi-Vendor Marketplace" : "Single Store"}
           </Badge>
           <span className="text-muted-foreground">•</span>
-          <span className="text-muted-foreground">{filteredPages.length} of {pages.length} items</span>
+          <span className="text-muted-foreground">
+            Showing {filteredPages.length} of {pages.length} items
+            {activeStoreModeFilter !== "all" && ` (${activeStoreModeFilter === "multivendor" ? "multi-vendor" : activeStoreModeFilter} + both)`}
+          </span>
         </div>
 
         {/* Footer Items by section */}

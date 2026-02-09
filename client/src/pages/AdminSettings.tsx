@@ -15,8 +15,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers } from "lucide-react";
+import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid } from "lucide-react";
+import { insertFooterPageSchema, type FooterPage } from "@shared/schema";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -115,6 +125,147 @@ export default function AdminSettings() {
   const [isImportingPaystack, setIsImportingPaystack] = useState(false);
   const [showImportCloudinaryDialog, setShowImportCloudinaryDialog] = useState(false);
   const [isImportingCloudinary, setIsImportingCloudinary] = useState(false);
+
+  // Footer Management state
+  const [footerDialogOpen, setFooterDialogOpen] = useState(false);
+  const [editingFooterPage, setEditingFooterPage] = useState<FooterPage | null>(null);
+  const [footerStoreModeFilter, setFooterStoreModeFilter] = useState("all");
+  const [footerGroupFilter, setFooterGroupFilter] = useState("all");
+
+  const FOOTER_GROUPS = [
+    { value: "quick_links", label: "Quick Links / Marketplace" },
+    { value: "customer_service", label: "Customer Service" },
+    { value: "legal", label: "Legal" },
+    { value: "trust_bar", label: "Trust Bar" },
+    { value: "general", label: "General" },
+  ];
+  const STORE_MODES_FOOTER = [
+    { value: "both", label: "Both Modes" },
+    { value: "single", label: "Single Store" },
+    { value: "multivendor", label: "Multi-Vendor" },
+  ];
+
+  const footerForm = useForm({
+    defaultValues: {
+      title: "", slug: "", content: "", url: "", group: "general",
+      storeMode: "both", displayOrder: 0, isActive: true, openInNewTab: false,
+    },
+  });
+
+  const { data: footerPages = [], isLoading: footerPagesLoading } = useQuery<FooterPage[]>({
+    queryKey: ["/api/admin/footer-pages"],
+  });
+
+  const createFooterMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("POST", "/api/admin/footer-pages", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/footer-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/footer-pages"] });
+      setFooterDialogOpen(false);
+      setEditingFooterPage(null);
+      footerForm.reset();
+      toast({ title: "Success", description: "Footer item created" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateFooterMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const response = await apiRequest("PATCH", `/api/admin/footer-pages/${id}`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/footer-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/footer-pages"] });
+      setFooterDialogOpen(false);
+      setEditingFooterPage(null);
+      footerForm.reset();
+      toast({ title: "Success", description: "Footer item updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteFooterMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("DELETE", `/api/admin/footer-pages/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/footer-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/footer-pages"] });
+      toast({ title: "Success", description: "Footer item deleted" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const toggleFooterVisibility = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      const response = await apiRequest("PATCH", `/api/admin/footer-pages/${id}`, { isActive });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/footer-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/footer-pages"] });
+    },
+  });
+
+  const handleFooterSubmit = (data: any) => {
+    if (editingFooterPage) {
+      updateFooterMutation.mutate({ id: editingFooterPage.id, data });
+    } else {
+      createFooterMutation.mutate(data);
+    }
+  };
+
+  const handleEditFooter = (page: FooterPage) => {
+    setEditingFooterPage(page);
+    footerForm.reset({
+      title: page.title, slug: page.slug, content: page.content || "",
+      url: page.url || "", group: page.group || "general",
+      storeMode: (page as any).storeMode || "both",
+      displayOrder: page.displayOrder || 0,
+      isActive: page.isActive ?? true, openInNewTab: page.openInNewTab ?? false,
+    });
+    setFooterDialogOpen(true);
+  };
+
+  const handleFooterTitleChange = (title: string) => {
+    if (!editingFooterPage) {
+      const slug = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").trim();
+      footerForm.setValue("slug", slug);
+    }
+  };
+
+  const filteredFooterPages = footerPages.filter((page) => {
+    const sm = (page as any).storeMode || "both";
+    const matchesStore = footerStoreModeFilter === "all" || sm === footerStoreModeFilter || sm === "both";
+    const matchesGroup = footerGroupFilter === "all" || (page.group || "general") === footerGroupFilter;
+    return matchesStore && matchesGroup;
+  });
+
+  const groupedFooterPages = filteredFooterPages.reduce((acc, page) => {
+    const g = page.group || "general";
+    if (!acc[g]) acc[g] = [];
+    acc[g].push(page);
+    return acc;
+  }, {} as Record<string, FooterPage[]>);
+
+  const getFooterGroupLabel = (g: string) => FOOTER_GROUPS.find(f => f.value === g)?.label || g;
+  const getFooterStoreModeLabel = (m: string) => STORE_MODES_FOOTER.find(s => s.value === m)?.label || m;
+  const getFooterStoreModeBadgeClass = (m: string) => {
+    if (m === "single") return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
+    if (m === "multivendor") return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20";
+    return "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
+  };
 
   const { data: settings, isLoading } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
@@ -488,7 +639,7 @@ export default function AdminSettings() {
 
           <form onSubmit={form.handleSubmit(onSubmit)}>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-7 mb-6">
+            <TabsList className="flex flex-wrap w-full gap-1 mb-6 h-auto">
               <TabsTrigger value="general" data-testid="tab-general">
                 <Settings2 className="h-4 w-4 mr-2" />
                 General
@@ -520,6 +671,10 @@ export default function AdminSettings() {
               <TabsTrigger value="ads" data-testid="tab-ads">
                 <ImageIcon className="h-4 w-4 mr-2" />
                 Ads
+              </TabsTrigger>
+              <TabsTrigger value="footer" data-testid="tab-footer">
+                <Layers className="h-4 w-4 mr-2" />
+                Footer
               </TabsTrigger>
             </TabsList>
 
@@ -1634,6 +1789,184 @@ export default function AdminSettings() {
                           <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p>
                         </div>
                       </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Footer Management Tab */}
+            <TabsContent value="footer" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Footer Management</CardTitle>
+                      <CardDescription>
+                        Manage all footer sections, links, and pages. Changes apply globally across the site based on store mode.
+                      </CardDescription>
+                    </div>
+                    <Dialog open={footerDialogOpen} onOpenChange={setFooterDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button onClick={() => { setEditingFooterPage(null); footerForm.reset({ title: "", slug: "", content: "", url: "", group: "general", storeMode: "both", displayOrder: footerPages.length, isActive: true, openInNewTab: false }); }} data-testid="button-add-footer-page">
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add Footer Item
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>{editingFooterPage ? "Edit Footer Item" : "Create Footer Item"}</DialogTitle>
+                        </DialogHeader>
+                        <form onSubmit={footerForm.handleSubmit(handleFooterSubmit)} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="footerTitle">Title</Label>
+                            <Input id="footerTitle" {...footerForm.register("title")} onChange={(e) => { footerForm.setValue("title", e.target.value); handleFooterTitleChange(e.target.value); }} placeholder="e.g., Returns & Refunds" data-testid="input-footer-title" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="footerSlug">Slug (URL)</Label>
+                            <Input id="footerSlug" {...footerForm.register("slug")} placeholder="e.g., returns-refunds" data-testid="input-footer-slug" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Footer Section</Label>
+                              <Select value={footerForm.watch("group")} onValueChange={(v) => footerForm.setValue("group", v)}>
+                                <SelectTrigger data-testid="select-footer-group"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {FOOTER_GROUPS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Store Mode</Label>
+                              <Select value={footerForm.watch("storeMode")} onValueChange={(v) => footerForm.setValue("storeMode", v)}>
+                                <SelectTrigger data-testid="select-footer-store-mode"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {STORE_MODES_FOOTER.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-muted-foreground">Controls which storefront mode shows this link</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="footerUrl">External URL (optional)</Label>
+                            <Input id="footerUrl" {...footerForm.register("url")} placeholder="https://... (leave empty for internal page)" data-testid="input-footer-url" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="footerContent">Page Content (HTML)</Label>
+                            <Textarea id="footerContent" {...footerForm.register("content")} rows={6} placeholder="Enter page content..." data-testid="textarea-footer-content" />
+                          </div>
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="footerOrder">Order</Label>
+                              <Input id="footerOrder" type="number" {...footerForm.register("displayOrder", { valueAsNumber: true })} data-testid="input-footer-order" />
+                            </div>
+                            <div className="space-y-2 flex flex-col justify-end">
+                              <Label>Visible</Label>
+                              <div className="flex items-center gap-2">
+                                <Switch checked={footerForm.watch("isActive")} onCheckedChange={(v) => footerForm.setValue("isActive", v)} data-testid="switch-footer-active" />
+                                <span className="text-sm">{footerForm.watch("isActive") ? "Yes" : "No"}</span>
+                              </div>
+                            </div>
+                            <div className="space-y-2 flex flex-col justify-end">
+                              <Label>New Tab</Label>
+                              <div className="flex items-center gap-2">
+                                <Switch checked={footerForm.watch("openInNewTab")} onCheckedChange={(v) => footerForm.setValue("openInNewTab", v)} data-testid="switch-footer-newtab" />
+                                <span className="text-sm">{footerForm.watch("openInNewTab") ? "Yes" : "No"}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <DialogFooter>
+                            <Button type="submit" disabled={createFooterMutation.isPending || updateFooterMutation.isPending} data-testid="button-save-footer">
+                              {(createFooterMutation.isPending || updateFooterMutation.isPending) ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : editingFooterPage ? "Update" : "Create"}
+                            </Button>
+                          </DialogFooter>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Filters */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-muted-foreground">Store Mode:</span>
+                      <Select value={footerStoreModeFilter} onValueChange={setFooterStoreModeFilter}>
+                        <SelectTrigger className="w-[160px]" data-testid="select-footer-mode-filter"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Modes</SelectItem>
+                          {STORE_MODES_FOOTER.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-muted-foreground">Section:</span>
+                      <Select value={footerGroupFilter} onValueChange={setFooterGroupFilter}>
+                        <SelectTrigger className="w-[200px]" data-testid="select-footer-section-filter"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Sections</SelectItem>
+                          {FOOTER_GROUPS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Badge variant="outline" className="ml-auto">
+                      {filteredFooterPages.length} of {footerPages.length} items
+                    </Badge>
+                  </div>
+
+                  {/* Current mode indicator */}
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border text-sm">
+                    <Store className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">Current store mode:</span>
+                    <Badge variant="outline" className={settings?.isMultiVendor ? "border-purple-500 text-purple-500" : "border-blue-500 text-blue-500"}>
+                      {settings?.isMultiVendor ? "Multi-Vendor" : "Single Store"}
+                    </Badge>
+                  </div>
+
+                  {/* Footer items grouped by section */}
+                  {footerPagesLoading ? (
+                    <div className="text-center py-8"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></div>
+                  ) : Object.keys(groupedFooterPages).length > 0 ? (
+                    Object.entries(groupedFooterPages)
+                      .sort(([a], [b]) => {
+                        const order = FOOTER_GROUPS.map(g => g.value);
+                        return (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b));
+                      })
+                      .map(([group, gPages]) => (
+                        <div key={group} className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-semibold">{getFooterGroupLabel(group)}</h4>
+                            <Badge variant="secondary" className="text-xs">{gPages.length}</Badge>
+                          </div>
+                          {gPages.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)).map((page) => (
+                            <div key={page.id} className={`flex items-center justify-between p-3 rounded-lg border ${!page.isActive ? 'opacity-60' : ''}`} data-testid={`footer-item-${page.id}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-sm">{page.title}</span>
+                                  {page.isActive ? <Badge variant="default" className="text-[10px] h-5">Active</Badge> : <Badge variant="secondary" className="text-[10px] h-5">Hidden</Badge>}
+                                  <Badge variant="outline" className={`text-[10px] h-5 ${getFooterStoreModeBadgeClass((page as any).storeMode || 'both')}`}>
+                                    {getFooterStoreModeLabel((page as any).storeMode || 'both')}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5">{page.url || `/page/${page.slug}`} &bull; Order: {page.displayOrder}</p>
+                              </div>
+                              <div className="flex gap-1 ml-2 shrink-0">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleFooterVisibility.mutate({ id: page.id, isActive: !page.isActive })}>
+                                  {page.isActive ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditFooter(page)}>
+                                  <Edit className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => { if (confirm("Delete this footer item?")) deleteFooterMutation.mutate(page.id); }}>
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ))
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground" data-testid="footer-empty-state">
+                      {footerPages.length === 0 ? "No footer items yet. Click \"Add Footer Item\" to create one." : "No items match the current filters."}
                     </div>
                   )}
                 </CardContent>

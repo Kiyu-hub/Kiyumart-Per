@@ -7,34 +7,85 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Store, Package, Star, MapPin } from "lucide-react";
-import type { User as BaseUser, Product } from "@shared/schema";
+import type { Product } from "@shared/schema";
 
-type Seller = BaseUser;
+interface StoreData {
+  id: string;
+  name: string;
+  description?: string;
+  logo?: string;
+  banner?: string;
+  category?: string;
+  primarySellerId?: string;
+  isActive?: boolean;
+  isApproved?: boolean;
+}
 
 export default function SellerStorePage() {
   const [, params] = useRoute("/sellers/:id");
-  const sellerId = params?.id;
+  const storeOrSellerId = params?.id;
 
-  const { data: seller, isLoading: sellerLoading } = useQuery<Seller>({
-    queryKey: ["/api/users", sellerId],
+  // First try to load as a store (for promoted store links)
+  const { data: store, isLoading: storeLoading } = useQuery<StoreData>({
+    queryKey: ["/api/stores", storeOrSellerId],
     queryFn: async () => {
-      const res = await fetch(`/api/users/${sellerId}`);
-      if (!res.ok) throw new Error("Failed to fetch seller");
+      const res = await fetch(`/api/stores/${storeOrSellerId}`);
+      if (!res.ok) return null as any;
       return res.json();
     },
-    enabled: !!sellerId,
+    enabled: !!storeOrSellerId,
+    retry: false,
   });
+
+  // Determine the seller ID — either from the store's primarySellerId, or the URL param itself
+  const sellerId = store?.primarySellerId || storeOrSellerId;
+
+  // Load seller profile (public endpoint)
+  const { data: seller, isLoading: sellerLoading } = useQuery<any>({
+    queryKey: ["/api/seller-profile", sellerId],
+    queryFn: async () => {
+      // Try the public seller profile endpoint first
+      const res = await fetch(`/api/stores/by-seller/${sellerId}`);
+      if (res.ok) {
+        const storeData = await res.json();
+        // Merge store + basic seller info
+        return {
+          id: sellerId,
+          name: storeData.name || "Store",
+          storeName: storeData.name,
+          storeBanner: storeData.banner,
+          storeBio: storeData.description,
+          profilePicture: storeData.logo,
+          ratings: "0",
+        };
+      }
+      return null;
+    },
+    enabled: !!sellerId && !storeLoading,
+  });
+
+  // Use store data directly if we have it  
+  const displayData = store ? {
+    id: storeOrSellerId,
+    name: store.name,
+    storeName: store.name,
+    storeBanner: store.banner,
+    storeBio: store.description,
+    profilePicture: store.logo,
+    ratings: "0",
+  } : seller;
 
   const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["/api/products", "seller", sellerId],
     queryFn: async () => {
       const res = await fetch(`/api/products?sellerId=${sellerId}`);
+      if (!res.ok) return [];
       return res.json();
     },
     enabled: !!sellerId,
   });
 
-  if (sellerLoading) {
+  if (storeLoading || sellerLoading) {
     return (
       <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900">
         <Header />
@@ -50,7 +101,7 @@ export default function SellerStorePage() {
     );
   }
 
-  if (!seller) {
+  if (!displayData && !storeLoading && !sellerLoading) {
     return (
       <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900">
         <Header />
@@ -66,6 +117,8 @@ export default function SellerStorePage() {
     );
   }
 
+  const s = displayData || {} as any;
+
   return (
     <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900">
       <Header />
@@ -73,11 +126,11 @@ export default function SellerStorePage() {
       <main className="flex-1">
         <div className="container max-w-7xl mx-auto px-4 py-4 space-y-4">
           <div className="relative">
-            {seller.storeBanner ? (
+            {s.storeBanner ? (
               <div className="h-32 md:h-40 rounded-lg overflow-hidden">
                 <img
-                  src={seller.storeBanner}
-                  alt={seller.storeName || seller.name}
+                  src={s.storeBanner}
+                  alt={s.storeName || s.name}
                   className="w-full h-full object-cover"
                   data-testid="img-store-banner"
                 />
@@ -90,9 +143,9 @@ export default function SellerStorePage() {
 
             <div className="absolute -bottom-8 left-4">
               <Avatar className="h-16 w-16 border-4 border-background">
-                <AvatarImage src={(seller as any).profilePicture || undefined} />
+                <AvatarImage src={s.profilePicture || undefined} />
                 <AvatarFallback className="bg-primary text-white text-lg">
-                  {seller.storeName?.[0] || seller.name[0]}
+                  {s.storeName?.[0] || s.name?.[0] || "S"}
                 </AvatarFallback>
               </Avatar>
             </div>
@@ -102,25 +155,19 @@ export default function SellerStorePage() {
             <div className="flex items-start justify-between flex-wrap gap-3">
               <div className="space-y-1.5">
                 <h1 className="text-2xl font-bold text-foreground dark:text-white" data-testid="text-store-name">
-                  {seller.storeName || seller.name}
+                  {s.storeName || s.name || "Store"}
                 </h1>
                 <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
-                  {seller.ratings && parseFloat(seller.ratings) > 0 && (
+                  {s.ratings && parseFloat(s.ratings) > 0 && (
                     <div className="flex items-center gap-1">
                       <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                      <span className="font-medium">{parseFloat(seller.ratings).toFixed(1)}</span>
+                      <span className="font-medium">{parseFloat(s.ratings).toFixed(1)}</span>
                     </div>
                   )}
                   <div className="flex items-center gap-1">
                     <Package className="w-4 h-4" />
                     <span>{products.length} Products</span>
                   </div>
-                  {(seller as any).city && (
-                    <div className="flex items-center gap-1">
-                      <MapPin className="w-4 h-4" />
-                      <span>{(seller as any).city}{(seller as any).country && `, ${(seller as any).country}`}</span>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -129,9 +176,9 @@ export default function SellerStorePage() {
               </Badge>
             </div>
 
-            {(seller as any).storeBio && (
+            {s.storeBio && (
               <p className="text-sm text-muted-foreground max-w-2xl" data-testid="text-store-bio">
-                {(seller as any).storeBio}
+                {s.storeBio}
               </p>
             )}
           </div>

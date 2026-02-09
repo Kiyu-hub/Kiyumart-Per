@@ -278,24 +278,32 @@ export default function MultiVendorHome() {
           <div className="grid lg:grid-cols-12 gap-6">
             {/* Left Sidebar — always visible: promo > ad > auto-fill products */}
             <aside className="hidden lg:block lg:col-span-4">
-              <div className="sticky top-24 flex flex-col gap-4 max-h-[calc(100vh-6rem)]">
+              <div className="sticky top-24 flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
                 {/* Dynamic sidebar stacking: promo + ad share space via flexbox */}
                 {sidebarItemCount > 0 ? (
                   <>
-                    {/* Promotion — flex-1 when sharing, full when alone */}
+                    {/* Promotion — shares height equally when stacked, full height when alone */}
                     {hasPromotion && (
                       <div
-                        className="overflow-hidden min-h-0 rounded-xl"
-                        style={{ flex: sidebarItemCount > 1 ? '1 1 0%' : '1 1 auto' }}
+                        className="overflow-hidden rounded-xl"
+                        style={{
+                          flex: sidebarItemCount > 1 ? '1 1 0%' : '1 1 0%',
+                          minHeight: sidebarItemCount > 1 ? '200px' : '300px',
+                          maxHeight: sidebarItemCount > 1 ? '50%' : '100%',
+                        }}
                       >
                         <SinglePromotionSidebar promo={singlePromotion} />
                       </div>
                     )}
-                    {/* Advertisement — flex-1 when sharing, full when alone */}
+                    {/* Advertisement — shares height equally when stacked, full height when alone */}
                     {hasSidebarAd && (
                       <div
-                        className="overflow-hidden min-h-0 rounded-xl border border-gray-200 dark:border-white/10 shadow-lg"
-                        style={{ flex: sidebarItemCount > 1 ? '1 1 0%' : '1 1 auto' }}
+                        className="overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 shadow-lg"
+                        style={{
+                          flex: sidebarItemCount > 1 ? '1 1 0%' : '1 1 0%',
+                          minHeight: sidebarItemCount > 1 ? '200px' : '300px',
+                          maxHeight: sidebarItemCount > 1 ? '50%' : '100%',
+                        }}
                       >
                         <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
                       </div>

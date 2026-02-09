@@ -25,7 +25,8 @@ export default function SinglePromotionSidebar({ promo }: { promo: any }) {
   return (
     <a 
       href={link} 
-      className="h-full flex flex-col rounded-lg overflow-hidden bg-card border-2 border-primary/30 shadow-lg hover:shadow-xl hover:border-primary transition-all focus:outline-none focus:ring-2 focus:ring-primary group"
+      className="flex flex-col rounded-lg overflow-hidden bg-card border-2 border-primary/30 shadow-lg hover:shadow-xl hover:border-primary transition-all focus:outline-none focus:ring-2 focus:ring-primary group"
+      style={{ height: '100%', minHeight: 0 }}
       aria-label={`Promotional ${promo.type}`}
     >
       {/* Image Section - Takes most of the space */}
