@@ -51,6 +51,7 @@ const settingsSchema = z.object({
   allowSellerRegistration: z.boolean(),
   allowRiderRegistration: z.boolean(),
   shopDisplayMode: z.enum(["by-store", "by-category"]).optional(),
+  showShopBySection: z.boolean().optional(),
   primaryStoreId: z.string().optional().nullable(),
   primaryColor: z.string().regex(/^#([A-Fa-f0-9]{6})$/, "Must be a valid hex color"),
   defaultCurrency: z.string(),
@@ -399,6 +400,7 @@ export default function AdminSettings() {
       allowSellerRegistration: (settings as any).allowSellerRegistration || false,
       allowRiderRegistration: (settings as any).allowRiderRegistration || false,
       shopDisplayMode: (settings as any).shopDisplayMode || "by-store",
+      showShopBySection: (settings as any).showShopBySection ?? true,
       primaryStoreId: (settings as any).primaryStoreId || null,
       primaryColor: settings.primaryColor,
       defaultCurrency: settings.defaultCurrency,
@@ -493,6 +495,7 @@ export default function AdminSettings() {
         allowSellerRegistration: data.allowSellerRegistration || false,
         allowRiderRegistration: data.allowRiderRegistration || false,
         shopDisplayMode: data.shopDisplayMode || "by-store",
+        showShopBySection: data.showShopBySection ?? true,
         primaryStoreId: data.primaryStoreId || null,
         primaryColor: data.primaryColor,
         defaultCurrency: data.defaultCurrency,
@@ -561,6 +564,7 @@ export default function AdminSettings() {
         allowSellerRegistration: (settings as any).allowSellerRegistration || false,
         allowRiderRegistration: (settings as any).allowRiderRegistration || false,
         shopDisplayMode: (settings as any).shopDisplayMode || "by-store",
+        showShopBySection: (settings as any).showShopBySection ?? true,
         primaryStoreId: (settings as any).primaryStoreId || null,
         primaryColor: settings.primaryColor,
         defaultCurrency: settings.defaultCurrency,
@@ -876,6 +880,19 @@ export default function AdminSettings() {
                           Choose how products are displayed on the multi-vendor homepage
                         </p>
                       </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <div>
+                          <Label>Show "Shop By" Section</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Toggle visibility of the Shop by Store/Category section on the homepage
+                          </p>
+                        </div>
+                        <Switch
+                          checked={form.watch("showShopBySection") !== false}
+                          onCheckedChange={(checked) => form.setValue("showShopBySection", checked)}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -963,6 +980,19 @@ export default function AdminSettings() {
                             +{singleStoreBanners.length - 6} more banners. <Button variant="ghost" className="p-0 h-auto" onClick={() => navigate("/admin/hero-banners")}>View all</Button>
                           </p>
                         )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <div>
+                          <Label>Show "Shop By" Section</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Toggle visibility of the Shop by Category section on the homepage
+                          </p>
+                        </div>
+                        <Switch
+                          checked={form.watch("showShopBySection") !== false}
+                          onCheckedChange={(checked) => form.setValue("showShopBySection", checked)}
+                        />
                       </div>
                     </div>
                   )}

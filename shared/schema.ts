@@ -165,6 +165,7 @@ export const platformSettings = pgTable("platform_settings", {
   sidebarAdImage: text("sidebar_ad_image"),
   sidebarAdUrl: text("sidebar_ad_url"),
   shopDisplayMode: text("shop_display_mode").default("by-store"), // "by-store" or "by-category"
+  showShopBySection: boolean("show_shop_by_section").default(true), // Toggle visibility of Shop by section per store mode
   footerAdImage: text("footer_ad_image"),
   footerAdUrl: text("footer_ad_url"),
   productPageAdImage: text("product_page_ad_image"),

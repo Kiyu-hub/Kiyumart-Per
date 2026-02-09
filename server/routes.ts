@@ -2120,8 +2120,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/homepage/featured-products", async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 12;
-      const products = await storage.getFeaturedProducts(limit);
-      res.json(products);
+      
+      // Get platform settings to check for single-store mode
+      const platformSettings = await storage.getPlatformSettings();
+      
+      let featuredProducts;
+      if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
+        // In single-store mode, only show products from the primary store
+        const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
+        const primarySellerId = primaryStore?.primarySellerId || undefined;
+        featuredProducts = await storage.getFeaturedProducts(limit, primarySellerId);
+      } else {
+        featuredProducts = await storage.getFeaturedProducts(limit);
+      }
+      
+      res.json(featuredProducts);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

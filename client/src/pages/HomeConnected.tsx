@@ -434,6 +434,7 @@ export default function HomeConnected() {
       <main className="flex-1">
         <div className="max-w-7xl mx-auto px-4 py-12">
           {/* Shop by categories - full-width, above products and sidebar */}
+          {(platformSettings as any)?.showShopBySection !== false && (
           <section>
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-3xl font-bold">{t("shopByCategory")}</h2>
@@ -458,6 +459,7 @@ export default function HomeConnected() {
               </div>
             )}
           </section>
+          )}
 
           {/* Promotional Ads Grid - Only show if 2+ promotions exist */}
           {hasMultiplePromotions && <PromotionalAdsGrid />}

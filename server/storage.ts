@@ -202,7 +202,7 @@ export interface IStorage {
   
   // Multi-vendor homepage data
   getApprovedSellers(): Promise<User[]>;
-  getFeaturedProducts(limit?: number): Promise<Product[]>;
+  getFeaturedProducts(limit?: number, sellerId?: string): Promise<Product[]>;
   
   // Media Library operations
   createMediaLibraryItem(data: InsertMediaLibrary): Promise<MediaLibrary>;
@@ -2051,9 +2051,13 @@ export class DbStorage implements IStorage {
       .orderBy(desc(users.createdAt));
   }
 
-  async getFeaturedProducts(limit: number = 12): Promise<Product[]> {
+  async getFeaturedProducts(limit: number = 12, sellerId?: string): Promise<Product[]> {
+    const conditions = [eq(products.isActive, true)];
+    if (sellerId) {
+      conditions.push(eq(products.sellerId, sellerId));
+    }
     return db.select().from(products)
-      .where(eq(products.isActive, true))
+      .where(and(...conditions))
       .orderBy(desc(products.ratings), desc(products.createdAt))
       .limit(limit);
   }

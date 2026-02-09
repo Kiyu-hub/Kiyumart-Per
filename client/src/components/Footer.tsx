@@ -123,6 +123,18 @@ export default function Footer() {
   const displayLogo = sellerStore?.logo || settings?.logo;
   const displayDescription = sellerStore?.description || settings?.footerDescription || "Your trusted fashion marketplace. Quality products, fast delivery, and excellent service.";
 
+  // Auto-detect URLs in text and convert to clickable links
+  const autoLinkify = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s<]+)/g;
+    const parts = text.split(urlRegex);
+    if (parts.length === 1) return text;
+    return parts.map((part, i) =>
+      urlRegex.test(part) ? (
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80 transition-colors">{part}</a>
+      ) : part
+    );
+  };
+
   // Helper to render a footer page link — uses Wouter <Link> for internal paths to avoid page refresh
   const renderPageLink = (page: FooterPageItem) => {
     const url = page.url || `/page/${page.slug}`;
@@ -185,7 +197,7 @@ export default function Footer() {
                     </div>
                     <div>
                       <p className="text-sm font-semibold">{page.title}</p>
-                      {page.content && <p className="text-xs text-muted-foreground">{page.content}</p>}
+                      {page.content && <p className="text-xs text-muted-foreground">{autoLinkify(page.content)}</p>}
                     </div>
                   </div>
                 );
@@ -275,7 +287,7 @@ export default function Footer() {
 
           {/* Quick Links Column — fully dynamic */}
           <div>
-            <h4 className="font-semibold mb-4 text-foreground">
+            <h4 className="font-bold text-base mb-4 text-foreground">
               {isMultiVendor ? "Marketplace" : "Quick Links"}
             </h4>
             <ul className="space-y-2.5 text-muted-foreground text-sm">
@@ -303,7 +315,7 @@ export default function Footer() {
 
           {/* Customer Service Column — fully dynamic */}
           <div>
-            <h4 className="font-semibold mb-4 text-foreground">Customer Service</h4>
+            <h4 className="font-bold text-base mb-4 text-foreground">Customer Service</h4>
             <ul className="space-y-2.5 text-muted-foreground text-sm">
               {customerServicePages.length > 0 ? (
                 /* Dynamic customer service pages from admin */
@@ -329,7 +341,7 @@ export default function Footer() {
 
           {/* Contact Column */}
           <div>
-            <h4 className="font-semibold mb-4 text-foreground">Contact Us</h4>
+            <h4 className="font-bold text-base mb-4 text-foreground">Contact Us</h4>
             <ul className="space-y-3.5 text-muted-foreground text-sm">
               <li className="flex items-start gap-2.5">
                 <Phone className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
@@ -346,7 +358,7 @@ export default function Footer() {
             </ul>
 
             <div className="mt-6">
-              <h5 className="font-medium text-sm mb-2 text-foreground">Quick Access</h5>
+              <h5 className="font-bold text-sm mb-2 text-foreground">Quick Access</h5>
               <div className="flex flex-col gap-2">
                 <Link href="/products">
                   <Button variant="outline" size="sm" className="w-full text-xs justify-start">

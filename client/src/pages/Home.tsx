@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -71,12 +71,17 @@ export default function Home() {
     },
   });
 
-  const { data: allDbProducts = [] } = useQuery<Array<{id: string; category: string; storeId?: string}>>({
+  const { data: allDbProducts = [] } = useQuery<Array<{id: string; name: string; price: string; costPrice?: string; images: string[]; discount: number; ratings: string; totalRatings: number; category: string; stock?: number; storeId?: string}>>({
     queryKey: ["/api/products"],
     queryFn: async () => {
       const res = await fetch("/api/products?isActive=true");
       return res.json();
     },
+  });
+
+  // Fetch featured products (server-side already filters by store mode)
+  const { data: featuredDbProducts = [] } = useQuery<Array<{id: string; name: string; price: string; costPrice?: string; images: string[]; discount: number; ratings: string; totalRatings: number; category: string; stock?: number}>>({
+    queryKey: ["/api/homepage/featured-products"],
   });
 
   // Filter products by primary store in single-store mode
@@ -141,89 +146,14 @@ export default function Home() {
     })();
   }
 
-  const products = [
-    {
-      id: "1",
-      name: "Elegant Black Abaya with Gold Embroidery",
-      price: 299.99,
-      costPrice: 399.99,
-      image: abaya1,
-      discount: 25,
-      rating: 4.8,
-      reviewCount: 128,
-    },
-    {
-      id: "2",
-      name: "Navy Blue Embroidered Modest Dress",
-      price: 189.99,
-      costPrice: 249.99,
-      image: abaya2,
-      discount: 24,
-      rating: 4.9,
-      reviewCount: 256,
-    },
-    {
-      id: "3",
-      name: "Pink Lace Abaya Dress",
-      price: 229.99,
-      costPrice: 299.99,
-      image: abaya3,
-      discount: 23,
-      rating: 4.6,
-      reviewCount: 89,
-    },
-    {
-      id: "4",
-      name: "Burgundy Velvet Abaya with Pearls",
-      price: 449.99,
-      costPrice: 599.99,
-      image: abaya4,
-      discount: 25,
-      rating: 4.9,
-      reviewCount: 45,
-    },
-    {
-      id: "5",
-      name: "Emerald Green Satin Dress with Hijab",
-      price: 279.99,
-      costPrice: 349.99,
-      image: abaya5,
-      discount: 20,
-      rating: 4.7,
-      reviewCount: 203,
-    },
-    {
-      id: "6",
-      name: "Cream Abaya with Beige Embroidery",
-      price: 249.99,
-      costPrice: 329.99,
-      image: abaya6,
-      discount: 24,
-      rating: 4.8,
-      reviewCount: 167,
-    },
-  ];
+  // Use DB products for featured section (server-side filters by store mode)
+  const displayFeaturedProducts = featuredDbProducts.length > 0 ? featuredDbProducts : dbProducts;
 
   const handleAddToCart = (productId: string) => {
-    const product = products.find(p => p.id === productId);
-    if (product) {
-      const existingItem = cartItems.find(item => item.id === productId);
-      if (existingItem) {
-        setCartItems(cartItems.map(item =>
-          item.id === productId ? { ...item, quantity: item.quantity + 1 } : item
-        ));
-      } else {
-        setCartItems([...cartItems, {
-          id: product.id,
-          name: product.name,
-          price: product.discount ? product.price * (1 - product.discount / 100) : product.price,
-          quantity: 1,
-          image: product.image
-        }]);
-      }
-      console.log('Added to cart:', productId);
-    }
+    console.log('Add to cart:', productId);
   };
+
+  const showShopBySection = (platformSettings as any)?.showShopBySection !== false;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -239,6 +169,7 @@ export default function Home() {
       <MarketplaceBannerCarousel />
 
       <main className="flex-1">
+        {showShopBySection && (
         <section className="max-w-7xl mx-auto px-4 py-12">
           {platformSettings?.isMultiVendor && platformSettings?.shopDisplayMode === "by-store" ? (
             <>
@@ -284,24 +215,46 @@ export default function Home() {
             </>
           )}
         </section>
+        )}
 
         <section className="max-w-7xl mx-auto px-4 py-12">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-3xl font-bold">{t("featuredProducts")}</h2>
-            <a href="#" className="text-primary hover:underline">
+            <Link href="/products" className="text-primary hover:underline">
               {t("viewAll")}
-            </a>
+            </Link>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {products.map((product) => (
-              <ProductCard
-                key={product.id}
-                {...product}
-                currency={currencySymbol}
-                onToggleWishlist={(id) => console.log('Wishlist toggled:', id)}
-              />
-            ))}
-          </div>
+          {displayFeaturedProducts.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {displayFeaturedProducts.slice(0, 8).map((product) => {
+                const sellingPrice = parseFloat(product.price);
+                const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
+                const calculatedDiscount = originalPrice && originalPrice > sellingPrice
+                  ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
+                  : 0;
+                const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : heroImage;
+                return (
+                  <ProductCard
+                    key={product.id}
+                    id={product.id}
+                    name={product.name}
+                    price={sellingPrice}
+                    costPrice={originalPrice || undefined}
+                    currency={currencySymbol}
+                    image={productImage}
+                    discount={calculatedDiscount}
+                    rating={parseFloat(product.ratings) || 0}
+                    reviewCount={product.totalRatings || 0}
+                    onToggleWishlist={(id) => console.log('Wishlist toggled:', id)}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              <p className="text-lg">No products available yet. Check back soon!</p>
+            </div>
+          )}
         </section>
       </main>
 
