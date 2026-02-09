@@ -103,6 +103,9 @@ export default function MultiVendorHome() {
   const sidebarProducts = allProducts.slice(0, 4);
   const spotlightProducts = allProducts.filter(p => (p.discount || 0) > 0).slice(0, 3);
 
+  // Sidebar is visible when it has promo, ad, or trending products to show
+  const hasSidebarContent = sidebarItemCount > 0 || sidebarProducts.length > 0;
+
   const [showAllCategories, setShowAllCategories] = useState(false);
   const CATEGORY_VISIBLE_THRESHOLD = 6;
 
@@ -278,12 +281,13 @@ export default function MultiVendorHome() {
 
           {/* Products and Sidebar row */}
           <div className="grid lg:grid-cols-12 gap-6">
-            {/* Left Sidebar — always visible: promo > ad > auto-fill products */}
-            <aside className="hidden lg:block lg:col-span-4">
-              <div className="sticky top-24 flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
-                {/* Dynamic sidebar stacking: promo + ad share space via flexbox */}
-                {sidebarItemCount > 0 ? (
-                  <>
+            {/* Left Sidebar — conditionally visible: promo > ad > trending products */}
+            {hasSidebarContent && (
+              <aside className="hidden lg:block lg:col-span-4">
+                <div className="sticky top-24 flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
+                  {/* Dynamic sidebar stacking: promo + ad share space via flexbox */}
+                  {sidebarItemCount > 0 ? (
+                    <>
                     {/* Promotion — shares height equally when stacked, full height when alone */}
                     {hasPromotion && (
                       <div
@@ -343,11 +347,12 @@ export default function MultiVendorHome() {
                     </div>
                   </div>
                 ) : null}
-              </div>
-            </aside>
+                </div>
+              </aside>
+            )}
 
-            {/* Products column */}
-            <div className="lg:col-span-8">
+            {/* Products column — expand to full width when no sidebar */}
+            <div className={hasSidebarContent ? 'lg:col-span-8' : 'lg:col-span-12'}>
               {/* Featured Products */}
               <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6 mb-8">
                 <div className="flex items-center gap-3">
