@@ -385,7 +385,7 @@ export default function Footer() {
             <div className="mt-6">
               <h5 className="font-bold text-sm mb-2 text-foreground">Quick Access</h5>
               <div className="flex flex-col gap-2">
-                <Link href="/products">
+                <Link href={isMultiVendor ? "/products" : "/"}>
                   <Button variant="outline" size="sm" className="w-full text-xs justify-start">
                     <ShieldCheck className="h-3.5 w-3.5 mr-2" />
                     {isMultiVendor ? "Browse All Products" : "Browse Our Products"}
