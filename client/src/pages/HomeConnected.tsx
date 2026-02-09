@@ -89,7 +89,12 @@ export default function HomeConnected() {
   // Determine sidebar display logic based on promotion count
   const hasExactlyOnePromotion = allPromotions.length === 1;
   const hasMultiplePromotions = allPromotions.length > 1;
-  const singlePromotion = hasExactlyOnePromotion ? allPromotions[0] : null;
+  const hasPromotion = allPromotions.length >= 1;
+  const singlePromotion = hasPromotion ? allPromotions[0] : null;
+
+  // Sidebar content stacking: both promo + ad can coexist (matching MultiVendorHome)
+  const hasSidebarAd = adsEnabled && sidebarAdEnabled;
+  const sidebarItemCount = (hasPromotion ? 1 : 0) + (hasSidebarAd ? 1 : 0);
 
   const { data: allProducts = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["/api/products"],
@@ -471,26 +476,42 @@ export default function HomeConnected() {
           </div>
 
           <div className="mt-8 grid lg:grid-cols-12 gap-6">
-            {/* Left Sidebar - Show promotion if exactly 1, OR ads if enabled */}
-            {(hasExactlyOnePromotion || (adsEnabled && sidebarAdEnabled)) && (
+            {/* Left Sidebar - Show promo AND/OR ad when available (stacking like MultiVendorHome) */}
+            {sidebarItemCount > 0 && (
               <aside className="hidden lg:block lg:col-span-4">
-                <div className="sticky top-24 flex flex-col gap-6 h-[calc(100vh-6rem)]">
-                  {/* Sidebar Content: Priority order - Single Promotion > Ads > Nothing */}
-                  {hasExactlyOnePromotion ? (
-                    <div className="flex-1 overflow-hidden min-h-0">
+                <div className="sticky top-24 flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
+                  {/* Promotion — shares height when stacked with ad */}
+                  {hasPromotion && (
+                    <div
+                      className="overflow-hidden rounded-xl"
+                      style={{
+                        flex: '1 1 0%',
+                        minHeight: sidebarItemCount > 1 ? '200px' : '300px',
+                        maxHeight: sidebarItemCount > 1 ? '50%' : '100%',
+                      }}
+                    >
                       <SinglePromotionSidebar promo={singlePromotion} />
                     </div>
-                  ) : (adsEnabled && sidebarAdEnabled) ? (
-                    <div className="flex-1 overflow-hidden min-h-0 rounded-lg overflow-hidden border-2 border-primary/20 shadow-md">
+                  )}
+                  {/* Advertisement — shares height when stacked with promo */}
+                  {hasSidebarAd && (
+                    <div
+                      className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md"
+                      style={{
+                        flex: '1 1 0%',
+                        minHeight: sidebarItemCount > 1 ? '200px' : '300px',
+                        maxHeight: sidebarItemCount > 1 ? '50%' : '100%',
+                      }}
+                    >
                       <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
                     </div>
-                  ) : null}
+                  )}
                 </div>
               </aside>
             )}
 
             {/* Products column - Adjust width based on sidebar visibility */}
-            <div className={(hasExactlyOnePromotion || (adsEnabled && sidebarAdEnabled)) ? 'lg:col-span-8' : 'lg:col-span-12'}>
+            <div className={sidebarItemCount > 0 ? 'lg:col-span-8' : 'lg:col-span-12'}>
               <section>
                 <div className="flex items-center justify-between mb-8">
                   <h2 className="text-3xl font-bold">

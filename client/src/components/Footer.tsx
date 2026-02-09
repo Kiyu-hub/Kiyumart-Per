@@ -161,10 +161,11 @@ export default function Footer() {
 
   // Trust bar items from footer pages (group: trust_bar) OR defaults
   // Prioritize mode-specific items, then fill remaining slots from "both" mode items
+  // No limit — display all items, grid will adapt
   const allTrustBarPages = groupedPages['trust_bar'] || [];
   const modeSpecificTrust = allTrustBarPages.filter(p => p.storeMode === currentMode);
   const bothModeTrust = allTrustBarPages.filter(p => (p.storeMode || 'both') === 'both');
-  const trustBarPages = [...modeSpecificTrust, ...bothModeTrust].slice(0, 4);
+  const trustBarPages = [...modeSpecificTrust, ...bothModeTrust];
   const defaultTrustItems = [
     { icon: Truck, title: "Fast Delivery", subtitle: "Nationwide shipping" },
     { icon: ShieldCheck, title: "Secure Shopping", subtitle: "100% protected payments" },
@@ -189,9 +190,9 @@ export default function Footer() {
       {/* Trust Bar */}
       <div className="border-b bg-muted/30">
         <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 text-center">
             {trustBarPages.length > 0 ? (
-              trustBarPages.slice(0, 4).map((page, i) => {
+              trustBarPages.map((page, i) => {
                 const icons = [Truck, ShieldCheck, CreditCard, Clock];
                 const Icon = icons[i % icons.length];
                 return (
@@ -337,7 +338,7 @@ export default function Footer() {
               )}
 
               {/* General pages overflow into customer service if present */}
-              {generalPages.slice(0, 3).map(page => (
+              {generalPages.map(page => (
                 <li key={page.id}>{renderPageLink(page)}</li>
               ))}
             </ul>
