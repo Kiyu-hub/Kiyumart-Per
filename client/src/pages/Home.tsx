@@ -256,6 +256,43 @@ export default function Home() {
             </div>
           )}
         </section>
+
+        {/* All Products Section */}
+        {dbProducts.length > 0 && (
+          <section className="max-w-7xl mx-auto px-4 py-12 border-t">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-3xl font-bold">All Products</h2>
+              <Link href="/products" className="text-primary hover:underline">
+                {t("viewAll")}
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {dbProducts.map((product) => {
+                const sellingPrice = parseFloat(product.price);
+                const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
+                const calculatedDiscount = originalPrice && originalPrice > sellingPrice
+                  ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
+                  : 0;
+                const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : heroImage;
+                return (
+                  <ProductCard
+                    key={product.id}
+                    id={product.id}
+                    name={product.name}
+                    price={sellingPrice}
+                    costPrice={originalPrice || undefined}
+                    currency={currencySymbol}
+                    image={productImage}
+                    discount={calculatedDiscount}
+                    rating={parseFloat(product.ratings) || 0}
+                    reviewCount={product.totalRatings || 0}
+                    onToggleWishlist={(id) => console.log('Wishlist toggled:', id)}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
       </main>
 
       <Footer />

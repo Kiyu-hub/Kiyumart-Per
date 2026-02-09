@@ -391,19 +391,23 @@ export default function MultiVendorHome() {
                 )}
               </section>
 
-              {/* New Arrivals */}
+              {/* All Products */}
+              {allProducts.length > 0 && (
               <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6">
-                <div className="flex items-center gap-3">
-                  <div className="mv-icon-badge mv-icon-badge-purple">
-                    <Star className="w-5 h-5 text-white" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="mv-icon-badge mv-icon-badge-purple">
+                      <Star className="w-5 h-5 text-white" />
+                    </div>
+                    <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-all-products">
+                      All Products
+                    </h2>
                   </div>
-                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-new-arrivals">
-                    New Arrivals
-                  </h2>
+                  <span className="text-sm text-gray-500 dark:text-blue-200/70">{allProducts.length} products</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="grid-new-arrivals">
-                  {allProducts.slice(0, 10).map((product) => (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="grid-all-products">
+                  {allProducts.map((product) => (
                     <ProductCard
                       key={product.id}
                       id={product.id}
@@ -419,6 +423,7 @@ export default function MultiVendorHome() {
                   ))}
                 </div>
               </section>
+              )}
             </div>
           </div>
 

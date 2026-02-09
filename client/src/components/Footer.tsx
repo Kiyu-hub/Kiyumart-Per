@@ -160,7 +160,11 @@ export default function Footer() {
   };
 
   // Trust bar items from footer pages (group: trust_bar) OR defaults
-  const trustBarPages = groupedPages['trust_bar'] || [];
+  // Prioritize mode-specific items, then fill remaining slots from "both" mode items
+  const allTrustBarPages = groupedPages['trust_bar'] || [];
+  const modeSpecificTrust = allTrustBarPages.filter(p => p.storeMode === currentMode);
+  const bothModeTrust = allTrustBarPages.filter(p => (p.storeMode || 'both') === 'both');
+  const trustBarPages = [...modeSpecificTrust, ...bothModeTrust].slice(0, 4);
   const defaultTrustItems = [
     { icon: Truck, title: "Fast Delivery", subtitle: "Nationwide shipping" },
     { icon: ShieldCheck, title: "Secure Shopping", subtitle: "100% protected payments" },
