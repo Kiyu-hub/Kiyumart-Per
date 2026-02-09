@@ -37,6 +37,7 @@ interface FooterPageItem {
   id: string;
   title: string;
   slug: string;
+  content: string | null;
   url: string | null;
   group: string | null;
   storeMode: string | null;
@@ -109,14 +110,17 @@ export default function Footer() {
   const displayLogo = sellerStore?.logo || settings?.logo;
   const displayDescription = sellerStore?.description || settings?.footerDescription || "Your trusted fashion marketplace. Quality products, fast delivery, and excellent service.";
 
-  // Helper to render a footer page link
+  // Helper to render a footer page link — uses Wouter <Link> for internal paths to avoid page refresh
   const renderPageLink = (page: FooterPageItem) => {
-    if (page.url) {
+    const url = page.url || `/page/${page.slug}`;
+    const isExternal = url.startsWith('http://') || url.startsWith('https://');
+    
+    if (isExternal || page.openInNewTab) {
       return (
         <a 
-          href={page.url}
-          target={page.openInNewTab ? "_blank" : undefined}
-          rel={page.openInNewTab ? "noopener noreferrer" : undefined}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
           className="hover:text-primary transition-colors"
         >
           {page.title}
@@ -124,7 +128,7 @@ export default function Footer() {
       );
     }
     return (
-      <Link href={`/page/${page.slug}`} className="hover:text-primary transition-colors">
+      <Link href={url} className="hover:text-primary transition-colors">
         {page.title}
       </Link>
     );
@@ -168,7 +172,7 @@ export default function Footer() {
                     </div>
                     <div>
                       <p className="text-sm font-semibold">{page.title}</p>
-                      {page.url && <p className="text-xs text-muted-foreground">{page.url}</p>}
+                      {page.content && <p className="text-xs text-muted-foreground">{page.content}</p>}
                     </div>
                   </div>
                 );
@@ -262,29 +266,23 @@ export default function Footer() {
               {isMultiVendor ? "Marketplace" : "Quick Links"}
             </h4>
             <ul className="space-y-2.5 text-muted-foreground text-sm">
-              {/* Always show Home */}
-              <li><Link href="/" className="hover:text-primary transition-colors">Home</Link></li>
-              
-              {/* Dynamic quick link pages from admin */}
-              {quickLinkPages.map(page => (
-                <li key={page.id}>{renderPageLink(page)}</li>
-              ))}
-
-              {/* Default links when no admin pages exist */}
-              {quickLinkPages.length === 0 && (
+              {quickLinkPages.length > 0 ? (
+                /* Render dynamic quick link pages from admin */
+                quickLinkPages.map(page => (
+                  <li key={page.id}>{renderPageLink(page)}</li>
+                ))
+              ) : (
+                /* Default links when no admin pages exist */
                 <>
+                  <li><Link href="/" className="hover:text-primary transition-colors">Home</Link></li>
                   <li><Link href="/products" className="hover:text-primary transition-colors">All Products</Link></li>
                   {isMultiVendor && (
-                    <li><Link href="/stores" className="hover:text-primary transition-colors">Browse Stores</Link></li>
+                    <>
+                      <li><Link href="/stores" className="hover:text-primary transition-colors">Browse Stores</Link></li>
+                      <li><Link href="/become-seller" className="hover:text-primary transition-colors">Become a Seller</Link></li>
+                      <li><Link href="/become-rider" className="hover:text-primary transition-colors">Become a Rider</Link></li>
+                    </>
                   )}
-                </>
-              )}
-
-              {/* Conditional registration links */}
-              {isMultiVendor && (!isAuthenticated || user?.role === 'buyer') && (
-                <>
-                  <li><Link href="/become-seller" className="hover:text-primary transition-colors">Become a Seller</Link></li>
-                  <li><Link href="/become-rider" className="hover:text-primary transition-colors">Become a Rider</Link></li>
                 </>
               )}
             </ul>
@@ -294,36 +292,18 @@ export default function Footer() {
           <div>
             <h4 className="font-semibold mb-4 text-foreground">Customer Service</h4>
             <ul className="space-y-2.5 text-muted-foreground text-sm">
-              {/* Dynamic customer service pages from admin */}
-              {customerServicePages.map(page => (
-                <li key={page.id}>{renderPageLink(page)}</li>
-              ))}
-
-              {/* Default links when no admin pages exist */}
-              {customerServicePages.length === 0 && (
+              {customerServicePages.length > 0 ? (
+                /* Dynamic customer service pages from admin */
+                customerServicePages.map(page => (
+                  <li key={page.id}>{renderPageLink(page)}</li>
+                ))
+              ) : (
+                /* Default links when no admin pages exist */
                 <>
-                  {(!user || !['super_admin', 'admin', 'agent'].includes(user.role as string)) && (
-                    <li>
-                      <Link href={isAuthenticated ? "/support" : "/auth"} className="hover:text-primary transition-colors">
-                        Customer Support
-                      </Link>
-                    </li>
-                  )}
-                  <li>
-                    <Link href={isAuthenticated ? "/orders" : "/auth"} className="hover:text-primary transition-colors">
-                      Track My Order
-                    </Link>
-                  </li>
-                  <li>
-                    <Link href={isAuthenticated ? "/wishlist" : "/auth"} className="hover:text-primary transition-colors">
-                      My Wishlist
-                    </Link>
-                  </li>
-                  <li>
-                    <Link href={isAuthenticated ? "/profile" : "/auth"} className="hover:text-primary transition-colors">
-                      My Account
-                    </Link>
-                  </li>
+                  <li><Link href="/support" className="hover:text-primary transition-colors">Customer Support</Link></li>
+                  <li><Link href="/orders" className="hover:text-primary transition-colors">Track My Order</Link></li>
+                  <li><Link href="/wishlist" className="hover:text-primary transition-colors">My Wishlist</Link></li>
+                  <li><Link href="/profile" className="hover:text-primary transition-colors">My Account</Link></li>
                 </>
               )}
 
@@ -355,10 +335,10 @@ export default function Footer() {
             <div className="mt-6">
               <h5 className="font-medium text-sm mb-2 text-foreground">Quick Access</h5>
               <div className="flex flex-col gap-2">
-                <Link href={isMultiVendor ? "/products" : "/"}>
+                <Link href="/products">
                   <Button variant="outline" size="sm" className="w-full text-xs justify-start">
                     <ShieldCheck className="h-3.5 w-3.5 mr-2" />
-                    {isMultiVendor ? "Browse All Products" : "Browse Our Store"}
+                    {isMultiVendor ? "Browse All Products" : "Browse Our Products"}
                   </Button>
                 </Link>
                 {!isAuthenticated && (
