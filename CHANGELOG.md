@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-02-10 (v1.1.7)
+
+### Cart Variant Image Display Fix
+- **Fix:** Shopping cart now displays correct variant-specific images instead of default product images
+  - Cart items now show the image that was selected when the variant was added to cart
+  - Added variant information display (color, size) in cart items
+  - Updated CartItem interface to include variant fields (variantId, selectedColor, selectedSize, selectedImageIndex)
+  - Fixed image selection logic in Cart.tsx and HomeConnected.tsx to use selectedImageIndex
+
+- **Enhancement:** Improved cart user experience with variant details
+  - Cart items now display selected color and size information
+  - Better visual distinction between different product variants in cart
+  - Consistent image display across cart page and cart sidebar
+
+### Database Schema Updates
+- **Migration:** Added delivery_duration column to products table
+- **Migration:** Added image column to product_variants table for variant-specific images
+
+---
+
 ## 2026-02-05 (v1.1.6)
 
 ### Automated Rider Payout Notifications & Dashboard Widget

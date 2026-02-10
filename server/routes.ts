@@ -1828,6 +1828,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create product variant
+  app.post("/api/products/:productId/variants", requireAuth, requireRole("seller", "admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { productId } = req.params;
+      const { color, size, sku, image, stock, priceAdjustment } = req.body;
+
+      // Verify the product belongs to the seller (or admin creating on behalf)
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      if (req.user?.role === "seller" && product.sellerId !== req.user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const variant = await storage.createProductVariant({
+        productId,
+        color: color || null,
+        size: size || null,
+        sku: sku || null,
+        image: image || null,
+        stock: stock || 0,
+        priceAdjustment: priceAdjustment || "0",
+      });
+
+      res.json(variant);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Update product variant
+  app.put("/api/products/:productId/variants/:variantId", requireAuth, requireRole("seller", "admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { productId, variantId } = req.params;
+      const { color, size, sku, image, stock, priceAdjustment } = req.body;
+
+      // Verify the product belongs to the seller
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      if (req.user?.role === "seller" && product.sellerId !== req.user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const variant = await storage.updateProductVariant(variantId, {
+        color: color || null,
+        size: size || null,
+        sku: sku || null,
+        image: image || null,
+        stock: stock || 0,
+        priceAdjustment: priceAdjustment || "0",
+      });
+
+      res.json(variant);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Delete product variant
+  app.delete("/api/products/:productId/variants/:variantId", requireAuth, requireRole("seller", "admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { productId, variantId } = req.params;
+
+      // Verify the product belongs to the seller
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      if (req.user?.role === "seller" && product.sellerId !== req.user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.deleteProductVariant(variantId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/hero-banners", async (req, res) => {
     try {
       const { storeMode } = req.query;
@@ -3487,6 +3572,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Return order without PII for unauthorized roles
         res.json(order);
       }
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/orders/:id/items", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const order = await storage.getOrder(req.params.id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      
+      // Only allow buyer or admin to view order items
+      const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
+      const isBuyer = req.user!.id === order.buyerId;
+      
+      if (!isAdmin && !isBuyer) {
+        return res.status(403).json({ error: "Unauthorized to view order items" });
+      }
+      
+      const items = await storage.getOrderItems(req.params.id);
+      res.json(items);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

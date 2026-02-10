@@ -242,6 +242,7 @@ export default function Home() {
                     discount={calculatedDiscount}
                     rating={parseFloat(product.ratings) || 0}
                     reviewCount={product.totalRatings || 0}
+                    inStock={(product.stock || 0) > 0}
                     onToggleWishlist={(id) => console.log('Wishlist toggled:', id)}
                   />
                 );
@@ -283,6 +284,7 @@ export default function Home() {
                     discount={calculatedDiscount}
                     rating={parseFloat(product.ratings) || 0}
                     reviewCount={product.totalRatings || 0}
+                    inStock={(product.stock || 0) > 0}
                     onToggleWishlist={(id) => console.log('Wishlist toggled:', id)}
                   />
                 );

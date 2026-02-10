@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid,
-  Truck, ShieldCheck, Clock, Heart, Star, Zap, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Sparkles, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind
+  Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive
 } from "lucide-react";
 import { insertFooterPageSchema, type FooterPage } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -163,7 +163,6 @@ export default function AdminSettings() {
     { value: "Clock", label: "Clock", icon: Clock },
     { value: "Heart", label: "Heart", icon: Heart },
     { value: "Star", label: "Star", icon: Star },
-    { value: "Zap", label: "Lightning", icon: Zap },
     { value: "Award", label: "Award", icon: Award },
     { value: "Gift", label: "Gift", icon: Gift },
     { value: "Shield", label: "Shield", icon: Shield },
@@ -176,7 +175,6 @@ export default function AdminSettings() {
     { value: "ThumbsUp", label: "Thumbs Up", icon: ThumbsUp },
     { value: "CheckCircle", label: "Check Circle", icon: CheckCircle },
     { value: "Users", label: "Users", icon: Users },
-    { value: "Sparkles", label: "Sparkles", icon: Sparkles },
     { value: "Flame", label: "Flame", icon: Flame },
     { value: "Gem", label: "Gem", icon: Gem },
     { value: "Crown", label: "Crown", icon: Crown },
@@ -213,6 +211,9 @@ export default function AdminSettings() {
     { value: "Wind", label: "Wind", icon: Wind },
     { value: "DollarSign", label: "Dollar", icon: DollarSign },
     { value: "Mail", label: "Mail", icon: Mail },
+    { value: "Box", label: "Box", icon: Box },
+    { value: "Database", label: "Database", icon: Database },
+    { value: "HardDrive", label: "Hard Drive", icon: HardDrive },
   ];
 
   const { data: footerPages = [], isLoading: footerPagesLoading } = useQuery<FooterPage[]>({

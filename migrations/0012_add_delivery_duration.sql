@@ -1,0 +1,1 @@
+ALTER TABLE products ADD COLUMN IF NOT EXISTS delivery_duration varchar(255) DEFAULT NULL;

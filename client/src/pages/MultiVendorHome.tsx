@@ -17,7 +17,7 @@ import LocationPrompt from "@/components/LocationPrompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, Star, ShoppingBag, ChevronRight, Sparkles, Tag } from "lucide-react";
+import { ShoppingBag, Tag, ChevronRight } from "lucide-react";
 import type { Product, PlatformSettings } from "@shared/schema";
 
 interface Category {
@@ -99,12 +99,14 @@ export default function MultiVendorHome() {
   const hasSidebarAd = adsEnabled && sidebarAdEnabled;
   const sidebarItemCount = (hasPromotion ? 1 : 0) + (hasSidebarAd ? 1 : 0);
 
-  // Products to auto-fill empty promo/ad areas
-  const sidebarProducts = allProducts.slice(0, 4);
+  // Products to auto-fill empty promo/ad areas - show most popular (highest rated) products as trending
+  const sidebarProducts = allProducts
+    .sort((a, b) => (b.totalRatings || 0) - (a.totalRatings || 0))
+    .slice(0, 4);
   const spotlightProducts = allProducts.filter(p => (p.discount || 0) > 0).slice(0, 3);
 
-  // Sidebar is visible when it has promo, ad, or trending products to show
-  const hasSidebarContent = sidebarItemCount > 0 || sidebarProducts.length > 0;
+  // Sidebar is visible when it has promo or ad to show
+  const hasSidebarContent = sidebarItemCount > 0;
 
   const [showAllCategories, setShowAllCategories] = useState(false);
   const CATEGORY_VISIBLE_THRESHOLD = 6;
@@ -144,9 +146,6 @@ export default function MultiVendorHome() {
           ) : spotlightProducts.length > 0 ? (
             <section className="mv-glass-card rounded-2xl p-4 md:p-6">
               <div className="flex items-center gap-2 mb-4">
-                <div className="mv-icon-badge" style={{ width: 32, height: 32, borderRadius: 8 }}>
-                  <Tag className="w-4 h-4 text-white" />
-                </div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">Hot Deals</h3>
               </div>
               <div className="grid grid-cols-3 gap-3">
@@ -239,7 +238,6 @@ export default function MultiVendorHome() {
                 </div>
               ) : (
                 <div className="text-center py-12 text-gray-400 dark:text-blue-200/70" data-testid="empty-categories">
-                  <ShoppingBag className="w-16 h-16 mx-auto mb-4 opacity-50" />
                   <p className="text-lg mb-2">No product categories are available at the moment</p>
                   <p className="text-sm">Please check back later or contact the administrator to add categories!</p>
                 </div>
@@ -265,7 +263,6 @@ export default function MultiVendorHome() {
                 </div>
               ) : (
                 <div className="text-center py-12 text-gray-400 dark:text-blue-200/70" data-testid="empty-stores">
-                  <ShoppingBag className="w-16 h-16 mx-auto mb-4 opacity-50" />
                   <p className="text-lg mb-2">No stores available at the moment</p>
                   <p className="text-sm">Please check back later or contact support!</p>
                 </div>
@@ -309,37 +306,6 @@ export default function MultiVendorHome() {
                       </div>
                     )}
                   </>
-                ) : sidebarProducts.length > 0 ? (
-                  <div className="mv-glass-card rounded-2xl p-5 space-y-4">
-                    <div className="flex items-center gap-2">
-                      <div className="mv-icon-badge mv-icon-badge-purple" style={{ width: 32, height: 32, borderRadius: 8 }}>
-                        <TrendingUp className="w-4 h-4 text-white" />
-                      </div>
-                      <h3 className="text-lg font-bold text-gray-900 dark:text-white">Trending Now</h3>
-                    </div>
-                    <div className="space-y-3">
-                      {sidebarProducts.map(product => (
-                        <div key={product.id} className="cursor-pointer" onClick={() => navigate(`/product/${product.id}`)}>
-                          <div className="flex gap-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
-                            <img
-                              src={product.images[0] || '/placeholder.png'}
-                              alt={product.name}
-                              className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{product.name}</p>
-                              <p className="text-sm font-bold text-primary mt-1">
-                                {(settings as any)?.defaultCurrency || 'GH\u20B5'}{Number(product.price).toFixed(2)}
-                              </p>
-                              {(product.discount || 0) > 0 && (
-                                <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded">{product.discount}% OFF</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
                 ) : null}
                 </div>
               </aside>
@@ -350,13 +316,9 @@ export default function MultiVendorHome() {
               {/* Featured Products */}
               <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6 mb-8">
                 <div className="flex items-center gap-3">
-                  <div className="mv-icon-badge mv-icon-badge-amber">
-                    <TrendingUp className="w-5 h-5 text-white" />
-                  </div>
                   <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-featured">
                     Featured Products
                   </h2>
-                  <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
                 </div>
 
                 {productsLoading ? (
@@ -384,7 +346,6 @@ export default function MultiVendorHome() {
                   </div>
                 ) : (
                   <div className="text-center py-12 text-gray-400 dark:text-blue-200/70" data-testid="empty-products">
-                    <Star className="w-16 h-16 mx-auto mb-4 opacity-50" />
                     <p>No products available yet</p>
                   </div>
                 )}
@@ -395,9 +356,6 @@ export default function MultiVendorHome() {
               <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="mv-icon-badge mv-icon-badge-purple">
-                      <Star className="w-5 h-5 text-white" />
-                    </div>
                     <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-all-products">
                       All Products
                     </h2>

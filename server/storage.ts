@@ -10,7 +10,7 @@ import {
   type Order, type InsertOrder, type DeliveryZone, type InsertDeliveryZone,
   type ChatMessage, type InsertChatMessage, type Transaction, type PlatformSettings,
   type Cart, type Wishlist, type DeliveryTracking, type InsertDeliveryTracking,
-  type Review, type InsertReview, type RiderReview, type InsertRiderReview, type ProductVariant, type HeroBanner, type InsertHeroBanner,
+  type Review, type InsertReview, type RiderReview, type InsertRiderReview, type ProductVariant, type InsertProductVariant, type HeroBanner, type InsertHeroBanner,
   type Coupon, type InsertCoupon, type BannerCollection, type InsertBannerCollection,
   type MarketplaceBanner, type InsertMarketplaceBanner, type Store, type CategoryField,
   type Category, type Notification, type InsertNotification, type MediaLibrary,
@@ -1737,6 +1737,24 @@ export class DbStorage implements IStorage {
   // Product Variant operations
   async getProductVariants(productId: string): Promise<ProductVariant[]> {
     return await db.select().from(productVariants).where(eq(productVariants.productId, productId));
+  }
+
+  async createProductVariant(variant: InsertProductVariant): Promise<ProductVariant> {
+    const [newVariant] = await db.insert(productVariants).values(variant).returning();
+    return newVariant;
+  }
+
+  async updateProductVariant(variantId: string, updates: Partial<InsertProductVariant>): Promise<ProductVariant> {
+    const [updatedVariant] = await db
+      .update(productVariants)
+      .set(updates)
+      .where(eq(productVariants.id, variantId))
+      .returning();
+    return updatedVariant;
+  }
+
+  async deleteProductVariant(variantId: string): Promise<void> {
+    await db.delete(productVariants).where(eq(productVariants.id, variantId));
   }
 
   // Hero Banner operations

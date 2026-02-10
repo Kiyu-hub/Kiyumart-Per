@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -13,11 +14,21 @@ import { useDebounce } from "@/hooks/useDebounce";
 import type { Product } from "@shared/schema";
 
 export default function AllProducts() {
+  const [location] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
-  // Debounce search query to avoid excessive filtering
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  // Initialize search query from URL parameters
+  useEffect(() => {
+    const urlParams = new URLSearchParams(location.split('?')[1] || '');
+    const searchParam = urlParams.get('search');
+    if (searchParam) {
+      setSearchQuery(searchParam);
+    }
+  }, [location]);
+  
+  // Debounce search query to avoid excessive filtering - Reduced for more instant feel
+  const debouncedSearchQuery = useDebounce(searchQuery, 150);
   
   // Show loading state while debouncing
   const isSearching = searchQuery !== debouncedSearchQuery;

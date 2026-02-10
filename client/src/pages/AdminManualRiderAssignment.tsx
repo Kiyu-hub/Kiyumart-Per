@@ -13,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, ArrowLeft, UserCheck, Package, Truck, AlertCircle, CheckCircle2, MapPin, Clock, Users, Zap, Search, RefreshCw, Activity, Circle, Timer, Navigation, Star, Phone, Mail } from "lucide-react";
+import { Loader2, ArrowLeft, UserCheck, Package, Truck, AlertCircle, CheckCircle2, MapPin, Clock, Users, Search, RefreshCw, Activity, Circle, Timer, Navigation, Star, Phone, Mail, Bolt } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -584,7 +584,7 @@ export default function AdminManualRiderAssignment() {
               {autoDispatchMutation.isPending ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
-                <Zap className="h-4 w-4 mr-2" />
+                <Bolt className="h-4 w-4 mr-2" />
               )}
               Auto-Dispatch All
             </Button>

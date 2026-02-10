@@ -255,6 +255,7 @@ export const products = pgTable("products", {
   videoDuration: integer("video_duration"), // Duration in seconds for validation
   tags: text("tags").array(),
   dynamicFields: jsonb("dynamic_fields").$type<Record<string, any>>(), // Category-specific dynamic fields
+  deliveryDuration: varchar("delivery_duration"), // Delivery time estimate (e.g., "1-2 days", "3-5 business days")
   isActive: boolean("is_active").default(true),
   ratings: decimal("ratings", { precision: 3, scale: 2 }).default("0"),
   totalRatings: integer("total_ratings").default(0),
@@ -483,6 +484,7 @@ export const productVariants = pgTable("product_variants", {
   color: text("color"),
   size: text("size"),
   sku: text("sku"),
+  image: text("image"),
   stock: integer("stock").default(0),
   priceAdjustment: decimal("price_adjustment", { precision: 10, scale: 2 }).default("0"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -799,6 +801,7 @@ export const insertProductSchema = createInsertSchema(products).pick({
   video: true,
   videoDuration: true,
   tags: true,
+  deliveryDuration: true,
   dynamicFields: true,
   storeId: true,
 }).extend({
@@ -879,6 +882,7 @@ export const insertProductVariantSchema = createInsertSchema(productVariants).pi
   color: true,
   size: true,
   sku: true,
+  image: true,
   stock: true,
   priceAdjustment: true,
 });

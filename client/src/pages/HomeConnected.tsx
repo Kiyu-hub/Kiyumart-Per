@@ -44,6 +44,10 @@ interface CartItem {
   id: string;
   productId: string;
   quantity: number;
+  variantId: string | null;
+  selectedColor: string | null;
+  selectedSize: string | null;
+  selectedImageIndex: number | null;
   createdAt: string;
 }
 
@@ -311,7 +315,7 @@ export default function HomeConnected() {
     if (!product) return null;
     
     const productImage = Array.isArray(product.images) && product.images.length > 0 
-      ? product.images[0] 
+      ? product.images[cartItem.selectedImageIndex || 0] || product.images[0]
       : heroImage;
     
     return {
@@ -345,7 +349,7 @@ export default function HomeConnected() {
     }
   };
 
-  // Debounced search handler
+  // Debounced search handler - Reduced debounce for more instant feel
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const handleSearch = useCallback((query: string) => {
     if (debounceTimerRef.current) {
@@ -354,7 +358,7 @@ export default function HomeConnected() {
     
     debounceTimerRef.current = setTimeout(() => {
       setSearchQuery(query.toLowerCase().trim());
-    }, 300);
+    }, 150);
   }, []);
 
   // Cleanup debounce timer on unmount

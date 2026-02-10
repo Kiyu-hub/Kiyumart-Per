@@ -1,16 +1,18 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { CheckCircle, Package, MapPin, Clock, Phone, Mail } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { CheckCircle, Package, MapPin, Clock, Phone, Mail, Star, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import QRCodeDisplay from "@/components/QRCodeDisplay";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 
 interface Order {
   id: string;
@@ -28,12 +30,55 @@ export default function PaymentSuccess() {
   const [, navigate] = useLocation();
   const { formatPrice } = useLanguage();
   const { toast } = useToast();
+  const { user } = useAuth();
   const searchParams = new URLSearchParams(window.location.search);
   const orderId = searchParams.get("orderId");
+
+  const [selectedProductForReview, setSelectedProductForReview] = useState<string | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
 
   const { data: order, isLoading } = useQuery<Order>({
     queryKey: [`/api/orders/${orderId}`],
     enabled: !!orderId,
+  });
+
+  const { data: orderItems = [] } = useQuery<Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    price: string;
+  }>>({
+    queryKey: [`/api/orders/${orderId}/items`],
+    enabled: !!orderId,
+  });
+
+  const submitReviewMutation = useMutation({
+    mutationFn: async ({ productId, rating, comment }: { productId: string; rating: number; comment: string }) => {
+      const res = await fetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId, rating, comment }),
+      });
+      if (!res.ok) throw new Error("Failed to submit review");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Review submitted!",
+        description: "Thank you for your feedback.",
+      });
+      setSelectedProductForReview(null);
+      setReviewRating(5);
+      setReviewComment("");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to submit review",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   useEffect(() => {
@@ -249,6 +294,117 @@ export default function PaymentSuccess() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Review Section */}
+          {orderItems.length > 0 && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5" />
+                  Share Your Experience
+                </CardTitle>
+                <CardDescription>
+                  Help other customers by reviewing the products you purchased
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {orderItems.map((item) => (
+                    <div key={item.productId} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex-1">
+                        <h4 className="font-medium">{item.productName}</h4>
+                        <p className="text-sm text-muted-foreground">Quantity: {item.quantity}</p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedProductForReview(item.productId)}
+                        disabled={submitReviewMutation.isPending}
+                      >
+                        Write Review
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Review Form Modal */}
+                {selectedProductForReview && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/50" onClick={() => setSelectedProductForReview(null)} />
+                    <Card className="w-full max-w-md relative">
+                      <CardHeader>
+                        <CardTitle>Write a Review</CardTitle>
+                        <CardDescription>
+                          {orderItems.find(item => item.productId === selectedProductForReview)?.productName}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Rating */}
+                        <div>
+                          <label className="text-sm font-medium mb-2 block">Rating</label>
+                          <div className="flex gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <button
+                                key={star}
+                                type="button"
+                                onClick={() => setReviewRating(star)}
+                                className="focus:outline-none"
+                              >
+                                <Star
+                                  className={`h-6 w-6 ${
+                                    star <= reviewRating
+                                      ? "fill-yellow-400 text-yellow-400"
+                                      : "text-gray-300"
+                                  }`}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Comment */}
+                        <div>
+                          <label className="text-sm font-medium mb-2 block">Comment (Optional)</label>
+                          <Textarea
+                            placeholder="Share your thoughts about this product..."
+                            value={reviewComment}
+                            onChange={(e) => setReviewComment(e.target.value)}
+                            rows={3}
+                          />
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-2 pt-4">
+                          <Button
+                            variant="outline"
+                            onClick={() => setSelectedProductForReview(null)}
+                            className="flex-1"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              if (selectedProductForReview) {
+                                submitReviewMutation.mutate({
+                                  productId: selectedProductForReview,
+                                  rating: reviewRating,
+                                  comment: reviewComment,
+                                });
+                              }
+                            }}
+                            disabled={submitReviewMutation.isPending}
+                            className="flex-1"
+                          >
+                            {submitReviewMutation.isPending ? "Submitting..." : "Submit Review"}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Action Buttons */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

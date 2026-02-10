@@ -69,6 +69,7 @@ export default function AdminProductCreate() {
       stock: 0,
       images: [],
       video: "",
+      deliveryDuration: "",
     },
   });
 
@@ -283,6 +284,17 @@ export default function AdminProductCreate() {
                   {form.formState.errors.stock && (
                     <p className="text-sm text-destructive mt-1">{form.formState.errors.stock.message}</p>
                   )}
+                </div>
+
+                <div>
+                  <Label htmlFor="deliveryDuration">Delivery Duration</Label>
+                  <Input
+                    id="deliveryDuration"
+                    {...form.register("deliveryDuration")}
+                    placeholder="1-2 business days"
+                    data-testid="input-delivery-duration"
+                  />
+                  <p className="text-sm text-muted-foreground mt-1">How long it takes to deliver this product</p>
                 </div>
               </CardContent>
             </Card>
