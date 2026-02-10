@@ -970,6 +970,21 @@ export default function ProductDetails() {
               <X className="h-7 w-7 text-white" />
             </button>
 
+            {/* Discount Badge - Positioned on expanded container */}
+            {discount > 0 && (
+              <div
+                className="absolute top-6 left-6 px-6 py-3 rounded-full text-lg font-bold text-white z-20"
+                style={{
+                  background: 'rgba(220, 38, 38, 0.85)',
+                  backdropFilter: 'blur(12px)',
+                  boxSizing: 'border-box'
+                }}
+                data-testid="badge-discount-expanded"
+              >
+                -{discount}% OFF
+              </div>
+            )}
+
             {/* Main expanded image */}
             <div className="rounded-2xl overflow-hidden bg-background max-w-full h-[65vh] flex flex-col" style={{ boxSizing: 'border-box' }}>
               <div className="flex-1 w-full flex items-center justify-center p-4" style={{ boxSizing: 'border-box' }}>
@@ -980,19 +995,6 @@ export default function ProductDetails() {
                   style={{ boxSizing: 'border-box', maxHeight: 'calc(65vh - 120px)' }}
                   data-testid="img-expanded"
                 />
-                {discount > 0 && (
-                  <div
-                    className="absolute top-6 left-6 px-6 py-3 rounded-full text-lg font-bold text-white z-10"
-                    style={{
-                      background: 'rgba(220, 38, 38, 0.85)',
-                      backdropFilter: 'blur(12px)',
-                      boxSizing: 'border-box'
-                    }}
-                    data-testid="badge-discount-expanded"
-                  >
-                    -{discount}% OFF
-                  </div>
-                )}
               </div>
 
               {/* Variant Thumbnails in Expanded Modal - Moved up */}
