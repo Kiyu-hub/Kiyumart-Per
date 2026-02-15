@@ -519,7 +519,7 @@ export default function HomeConnected() {
               ) : filteredProducts.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">No products found matching "{searchQuery}"</div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
                   {(searchQuery ? filteredProducts : filteredProducts.slice(0, 8)).map((product) => {
                     const sellingPrice = parseFloat(product.price);
                     const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
@@ -558,7 +558,7 @@ export default function HomeConnected() {
                     <h2 className="text-3xl font-bold">All Products</h2>
                     <span className="text-sm text-muted-foreground">{filteredProducts.length} products</span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4 gap-y-6 gap-y-6">
                     {filteredProducts.map((product) => {
                       const sellingPrice = parseFloat(product.price);
                       const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;

@@ -319,13 +319,13 @@ export default function MultiVendorHome() {
                 </div>
 
                 {productsLoading ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 gap-y-6">
                     {[...Array(10)].map((_, i) => (
                       <Skeleton key={i} className="aspect-square rounded-xl bg-gray-200 dark:bg-white/10" data-testid={`skeleton-product-${i}`} />
                     ))}
                   </div>
                 ) : featuredProducts.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4" data-testid="grid-featured-products">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6" data-testid="grid-featured-products">
                     {featuredProducts.map((product) => (
                       <ProductCard
                         key={product.id}
@@ -360,7 +360,7 @@ export default function MultiVendorHome() {
                   <span className="text-sm text-gray-500 dark:text-blue-200/70">{allProducts.length} products</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4" data-testid="grid-all-products">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6" data-testid="grid-all-products">
                   {allProducts.map((product) => (
                     <ProductCard
                       key={product.id}
@@ -393,7 +393,7 @@ export default function MultiVendorHome() {
                   You Might Also Like
                 </h2>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 gap-y-6">
                 {allProducts.slice(10, 20).map(product => (
                   <ProductCard
                     key={product.id}

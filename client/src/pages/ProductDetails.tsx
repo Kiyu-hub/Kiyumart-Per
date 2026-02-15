@@ -837,7 +837,7 @@ export default function ProductDetails() {
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-8" data-testid="heading-related">
                 You May Also Like
               </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4 lg:gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4 gap-y-6 lg:gap-6">
                 {relatedProducts.map((relatedProduct) => (
                   <ProductCard
                     key={relatedProduct.id}

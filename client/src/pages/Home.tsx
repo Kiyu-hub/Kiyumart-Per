@@ -222,7 +222,7 @@ export default function Home() {
             </Link>
           </div>
           {displayFeaturedProducts.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4 gap-y-6">
               {displayFeaturedProducts.slice(0, 8).map((product) => {
                 const sellingPrice = parseFloat(product.price);
                 const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
@@ -264,7 +264,7 @@ export default function Home() {
                 {t("viewAll")}
               </Link>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4 gap-y-6">
               {dbProducts.map((product) => {
                 const sellingPrice = parseFloat(product.price);
                 const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
