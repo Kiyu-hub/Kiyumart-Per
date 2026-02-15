@@ -103,7 +103,7 @@ export default function MultiVendorHome() {
   const sidebarProducts = allProducts
     .sort((a, b) => (b.totalRatings || 0) - (a.totalRatings || 0))
     .slice(0, 4);
-  const spotlightProducts = allProducts.filter(p => (p.discount || 0) > 0).slice(0, 3);
+  const spotlightProducts = allProducts.filter(p => (p.totalRatings || 0) > 10).slice(0, 3);
 
   // Sidebar is visible when it has promo or ad to show
   const hasSidebarContent = sidebarItemCount > 0;
@@ -143,12 +143,12 @@ export default function MultiVendorHome() {
             <div className="w-full">
               <AdBanner position="hero" className="h-16 md:h-20 rounded-xl" />
             </div>
-          ) : spotlightProducts.length > 0 ? (
+          ) : spotlightProducts.length > 0 && false ? ( // Hidden by default - only show when products have >10 purchases
             <section className="mv-glass-card rounded-2xl p-4 md:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">Hot Deals</h3>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="category-grid">
                 {spotlightProducts.map(product => (
                   <ProductCard
                     key={product.id}
@@ -177,9 +177,6 @@ export default function MultiVendorHome() {
           <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="mv-icon-badge">
-                  <ShoppingBag className="w-5 h-5 text-white" />
-                </div>
                 <h2 
                   className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white"
                   data-testid="heading-categories"
@@ -328,7 +325,7 @@ export default function MultiVendorHome() {
                     ))}
                   </div>
                 ) : featuredProducts.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="grid-featured-products">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 gap-3" data-testid="grid-featured-products">
                     {featuredProducts.map((product) => (
                       <ProductCard
                         key={product.id}
@@ -363,7 +360,7 @@ export default function MultiVendorHome() {
                   <span className="text-sm text-gray-500 dark:text-blue-200/70">{allProducts.length} products</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="grid-all-products">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 gap-3" data-testid="grid-all-products">
                   {allProducts.map((product) => (
                     <ProductCard
                       key={product.id}
@@ -392,14 +389,11 @@ export default function MultiVendorHome() {
           ) : allProducts.length > 10 ? (
             <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6">
               <div className="flex items-center gap-3">
-                <div className="mv-icon-badge" style={{ background: 'linear-gradient(135deg, #ec4899, #f43f5e)' }}>
-                  <Tag className="w-5 h-5 text-white" />
-                </div>
                 <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
                   You Might Also Like
                 </h2>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                 {allProducts.slice(10, 20).map(product => (
                   <ProductCard
                     key={product.id}

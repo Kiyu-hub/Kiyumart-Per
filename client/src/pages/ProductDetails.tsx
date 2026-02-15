@@ -836,7 +836,7 @@ export default function ProductDetails() {
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-8" data-testid="heading-related">
                 You May Also Like
               </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 gap-3 lg:gap-6">
                 {relatedProducts.map((relatedProduct) => {
                   const costPrice = relatedProduct.costPrice ? parseFloat(relatedProduct.costPrice) : undefined;
                   const sp = parseFloat(relatedProduct.price);
@@ -959,6 +959,22 @@ export default function ProductDetails() {
             }}
           />
 
+          {/* Discount Badge - Positioned on viewport for visibility */}
+          {discount > 0 && (
+            <div
+              className="fixed top-6 left-6 sm:top-8 sm:left-8 px-3 py-2 sm:px-6 sm:py-3 rounded-full text-sm sm:text-lg font-bold text-white z-50 shadow-lg"
+              style={{
+                background: 'rgba(220, 38, 38, 0.9)',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
+                boxSizing: 'border-box'
+              }}
+              data-testid="badge-discount-expanded"
+            >
+              -{discount}% OFF
+            </div>
+          )}
+
           <div className="relative w-full max-w-5xl max-h-[90vh] mx-4 flex items-center justify-center" onClick={(e) => e.stopPropagation()} style={{ boxSizing: 'border-box' }}>
             {/* Close Button - Larger touch target */}
             <button
@@ -969,21 +985,6 @@ export default function ProductDetails() {
             >
               <X className="h-7 w-7 text-white" />
             </button>
-
-            {/* Discount Badge - Positioned on expanded container */}
-            {discount > 0 && (
-              <div
-                className="absolute top-6 left-6 px-6 py-3 rounded-full text-lg font-bold text-white z-20"
-                style={{
-                  background: 'rgba(220, 38, 38, 0.85)',
-                  backdropFilter: 'blur(12px)',
-                  boxSizing: 'border-box'
-                }}
-                data-testid="badge-discount-expanded"
-              >
-                -{discount}% OFF
-              </div>
-            )}
 
             {/* Main expanded image */}
             <div className="rounded-2xl overflow-hidden bg-background max-w-full h-[65vh] flex flex-col" style={{ boxSizing: 'border-box' }}>

@@ -158,6 +158,7 @@ export default function Header({
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
                     onClick={() => navigate(getDashboardPath())}
+                    className="hover:bg-accent hover:text-accent-foreground"
                     data-testid="menu-dashboard"
                   >
                     <LayoutDashboard className="mr-2 h-4 w-4" />
@@ -165,6 +166,7 @@ export default function Header({
                   </DropdownMenuItem>
                   <DropdownMenuItem 
                     onClick={() => navigate("/")}
+                    className="hover:bg-accent hover:text-accent-foreground"
                     data-testid="menu-shop"
                   >
                     <ShoppingBag className="mr-2 h-4 w-4" />

@@ -166,7 +166,6 @@ function Router() {
       <Route path="/admin/live-support" component={AdminLiveSupportDashboard} />
       <Route path="/admin/analytics" component={AdminAnalytics} />
       <Route path="/admin/notifications" component={AdminNotifications} />
-      <Route path="/seller" component={SellerDashboard} />
       <Route path="/seller/products" component={SellerProducts} />
       <Route path="/seller/media-library" component={SellerMediaLibrary} />
       <Route path="/seller/orders" component={SellerOrders} />
@@ -177,6 +176,7 @@ function Router() {
       <Route path="/seller/analytics" component={SellerAnalytics} />
       <Route path="/seller/settings" component={SellerSettings} />
       <Route path="/seller/payment-setup" component={SellerPaymentSetup} />
+      <Route path="/seller" component={SellerDashboard} />
       <Route path="/rider" component={RiderDashboard} />
       <Route path="/rider/deliveries" component={RiderDeliveries} />
       <Route path="/rider/route" component={RiderActiveRoute} />

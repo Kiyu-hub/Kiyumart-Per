@@ -40,6 +40,21 @@ export const promotionalAds = pgTable("promotional_ads", {
   typeIdx: index("promotional_ads_type_idx").on(t.type),
   activeIdx: index("promotional_ads_active_idx").on(t.isActive),
 }));
+
+// Promotion pricing for sellers to apply for promotions
+export const promotionPricing = pgTable("promotion_pricing", {
+  id: serial("id").primaryKey(),
+  type: promoTypeEnum("type").notNull(), // 'store' or 'product'
+  durationType: varchar("duration_type").notNull(), // 'hour' or 'day'
+  duration: integer("duration").notNull(), // e.g., 1 for 1 hour, 24 for 24 hours (1 day)
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(), // price in GHS
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  typeDurationIdx: index("promotion_pricing_type_duration_idx").on(t.type, t.durationType, t.duration),
+}));
+
 export const payoutTypeEnum = pgEnum("payout_type", ["bank_account", "mobile_money"]);
 export const messageStatusEnum = pgEnum("message_status", ["sent", "delivered", "read"]);
 
@@ -1149,3 +1164,8 @@ export type Category = typeof categories.$inferSelect;
 export const insertRoleFeaturesSchema = createInsertSchema(roleFeatures).omit({ id: true, updatedAt: true });
 export type InsertRoleFeatures = z.infer<typeof insertRoleFeaturesSchema>;
 export type RoleFeatures = typeof roleFeatures.$inferSelect;
+
+// Promotion Pricing schema
+export const insertPromotionPricingSchema = createInsertSchema(promotionPricing).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPromotionPricing = z.infer<typeof insertPromotionPricingSchema>;
+export type PromotionPricing = typeof promotionPricing.$inferSelect;

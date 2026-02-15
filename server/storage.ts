@@ -2,7 +2,7 @@ import { db } from "../db/index";
 import { 
   users, products, orders, orderItems, orderStatusHistory, deliveryZones, deliveryTracking,
   chatMessages, transactions, platformSettings, cart, wishlist, reviews, riderReviews,
-  productVariants, heroBanners, promotionalAds, coupons, bannerCollections, marketplaceBanners,
+  productVariants, heroBanners, promotionalAds, promotionPricing, coupons, bannerCollections, marketplaceBanners,
   stores, categoryFields, categories, notifications, mediaLibrary, footerPages,
   idempotencyKeys,
   commissions, platformEarnings, sellerPayouts, riderPayouts, roleFeatures,
@@ -1474,6 +1474,37 @@ export class DbStorage implements IStorage {
       }
       throw err;
     }
+  }
+
+  // Promotion Pricing operations
+  async createPromotionPricing(data: { type: 'store' | 'product'; durationType: 'hour' | 'day'; duration: number; price: string }): Promise<any> {
+    const result = await db.insert(promotionPricing).values(data as any).returning();
+    return result[0];
+  }
+
+  async getAllPromotionPricing(): Promise<any[]> {
+    return await db.select().from(promotionPricing).where(eq(promotionPricing.isActive, true));
+  }
+
+  async getPromotionPricing(type: 'store' | 'product', durationType: 'hour' | 'day', duration: number): Promise<any | undefined> {
+    const result = await db.select().from(promotionPricing)
+      .where(and(
+        eq(promotionPricing.type, type),
+        eq(promotionPricing.durationType, durationType),
+        eq(promotionPricing.duration, duration),
+        eq(promotionPricing.isActive, true)
+      ))
+      .limit(1);
+    return result[0];
+  }
+
+  async updatePromotionPricing(id: number, data: Partial<{ price: string; isActive: boolean }>): Promise<any> {
+    const result = await db.update(promotionPricing).set({ ...data, updatedAt: new Date() }).where(eq(promotionPricing.id, id)).returning();
+    return result[0];
+  }
+
+  async deletePromotionPricing(id: number): Promise<void> {
+    await db.delete(promotionPricing).where(eq(promotionPricing.id, id));
   }
 
   // Cart operations

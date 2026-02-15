@@ -135,7 +135,7 @@ export default function CategoryPage() {
 
         <div className="max-w-7xl mx-auto px-4 pb-12">
           {isLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 gap-3">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <Card key={i} className="overflow-hidden">
                   <Skeleton className="aspect-[3/4] w-full" />
@@ -157,7 +157,7 @@ export default function CategoryPage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 gap-3">
               {categoryProducts.map((product) => {
                 const sellingPrice = parseFloat(product.price);
                 const originalPrice = product.costPrice

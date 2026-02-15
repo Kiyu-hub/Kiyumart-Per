@@ -5488,7 +5488,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ============ Role Features Management (Super Admin Only) ============
+  // ============ Admin Promotion Pricing Management ============
+  app.post('/api/admin/promotion-pricing', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const { type, durationType, duration, price } = req.body;
+      if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+      if (!['hour', 'day'].includes(durationType)) return res.status(400).json({ error: 'Invalid durationType' });
+      if (typeof duration !== 'number' || duration <= 0) return res.status(400).json({ error: 'Invalid duration' });
+      if (typeof price !== 'string' || isNaN(parseFloat(price))) return res.status(400).json({ error: 'Invalid price' });
+
+      const created = await storage.createPromotionPricing({ type, durationType, duration, price });
+      res.json(created);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/admin/promotion-pricing', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const rows = await storage.getAllPromotionPricing();
+      res.json(rows);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.put('/api/admin/promotion-pricing/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { price, isActive } = req.body;
+      const updateData: any = {};
+      if (price !== undefined) updateData.price = price;
+      if (isActive !== undefined) updateData.isActive = isActive;
+
+      const updated = await storage.updatePromotionPricing(parseInt(id), updateData);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/admin/promotion-pricing/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deletePromotionPricing(parseInt(id));
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // ============ Seller Promotion Application ============
   app.get("/api/role-features", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const { role } = req.query;
@@ -5517,6 +5567,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updatedFeatures);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Seller Promotion Application ============
+  app.get('/api/seller/promotion-pricing', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user;
+      if (!user || user.role !== 'seller') {
+        return res.status(403).json({ error: "Seller access required" });
+      }
+
+      // Check if multi-vendor is enabled
+      const settings = await storage.getPlatformSettings();
+      if (!settings.isMultiVendor) {
+        return res.status(403).json({ error: "Promotions are only available in multi-vendor mode" });
+      }
+
+      const pricing = await storage.getAllPromotionPricing();
+      res.json(pricing);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/seller/apply-promotion', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user;
+      if (!user || user.role !== 'seller') {
+        return res.status(403).json({ error: "Seller access required" });
+      }
+
+      // Check if multi-vendor is enabled
+      const settings = await storage.getPlatformSettings();
+      if (!settings.isMultiVendor) {
+        return res.status(403).json({ error: "Promotions are only available in multi-vendor mode" });
+      }
+
+      const { type, targetId, durationType, duration } = req.body;
+      if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+      if (!['hour', 'day'].includes(durationType)) return res.status(400).json({ error: 'Invalid durationType' });
+      if (typeof duration !== 'number' || duration <= 0) return res.status(400).json({ error: 'Invalid duration' });
+
+      // Validate targetId belongs to seller
+      if (type === 'store') {
+        const store = await storage.getStore(targetId);
+        if (!store || store.primarySellerId !== user.id) {
+          return res.status(403).json({ error: 'You can only promote your own store' });
+        }
+      } else if (type === 'product') {
+        const product = await storage.getProduct(targetId);
+        if (!product || product.sellerId !== user.id) {
+          return res.status(403).json({ error: 'You can only promote your own products' });
+        }
+      }
+
+      // Get pricing
+      const pricing = await storage.getPromotionPricing(type, durationType, duration);
+      if (!pricing) {
+        return res.status(400).json({ error: 'No pricing found for the selected options' });
+      }
+
+      // Calculate total price (for multiple days, multiply)
+      const unitPrice = parseFloat(pricing.price);
+      const totalPrice = unitPrice * duration;
+
+      // Calculate end time
+      const startAt = new Date();
+      const endAt = new Date(startAt);
+      if (durationType === 'hour') {
+        endAt.setHours(endAt.getHours() + duration);
+      } else {
+        endAt.setDate(endAt.getDate() + duration);
+      }
+
+      // Create promotional ad
+      const promo = await storage.createPromotionalAd({
+        type,
+        targetId,
+        startAt,
+        endAt,
+        createdBy: user.id,
+        title: null,
+        description: null,
+        imageUrl: null,
+        ctaText: null,
+        ctaUrl: null,
+        themeColor: null,
+      });
+
+      // TODO: Handle payment here if needed, for now just create the promo
+
+      res.json({
+        ...promo,
+        totalPrice: totalPrice.toFixed(2),
+        currency: 'GHS',
+        durationType,
+        duration,
+        unitPrice: pricing.price,
+      });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
     }
   });
 
@@ -5929,22 +6080,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error(data.message || "Payment verification failed");
       }
 
-      const isMultiVendor = data.data.metadata?.isMultiVendor || false;
+      console.log('[VERIFY] Paystack verify response data:', JSON.stringify(data.data, null, 2));
+
+      // Determine payment mode based on platform configuration + tolerant metadata parsing
+      // Platform setting has higher authority — if platform is single-store, treat payment as single-vendor.
+      const platformIsMultiVendor = !!settings.isMultiVendor;
+      const rawMeta = data.data.metadata || {};
+
+      const metaIsMultiVendorRaw = rawMeta.isMultiVendor;
+      const metaIsMultiVendor = metaIsMultiVendorRaw === true || (typeof metaIsMultiVendorRaw === 'string' && ['true','1'].includes(metaIsMultiVendorRaw.toLowerCase()));
+      const metaHasOrderIds = Array.isArray(rawMeta.orderIds) && rawMeta.orderIds.length > 0;
+      const metaHasCheckoutSession = Boolean(rawMeta.checkoutSessionId);
+
+      // Only treat as multi-vendor when the platform supports it AND metadata indicates multi-vendor intent
+      const isMultiVendor = platformIsMultiVendor && (metaIsMultiVendor || metaHasOrderIds || metaHasCheckoutSession);
+
+      if (platformIsMultiVendor !== isMultiVendor) {
+        console.warn('[VERIFY] Platform mode vs payment metadata mismatch', { platformIsMultiVendor: platformIsMultiVendor, paymentMeta: rawMeta });
+      }
+
       let orders: any[] = [];
 
       if (isMultiVendor) {
-        const orderIds = data.data.metadata.orderIds || [];
-        if (!Array.isArray(orderIds) || orderIds.length === 0) {
-          throw new Error("Invalid multi-vendor payment data");
+        // Accept orderIds in multiple formats (array | JSON-string | comma-separated string)
+        let orderIds: any = rawMeta.orderIds || [];
+        const checkoutSessionIdFromMeta = rawMeta.checkoutSessionId;
+
+        if (!Array.isArray(orderIds)) {
+          if (typeof orderIds === 'string' && orderIds.length > 0) {
+            try {
+              const parsed = JSON.parse(orderIds);
+              orderIds = Array.isArray(parsed) ? parsed : orderIds.split(',').map((s: string) => s.trim()).filter(Boolean);
+            } catch (e) {
+              orderIds = orderIds.split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+          } else {
+            orderIds = [];
+          }
         }
 
-        const allOrders = await storage.getAllOrders();
-        orders = allOrders.filter((o: any) => orderIds.includes(o.id));
-        if (orders.length !== orderIds.length) {
-          throw new Error("Some orders not found");
+        // Resolve by checkoutSessionId when explicit IDs are not present
+        if ((!Array.isArray(orderIds) || orderIds.length === 0) && checkoutSessionIdFromMeta) {
+          const allOrders = await storage.getAllOrders();
+          const sessionOrders = allOrders.filter((o: any) => o.checkoutSessionId === checkoutSessionIdFromMeta);
+          if (sessionOrders.length === 0) {
+            console.error('[VERIFY] No orders found for checkoutSessionId:', checkoutSessionIdFromMeta);
+            throw new Error("Invalid multi-vendor payment data");
+          }
+          orders = sessionOrders;
+        } else {
+          if (!Array.isArray(orderIds) || orderIds.length === 0) {
+            console.error('[VERIFY] Missing orderIds for multi-vendor payment - metadata:', rawMeta);
+            throw new Error("Invalid multi-vendor payment data");
+          }
+
+          const allOrders = await storage.getAllOrders();
+          orders = allOrders.filter((o: any) => orderIds.includes(o.id));
+          if (orders.length !== orderIds.length) {
+            console.error('[VERIFY] Some orders from metadata not found', { expected: orderIds, found: orders.map((o:any)=>o.id) });
+            throw new Error("Some orders not found");
+          }
         }
 
-        // If a currentUserId is provided, ensure they own all orders; otherwise skip ownership check
         if (currentUserId) {
           const allOwnedByUser = orders.every((o: any) => o.buyerId === currentUserId);
           if (!allOwnedByUser) throw new Error("Unauthorized to verify these payments");
