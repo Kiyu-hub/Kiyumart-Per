@@ -144,7 +144,7 @@ export default function AllProducts() {
           </div>
 
           {isLoading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4">
               {[...Array(10)].map((_, i) => (
                 <Skeleton key={i} className="aspect-square rounded-lg" data-testid={`skeleton-product-${i}`} />
               ))}
@@ -165,7 +165,7 @@ export default function AllProducts() {
               </div>
             </div>
           ) : filteredProducts.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 gap-3" data-testid="grid-products">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4" data-testid="grid-products">
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}

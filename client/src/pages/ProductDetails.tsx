@@ -13,6 +13,7 @@ import { Heart, ShoppingCart, Star, ArrowLeft, Minus, Plus, X, ChevronLeft, Chev
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
+import ProductCard from "@/components/ProductCard";
 import { PriceDisplay } from "@/components/PriceDisplay";
 import AdBanner from "@/components/AdBanner";
 import ProductPageAd from "@/pages/ProductPageAd";
@@ -836,57 +837,21 @@ export default function ProductDetails() {
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-8" data-testid="heading-related">
                 You May Also Like
               </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-6 gap-3 lg:gap-6">
-                {relatedProducts.map((relatedProduct) => {
-                  const costPrice = relatedProduct.costPrice ? parseFloat(relatedProduct.costPrice) : undefined;
-                  const sp = parseFloat(relatedProduct.price);
-                  const d = costPrice && costPrice > sp
-                    ? Math.round(((costPrice - sp) / costPrice) * 100)
-                    : 0;
-                  
-                  return (
-                    <div
-                      key={relatedProduct.id}
-                      onClick={() => navigate(`/product/${relatedProduct.id}`)}
-                      className="group cursor-pointer"
-                      data-testid={`related-product-${relatedProduct.id}`}
-                    >
-                      <div className="relative overflow-hidden rounded-2xl bg-muted/30 mb-4">
-                        <div className="aspect-square">
-                          <img
-                            src={relatedProduct.images[0]}
-                            alt={relatedProduct.name}
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          />
-                        </div>
-                        {d > 0 && (
-                          <div 
-                            className="absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-bold text-white"
-                            style={{ background: 'rgba(220, 38, 38, 0.85)', backdropFilter: 'blur(8px)' }}
-                          >
-                            -{d}%
-                          </div>
-                        )}
-                      </div>
-                      <div className="space-y-1.5">
-                        <h3 className="font-semibold text-sm line-clamp-2 group-hover:text-primary transition-colors">
-                          {relatedProduct.name}
-                        </h3>
-                        <div className="flex items-center gap-1.5">
-                          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                          <span className="text-xs font-medium">{parseFloat(relatedProduct.ratings).toFixed(1)}</span>
-                          <span className="text-xs text-muted-foreground">({relatedProduct.totalRatings})</span>
-                        </div>
-                        <div className="flex items-baseline gap-2">
-                          <PriceDisplay amount={sp} className="text-base font-bold" />
-                          {costPrice && costPrice > sp && (
-                            <PriceDisplay amount={costPrice} className="text-xs text-muted-foreground line-through" />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4 lg:gap-6">
+                {relatedProducts.map((relatedProduct) => (
+                  <ProductCard
+                    key={relatedProduct.id}
+                    id={relatedProduct.id}
+                    name={relatedProduct.name}
+                    price={parseFloat(relatedProduct.price)}
+                    costPrice={relatedProduct.costPrice ? parseFloat(relatedProduct.costPrice) : undefined}
+                    image={relatedProduct.images[0] || ''}
+                    discount={relatedProduct.costPrice && parseFloat(relatedProduct.costPrice) > parseFloat(relatedProduct.price) ? Math.round(((parseFloat(relatedProduct.costPrice) - parseFloat(relatedProduct.price)) / parseFloat(relatedProduct.costPrice)) * 100) : 0}
+                    rating={parseFloat(relatedProduct.ratings) || 0}
+                    reviewCount={relatedProduct.totalRatings || 0}
+                    inStock={(relatedProduct.stock || 0) > 0}
+                  />
+                ))}
               </div>
             </div>
           </section>

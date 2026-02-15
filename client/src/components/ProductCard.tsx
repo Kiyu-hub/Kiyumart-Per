@@ -123,12 +123,12 @@ export default function ProductCard({
         <img
           src={image}
           alt={name}
-          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-103"
+          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           data-testid={`img-product-${id}`}
         />
         {actualDiscount > 0 && (
           <Badge 
-            className="absolute top-1 left-1 bg-red-600 text-white z-10 font-semibold text-[10px] px-1 py-0.5 shadow-sm"
+            className="absolute top-2 left-2 bg-red-600 text-white z-10 font-semibold text-xs px-2 py-0.5 shadow-sm"
             data-testid={`badge-discount-${id}`}
           >
             {actualDiscount}% OFF
@@ -155,7 +155,7 @@ export default function ProductCard({
       </div>
 
       {/* Product Info Section - DO NOT REORDER ELEMENTS */}
-      <div className="p-1 space-y-1">
+      <div className="p-2 space-y-1">
         {/* Product Name */}
         <h3 
           className="font-semibold text-[12px] line-clamp-2 leading-tight"
