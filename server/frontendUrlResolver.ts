@@ -3,7 +3,7 @@
  * Validates FRONTEND_URL from environment and falls back to localhost if unavailable
  */
 
-import fetch from 'node-fetch';
+import axios from 'axios';
 
 const DEFAULT_LOCAL_URL = 'http://localhost:5173';
 const ENV_FRONTEND_URL = process.env.FRONTEND_URL || '';
@@ -17,17 +17,11 @@ async function checkUrlAccessibility(url: string): Promise<boolean> {
   if (!url) return false;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-
-    const response = await fetch(url, {
-      method: 'HEAD',
-      signal: controller.signal as any,
-      redirect: 'follow',
+    await axios.head(url, {
+      timeout: 5000,
+      validateStatus: (status: number) => status < 500, // Treat 4xx as accessible
     });
-
-    clearTimeout(timeout);
-    return response.ok || response.status < 500;
+    return true;
   } catch (error) {
     // URL is not accessible
     return false;
