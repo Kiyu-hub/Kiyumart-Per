@@ -224,6 +224,15 @@ app.use(express.urlencoded({ limit: '10mb', extended: false }));
 app.use(cookieParser());
 
 (async () => {
+  // Validate frontend URL on startup
+  try {
+    const { validateFrontendUrlOnStartup } = await import('./frontendUrlResolver');
+    await validateFrontendUrlOnStartup();
+  } catch (e) {
+    console.warn('[STARTUP] Could not validate frontend URL:', (e as any)?.message ?? String(e));
+    console.log('[STARTUP] Will fall back to localhost for payment redirects');
+  }
+
   const server = await registerRoutes(app);
 
   // Ensure super_admin has all role features on startup
