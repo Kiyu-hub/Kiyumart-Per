@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
@@ -108,6 +108,31 @@ export default function MultiVendorHome() {
   // Sidebar is visible when it has promo or ad to show
   const hasSidebarContent = sidebarItemCount > 0;
 
+  // --- Search (live, debounced) ---
+  const [searchQuery, setSearchQuery] = useState("");
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const handleSearch = useCallback((query: string) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      setSearchQuery(query.toLowerCase().trim());
+    }, 150);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, []);
+
+  // Filtered product lists for live-search parity with single-store
+  const filteredFeaturedProducts = searchQuery
+    ? (featuredProducts || []).filter(p => (p.name || "").toLowerCase().includes(searchQuery) || ((p.category || "") as string).toLowerCase().includes(searchQuery))
+    : (featuredProducts || []);
+
+  const filteredAllProducts = searchQuery
+    ? (allProducts || []).filter(p => (p.name || "").toLowerCase().includes(searchQuery) || ((p.category || "") as string).toLowerCase().includes(searchQuery))
+    : (allProducts || []);
+
   const [showAllCategories, setShowAllCategories] = useState(false);
   const CATEGORY_VISIBLE_THRESHOLD = 6;
 
@@ -127,7 +152,7 @@ export default function MultiVendorHome() {
       </div>
       
       <div className="relative z-10">
-        <Header />
+        <Header onSearch={handleSearch} />
       </div>
       
       {/* Full-width Hero Carousel */}
@@ -314,7 +339,7 @@ export default function MultiVendorHome() {
               <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6 mb-8">
                 <div className="flex items-center gap-3">
                   <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-featured">
-                    Featured Products
+                    {searchQuery ? `Search results (${filteredAllProducts.length})` : 'Featured Products'}
                   </h2>
                 </div>
 
@@ -324,9 +349,9 @@ export default function MultiVendorHome() {
                       <Skeleton key={i} className="aspect-square rounded-xl bg-gray-200 dark:bg-white/10" data-testid={`skeleton-product-${i}`} />
                     ))}
                   </div>
-                ) : featuredProducts.length > 0 ? (
+                ) : filteredFeaturedProducts.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6" data-testid="grid-featured-products">
-                    {featuredProducts.map((product) => (
+                    {filteredFeaturedProducts.map((product) => (
                       <ProductCard
                         key={product.id}
                         id={product.id}
@@ -341,6 +366,8 @@ export default function MultiVendorHome() {
                       />
                     ))}
                   </div>
+                ) : searchQuery ? (
+                  <div className="text-center py-12 text-muted-foreground">No products found matching "{searchQuery}"</div>
                 ) : (
                   <div className="text-center py-12 text-gray-400 dark:text-blue-200/70" data-testid="empty-products">
                     <p>No products available yet</p>
@@ -349,15 +376,15 @@ export default function MultiVendorHome() {
               </section>
 
               {/* All Products */}
-              {allProducts.length > 0 && (
+              {filteredAllProducts.length > 0 && (
               <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-all-products">
-                      All Products
+                      {searchQuery ? `Search results (${filteredAllProducts.length})` : 'All Products'}
                     </h2>
                   </div>
-                  <span className="text-sm text-gray-500 dark:text-blue-200/70">{allProducts.length} products</span>
+                  <span className="text-sm text-gray-500 dark:text-blue-200/70">{filteredAllProducts.length} products</span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6" data-testid="grid-all-products">
