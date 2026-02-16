@@ -126,11 +126,82 @@ export default function ProductDetails() {
 
   const { data: relatedProducts = [] } = useQuery<Product[]>({
     queryKey: ["/api/products"],
+    // Select related products using a scoring function (category + name token overlap + price proximity + tags)
     select: (products) => {
       if (!product) return [];
-      return products
-        .filter((p) => p.id !== product.id && p.category === product.category)
-        .slice(0, 4);
+
+      const normalizeTokens = (s: string) =>
+        (s || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter(Boolean);
+
+      const baseTokens = new Set(normalizeTokens(product.name || ''));
+
+      const candidates = products.filter((p) => p.id !== product.id);
+
+      const scored = candidates.map((p) => {
+        let score = 0;
+
+        // Strong boost for same category
+        if (p.category === product.category) score += 100;
+
+        // Name token overlap
+        const pTokens = normalizeTokens(p.name || '');
+        const overlap = pTokens.reduce((acc, tok) => acc + (baseTokens.has(tok) ? 1 : 0), 0);
+        score += overlap * 12; // each matching token is valuable
+
+        // Tag overlap (defensive - tags may not exist)
+        try {
+          const pTags = (p as any).tags || [];
+          const prodTags = (product as any).tags || [];
+          if (Array.isArray(pTags) && Array.isArray(prodTags)) {
+            const tagOverlap = pTags.filter((t: string) => prodTags.includes(t)).length;
+            score += tagOverlap * 8;
+          }
+        } catch (e) {
+          /* ignore */
+        }
+
+        // Price proximity bonus (closer price -> slightly more relevant)
+        try {
+          const pPrice = Math.abs(parseFloat(String(p.price)) || 0);
+          const prodPrice = Math.abs(parseFloat(String(product.price)) || 0);
+          if (prodPrice > 0) {
+            const rel = Math.abs(pPrice - prodPrice) / prodPrice;
+            if (rel < 0.1) score += 6;
+            else if (rel < 0.25) score += 3;
+          }
+        } catch (e) {
+          /* ignore */
+        }
+
+        // Small boost for higher ratings (used as tie-breaker)
+        score += (parseFloat(String(p.ratings)) || 0) * 0.1;
+
+        return { product: p, score };
+      });
+
+      // Sort by computed score, then by totalRatings
+      scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return (b.product.totalRatings || 0) - (a.product.totalRatings || 0);
+      });
+
+      // Take top 5 related products
+      const top = scored.map(s => s.product).slice(0, 5);
+
+      // If fewer than 5, fill with top-rated products (excluding current and already selected)
+      if (top.length < 5) {
+        const fill = products
+          .filter(p => p.id !== product.id && !top.find(tp => tp.id === p.id))
+          .sort((a, b) => (b.totalRatings || 0) - (a.totalRatings || 0))
+          .slice(0, 5 - top.length);
+        return top.concat(fill);
+      }
+
+      return top;
     },
     enabled: !!product,
   });
