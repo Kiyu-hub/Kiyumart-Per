@@ -35,6 +35,7 @@ interface Rider {
     type: string;
     plateNumber: string;
     license: string;
+    color?: string;
   } | null;
   businessAddress: string | null;
   createdAt: string | null;
@@ -47,8 +48,10 @@ const addRiderSchema = z.object({
   phone: z.string().min(10, "Phone number must be at least 10 characters"),
   vehicleType: z.string().min(1, "Vehicle type is required"),
   vehicleNumber: z.string().min(1, "Vehicle number is required"),
+  vehicleColor: z.string().min(1, "Vehicle color is required"),
   licenseNumber: z.string().min(1, "License number is required"),
   nationalIdCard: z.string().min(5, "National ID card must be at least 5 characters"),
+  businessAddress: z.string().min(5, "Business address is required"),
 });
 
 type AddRiderFormData = z.infer<typeof addRiderSchema>;
@@ -66,8 +69,10 @@ function AddRiderDialog() {
       phone: "",
       vehicleType: "",
       vehicleNumber: "",
+      vehicleColor: "",
       licenseNumber: "",
       nationalIdCard: "",
+      businessAddress: "",
     },
   });
 
@@ -82,9 +87,11 @@ function AddRiderDialog() {
         vehicleInfo: {
           type: data.vehicleType,
           plateNumber: data.vehicleNumber,
+          color: data.vehicleColor,
           license: data.licenseNumber,
         },
         nationalIdCard: data.nationalIdCard,
+        businessAddress: data.businessAddress,
       };
       return apiRequest("POST", "/api/users", riderData);
     },
@@ -223,6 +230,20 @@ function AddRiderDialog() {
 
             <FormField
               control={form.control}
+              name="vehicleColor"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Vehicle Color</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., Red, Blue, Black" {...field} data-testid="input-vehicle-color" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name="licenseNumber"
               render={({ field }) => (
                 <FormItem>
@@ -243,6 +264,20 @@ function AddRiderDialog() {
                   <FormLabel>National ID Card</FormLabel>
                   <FormControl>
                     <Input placeholder="GHA-123456789-0" {...field} data-testid="input-national-id" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="businessAddress"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Business Address</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., 123 Main St, Accra, Ghana" {...field} data-testid="input-business-address" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -390,6 +425,12 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
                   <p className="text-muted-foreground">Plate Number</p>
                   <p className="font-medium">{riderData.vehicleInfo.plateNumber}</p>
                 </div>
+                {riderData.vehicleInfo.color && (
+                  <div>
+                    <p className="text-muted-foreground">Vehicle Color</p>
+                    <p className="font-medium capitalize">{riderData.vehicleInfo.color}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground">License Number</p>
                   <p className="font-medium">{riderData.vehicleInfo.license}</p>

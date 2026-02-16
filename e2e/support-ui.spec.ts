@@ -163,3 +163,25 @@ test('Admin can view support tickets via admin UI', async ({ page, request }) =>
     expect(convRes.ok()).toBeTruthy();
   }
 });
+
+test('Footer hides Customer Support for admin and agent roles', async ({ page, request }) => {
+  // super admin should not see Customer Support in the footer
+  await setAuthCookie(page, request, 'superadmin@kiyumart.com');
+  await page.goto('http://localhost:5000/', { waitUntil: 'domcontentloaded' });
+  const supportCount = await page.locator('[data-testid="link-support"]').count();
+  expect(supportCount).toBe(0);
+
+  // agent should also not see it
+  await setAuthCookie(page, request, 'agent@kiyumart.com');
+  await page.goto('http://localhost:5000/', { waitUntil: 'domcontentloaded' });
+  const supportCountAgent = await page.locator('[data-testid="link-support"]').count();
+  expect(supportCountAgent).toBe(0);
+});
+
+test('Footer shows Customer Support for buyer', async ({ page, request }) => {
+  await setAuthCookie(page, request, 'buyer@kiyumart.com');
+  await page.goto('http://localhost:5000/', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('[data-testid="link-support"]', { timeout: 5000 });
+  const supportText = await page.textContent('[data-testid="link-support"]');
+  expect(supportText).toContain('Customer Support');
+});

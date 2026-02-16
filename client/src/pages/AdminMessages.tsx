@@ -19,6 +19,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useGroupCall } from "@/hooks/useGroupCall";
 import { ParticipantSelectorDialog } from "@/components/ParticipantSelectorDialog";
 import { GroupCallDialog } from "@/components/GroupCallDialog";
+import { useJitsiCall } from "@/hooks/useJitsiCall";
+import { JitsiCallDialog } from "@/components/JitsiCallDialog";
+import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
+import { PresenceIndicator, AvatarWithPresence } from "@/components/PresenceIndicator";
 
 interface UserData {
   id: string;
@@ -35,6 +39,7 @@ interface Message {
   senderId: string;
   receiverId: string;
   message: string;
+  messageType?: 'text' | 'missed_call' | 'call_started' | 'call_ended';
   createdAt: string;
   isRead: boolean;
   status: 'sent' | 'delivered' | 'read';
@@ -63,6 +68,12 @@ export default function AdminMessages() {
   // Group call management
   const groupCall = useGroupCall(user?.id || '');
   const [groupCallInvite, setGroupCallInvite] = useState<{ callId: string; hostId: string; hostName: string; callType: 'voice' | 'video' } | null>(null);
+
+  // Jitsi Meet integration for video/voice calls
+  const jitsiCall = useJitsiCall(user?.id || '');
+  
+  // Selected user presence status
+  const selectedUserPresence = usePresence(selectedUserId || undefined);
 
   // Get userId from URL search params if present (when clicking from AdminUsers)
   const urlParams = new URLSearchParams(window.location.search);
@@ -279,7 +290,36 @@ export default function AdminMessages() {
     return pc;
   };
 
+  // Use Jitsi Meet for video/voice calls (more reliable than WebRTC)
   const startCall = async (callType: 'voice' | 'video') => {
+    if (!selectedUserId || !selectedUser) {
+      toast({
+        title: "No user selected",
+        description: "Please select a user to call",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    try {
+      console.log(`📞 Starting Jitsi ${callType} call with ${selectedUser.name}`);
+      await jitsiCall.startCall(selectedUserId, callType);
+      toast({
+        title: `${callType === 'video' ? 'Video' : 'Voice'} Call Started`,
+        description: `Connecting to ${selectedUser.name}...`
+      });
+    } catch (error) {
+      console.error("❌ Jitsi call start error:", error);
+      toast({
+        title: "Call Failed",
+        description: error instanceof Error ? error.message : "Could not start call",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Legacy WebRTC startCall (kept for reference)
+  const startCallWebRTC = async (callType: 'voice' | 'video') => {
     try {
       console.log(`📞 Starting ${callType} call with ${selectedUser?.name}`);
       
@@ -452,6 +492,10 @@ export default function AdminMessages() {
     searchQuery
   );
 
+  // Get batch presence for all visible users (WhatsApp-style online indicators)
+  const userIds = filteredUsers.map(u => u.id);
+  const batchPresence = useBatchPresence(userIds);
+
   const rolesCounts = {
     all: otherUsers.length,
     admin: otherUsers.filter(u => u.role === "admin").length,
@@ -473,58 +517,283 @@ export default function AdminMessages() {
 
   return (
     <DashboardLayout role={user?.role as any}>
-      <div className="p-8">
-        <div className="flex items-center gap-4 mb-6">
+      <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
+        <div className="flex items-center gap-4 p-4 pb-0 md:p-6 md:pb-0 flex-shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => selectedUserId ? setSelectedUserId(null) : window.history.back()}
+            data-testid="button-back"
+            className="md:hidden"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
             onClick={() => window.history.back()}
-            data-testid="button-back"
+            data-testid="button-back-desktop"
+            className="hidden md:flex"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">
-            <h1 className="text-3xl font-bold text-foreground" data-testid="heading-messages">Messages</h1>
-            <p className="text-muted-foreground mt-1">Chat with users on the platform</p>
+            <h1 className="text-xl md:text-2xl font-bold text-foreground" data-testid="heading-messages">Messages</h1>
+            <p className="text-muted-foreground text-sm hidden md:block">Chat with users on the platform</p>
           </div>
         </div>
 
-        <div className="mb-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search users..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-              data-testid="input-search-messages"
-            />
-          </div>
+        {/* Mobile: Show user list or chat based on selection */}
+        <div className="md:hidden flex-1 min-h-0 flex flex-col p-4 pt-4">
+          {!selectedUserId ? (
+            <Card className="flex-1 min-h-0 p-4 flex flex-col overflow-hidden">
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search users..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                    data-testid="input-search-messages-mobile"
+                  />
+                </div>
+              </div>
+              
+              <Tabs value={selectedRole} onValueChange={setSelectedRole} className="mb-3">
+                <TabsList className="grid w-full grid-cols-3 h-auto">
+                  <TabsTrigger value="all" className="text-xs py-1">All</TabsTrigger>
+                  <TabsTrigger value="seller" className="text-xs py-1">Sellers</TabsTrigger>
+                  <TabsTrigger value="buyer" className="text-xs py-1">Buyers</TabsTrigger>
+                </TabsList>
+              </Tabs>
+
+              <ScrollArea className="flex-1">
+                {usersLoading ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+                  </div>
+                ) : filteredUsers.length === 0 ? (
+                  <div className="text-center py-12">
+                    <User className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No users found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {filteredUsers.map((userData) => {
+                      const userPresence = batchPresence.getPresence(userData.id);
+                      const isOnline = userPresence?.status === 'online';
+                      const isAway = userPresence?.status === 'away';
+                      
+                      return (
+                        <div
+                          key={userData.id}
+                          onClick={() => setSelectedUserId(userData.id)}
+                          className="p-3 rounded-lg cursor-pointer hover:bg-accent/50 flex items-center gap-3 active:scale-[0.98] transition-all"
+                          data-testid={`user-mobile-${userData.id}`}
+                        >
+                          {/* Avatar with presence */}
+                          <div className="relative flex-shrink-0">
+                            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                              <span className="text-base font-semibold text-primary">
+                                {(userData.name || userData.username || 'U').charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-background ${
+                              isOnline ? 'bg-green-500' : isAway ? 'bg-yellow-500' : 'bg-gray-400'
+                            }`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <p className="font-medium text-sm truncate">{userData.name || userData.username}</p>
+                              <span className={`text-xs ${isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'}`}>
+                                {isOnline ? 'Online' : isAway ? 'Away' : ''}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
+                                {userData.role}
+                              </Badge>
+                              {!isOnline && userPresence?.lastSeen && (
+                                <span className="text-xs text-muted-foreground">
+                                  {formatLastSeen(userPresence.lastSeen)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </ScrollArea>
+            </Card>
+          ) : selectedUser && (
+            <Card className="h-full flex flex-col">
+              {/* Mobile Chat Header - WhatsApp style */}
+              <div className="flex items-center gap-3 p-3 border-b bg-gradient-to-r from-primary/5 to-transparent">
+                {/* Avatar with presence */}
+                <div className="relative flex-shrink-0">
+                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                    <span className="text-sm font-semibold text-primary">
+                      {(selectedUser.name || selectedUser.username || 'U').charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
+                    selectedUserPresence.isOnline ? 'bg-green-500' : 
+                    selectedUserPresence.isAway ? 'bg-yellow-500' : 'bg-gray-400'
+                  }`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-sm truncate">{selectedUser.name || selectedUser.username}</h3>
+                  <p className={`text-xs ${selectedUserPresence.isOnline ? 'text-green-600' : 'text-muted-foreground'}`}>
+                    {selectedUserPresence.isOnline ? 'Online' : 
+                     selectedUserPresence.isAway ? 'Away' :
+                     selectedUserPresence.presence?.lastSeen ? formatLastSeen(selectedUserPresence.presence.lastSeen) : selectedUser.role}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => startCall('voice')}
+                  disabled={!!ongoingCall || !!incomingCall || jitsiCall.inCall}
+                  className="h-8 w-8"
+                >
+                  <Phone className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => startCall('video')}
+                  disabled={!!ongoingCall || !!incomingCall || jitsiCall.inCall}
+                  className="h-8 w-8 text-primary"
+                >
+                  <Video className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* Mobile Chat Messages */}
+              <ScrollArea className="flex-1 p-3">
+                {messagesLoading ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="text-center py-12">
+                    <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No messages yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.messageType === 'missed_call' ? 'justify-center' : msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
+                      >
+                        {msg.messageType === 'missed_call' ? (
+                          <div className="flex items-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-900/20 rounded-full text-red-600 dark:text-red-400 text-sm">
+                            <PhoneOff className="h-4 w-4" />
+                            <span>{msg.message}</span>
+                            <span className="text-xs opacity-70">
+                              {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                            </span>
+                          </div>
+                        ) : (
+                        <div
+                          className={`max-w-[85%] px-3 py-2 rounded-2xl ${
+                            msg.senderId === user?.id
+                              ? "bg-primary text-primary-foreground rounded-br-sm"
+                              : "bg-muted rounded-bl-sm"
+                          }`}
+                        >
+                          <div className="flex items-end gap-2">
+                            <p className="text-sm flex-1">{msg.message}</p>
+                            <span className="flex items-center gap-0.5 flex-shrink-0">
+                              <span className="text-[10px] opacity-70 whitespace-nowrap">
+                                {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                              </span>
+                              {msg.senderId === user?.id && (
+                                <MessageStatusTicks
+                                  status={msg.status || "sent"}
+                                  deliveredAt={msg.deliveredAt}
+                                  readAt={msg.readAt}
+                                />
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+
+              {/* Mobile Input */}
+              <div className="p-3 border-t flex gap-2">
+                <Input
+                  placeholder="Type a message..."
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
+                  disabled={sendMessageMutation.isPending}
+                  className="flex-1"
+                />
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!message.trim() || sendMessageMutation.isPending}
+                  size="icon"
+                  className="rounded-full"
+                >
+                  {sendMessageMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </Card>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="md:col-span-1 p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold">Users</h3>
-              <Badge variant="secondary" data-testid="badge-total-count">
-                {filteredUsers.length}
-              </Badge>
+        {/* Desktop: Side-by-side layout */}
+        <div className="hidden md:flex md:flex-col flex-1 min-h-0 p-4 md:p-6 pt-4">
+          <div className="mb-4 flex-shrink-0">
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search users..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-messages"
+              />
             </div>
-            
-            <Tabs value={selectedRole} onValueChange={setSelectedRole} className="mb-4">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="all" data-testid="tab-all">All ({rolesCounts.all})</TabsTrigger>
-                <TabsTrigger value="seller" data-testid="tab-seller">Sellers ({rolesCounts.seller})</TabsTrigger>
-                <TabsTrigger value="buyer" data-testid="tab-buyer">Buyers ({rolesCounts.buyer})</TabsTrigger>
-              </TabsList>
-              <TabsList className="grid w-full grid-cols-3 mt-2">
-                <TabsTrigger value="rider" data-testid="tab-rider">Riders ({rolesCounts.rider})</TabsTrigger>
-                <TabsTrigger value="admin" data-testid="tab-admin">Admins ({rolesCounts.admin})</TabsTrigger>
-                <TabsTrigger value="agent" data-testid="tab-agent">Agents ({rolesCounts.agent})</TabsTrigger>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0 overflow-hidden">
+            <Card className="md:col-span-1 p-4 flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                <h3 className="font-semibold">Users</h3>
+                <Badge variant="secondary" data-testid="badge-total-count">
+                  {filteredUsers.length}
+                </Badge>
+              </div>
+              
+              <Tabs value={selectedRole} onValueChange={setSelectedRole} className="mb-4 flex-shrink-0">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="all" data-testid="tab-all">All ({rolesCounts.all})</TabsTrigger>
+                  <TabsTrigger value="seller" data-testid="tab-seller">Sellers ({rolesCounts.seller})</TabsTrigger>
+                  <TabsTrigger value="buyer" data-testid="tab-buyer">Buyers ({rolesCounts.buyer})</TabsTrigger>
+                </TabsList>
+                <TabsList className="grid w-full grid-cols-3 mt-2">
+                  <TabsTrigger value="rider" data-testid="tab-rider">Riders ({rolesCounts.rider})</TabsTrigger>
+                  <TabsTrigger value="admin" data-testid="tab-admin">Admins ({rolesCounts.admin})</TabsTrigger>
+                  <TabsTrigger value="agent" data-testid="tab-agent">Agents ({rolesCounts.agent})</TabsTrigger>
               </TabsList>
             </Tabs>
 
-            <ScrollArea className="h-[500px]">
+            <ScrollArea className="flex-1 min-h-0">
               {usersLoading ? (
                 <div className="text-center py-12">
                   <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
@@ -537,46 +806,92 @@ export default function AdminMessages() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {filteredUsers.map((userData) => (
-                    <div
-                      key={userData.id}
-                      onClick={() => setSelectedUserId(userData.id)}
-                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                        selectedUserId === userData.id
-                          ? "bg-primary/10 border-primary"
-                          : "hover:bg-accent border-transparent"
-                      }`}
-                      data-testid={`user-${userData.id}`}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        <p className="font-medium text-sm line-clamp-1">{userData.name || userData.username}</p>
+                <div className="space-y-1">
+                  {filteredUsers.map((userData) => {
+                    const userPresence = batchPresence.getPresence(userData.id);
+                    const isOnline = userPresence?.status === 'online';
+                    const isAway = userPresence?.status === 'away';
+                    
+                    return (
+                      <div
+                        key={userData.id}
+                        onClick={() => setSelectedUserId(userData.id)}
+                        className={`p-3 rounded-lg cursor-pointer transition-all ${
+                          selectedUserId === userData.id
+                            ? "bg-primary/10 border-l-4 border-l-primary"
+                            : "hover:bg-accent/50"
+                        }`}
+                        data-testid={`user-${userData.id}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {/* Avatar with presence indicator */}
+                          <div className="relative flex-shrink-0">
+                            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                              <span className="text-sm font-semibold text-primary">
+                                {(userData.name || userData.username || 'U').charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            {/* Online indicator dot */}
+                            <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
+                              isOnline ? 'bg-green-500' : isAway ? 'bg-yellow-500' : 'bg-gray-400'
+                            }`} />
+                          </div>
+                          
+                          {/* User info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-medium text-sm truncate">{userData.name || userData.username}</p>
+                              <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`} data-testid={`badge-role-${userData.id}`}>
+                                {userData.role}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`text-xs ${isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'}`}>
+                                {isOnline ? 'Online' : isAway ? 'Away' : userPresence?.lastSeen ? formatLastSeen(userPresence.lastSeen) : 'Offline'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={getRoleBadgeColor(userData.role)} data-testid={`badge-role-${userData.id}`}>
-                          {userData.role}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground truncate">{userData.email}</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </ScrollArea>
           </Card>
 
-          <Card className="md:col-span-2 p-4">
+          <Card className="md:col-span-2 p-4 flex flex-col overflow-hidden">
             {selectedUser ? (
-              <div className="flex flex-col h-[600px]">
+              <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
                 <div className="flex items-center justify-between pb-4 border-b mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                      <User className="h-5 w-5 text-primary" />
+                    {/* Avatar with presence */}
+                    <div className="relative">
+                      <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                        <span className="text-lg font-semibold text-primary">
+                          {(selectedUser.name || selectedUser.username || 'U').charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-background ${
+                        selectedUserPresence.isOnline ? 'bg-green-500' : 
+                        selectedUserPresence.isAway ? 'bg-yellow-500' : 'bg-gray-400'
+                      }`} />
                     </div>
                     <div>
-                      <h3 className="font-semibold">{selectedUser.name || selectedUser.username}</h3>
-                      <p className="text-sm text-muted-foreground">{selectedUser.email} • {selectedUser.role}</p>
+                      <h3 className="font-semibold text-lg">{selectedUser.name || selectedUser.username}</h3>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm ${
+                          selectedUserPresence.isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'
+                        }`}>
+                          {selectedUserPresence.isOnline ? 'Online now' : 
+                           selectedUserPresence.isAway ? 'Away' :
+                           selectedUserPresence.presence?.lastSeen ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}` : 'Offline'}
+                        </span>
+                        <span className="text-muted-foreground">•</span>
+                        <Badge className={getRoleBadgeColor(selectedUser.role)} variant="secondary">
+                          {selectedUser.role}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -607,7 +922,7 @@ export default function AdminMessages() {
                   </div>
                 </div>
 
-                <ScrollArea className="flex-1 mb-4">
+                <ScrollArea className="flex-1 min-h-0 mb-4">
                   {messagesLoading ? (
                     <div className="text-center py-12">
                       <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
@@ -622,6 +937,17 @@ export default function AdminMessages() {
                   ) : (
                     <div className="space-y-4">
                       {messages.map((msg) => (
+                        msg.messageType === 'missed_call' ? (
+                          <div key={msg.id} className="flex justify-center" data-testid={`message-${msg.id}`}>
+                            <div className="flex items-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-900/20 rounded-full text-red-600 dark:text-red-400 text-sm">
+                              <PhoneOff className="h-4 w-4" />
+                              <span>{msg.message}</span>
+                              <span className="text-xs opacity-70">
+                                {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
                         <div
                           key={msg.id}
                           className={`flex gap-3 ${msg.senderId === user?.id ? "flex-row-reverse" : ""}`}
@@ -634,40 +960,46 @@ export default function AdminMessages() {
                           </div>
                           <div className={`flex-1 ${msg.senderId === user?.id ? "text-right" : ""}`}>
                             <div
-                              className={`inline-block p-3 rounded-lg max-w-[80%] ${
+                              className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${
                                 msg.senderId === user?.id
                                   ? "bg-primary text-primary-foreground"
                                   : "bg-accent"
                               }`}
                             >
-                              <p className="text-sm">{msg.message}</p>
-                            </div>
-                            <div className="flex items-center gap-1 mt-1">
-                              <p className="text-xs text-muted-foreground">
-                                {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
-                              </p>
-                              {msg.senderId === user?.id && (
-                                <MessageStatusTicks
-                                  status={msg.status || "sent"}
-                                  deliveredAt={msg.deliveredAt}
-                                  readAt={msg.readAt}
-                                />
-                              )}
+                              <div className="flex items-end gap-2">
+                                <p className="text-sm flex-1">{msg.message}</p>
+                                <span className="flex items-center gap-0.5 flex-shrink-0">
+                                  <span className={`text-[10px] whitespace-nowrap ${
+                                    msg.senderId === user?.id ? 'opacity-70' : 'text-muted-foreground'
+                                  }`}>
+                                    {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                                  </span>
+                                  {msg.senderId === user?.id && (
+                                    <MessageStatusTicks
+                                      status={msg.status || "sent"}
+                                      deliveredAt={msg.deliveredAt}
+                                      readAt={msg.readAt}
+                                    />
+                                  )}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
+                        )
                       ))}
                     </div>
                   )}
                 </ScrollArea>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-shrink-0 pt-2 border-t">
                   <Input
                     placeholder="Type a message..."
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
                     disabled={sendMessageMutation.isPending}
+                    className="flex-1"
                     data-testid="input-message"
                   />
                   <Button
@@ -684,7 +1016,7 @@ export default function AdminMessages() {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col h-[600px]">
+              <div className="flex flex-col flex-1 min-h-0">
                 <div className="flex-1 flex items-center justify-center">
                   <div className="text-center">
                     <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground mb-3" />
@@ -696,6 +1028,7 @@ export default function AdminMessages() {
               </div>
             )}
           </Card>
+          </div>
         </div>
       </div>
 
@@ -867,6 +1200,25 @@ export default function AdminMessages() {
         onLeaveCall={groupCall.leaveGroupCall}
         onToggleMute={groupCall.toggleMute}
         onToggleVideo={groupCall.toggleVideo}
+      />
+
+      {/* Jitsi Meet Call Dialog */}
+      <JitsiCallDialog
+        isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
+        roomUrl={jitsiCall.getJitsiUrl()}
+        roomName={jitsiCall.currentRoom?.roomName || null}
+        callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || 'video'}
+        participants={jitsiCall.currentRoom?.participants?.map(id => ({ id, name: 'Participant' })) || []}
+        isHost={jitsiCall.currentRoom?.createdBy === user?.id}
+        incomingCall={jitsiCall.incomingCall ? {
+          callerName: jitsiCall.incomingCall.callerName,
+          callType: jitsiCall.incomingCall.callType,
+        } : null}
+        onAccept={() => jitsiCall.acceptIncomingCall()}
+        onReject={() => jitsiCall.rejectIncomingCall()}
+        onLeave={() => jitsiCall.leaveCall()}
+        onEnd={() => jitsiCall.endCall()}
+        isJoining={jitsiCall.isJoining}
       />
     </DashboardLayout>
   );

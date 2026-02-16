@@ -1,0 +1,1830 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - region "Notifications (F8)":
+    - list
+  - generic [ref=e3]:
+    - button [ref=e5] [cursor=pointer]:
+      - img
+    - banner [ref=e7]:
+      - generic [ref=e9]:
+        - img "KiyuMart" [ref=e12] [cursor=pointer]
+        - generic [ref=e14]:
+          - img [ref=e15]
+          - textbox "Search products..." [ref=e18]
+        - generic [ref=e19]:
+          - button "1" [ref=e20] [cursor=pointer]:
+            - img
+            - generic [ref=e21]: "1"
+          - button [ref=e22] [cursor=pointer]:
+            - img
+          - button [ref=e23] [cursor=pointer]:
+            - img
+          - button [ref=e24] [cursor=pointer]:
+            - img
+    - region [ref=e26]:
+      - generic [ref=e28]:
+        - group [ref=e29]:
+          - generic [ref=e31]:
+            - img "hijab" [ref=e32]
+            - heading "hijab" [level=1] [ref=e37]
+        - group [ref=e38]:
+          - generic [ref=e40]:
+            - img "the" [ref=e41]
+            - heading "the" [level=1] [ref=e46]
+        - group [ref=e47]:
+          - generic [ref=e49]:
+            - img "Elegant Abaya Collection" [ref=e50]
+            - generic [ref=e54]:
+              - heading "Elegant Abaya Collection" [level=1] [ref=e55]
+              - paragraph [ref=e56]: Discover modest elegance with our exclusive abaya designs
+              - button "Shop Now" [ref=e57] [cursor=pointer]
+        - group [ref=e58]:
+          - generic [ref=e60]:
+            - img "Premium Hijab Styles" [ref=e61]
+            - generic [ref=e65]:
+              - heading "Premium Hijab Styles" [level=1] [ref=e66]
+              - paragraph [ref=e67]: Luxurious fabrics, timeless designs for every occasion
+              - button "Explore Collection" [ref=e68] [cursor=pointer]
+        - group [ref=e69]:
+          - generic [ref=e71]:
+            - img "Modest Fashion Essentials" [ref=e72]
+            - generic [ref=e76]:
+              - heading "Modest Fashion Essentials" [level=1] [ref=e77]
+              - paragraph [ref=e78]: Complete your wardrobe with our curated modest wear
+              - button "View Deals" [ref=e79] [cursor=pointer]
+        - group [ref=e80]:
+          - generic [ref=e82]:
+            - img "Premium Hijabs & Accessories" [ref=e83]
+            - generic [ref=e87]:
+              - heading "Premium Hijabs & Accessories" [level=1] [ref=e88]
+              - paragraph [ref=e89]: Beautiful hijabs and accessories for every style
+              - button "Shop Hijabs" [ref=e90] [cursor=pointer]
+        - group [ref=e91]:
+          - generic [ref=e93]:
+            - img "Evening Wear Collection" [ref=e94]
+            - generic [ref=e98]:
+              - heading "Evening Wear Collection" [level=1] [ref=e99]
+              - paragraph [ref=e100]: Stunning modest evening dresses for special occasions
+              - button "Shop Evening Wear" [ref=e101] [cursor=pointer]
+        - group [ref=e102]:
+          - generic [ref=e104]:
+            - img "Burgundy Velvet Abayas" [ref=e105]
+            - generic [ref=e109]:
+              - heading "Burgundy Velvet Abayas" [level=1] [ref=e110]
+              - paragraph [ref=e111]: Luxurious velvet abayas with elegant pearl details
+              - button "View Collection" [ref=e112] [cursor=pointer]
+        - group [ref=e113]:
+          - generic [ref=e115]:
+            - img "Women's Accessories" [ref=e116]
+            - generic [ref=e120]:
+              - heading "Women's Accessories" [level=1] [ref=e121]
+              - paragraph [ref=e122]: Complete your look with our curated accessories
+              - button "Shop Accessories" [ref=e123] [cursor=pointer]
+      - button "Previous slide" [ref=e124] [cursor=pointer]:
+        - img
+        - generic [ref=e125]: Previous slide
+      - button "Next slide" [ref=e126] [cursor=pointer]:
+        - img
+        - generic [ref=e127]: Next slide
+    - main [ref=e128]:
+      - generic [ref=e129]:
+        - link "Open sponsored content" [ref=e132] [cursor=pointer]:
+          - /url: https://example.com/promo
+          - img "Sponsored advertisement" [ref=e134]
+          - generic [ref=e135]:
+            - img [ref=e136]
+            - generic [ref=e140]: Sponsored
+        - generic [ref=e141]:
+          - generic [ref=e142]:
+            - generic [ref=e143]:
+              - img [ref=e145]
+              - heading "Shop by Store" [level=2] [ref=e148]
+            - button "See All" [ref=e150] [cursor=pointer]:
+              - text: See All
+              - img
+          - generic [ref=e151]:
+            - generic [ref=e153] [cursor=pointer]:
+              - img [ref=e155]
+              - generic [ref=e161]:
+                - heading "NovaTech Electronics Ltd." [level=3] [ref=e162]
+                - generic [ref=e163]:
+                  - img [ref=e164]
+                  - generic [ref=e167]: Visit Store
+            - generic [ref=e169] [cursor=pointer]:
+              - img [ref=e171]
+              - generic [ref=e177]:
+                - heading "KiyuMart - Islamic Fashion" [level=3] [ref=e178]
+                - generic [ref=e179]:
+                  - img [ref=e180]
+                  - generic [ref=e183]: Visit Store
+            - generic [ref=e185] [cursor=pointer]:
+              - img "Zainab's Designs" [ref=e186]
+              - generic [ref=e188]:
+                - heading "Zainab's Designs" [level=3] [ref=e189]
+                - generic [ref=e190]:
+                  - img [ref=e191]
+                  - generic [ref=e194]: Visit Store
+            - generic [ref=e196] [cursor=pointer]:
+              - img "Aisha's Collection" [ref=e197]
+              - generic [ref=e199]:
+                - heading "Aisha's Collection" [level=3] [ref=e200]
+                - generic [ref=e201]:
+                  - img [ref=e202]
+                  - generic [ref=e205]: Visit Store
+            - generic [ref=e207] [cursor=pointer]:
+              - img "Fatima's Boutique" [ref=e208]
+              - generic [ref=e210]:
+                - heading "Fatima's Boutique" [level=3] [ref=e211]
+                - generic [ref=e212]:
+                  - img [ref=e213]
+                  - generic [ref=e216]: Visit Store
+            - generic [ref=e218] [cursor=pointer]:
+              - img "Test Store" [ref=e219]
+              - generic [ref=e221]:
+                - heading "Test Store" [level=3] [ref=e222]
+                - generic [ref=e223]:
+                  - img [ref=e224]
+                  - generic [ref=e227]: Visit Store
+            - generic [ref=e229] [cursor=pointer]:
+              - img "Automotive Store" [ref=e230]
+              - generic [ref=e232]:
+                - heading "Automotive Store" [level=3] [ref=e233]
+                - generic [ref=e234]:
+                  - img [ref=e235]
+                  - generic [ref=e238]: Visit Store
+            - generic [ref=e240] [cursor=pointer]:
+              - img "Health wellness Store" [ref=e241]
+              - generic [ref=e243]:
+                - heading "Health wellness Store" [level=3] [ref=e244]
+                - generic [ref=e245]:
+                  - img [ref=e246]
+                  - generic [ref=e249]: Visit Store
+            - generic [ref=e251] [cursor=pointer]:
+              - img "Food beverages Store" [ref=e252]
+              - generic [ref=e254]:
+                - heading "Food beverages Store" [level=3] [ref=e255]
+                - generic [ref=e256]:
+                  - img [ref=e257]
+                  - generic [ref=e260]: Visit Store
+            - generic [ref=e262] [cursor=pointer]:
+              - img "Toys games Store" [ref=e263]
+              - generic [ref=e265]:
+                - heading "Toys games Store" [level=3] [ref=e266]
+                - generic [ref=e267]:
+                  - img [ref=e268]
+                  - generic [ref=e271]: Visit Store
+            - generic [ref=e273] [cursor=pointer]:
+              - img "Books media Store" [ref=e274]
+              - generic [ref=e276]:
+                - heading "Books media Store" [level=3] [ref=e277]
+                - generic [ref=e278]:
+                  - img [ref=e279]
+                  - generic [ref=e282]: Visit Store
+            - generic [ref=e284] [cursor=pointer]:
+              - img "Sports fitness Store" [ref=e285]
+              - generic [ref=e287]:
+                - heading "Sports fitness Store" [level=3] [ref=e288]
+                - generic [ref=e289]:
+                  - img [ref=e290]
+                  - generic [ref=e293]: Visit Store
+            - generic [ref=e295] [cursor=pointer]:
+              - img "Home garden Store" [ref=e296]
+              - generic [ref=e298]:
+                - heading "Home garden Store" [level=3] [ref=e299]
+                - generic [ref=e300]:
+                  - img [ref=e301]
+                  - generic [ref=e304]: Visit Store
+            - generic [ref=e306] [cursor=pointer]:
+              - img "Beauty cosmetics Store" [ref=e307]
+              - generic [ref=e309]:
+                - heading "Beauty cosmetics Store" [level=3] [ref=e310]
+                - generic [ref=e311]:
+                  - img [ref=e312]
+                  - generic [ref=e315]: Visit Store
+            - generic [ref=e317] [cursor=pointer]:
+              - img "Electronics Store" [ref=e318]
+              - generic [ref=e320]:
+                - heading "Electronics Store" [level=3] [ref=e321]
+                - generic [ref=e322]:
+                  - img [ref=e323]
+                  - generic [ref=e326]: Visit Store
+            - generic [ref=e328] [cursor=pointer]:
+              - img "Clothing Store" [ref=e329]
+              - generic [ref=e331]:
+                - heading "Clothing Store" [level=3] [ref=e332]
+                - generic [ref=e333]:
+                  - img [ref=e334]
+                  - generic [ref=e337]: Visit Store
+        - generic [ref=e339]:
+          - generic [ref=e340]:
+            - generic [ref=e341]:
+              - img [ref=e343]
+              - heading "Featured Products" [level=2] [ref=e346]
+              - img [ref=e347]
+            - generic [ref=e349]:
+              - generic [ref=e350] [cursor=pointer]:
+                - generic [ref=e351]:
+                  - img "Admin OnBehalf Product 1770732750979" [ref=e352]
+                  - generic [ref=e353]: 50% OFF
+                  - button [ref=e354]:
+                    - img
+                - generic [ref=e355]:
+                  - heading "Admin OnBehalf Product 1770732750979" [level=3] [ref=e356]
+                  - generic [ref=e357]:
+                    - img [ref=e358]
+                    - generic [ref=e360]: "0.0"
+                    - generic [ref=e361]: (0)
+                  - generic [ref=e362]:
+                    - generic [ref=e363]: GH₵120.00
+                    - generic [ref=e364]: GH₵60.00
+              - generic [ref=e365] [cursor=pointer]:
+                - generic [ref=e366]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e367]
+                  - generic [ref=e368]: 20% OFF
+                  - button [ref=e369]:
+                    - img
+                - generic [ref=e370]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e371]
+                  - generic [ref=e372]:
+                    - img [ref=e373]
+                    - generic [ref=e375]: "0.0"
+                    - generic [ref=e376]: (0)
+                  - generic [ref=e378]: GH₵129.99
+              - generic [ref=e379] [cursor=pointer]:
+                - generic [ref=e380]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e381]
+                  - generic [ref=e382]: 10% OFF
+                  - button [ref=e383]:
+                    - img
+                - generic [ref=e384]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e385]
+                  - generic [ref=e386]:
+                    - img [ref=e387]
+                    - generic [ref=e389]: "0.0"
+                    - generic [ref=e390]: (0)
+                  - generic [ref=e392]: GH₵45.99
+              - generic [ref=e393] [cursor=pointer]:
+                - generic [ref=e394]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e395]
+                  - generic [ref=e396]: 15% OFF
+                  - button [ref=e397]:
+                    - img
+                - generic [ref=e398]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e399]
+                  - generic [ref=e400]:
+                    - img [ref=e401]
+                    - generic [ref=e403]: "0.0"
+                    - generic [ref=e404]: (0)
+                  - generic [ref=e406]: GH₵189.99
+              - generic [ref=e407] [cursor=pointer]:
+                - generic [ref=e408]:
+                  - img "Admin OnBehalf Product 1770729436532" [ref=e409]
+                  - generic [ref=e410]: 50% OFF
+                  - button [ref=e411]:
+                    - img
+                - generic [ref=e412]:
+                  - heading "Admin OnBehalf Product 1770729436532" [level=3] [ref=e413]
+                  - generic [ref=e414]:
+                    - img [ref=e415]
+                    - generic [ref=e417]: "0.0"
+                    - generic [ref=e418]: (0)
+                  - generic [ref=e419]:
+                    - generic [ref=e420]: GH₵120.00
+                    - generic [ref=e421]: GH₵60.00
+              - generic [ref=e422] [cursor=pointer]:
+                - generic [ref=e423]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e424]
+                  - generic [ref=e425]: 20% OFF
+                  - button [ref=e426]:
+                    - img
+                - generic [ref=e427]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e428]
+                  - generic [ref=e429]:
+                    - img [ref=e430]
+                    - generic [ref=e432]: "0.0"
+                    - generic [ref=e433]: (0)
+                  - generic [ref=e435]: GH₵129.99
+              - generic [ref=e436] [cursor=pointer]:
+                - generic [ref=e437]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e438]
+                  - generic [ref=e439]: 10% OFF
+                  - button [ref=e440]:
+                    - img
+                - generic [ref=e441]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e442]
+                  - generic [ref=e443]:
+                    - img [ref=e444]
+                    - generic [ref=e446]: "0.0"
+                    - generic [ref=e447]: (0)
+                  - generic [ref=e449]: GH₵45.99
+              - generic [ref=e450] [cursor=pointer]:
+                - generic [ref=e451]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e452]
+                  - generic [ref=e453]: 15% OFF
+                  - button [ref=e454]:
+                    - img
+                - generic [ref=e455]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e456]
+                  - generic [ref=e457]:
+                    - img [ref=e458]
+                    - generic [ref=e460]: "0.0"
+                    - generic [ref=e461]: (0)
+                  - generic [ref=e463]: GH₵189.99
+              - generic [ref=e464] [cursor=pointer]:
+                - generic [ref=e465]:
+                  - img "Admin OnBehalf Product 1770727592984" [ref=e466]
+                  - generic [ref=e467]: 50% OFF
+                  - button [ref=e468]:
+                    - img
+                - generic [ref=e469]:
+                  - heading "Admin OnBehalf Product 1770727592984" [level=3] [ref=e470]
+                  - generic [ref=e471]:
+                    - img [ref=e472]
+                    - generic [ref=e474]: "0.0"
+                    - generic [ref=e475]: (0)
+                  - generic [ref=e476]:
+                    - generic [ref=e477]: GH₵120.00
+                    - generic [ref=e478]: GH₵60.00
+              - generic [ref=e479] [cursor=pointer]:
+                - generic [ref=e480]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e481]
+                  - generic [ref=e482]: 20% OFF
+                  - button [ref=e483]:
+                    - img
+                - generic [ref=e484]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e485]
+                  - generic [ref=e486]:
+                    - img [ref=e487]
+                    - generic [ref=e489]: "0.0"
+                    - generic [ref=e490]: (0)
+                  - generic [ref=e492]: GH₵129.99
+              - generic [ref=e493] [cursor=pointer]:
+                - generic [ref=e494]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e495]
+                  - generic [ref=e496]: 10% OFF
+                  - button [ref=e497]:
+                    - img
+                - generic [ref=e498]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e499]
+                  - generic [ref=e500]:
+                    - img [ref=e501]
+                    - generic [ref=e503]: "0.0"
+                    - generic [ref=e504]: (0)
+                  - generic [ref=e506]: GH₵45.99
+              - generic [ref=e507] [cursor=pointer]:
+                - generic [ref=e508]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e509]
+                  - generic [ref=e510]: 15% OFF
+                  - button [ref=e511]:
+                    - img
+                - generic [ref=e512]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e513]
+                  - generic [ref=e514]:
+                    - img [ref=e515]
+                    - generic [ref=e517]: "0.0"
+                    - generic [ref=e518]: (0)
+                  - generic [ref=e520]: GH₵189.99
+          - generic [ref=e521]:
+            - generic [ref=e522]:
+              - generic [ref=e523]:
+                - img [ref=e525]
+                - heading "All Products" [level=2] [ref=e527]
+              - generic [ref=e528]: 105 products
+            - generic [ref=e529]:
+              - generic [ref=e530] [cursor=pointer]:
+                - generic [ref=e531]:
+                  - img "Admin OnBehalf Product 1770732750979" [ref=e532]
+                  - generic [ref=e533]: 50% OFF
+                  - button [ref=e534]:
+                    - img
+                - generic [ref=e535]:
+                  - heading "Admin OnBehalf Product 1770732750979" [level=3] [ref=e536]
+                  - generic [ref=e537]:
+                    - img [ref=e538]
+                    - generic [ref=e540]: "0.0"
+                    - generic [ref=e541]: (0)
+                  - generic [ref=e542]:
+                    - generic [ref=e543]: GH₵120.00
+                    - generic [ref=e544]: GH₵60.00
+              - generic [ref=e545] [cursor=pointer]:
+                - generic [ref=e546]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e547]
+                  - generic [ref=e548]: 20% OFF
+                  - button [ref=e549]:
+                    - img
+                - generic [ref=e550]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e551]
+                  - generic [ref=e552]:
+                    - img [ref=e553]
+                    - generic [ref=e555]: "0.0"
+                    - generic [ref=e556]: (0)
+                  - generic [ref=e558]: GH₵129.99
+              - generic [ref=e559] [cursor=pointer]:
+                - generic [ref=e560]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e561]
+                  - generic [ref=e562]: 10% OFF
+                  - button [ref=e563]:
+                    - img
+                - generic [ref=e564]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e565]
+                  - generic [ref=e566]:
+                    - img [ref=e567]
+                    - generic [ref=e569]: "0.0"
+                    - generic [ref=e570]: (0)
+                  - generic [ref=e572]: GH₵45.99
+              - generic [ref=e573] [cursor=pointer]:
+                - generic [ref=e574]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e575]
+                  - generic [ref=e576]: 15% OFF
+                  - button [ref=e577]:
+                    - img
+                - generic [ref=e578]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e579]
+                  - generic [ref=e580]:
+                    - img [ref=e581]
+                    - generic [ref=e583]: "0.0"
+                    - generic [ref=e584]: (0)
+                  - generic [ref=e586]: GH₵189.99
+              - generic [ref=e587] [cursor=pointer]:
+                - generic [ref=e588]:
+                  - img "Admin OnBehalf Product 1770729436532" [ref=e589]
+                  - generic [ref=e590]: 50% OFF
+                  - button [ref=e591]:
+                    - img
+                - generic [ref=e592]:
+                  - heading "Admin OnBehalf Product 1770729436532" [level=3] [ref=e593]
+                  - generic [ref=e594]:
+                    - img [ref=e595]
+                    - generic [ref=e597]: "0.0"
+                    - generic [ref=e598]: (0)
+                  - generic [ref=e599]:
+                    - generic [ref=e600]: GH₵120.00
+                    - generic [ref=e601]: GH₵60.00
+              - generic [ref=e602] [cursor=pointer]:
+                - generic [ref=e603]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e604]
+                  - generic [ref=e605]: 20% OFF
+                  - button [ref=e606]:
+                    - img
+                - generic [ref=e607]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e608]
+                  - generic [ref=e609]:
+                    - img [ref=e610]
+                    - generic [ref=e612]: "0.0"
+                    - generic [ref=e613]: (0)
+                  - generic [ref=e615]: GH₵129.99
+              - generic [ref=e616] [cursor=pointer]:
+                - generic [ref=e617]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e618]
+                  - generic [ref=e619]: 10% OFF
+                  - button [ref=e620]:
+                    - img
+                - generic [ref=e621]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e622]
+                  - generic [ref=e623]:
+                    - img [ref=e624]
+                    - generic [ref=e626]: "0.0"
+                    - generic [ref=e627]: (0)
+                  - generic [ref=e629]: GH₵45.99
+              - generic [ref=e630] [cursor=pointer]:
+                - generic [ref=e631]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e632]
+                  - generic [ref=e633]: 15% OFF
+                  - button [ref=e634]:
+                    - img
+                - generic [ref=e635]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e636]
+                  - generic [ref=e637]:
+                    - img [ref=e638]
+                    - generic [ref=e640]: "0.0"
+                    - generic [ref=e641]: (0)
+                  - generic [ref=e643]: GH₵189.99
+              - generic [ref=e644] [cursor=pointer]:
+                - generic [ref=e645]:
+                  - img "Admin OnBehalf Product 1770727592984" [ref=e646]
+                  - generic [ref=e647]: 50% OFF
+                  - button [ref=e648]:
+                    - img
+                - generic [ref=e649]:
+                  - heading "Admin OnBehalf Product 1770727592984" [level=3] [ref=e650]
+                  - generic [ref=e651]:
+                    - img [ref=e652]
+                    - generic [ref=e654]: "0.0"
+                    - generic [ref=e655]: (0)
+                  - generic [ref=e656]:
+                    - generic [ref=e657]: GH₵120.00
+                    - generic [ref=e658]: GH₵60.00
+              - generic [ref=e659] [cursor=pointer]:
+                - generic [ref=e660]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e661]
+                  - generic [ref=e662]: 20% OFF
+                  - button [ref=e663]:
+                    - img
+                - generic [ref=e664]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e665]
+                  - generic [ref=e666]:
+                    - img [ref=e667]
+                    - generic [ref=e669]: "0.0"
+                    - generic [ref=e670]: (0)
+                  - generic [ref=e672]: GH₵129.99
+              - generic [ref=e673] [cursor=pointer]:
+                - generic [ref=e674]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e675]
+                  - generic [ref=e676]: 10% OFF
+                  - button [ref=e677]:
+                    - img
+                - generic [ref=e678]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e679]
+                  - generic [ref=e680]:
+                    - img [ref=e681]
+                    - generic [ref=e683]: "0.0"
+                    - generic [ref=e684]: (0)
+                  - generic [ref=e686]: GH₵45.99
+              - generic [ref=e687] [cursor=pointer]:
+                - generic [ref=e688]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e689]
+                  - generic [ref=e690]: 15% OFF
+                  - button [ref=e691]:
+                    - img
+                - generic [ref=e692]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e693]
+                  - generic [ref=e694]:
+                    - img [ref=e695]
+                    - generic [ref=e697]: "0.0"
+                    - generic [ref=e698]: (0)
+                  - generic [ref=e700]: GH₵189.99
+              - generic [ref=e701] [cursor=pointer]:
+                - generic [ref=e702]:
+                  - img "Admin OnBehalf Product 1769909699337" [ref=e703]
+                  - generic [ref=e704]: 50% OFF
+                  - button [ref=e705]:
+                    - img
+                - generic [ref=e706]:
+                  - heading "Admin OnBehalf Product 1769909699337" [level=3] [ref=e707]
+                  - generic [ref=e708]:
+                    - img [ref=e709]
+                    - generic [ref=e711]: "0.0"
+                    - generic [ref=e712]: (0)
+                  - generic [ref=e713]:
+                    - generic [ref=e714]: GH₵120.00
+                    - generic [ref=e715]: GH₵60.00
+              - generic [ref=e716] [cursor=pointer]:
+                - generic [ref=e717]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e718]
+                  - generic [ref=e719]: 20% OFF
+                  - button [ref=e720]:
+                    - img
+                - generic [ref=e721]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e722]
+                  - generic [ref=e723]:
+                    - img [ref=e724]
+                    - generic [ref=e726]: "0.0"
+                    - generic [ref=e727]: (0)
+                  - generic [ref=e729]: GH₵129.99
+              - generic [ref=e730] [cursor=pointer]:
+                - generic [ref=e731]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e732]
+                  - generic [ref=e733]: 10% OFF
+                  - button [ref=e734]:
+                    - img
+                - generic [ref=e735]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e736]
+                  - generic [ref=e737]:
+                    - img [ref=e738]
+                    - generic [ref=e740]: "0.0"
+                    - generic [ref=e741]: (0)
+                  - generic [ref=e743]: GH₵45.99
+              - generic [ref=e744] [cursor=pointer]:
+                - generic [ref=e745]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e746]
+                  - generic [ref=e747]: 15% OFF
+                  - button [ref=e748]:
+                    - img
+                - generic [ref=e749]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e750]
+                  - generic [ref=e751]:
+                    - img [ref=e752]
+                    - generic [ref=e754]: "0.0"
+                    - generic [ref=e755]: (0)
+                  - generic [ref=e757]: GH₵189.99
+              - generic [ref=e758] [cursor=pointer]:
+                - generic [ref=e759]:
+                  - img "Admin OnBehalf Product 1769634133179" [ref=e760]
+                  - generic [ref=e761]: 50% OFF
+                  - button [ref=e762]:
+                    - img
+                - generic [ref=e763]:
+                  - heading "Admin OnBehalf Product 1769634133179" [level=3] [ref=e764]
+                  - generic [ref=e765]:
+                    - img [ref=e766]
+                    - generic [ref=e768]: "0.0"
+                    - generic [ref=e769]: (0)
+                  - generic [ref=e770]:
+                    - generic [ref=e771]: GH₵120.00
+                    - generic [ref=e772]: GH₵60.00
+              - generic [ref=e773] [cursor=pointer]:
+                - generic [ref=e774]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e775]
+                  - generic [ref=e776]: 20% OFF
+                  - button [ref=e777]:
+                    - img
+                - generic [ref=e778]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e779]
+                  - generic [ref=e780]:
+                    - img [ref=e781]
+                    - generic [ref=e783]: "0.0"
+                    - generic [ref=e784]: (0)
+                  - generic [ref=e786]: GH₵129.99
+              - generic [ref=e787] [cursor=pointer]:
+                - generic [ref=e788]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e789]
+                  - generic [ref=e790]: 10% OFF
+                  - button [ref=e791]:
+                    - img
+                - generic [ref=e792]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e793]
+                  - generic [ref=e794]:
+                    - img [ref=e795]
+                    - generic [ref=e797]: "0.0"
+                    - generic [ref=e798]: (0)
+                  - generic [ref=e800]: GH₵45.99
+              - generic [ref=e801] [cursor=pointer]:
+                - generic [ref=e802]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e803]
+                  - generic [ref=e804]: 15% OFF
+                  - button [ref=e805]:
+                    - img
+                - generic [ref=e806]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e807]
+                  - generic [ref=e808]:
+                    - img [ref=e809]
+                    - generic [ref=e811]: "0.0"
+                    - generic [ref=e812]: (0)
+                  - generic [ref=e814]: GH₵189.99
+              - generic [ref=e815] [cursor=pointer]:
+                - generic [ref=e816]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e817]
+                  - generic [ref=e818]: 20% OFF
+                  - button [ref=e819]:
+                    - img
+                - generic [ref=e820]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e821]
+                  - generic [ref=e822]:
+                    - img [ref=e823]
+                    - generic [ref=e825]: "0.0"
+                    - generic [ref=e826]: (0)
+                  - generic [ref=e828]: GH₵129.99
+              - generic [ref=e829] [cursor=pointer]:
+                - generic [ref=e830]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e831]
+                  - generic [ref=e832]: 10% OFF
+                  - button [ref=e833]:
+                    - img
+                - generic [ref=e834]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e835]
+                  - generic [ref=e836]:
+                    - img [ref=e837]
+                    - generic [ref=e839]: "0.0"
+                    - generic [ref=e840]: (0)
+                  - generic [ref=e842]: GH₵45.99
+              - generic [ref=e843] [cursor=pointer]:
+                - generic [ref=e844]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e845]
+                  - generic [ref=e846]: 15% OFF
+                  - button [ref=e847]:
+                    - img
+                - generic [ref=e848]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e849]
+                  - generic [ref=e850]:
+                    - img [ref=e851]
+                    - generic [ref=e853]: "0.0"
+                    - generic [ref=e854]: (0)
+                  - generic [ref=e856]: GH₵189.99
+              - generic [ref=e857] [cursor=pointer]:
+                - generic [ref=e858]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e859]
+                  - generic [ref=e860]: 20% OFF
+                  - button [ref=e861]:
+                    - img
+                - generic [ref=e862]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e863]
+                  - generic [ref=e864]:
+                    - img [ref=e865]
+                    - generic [ref=e867]: "0.0"
+                    - generic [ref=e868]: (0)
+                  - generic [ref=e870]: GH₵129.99
+              - generic [ref=e871] [cursor=pointer]:
+                - generic [ref=e872]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e873]
+                  - generic [ref=e874]: 10% OFF
+                  - button [ref=e875]:
+                    - img
+                - generic [ref=e876]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e877]
+                  - generic [ref=e878]:
+                    - img [ref=e879]
+                    - generic [ref=e881]: "0.0"
+                    - generic [ref=e882]: (0)
+                  - generic [ref=e884]: GH₵45.99
+              - generic [ref=e885] [cursor=pointer]:
+                - generic [ref=e886]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e887]
+                  - generic [ref=e888]: 15% OFF
+                  - button [ref=e889]:
+                    - img
+                - generic [ref=e890]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e891]
+                  - generic [ref=e892]:
+                    - img [ref=e893]
+                    - generic [ref=e895]: "0.0"
+                    - generic [ref=e896]: (0)
+                  - generic [ref=e898]: GH₵189.99
+              - generic [ref=e899] [cursor=pointer]:
+                - generic [ref=e900]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e901]
+                  - generic [ref=e902]: 20% OFF
+                  - button [ref=e903]:
+                    - img
+                - generic [ref=e904]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e905]
+                  - generic [ref=e906]:
+                    - img [ref=e907]
+                    - generic [ref=e909]: "0.0"
+                    - generic [ref=e910]: (0)
+                  - generic [ref=e912]: GH₵129.99
+              - generic [ref=e913] [cursor=pointer]:
+                - generic [ref=e914]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e915]
+                  - generic [ref=e916]: 10% OFF
+                  - button [ref=e917]:
+                    - img
+                - generic [ref=e918]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e919]
+                  - generic [ref=e920]:
+                    - img [ref=e921]
+                    - generic [ref=e923]: "0.0"
+                    - generic [ref=e924]: (0)
+                  - generic [ref=e926]: GH₵45.99
+              - generic [ref=e927] [cursor=pointer]:
+                - generic [ref=e928]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e929]
+                  - generic [ref=e930]: 15% OFF
+                  - button [ref=e931]:
+                    - img
+                - generic [ref=e932]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e933]
+                  - generic [ref=e934]:
+                    - img [ref=e935]
+                    - generic [ref=e937]: "0.0"
+                    - generic [ref=e938]: (0)
+                  - generic [ref=e940]: GH₵189.99
+              - generic [ref=e941] [cursor=pointer]:
+                - generic [ref=e942]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e943]
+                  - generic [ref=e944]: 20% OFF
+                  - button [ref=e945]:
+                    - img
+                - generic [ref=e946]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e947]
+                  - generic [ref=e948]:
+                    - img [ref=e949]
+                    - generic [ref=e951]: "0.0"
+                    - generic [ref=e952]: (0)
+                  - generic [ref=e954]: GH₵129.99
+              - generic [ref=e955] [cursor=pointer]:
+                - generic [ref=e956]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e957]
+                  - generic [ref=e958]: 10% OFF
+                  - button [ref=e959]:
+                    - img
+                - generic [ref=e960]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e961]
+                  - generic [ref=e962]:
+                    - img [ref=e963]
+                    - generic [ref=e965]: "0.0"
+                    - generic [ref=e966]: (0)
+                  - generic [ref=e968]: GH₵45.99
+              - generic [ref=e969] [cursor=pointer]:
+                - generic [ref=e970]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e971]
+                  - generic [ref=e972]: 15% OFF
+                  - button [ref=e973]:
+                    - img
+                - generic [ref=e974]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e975]
+                  - generic [ref=e976]:
+                    - img [ref=e977]
+                    - generic [ref=e979]: "0.0"
+                    - generic [ref=e980]: (0)
+                  - generic [ref=e982]: GH₵189.99
+              - generic [ref=e983] [cursor=pointer]:
+                - generic [ref=e984]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e985]
+                  - generic [ref=e986]: 20% OFF
+                  - button [ref=e987]:
+                    - img
+                - generic [ref=e988]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e989]
+                  - generic [ref=e990]:
+                    - img [ref=e991]
+                    - generic [ref=e993]: "0.0"
+                    - generic [ref=e994]: (0)
+                  - generic [ref=e996]: GH₵129.99
+              - generic [ref=e997] [cursor=pointer]:
+                - generic [ref=e998]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e999]
+                  - generic [ref=e1000]: 10% OFF
+                  - button [ref=e1001]:
+                    - img
+                - generic [ref=e1002]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e1003]
+                  - generic [ref=e1004]:
+                    - img [ref=e1005]
+                    - generic [ref=e1007]: "0.0"
+                    - generic [ref=e1008]: (0)
+                  - generic [ref=e1010]: GH₵45.99
+              - generic [ref=e1011] [cursor=pointer]:
+                - generic [ref=e1012]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e1013]
+                  - generic [ref=e1014]: 15% OFF
+                  - button [ref=e1015]:
+                    - img
+                - generic [ref=e1016]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e1017]
+                  - generic [ref=e1018]:
+                    - img [ref=e1019]
+                    - generic [ref=e1021]: "0.0"
+                    - generic [ref=e1022]: (0)
+                  - generic [ref=e1024]: GH₵189.99
+              - generic [ref=e1025] [cursor=pointer]:
+                - generic [ref=e1026]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e1027]
+                  - generic [ref=e1028]: 20% OFF
+                  - button [ref=e1029]:
+                    - img
+                - generic [ref=e1030]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e1031]
+                  - generic [ref=e1032]:
+                    - img [ref=e1033]
+                    - generic [ref=e1035]: "0.0"
+                    - generic [ref=e1036]: (0)
+                  - generic [ref=e1038]: GH₵129.99
+              - generic [ref=e1039] [cursor=pointer]:
+                - generic [ref=e1040]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e1041]
+                  - generic [ref=e1042]: 10% OFF
+                  - button [ref=e1043]:
+                    - img
+                - generic [ref=e1044]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e1045]
+                  - generic [ref=e1046]:
+                    - img [ref=e1047]
+                    - generic [ref=e1049]: "0.0"
+                    - generic [ref=e1050]: (0)
+                  - generic [ref=e1052]: GH₵45.99
+              - generic [ref=e1053] [cursor=pointer]:
+                - generic [ref=e1054]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e1055]
+                  - generic [ref=e1056]: 15% OFF
+                  - button [ref=e1057]:
+                    - img
+                - generic [ref=e1058]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e1059]
+                  - generic [ref=e1060]:
+                    - img [ref=e1061]
+                    - generic [ref=e1063]: "0.0"
+                    - generic [ref=e1064]: (0)
+                  - generic [ref=e1066]: GH₵189.99
+              - generic [ref=e1067] [cursor=pointer]:
+                - generic [ref=e1068]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e1069]
+                  - generic [ref=e1070]: 20% OFF
+                  - button [ref=e1071]:
+                    - img
+                - generic [ref=e1072]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e1073]
+                  - generic [ref=e1074]:
+                    - img [ref=e1075]
+                    - generic [ref=e1077]: "0.0"
+                    - generic [ref=e1078]: (0)
+                  - generic [ref=e1080]: GH₵129.99
+              - generic [ref=e1081] [cursor=pointer]:
+                - generic [ref=e1082]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e1083]
+                  - generic [ref=e1084]: 10% OFF
+                  - button [ref=e1085]:
+                    - img
+                - generic [ref=e1086]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e1087]
+                  - generic [ref=e1088]:
+                    - img [ref=e1089]
+                    - generic [ref=e1091]: "0.0"
+                    - generic [ref=e1092]: (0)
+                  - generic [ref=e1094]: GH₵45.99
+              - generic [ref=e1095] [cursor=pointer]:
+                - generic [ref=e1096]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e1097]
+                  - generic [ref=e1098]: 15% OFF
+                  - button [ref=e1099]:
+                    - img
+                - generic [ref=e1100]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e1101]
+                  - generic [ref=e1102]:
+                    - img [ref=e1103]
+                    - generic [ref=e1105]: "0.0"
+                    - generic [ref=e1106]: (0)
+                  - generic [ref=e1108]: GH₵189.99
+              - generic [ref=e1109] [cursor=pointer]:
+                - generic [ref=e1110]:
+                  - img "Modern Modest Maxi Dress - Burgundy" [ref=e1111]
+                  - generic [ref=e1112]: 20% OFF
+                  - button [ref=e1113]:
+                    - img
+                - generic [ref=e1114]:
+                  - heading "Modern Modest Maxi Dress - Burgundy" [level=3] [ref=e1115]
+                  - generic [ref=e1116]:
+                    - img [ref=e1117]
+                    - generic [ref=e1119]: "0.0"
+                    - generic [ref=e1120]: (0)
+                  - generic [ref=e1122]: GH₵129.99
+              - generic [ref=e1123] [cursor=pointer]:
+                - generic [ref=e1124]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e1125]
+                  - generic [ref=e1126]: 10% OFF
+                  - button [ref=e1127]:
+                    - img
+                - generic [ref=e1128]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e1129]
+                  - generic [ref=e1130]:
+                    - img [ref=e1131]
+                    - generic [ref=e1133]: "0.0"
+                    - generic [ref=e1134]: (0)
+                  - generic [ref=e1136]: GH₵45.99
+              - generic [ref=e1137] [cursor=pointer]:
+                - generic [ref=e1138]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e1139]
+                  - generic [ref=e1140]: 15% OFF
+                  - button [ref=e1141]:
+                    - img
+                - generic [ref=e1142]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e1143]
+                  - generic [ref=e1144]:
+                    - img [ref=e1145]
+                    - generic [ref=e1147]: "0.0"
+                    - generic [ref=e1148]: (0)
+                  - generic [ref=e1150]: GH₵189.99
+              - generic [ref=e1151] [cursor=pointer]:
+                - generic [ref=e1152]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e1153]
+                  - generic [ref=e1154]: 10% OFF
+                  - button [ref=e1155]:
+                    - img
+                - generic [ref=e1156]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e1157]
+                  - generic [ref=e1158]:
+                    - img [ref=e1159]
+                    - generic [ref=e1161]: "0.0"
+                    - generic [ref=e1162]: (0)
+                  - generic [ref=e1164]: GH₵45.99
+              - generic [ref=e1165] [cursor=pointer]:
+                - generic [ref=e1166]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e1167]
+                  - generic [ref=e1168]: 15% OFF
+                  - button [ref=e1169]:
+                    - img
+                - generic [ref=e1170]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e1171]
+                  - generic [ref=e1172]:
+                    - img [ref=e1173]
+                    - generic [ref=e1175]: "0.0"
+                    - generic [ref=e1176]: (0)
+                  - generic [ref=e1178]: GH₵189.99
+              - generic [ref=e1179] [cursor=pointer]:
+                - generic [ref=e1180]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e1181]
+                  - generic [ref=e1182]: 10% OFF
+                  - button [ref=e1183]:
+                    - img
+                - generic [ref=e1184]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e1185]
+                  - generic [ref=e1186]:
+                    - img [ref=e1187]
+                    - generic [ref=e1189]: "0.0"
+                    - generic [ref=e1190]: (0)
+                  - generic [ref=e1192]: GH₵45.99
+              - generic [ref=e1193] [cursor=pointer]:
+                - generic [ref=e1194]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e1195]
+                  - generic [ref=e1196]: 15% OFF
+                  - button [ref=e1197]:
+                    - img
+                - generic [ref=e1198]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e1199]
+                  - generic [ref=e1200]:
+                    - img [ref=e1201]
+                    - generic [ref=e1203]: "0.0"
+                    - generic [ref=e1204]: (0)
+                  - generic [ref=e1206]: GH₵189.99
+              - generic [ref=e1207] [cursor=pointer]:
+                - generic [ref=e1208]:
+                  - img "Luxury Silk Hijab Collection - Navy Blue" [ref=e1209]
+                  - generic [ref=e1210]: 10% OFF
+                  - button [ref=e1211]:
+                    - img
+                - generic [ref=e1212]:
+                  - heading "Luxury Silk Hijab Collection - Navy Blue" [level=3] [ref=e1213]
+                  - generic [ref=e1214]:
+                    - img [ref=e1215]
+                    - generic [ref=e1217]: "0.0"
+                    - generic [ref=e1218]: (0)
+                  - generic [ref=e1220]: GH₵45.99
+              - generic [ref=e1221] [cursor=pointer]:
+                - generic [ref=e1222]:
+                  - img "Elegant Black Abaya with Gold Embroidery" [ref=e1223]
+                  - generic [ref=e1224]: 15% OFF
+                  - button [ref=e1225]:
+                    - img
+                - generic [ref=e1226]:
+                  - heading "Elegant Black Abaya with Gold Embroidery" [level=3] [ref=e1227]
+                  - generic [ref=e1228]:
+                    - img [ref=e1229]
+                    - generic [ref=e1231]: "0.0"
+                    - generic [ref=e1232]: (0)
+                  - generic [ref=e1234]: GH₵189.99
+              - generic [ref=e1235] [cursor=pointer]:
+                - generic [ref=e1236]:
+                  - img "Platform earnings test product" [ref=e1237]
+                  - button [ref=e1238]:
+                    - img
+                  - generic [ref=e1240]: Out of Stock
+                - generic [ref=e1241]:
+                  - heading "Platform earnings test product" [level=3] [ref=e1242]
+                  - generic [ref=e1243]:
+                    - img [ref=e1244]
+                    - generic [ref=e1246]: "0.0"
+                    - generic [ref=e1247]: (0)
+                  - generic [ref=e1249]: GH₵100.00
+              - generic [ref=e1250] [cursor=pointer]:
+                - generic [ref=e1251]:
+                  - img "Platform earnings test product" [ref=e1252]
+                  - button [ref=e1253]:
+                    - img
+                  - generic [ref=e1255]: Out of Stock
+                - generic [ref=e1256]:
+                  - heading "Platform earnings test product" [level=3] [ref=e1257]
+                  - generic [ref=e1258]:
+                    - img [ref=e1259]
+                    - generic [ref=e1261]: "0.0"
+                    - generic [ref=e1262]: (0)
+                  - generic [ref=e1264]: GH₵100.00
+              - generic [ref=e1265] [cursor=pointer]:
+                - generic [ref=e1266]:
+                  - img "Platform earnings test product" [ref=e1267]
+                  - button [ref=e1268]:
+                    - img
+                  - generic [ref=e1270]: Out of Stock
+                - generic [ref=e1271]:
+                  - heading "Platform earnings test product" [level=3] [ref=e1272]
+                  - generic [ref=e1273]:
+                    - img [ref=e1274]
+                    - generic [ref=e1276]: "0.0"
+                    - generic [ref=e1277]: (0)
+                  - generic [ref=e1279]: GH₵100.00
+              - generic [ref=e1280] [cursor=pointer]:
+                - generic [ref=e1281]:
+                  - img "Platform earnings test product" [ref=e1282]
+                  - button [ref=e1283]:
+                    - img
+                  - generic [ref=e1285]: Out of Stock
+                - generic [ref=e1286]:
+                  - heading "Platform earnings test product" [level=3] [ref=e1287]
+                  - generic [ref=e1288]:
+                    - img [ref=e1289]
+                    - generic [ref=e1291]: "0.0"
+                    - generic [ref=e1292]: (0)
+                  - generic [ref=e1294]: GH₵100.00
+              - generic [ref=e1295] [cursor=pointer]:
+                - generic [ref=e1296]:
+                  - img "Platform earnings test product" [ref=e1297]
+                  - button [ref=e1298]:
+                    - img
+                  - generic [ref=e1300]: Out of Stock
+                - generic [ref=e1301]:
+                  - heading "Platform earnings test product" [level=3] [ref=e1302]
+                  - generic [ref=e1303]:
+                    - img [ref=e1304]
+                    - generic [ref=e1306]: "0.0"
+                    - generic [ref=e1307]: (0)
+                  - generic [ref=e1309]: GH₵100.00
+              - generic [ref=e1310] [cursor=pointer]:
+                - generic [ref=e1311]:
+                  - img "Modest Walking Shoes - Beige" [ref=e1312]
+                  - button [ref=e1313]:
+                    - img
+                - generic [ref=e1314]:
+                  - heading "Modest Walking Shoes - Beige" [level=3] [ref=e1315]
+                  - generic [ref=e1316]:
+                    - img [ref=e1317]
+                    - generic [ref=e1319]: "0.0"
+                    - generic [ref=e1320]: (0)
+                  - generic [ref=e1322]: GH₵84.99
+              - generic [ref=e1323] [cursor=pointer]:
+                - generic [ref=e1324]:
+                  - img "Formal Covered Heels - Silver" [ref=e1325]
+                  - button [ref=e1326]:
+                    - img
+                - generic [ref=e1327]:
+                  - heading "Formal Covered Heels - Silver" [level=3] [ref=e1328]
+                  - generic [ref=e1329]:
+                    - img [ref=e1330]
+                    - generic [ref=e1332]: "0.0"
+                    - generic [ref=e1333]: (0)
+                  - generic [ref=e1335]: GH₵139.99
+              - generic [ref=e1336] [cursor=pointer]:
+                - generic [ref=e1337]:
+                  - img "Modest Sports Shoes - Gray & Pink" [ref=e1338]
+                  - button [ref=e1339]:
+                    - img
+                - generic [ref=e1340]:
+                  - heading "Modest Sports Shoes - Gray & Pink" [level=3] [ref=e1341]
+                  - generic [ref=e1342]:
+                    - img [ref=e1343]
+                    - generic [ref=e1345]: "0.0"
+                    - generic [ref=e1346]: (0)
+                  - generic [ref=e1348]: GH₵119.99
+              - generic [ref=e1349] [cursor=pointer]:
+                - generic [ref=e1350]:
+                  - img "Covered Platform Shoes - Black" [ref=e1351]
+                  - button [ref=e1352]:
+                    - img
+                - generic [ref=e1353]:
+                  - heading "Covered Platform Shoes - Black" [level=3] [ref=e1354]
+                  - generic [ref=e1355]:
+                    - img [ref=e1356]
+                    - generic [ref=e1358]: "0.0"
+                    - generic [ref=e1359]: (0)
+                  - generic [ref=e1361]: GH₵109.99
+              - generic [ref=e1362] [cursor=pointer]:
+                - generic [ref=e1363]:
+                  - img "Modest Loafers - Tan Suede" [ref=e1364]
+                  - button [ref=e1365]:
+                    - img
+                - generic [ref=e1366]:
+                  - heading "Modest Loafers - Tan Suede" [level=3] [ref=e1367]
+                  - generic [ref=e1368]:
+                    - img [ref=e1369]
+                    - generic [ref=e1371]: "0.0"
+                    - generic [ref=e1372]: (0)
+                  - generic [ref=e1374]: GH₵99.99
+              - generic [ref=e1375] [cursor=pointer]:
+                - generic [ref=e1376]:
+                  - img "Closed Toe Mary Janes - Burgundy" [ref=e1377]
+                  - button [ref=e1378]:
+                    - img
+                - generic [ref=e1379]:
+                  - heading "Closed Toe Mary Janes - Burgundy" [level=3] [ref=e1380]
+                  - generic [ref=e1381]:
+                    - img [ref=e1382]
+                    - generic [ref=e1384]: "0.0"
+                    - generic [ref=e1385]: (0)
+                  - generic [ref=e1387]: GH₵94.99
+              - generic [ref=e1388] [cursor=pointer]:
+                - generic [ref=e1389]:
+                  - img "Modest Slip-On Sneakers - White" [ref=e1390]
+                  - button [ref=e1391]:
+                    - img
+                - generic [ref=e1392]:
+                  - heading "Modest Slip-On Sneakers - White" [level=3] [ref=e1393]
+                  - generic [ref=e1394]:
+                    - img [ref=e1395]
+                    - generic [ref=e1397]: "0.0"
+                    - generic [ref=e1398]: (0)
+                  - generic [ref=e1400]: GH₵89.99
+              - generic [ref=e1401] [cursor=pointer]:
+                - generic [ref=e1402]:
+                  - img "Covered Wedge Sandals - Navy" [ref=e1403]
+                  - button [ref=e1404]:
+                    - img
+                - generic [ref=e1405]:
+                  - heading "Covered Wedge Sandals - Navy" [level=3] [ref=e1406]
+                  - generic [ref=e1407]:
+                    - img [ref=e1408]
+                    - generic [ref=e1410]: "0.0"
+                    - generic [ref=e1411]: (0)
+                  - generic [ref=e1413]: GH₵79.99
+              - generic [ref=e1414] [cursor=pointer]:
+                - generic [ref=e1415]:
+                  - img "Modest Ankle Boots - Brown Leather" [ref=e1416]
+                  - button [ref=e1417]:
+                    - img
+                - generic [ref=e1418]:
+                  - heading "Modest Ankle Boots - Brown Leather" [level=3] [ref=e1419]
+                  - generic [ref=e1420]:
+                    - img [ref=e1421]
+                    - generic [ref=e1423]: "0.0"
+                    - generic [ref=e1424]: (0)
+                  - generic [ref=e1426]: GH₵129.99
+              - generic [ref=e1427] [cursor=pointer]:
+                - generic [ref=e1428]:
+                  - img "Closed Toe Ballet Flats - Black" [ref=e1429]
+                  - button [ref=e1430]:
+                    - img
+                - generic [ref=e1431]:
+                  - heading "Closed Toe Ballet Flats - Black" [level=3] [ref=e1432]
+                  - generic [ref=e1433]:
+                    - img [ref=e1434]
+                    - generic [ref=e1436]: "0.0"
+                    - generic [ref=e1437]: (0)
+                  - generic [ref=e1439]: GH₵69.99
+              - generic [ref=e1440] [cursor=pointer]:
+                - generic [ref=e1441]:
+                  - img "Modest Shawl Wrap - Cashmere Blend" [ref=e1442]
+                  - button [ref=e1443]:
+                    - img
+                - generic [ref=e1444]:
+                  - heading "Modest Shawl Wrap - Cashmere Blend" [level=3] [ref=e1445]
+                  - generic [ref=e1446]:
+                    - img [ref=e1447]
+                    - generic [ref=e1449]: "0.0"
+                    - generic [ref=e1450]: (0)
+                  - generic [ref=e1452]: GH₵89.99
+              - generic [ref=e1453] [cursor=pointer]:
+                - generic [ref=e1454]:
+                  - img "Modesty Arm Sleeves - Pair" [ref=e1455]
+                  - button [ref=e1456]:
+                    - img
+                - generic [ref=e1457]:
+                  - heading "Modesty Arm Sleeves - Pair" [level=3] [ref=e1458]
+                  - generic [ref=e1459]:
+                    - img [ref=e1460]
+                    - generic [ref=e1462]: "0.0"
+                    - generic [ref=e1463]: (0)
+                  - generic [ref=e1465]: GH₵22.99
+              - generic [ref=e1466] [cursor=pointer]:
+                - generic [ref=e1467]:
+                  - img "Islamic Wall Art - Ayatul Kursi" [ref=e1468]
+                  - button [ref=e1469]:
+                    - img
+                - generic [ref=e1470]:
+                  - heading "Islamic Wall Art - Ayatul Kursi" [level=3] [ref=e1471]
+                  - generic [ref=e1472]:
+                    - img [ref=e1473]
+                    - generic [ref=e1475]: "0.0"
+                    - generic [ref=e1476]: (0)
+                  - generic [ref=e1478]: GH₵69.99
+              - generic [ref=e1479] [cursor=pointer]:
+                - generic [ref=e1480]:
+                  - img "Wudu Socks - Waterproof Khuff" [ref=e1481]
+                  - button [ref=e1482]:
+                    - img
+                - generic [ref=e1483]:
+                  - heading "Wudu Socks - Waterproof Khuff" [level=3] [ref=e1484]
+                  - generic [ref=e1485]:
+                    - img [ref=e1486]
+                    - generic [ref=e1488]: "0.0"
+                    - generic [ref=e1489]: (0)
+                  - generic [ref=e1491]: GH₵39.99
+              - generic [ref=e1492] [cursor=pointer]:
+                - generic [ref=e1493]:
+                  - img "Prayer Mat - Velvet Turkish Design" [ref=e1494]
+                  - button [ref=e1495]:
+                    - img
+                - generic [ref=e1496]:
+                  - heading "Prayer Mat - Velvet Turkish Design" [level=3] [ref=e1497]
+                  - generic [ref=e1498]:
+                    - img [ref=e1499]
+                    - generic [ref=e1501]: "0.0"
+                    - generic [ref=e1502]: (0)
+                  - generic [ref=e1504]: GH₵49.99
+              - generic [ref=e1505] [cursor=pointer]:
+                - generic [ref=e1506]:
+                  - img "Hijab Magnets Set - Silver" [ref=e1507]
+                  - button [ref=e1508]:
+                    - img
+                - generic [ref=e1509]:
+                  - heading "Hijab Magnets Set - Silver" [level=3] [ref=e1510]
+                  - generic [ref=e1511]:
+                    - img [ref=e1512]
+                    - generic [ref=e1514]: "0.0"
+                    - generic [ref=e1515]: (0)
+                  - generic [ref=e1517]: GH₵19.99
+              - generic [ref=e1518] [cursor=pointer]:
+                - generic [ref=e1519]:
+                  - img "Modest Handbag - Black Leather" [ref=e1520]
+                  - button [ref=e1521]:
+                    - img
+                - generic [ref=e1522]:
+                  - heading "Modest Handbag - Black Leather" [level=3] [ref=e1523]
+                  - generic [ref=e1524]:
+                    - img [ref=e1525]
+                    - generic [ref=e1527]: "0.0"
+                    - generic [ref=e1528]: (0)
+                  - generic [ref=e1530]: GH₵119.99
+              - generic [ref=e1531] [cursor=pointer]:
+                - generic [ref=e1532]:
+                  - img "Islamic Prayer Beads Tasbih - Wooden" [ref=e1533]
+                  - button [ref=e1534]:
+                    - img
+                - generic [ref=e1535]:
+                  - heading "Islamic Prayer Beads Tasbih - Wooden" [level=3] [ref=e1536]
+                  - generic [ref=e1537]:
+                    - img [ref=e1538]
+                    - generic [ref=e1540]: "0.0"
+                    - generic [ref=e1541]: (0)
+                  - generic [ref=e1543]: GH₵29.99
+              - generic [ref=e1544] [cursor=pointer]:
+                - generic [ref=e1545]:
+                  - img "Underscarves Set of 3 - Neutral Colors" [ref=e1546]
+                  - button [ref=e1547]:
+                    - img
+                - generic [ref=e1548]:
+                  - heading "Underscarves Set of 3 - Neutral Colors" [level=3] [ref=e1549]
+                  - generic [ref=e1550]:
+                    - img [ref=e1551]
+                    - generic [ref=e1553]: "0.0"
+                    - generic [ref=e1554]: (0)
+                  - generic [ref=e1556]: GH₵34.99
+              - generic [ref=e1557] [cursor=pointer]:
+                - generic [ref=e1558]:
+                  - img "Hijab Pins Set - Gold Finish" [ref=e1559]
+                  - button [ref=e1560]:
+                    - img
+                - generic [ref=e1561]:
+                  - heading "Hijab Pins Set - Gold Finish" [level=3] [ref=e1562]
+                  - generic [ref=e1563]:
+                    - img [ref=e1564]
+                    - generic [ref=e1566]: "0.0"
+                    - generic [ref=e1567]: (0)
+                  - generic [ref=e1569]: GH₵24.99
+              - generic [ref=e1570] [cursor=pointer]:
+                - generic [ref=e1571]:
+                  - img "Tiered Modest Dress - Charcoal" [ref=e1572]
+                  - button [ref=e1573]:
+                    - img
+                - generic [ref=e1574]:
+                  - heading "Tiered Modest Dress - Charcoal" [level=3] [ref=e1575]
+                  - generic [ref=e1576]:
+                    - img [ref=e1577]
+                    - generic [ref=e1579]: "0.0"
+                    - generic [ref=e1580]: (0)
+                  - generic [ref=e1582]: GH₵134.99
+              - generic [ref=e1583] [cursor=pointer]:
+                - generic [ref=e1584]:
+                  - img "A-Line Modest Dress - Dusty Pink" [ref=e1585]
+                  - button [ref=e1586]:
+                    - img
+                - generic [ref=e1587]:
+                  - heading "A-Line Modest Dress - Dusty Pink" [level=3] [ref=e1588]
+                  - generic [ref=e1589]:
+                    - img [ref=e1590]
+                    - generic [ref=e1592]: "0.0"
+                    - generic [ref=e1593]: (0)
+                  - generic [ref=e1595]: GH₵144.99
+              - generic [ref=e1596] [cursor=pointer]:
+                - generic [ref=e1597]:
+                  - img "Floral Print Modest Dress - Burgundy" [ref=e1598]
+                  - button [ref=e1599]:
+                    - img
+                - generic [ref=e1600]:
+                  - heading "Floral Print Modest Dress - Burgundy" [level=3] [ref=e1601]
+                  - generic [ref=e1602]:
+                    - img [ref=e1603]
+                    - generic [ref=e1605]: "0.0"
+                    - generic [ref=e1606]: (0)
+                  - generic [ref=e1608]: GH₵154.99
+              - generic [ref=e1609] [cursor=pointer]:
+                - generic [ref=e1610]:
+                  - img "Linen Blend Modest Dress - Olive" [ref=e1611]
+                  - button [ref=e1612]:
+                    - img
+                - generic [ref=e1613]:
+                  - heading "Linen Blend Modest Dress - Olive" [level=3] [ref=e1614]
+                  - generic [ref=e1615]:
+                    - img [ref=e1616]
+                    - generic [ref=e1618]: "0.0"
+                    - generic [ref=e1619]: (0)
+                  - generic [ref=e1621]: GH₵129.99
+              - generic [ref=e1622] [cursor=pointer]:
+                - generic [ref=e1623]:
+                  - img "Belted Modest Tunic Dress - Beige" [ref=e1624]
+                  - button [ref=e1625]:
+                    - img
+                - generic [ref=e1626]:
+                  - heading "Belted Modest Tunic Dress - Beige" [level=3] [ref=e1627]
+                  - generic [ref=e1628]:
+                    - img [ref=e1629]
+                    - generic [ref=e1631]: "0.0"
+                    - generic [ref=e1632]: (0)
+                  - generic [ref=e1634]: GH₵119.99
+              - generic [ref=e1635] [cursor=pointer]:
+                - generic [ref=e1636]:
+                  - img "Pleated Modest Dress - Gray" [ref=e1637]
+                  - button [ref=e1638]:
+                    - img
+                - generic [ref=e1639]:
+                  - heading "Pleated Modest Dress - Gray" [level=3] [ref=e1640]
+                  - generic [ref=e1641]:
+                    - img [ref=e1642]
+                    - generic [ref=e1644]: "0.0"
+                    - generic [ref=e1645]: (0)
+                  - generic [ref=e1647]: GH₵149.99
+              - generic [ref=e1648] [cursor=pointer]:
+                - generic [ref=e1649]:
+                  - img "Cotton Jersey Modest Dress - Black" [ref=e1650]
+                  - button [ref=e1651]:
+                    - img
+                - generic [ref=e1652]:
+                  - heading "Cotton Jersey Modest Dress - Black" [level=3] [ref=e1653]
+                  - generic [ref=e1654]:
+                    - img [ref=e1655]
+                    - generic [ref=e1657]: "0.0"
+                    - generic [ref=e1658]: (0)
+                  - generic [ref=e1660]: GH₵89.99
+              - generic [ref=e1661] [cursor=pointer]:
+                - generic [ref=e1662]:
+                  - img "Emerald Green Satin Maxi Dress" [ref=e1663]
+                  - button [ref=e1664]:
+                    - img
+                - generic [ref=e1665]:
+                  - heading "Emerald Green Satin Maxi Dress" [level=3] [ref=e1666]
+                  - generic [ref=e1667]:
+                    - img [ref=e1668]
+                    - generic [ref=e1670]: "0.0"
+                    - generic [ref=e1671]: (0)
+                  - generic [ref=e1673]: GH₵199.99
+              - generic [ref=e1674] [cursor=pointer]:
+                - generic [ref=e1675]:
+                  - img "Embroidered Modest Dress - Navy" [ref=e1676]
+                  - button [ref=e1677]:
+                    - img
+                - generic [ref=e1678]:
+                  - heading "Embroidered Modest Dress - Navy" [level=3] [ref=e1679]
+                  - generic [ref=e1680]:
+                    - img [ref=e1681]
+                    - generic [ref=e1683]: "0.0"
+                    - generic [ref=e1684]: (0)
+                  - generic [ref=e1686]: GH₵164.99
+              - generic [ref=e1687] [cursor=pointer]:
+                - generic [ref=e1688]:
+                  - img "Navy Blue Modest Maxi Dress" [ref=e1689]
+                  - button [ref=e1690]:
+                    - img
+                - generic [ref=e1691]:
+                  - heading "Navy Blue Modest Maxi Dress" [level=3] [ref=e1692]
+                  - generic [ref=e1693]:
+                    - img [ref=e1694]
+                    - generic [ref=e1696]: "0.0"
+                    - generic [ref=e1697]: (0)
+                  - generic [ref=e1699]: GH₵139.99
+              - generic [ref=e1700] [cursor=pointer]:
+                - generic [ref=e1701]:
+                  - img "Hooded Jilbab Set - Two Piece" [ref=e1702]
+                  - button [ref=e1703]:
+                    - img
+                - generic [ref=e1704]:
+                  - heading "Hooded Jilbab Set - Two Piece" [level=3] [ref=e1705]
+                  - generic [ref=e1706]:
+                    - img [ref=e1707]
+                    - generic [ref=e1709]: "0.0"
+                    - generic [ref=e1710]: (0)
+                  - generic [ref=e1712]: GH₵174.99
+              - generic [ref=e1713] [cursor=pointer]:
+                - generic [ref=e1714]:
+                  - img "Nida Fabric Abaya - Brown" [ref=e1715]
+                  - button [ref=e1716]:
+                    - img
+                - generic [ref=e1717]:
+                  - heading "Nida Fabric Abaya - Brown" [level=3] [ref=e1718]
+                  - generic [ref=e1719]:
+                    - img [ref=e1720]
+                    - generic [ref=e1722]: "0.0"
+                    - generic [ref=e1723]: (0)
+                  - generic [ref=e1725]: GH₵159.99
+              - generic [ref=e1726] [cursor=pointer]:
+                - generic [ref=e1727]:
+                  - img "Butterfly Abaya - Dark Green" [ref=e1728]
+                  - button [ref=e1729]:
+                    - img
+                - generic [ref=e1730]:
+                  - heading "Butterfly Abaya - Dark Green" [level=3] [ref=e1731]
+                  - generic [ref=e1732]:
+                    - img [ref=e1733]
+                    - generic [ref=e1735]: "0.0"
+                    - generic [ref=e1736]: (0)
+                  - generic [ref=e1738]: GH₵184.99
+              - generic [ref=e1739] [cursor=pointer]:
+                - generic [ref=e1740]:
+                  - img "Pink Lace Abaya Dress" [ref=e1741]
+                  - button [ref=e1742]:
+                    - img
+                - generic [ref=e1743]:
+                  - heading "Pink Lace Abaya Dress" [level=3] [ref=e1744]
+                  - generic [ref=e1745]:
+                    - img [ref=e1746]
+                    - generic [ref=e1748]: "0.0"
+                    - generic [ref=e1749]: (0)
+                  - generic [ref=e1751]: GH₵219.99
+              - generic [ref=e1752] [cursor=pointer]:
+                - generic [ref=e1753]:
+                  - img "Embroidered Sleeve Abaya - Charcoal" [ref=e1754]
+                  - button [ref=e1755]:
+                    - img
+                - generic [ref=e1756]:
+                  - heading "Embroidered Sleeve Abaya - Charcoal" [level=3] [ref=e1757]
+                  - generic [ref=e1758]:
+                    - img [ref=e1759]
+                    - generic [ref=e1761]: "0.0"
+                    - generic [ref=e1762]: (0)
+                  - generic [ref=e1764]: GH₵199.99
+              - generic [ref=e1765] [cursor=pointer]:
+                - generic [ref=e1766]:
+                  - img "Kimono Style Abaya - Beige" [ref=e1767]
+                  - button [ref=e1768]:
+                    - img
+                - generic [ref=e1769]:
+                  - heading "Kimono Style Abaya - Beige" [level=3] [ref=e1770]
+                  - generic [ref=e1771]:
+                    - img [ref=e1772]
+                    - generic [ref=e1774]: "0.0"
+                    - generic [ref=e1775]: (0)
+                  - generic [ref=e1777]: GH₵179.99
+              - generic [ref=e1778] [cursor=pointer]:
+                - generic [ref=e1779]:
+                  - img "Open Front Abaya - Navy Blue" [ref=e1780]
+                  - button [ref=e1781]:
+                    - img
+                - generic [ref=e1782]:
+                  - heading "Open Front Abaya - Navy Blue" [level=3] [ref=e1783]
+                  - generic [ref=e1784]:
+                    - img [ref=e1785]
+                    - generic [ref=e1787]: "0.0"
+                    - generic [ref=e1788]: (0)
+                  - generic [ref=e1790]: GH₵169.99
+              - generic [ref=e1791] [cursor=pointer]:
+                - generic [ref=e1792]:
+                  - img "Burgundy Velvet Abaya" [ref=e1793]
+                  - button [ref=e1794]:
+                    - img
+                - generic [ref=e1795]:
+                  - heading "Burgundy Velvet Abaya" [level=3] [ref=e1796]
+                  - generic [ref=e1797]:
+                    - img [ref=e1798]
+                    - generic [ref=e1800]: "0.0"
+                    - generic [ref=e1801]: (0)
+                  - generic [ref=e1803]: GH₵229.99
+              - generic [ref=e1804] [cursor=pointer]:
+                - generic [ref=e1805]:
+                  - img "Elegant Black Abaya - Simple Design" [ref=e1806]
+                  - button [ref=e1807]:
+                    - img
+                - generic [ref=e1808]:
+                  - heading "Elegant Black Abaya - Simple Design" [level=3] [ref=e1809]
+                  - generic [ref=e1810]:
+                    - img [ref=e1811]
+                    - generic [ref=e1813]: "0.0"
+                    - generic [ref=e1814]: (0)
+                  - generic [ref=e1816]: GH₵149.99
+              - generic [ref=e1817] [cursor=pointer]:
+                - generic [ref=e1818]:
+                  - img "Classic Black Abaya with Gold Embroidery" [ref=e1819]
+                  - button [ref=e1820]:
+                    - img
+                - generic [ref=e1821]:
+                  - heading "Classic Black Abaya with Gold Embroidery" [level=3] [ref=e1822]
+                  - generic [ref=e1823]:
+                    - img [ref=e1824]
+                    - generic [ref=e1826]: "0.0"
+                    - generic [ref=e1827]: (0)
+                  - generic [ref=e1829]: GH₵189.99
+              - generic [ref=e1830] [cursor=pointer]:
+                - generic [ref=e1831]:
+                  - img "Lace Trim Hijab - White" [ref=e1832]
+                  - button [ref=e1833]:
+                    - img
+                - generic [ref=e1834]:
+                  - heading "Lace Trim Hijab - White" [level=3] [ref=e1835]
+                  - generic [ref=e1836]:
+                    - img [ref=e1837]
+                    - generic [ref=e1839]: "0.0"
+                    - generic [ref=e1840]: (0)
+                  - generic [ref=e1842]: GH₵84.99
+              - generic [ref=e1843] [cursor=pointer]:
+                - generic [ref=e1844]:
+                  - img "Viscose Modal Hijab - Charcoal Gray" [ref=e1845]
+                  - button [ref=e1846]:
+                    - img
+                - generic [ref=e1847]:
+                  - heading "Viscose Modal Hijab - Charcoal Gray" [level=3] [ref=e1848]
+                  - generic [ref=e1849]:
+                    - img [ref=e1850]
+                    - generic [ref=e1852]: "0.0"
+                    - generic [ref=e1853]: (0)
+                  - generic [ref=e1855]: GH₵74.99
+              - generic [ref=e1856] [cursor=pointer]:
+                - generic [ref=e1857]:
+                  - img "Crinkle Chiffon Hijab - Dusty Rose" [ref=e1858]
+                  - button [ref=e1859]:
+                    - img
+                - generic [ref=e1860]:
+                  - heading "Crinkle Chiffon Hijab - Dusty Rose" [level=3] [ref=e1861]
+                  - generic [ref=e1862]:
+                    - img [ref=e1863]
+                    - generic [ref=e1865]: "0.0"
+                    - generic [ref=e1866]: (0)
+                  - generic [ref=e1868]: GH₵59.99
+              - generic [ref=e1869] [cursor=pointer]:
+                - generic [ref=e1870]:
+                  - img "Instant Hijab - Two Piece Set" [ref=e1871]
+                  - button [ref=e1872]:
+                    - img
+                - generic [ref=e1873]:
+                  - heading "Instant Hijab - Two Piece Set" [level=3] [ref=e1874]
+                  - generic [ref=e1875]:
+                    - img [ref=e1876]
+                    - generic [ref=e1878]: "0.0"
+                    - generic [ref=e1879]: (0)
+                  - generic [ref=e1881]: GH₵69.99
+              - generic [ref=e1882] [cursor=pointer]:
+                - generic [ref=e1883]:
+                  - img "Printed Silk Hijab - Floral Pattern" [ref=e1884]
+                  - button [ref=e1885]:
+                    - img
+                - generic [ref=e1886]:
+                  - heading "Printed Silk Hijab - Floral Pattern" [level=3] [ref=e1887]
+                  - generic [ref=e1888]:
+                    - img [ref=e1889]
+                    - generic [ref=e1891]: "0.0"
+                    - generic [ref=e1892]: (0)
+                  - generic [ref=e1894]: GH₵94.99
+              - generic [ref=e1895] [cursor=pointer]:
+                - generic [ref=e1896]:
+                  - img "Cotton Voile Hijab - Cream" [ref=e1897]
+                  - button [ref=e1898]:
+                    - img
+                - generic [ref=e1899]:
+                  - heading "Cotton Voile Hijab - Cream" [level=3] [ref=e1900]
+                  - generic [ref=e1901]:
+                    - img [ref=e1902]
+                    - generic [ref=e1904]: "0.0"
+                    - generic [ref=e1905]: (0)
+                  - generic [ref=e1907]: GH₵49.99
+              - generic [ref=e1908] [cursor=pointer]:
+                - generic [ref=e1909]:
+                  - img "Satin Edge Hijab - Emerald Green" [ref=e1910]
+                  - button [ref=e1911]:
+                    - img
+                - generic [ref=e1912]:
+                  - heading "Satin Edge Hijab - Emerald Green" [level=3] [ref=e1913]
+                  - generic [ref=e1914]:
+                    - img [ref=e1915]
+                    - generic [ref=e1917]: "0.0"
+                    - generic [ref=e1918]: (0)
+                  - generic [ref=e1920]: GH₵79.99
+              - generic [ref=e1921] [cursor=pointer]:
+                - generic [ref=e1922]:
+                  - img "Jersey Stretch Hijab - Navy Blue" [ref=e1923]
+                  - button [ref=e1924]:
+                    - img
+                - generic [ref=e1925]:
+                  - heading "Jersey Stretch Hijab - Navy Blue" [level=3] [ref=e1926]
+                  - generic [ref=e1927]:
+                    - img [ref=e1928]
+                    - generic [ref=e1930]: "0.0"
+                    - generic [ref=e1931]: (0)
+                  - generic [ref=e1933]: GH₵54.99
+              - generic [ref=e1934] [cursor=pointer]:
+                - generic [ref=e1935]:
+                  - img "Chiffon Square Hijab - Burgundy" [ref=e1936]
+                  - button [ref=e1937]:
+                    - img
+                - generic [ref=e1938]:
+                  - heading "Chiffon Square Hijab - Burgundy" [level=3] [ref=e1939]
+                  - generic [ref=e1940]:
+                    - img [ref=e1941]
+                    - generic [ref=e1943]: "0.0"
+                    - generic [ref=e1944]: (0)
+                  - generic [ref=e1946]: GH₵64.99
+              - generic [ref=e1947] [cursor=pointer]:
+                - generic [ref=e1948]:
+                  - img "Premium Silk Hijab - Black" [ref=e1949]
+                  - button [ref=e1950]:
+                    - img
+                - generic [ref=e1951]:
+                  - heading "Premium Silk Hijab - Black" [level=3] [ref=e1952]
+                  - generic [ref=e1953]:
+                    - img [ref=e1954]
+                    - generic [ref=e1956]: "0.0"
+                    - generic [ref=e1957]: (0)
+                  - generic [ref=e1959]: GH₵89.99
+        - link "Open sponsored content" [ref=e1962] [cursor=pointer]:
+          - /url: https://www.reddit.com/r/overclocking/comments/dno9in/my_computer_boots_strangely_when_the_cpu_is/
+          - img "Sponsored advertisement" [ref=e1964]
+          - generic [ref=e1965]:
+            - img [ref=e1966]
+            - generic [ref=e1970]: Sponsored
+    - contentinfo [ref=e1972]:
+      - generic [ref=e1975]:
+        - generic [ref=e1976]:
+          - img [ref=e1978]
+          - generic [ref=e1983]:
+            - paragraph [ref=e1984]: Fast Delivery
+            - paragraph [ref=e1985]: Nationwide Delivery
+        - generic [ref=e1986]:
+          - img [ref=e1988]
+          - generic [ref=e1991]:
+            - paragraph [ref=e1992]: Secure Shopping
+            - paragraph [ref=e1993]: 100% protected payments
+        - generic [ref=e1994]:
+          - img [ref=e1996]
+          - generic [ref=e1998]:
+            - paragraph [ref=e1999]: Easy Payments
+            - paragraph [ref=e2000]: Mobile money & cards
+        - generic [ref=e2001]:
+          - img [ref=e2003]
+          - generic [ref=e2006]:
+            - paragraph [ref=e2007]: 24/7 Support
+            - paragraph [ref=e2008]: Always here to help
+      - generic [ref=e2010]:
+        - generic [ref=e2011]:
+          - img "KiyuMart" [ref=e2013]
+          - paragraph [ref=e2014]: Your trusted fashion marketplace. Quality products, fast delivery, and excellent service.
+          - generic [ref=e2015]:
+            - button "Facebook" [ref=e2016] [cursor=pointer]:
+              - img
+            - button "Instagram" [ref=e2017] [cursor=pointer]:
+              - img
+            - button "Twitter" [ref=e2018] [cursor=pointer]:
+              - img
+            - button "LinkedIn" [ref=e2019] [cursor=pointer]:
+              - img
+            - button "WhatsApp" [ref=e2020] [cursor=pointer]:
+              - img
+        - generic [ref=e2021]:
+          - heading "Marketplace" [level=4] [ref=e2022]
+          - list [ref=e2023]:
+            - listitem [ref=e2024]:
+              - link "Home" [ref=e2025] [cursor=pointer]:
+                - /url: /
+            - listitem [ref=e2026]:
+              - link "All Products" [ref=e2027] [cursor=pointer]:
+                - /url: /products
+            - listitem [ref=e2028]:
+              - link "Browse Stores" [ref=e2029] [cursor=pointer]:
+                - /url: /stores
+            - listitem [ref=e2030]:
+              - link "Become a Seller" [ref=e2031] [cursor=pointer]:
+                - /url: /become-seller
+            - listitem [ref=e2032]:
+              - link "Become a Rider" [ref=e2033] [cursor=pointer]:
+                - /url: /become-rider
+        - generic [ref=e2034]:
+          - heading "Customer Service" [level=4] [ref=e2035]
+          - list [ref=e2036]:
+            - listitem [ref=e2037]:
+              - link "Customer Support" [ref=e2038] [cursor=pointer]:
+                - /url: /support
+            - listitem [ref=e2039]:
+              - link "Track My Order" [ref=e2040] [cursor=pointer]:
+                - /url: /orders
+            - listitem [ref=e2041]:
+              - link "My Wishlist" [ref=e2042] [cursor=pointer]:
+                - /url: /wishlist
+            - listitem [ref=e2043]:
+              - link "My Account" [ref=e2044] [cursor=pointer]:
+                - /url: /profile
+        - generic [ref=e2045]:
+          - heading "Contact Us" [level=4] [ref=e2046]
+          - list [ref=e2047]:
+            - listitem [ref=e2048]:
+              - img [ref=e2049]
+              - generic [ref=e2051]: +233 XX XXX XXX
+            - listitem [ref=e2052]:
+              - img [ref=e2053]
+              - generic [ref=e2056]: support@kiyumart.com
+            - listitem [ref=e2057]:
+              - img [ref=e2058]
+              - generic [ref=e2061]: Accra, Ghana
+          - generic [ref=e2062]:
+            - heading "Quick Access" [level=5] [ref=e2063]
+            - link "Browse All Products" [ref=e2065] [cursor=pointer]:
+              - /url: /products
+              - button "Browse All Products" [ref=e2066]:
+                - img
+                - text: Browse All Products
+      - generic [ref=e2069]:
+        - paragraph [ref=e2070]: © 2024 KiyuMart Ghana. All rights reserved.
+        - generic [ref=e2071]:
+          - link "Privacy Policy" [ref=e2073] [cursor=pointer]:
+            - /url: /page/privacy-policy
+          - link "Terms of Service" [ref=e2075] [cursor=pointer]:
+            - /url: /page/terms-of-service
+          - link "About Us" [ref=e2077] [cursor=pointer]:
+            - /url: /page/about
+          - link "Return Policy" [ref=e2079] [cursor=pointer]:
+            - /url: /page/return-policy
+        - button "Back to top" [ref=e2080] [cursor=pointer]:
+          - img
+          - text: Back to top
+```

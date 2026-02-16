@@ -2,24 +2,25 @@ import { db } from "../db/index";
 import { 
   users, products, orders, orderItems, orderStatusHistory, deliveryZones, deliveryTracking,
   chatMessages, transactions, platformSettings, cart, wishlist, reviews, riderReviews,
-  productVariants, heroBanners, coupons, bannerCollections, marketplaceBanners,
+  productVariants, heroBanners, promotionalAds, promotionPricing, coupons, bannerCollections, marketplaceBanners,
   stores, categoryFields, categories, notifications, mediaLibrary, footerPages,
   idempotencyKeys,
-  commissions, platformEarnings, sellerPayouts, roleFeatures,
+  commissions, platformEarnings, sellerPayouts, riderPayouts, roleFeatures,
   type User, type InsertUser, type Product, type InsertProduct,
   type Order, type InsertOrder, type DeliveryZone, type InsertDeliveryZone,
   type ChatMessage, type InsertChatMessage, type Transaction, type PlatformSettings,
   type Cart, type Wishlist, type DeliveryTracking, type InsertDeliveryTracking,
-  type Review, type InsertReview, type RiderReview, type InsertRiderReview, type ProductVariant, type HeroBanner,
+  type Review, type InsertReview, type RiderReview, type InsertRiderReview, type ProductVariant, type InsertProductVariant, type HeroBanner, type InsertHeroBanner,
   type Coupon, type InsertCoupon, type BannerCollection, type InsertBannerCollection,
   type MarketplaceBanner, type InsertMarketplaceBanner, type Store, type CategoryField,
   type Category, type Notification, type InsertNotification, type MediaLibrary,
   type InsertMediaLibrary, type FooterPage, type InsertFooterPage,
   type Commission, type InsertCommission, type PlatformEarning, type InsertPlatformEarning,
   type SellerPayout, type InsertSellerPayout,
+  type RiderPayout, type InsertRiderPayout,
   type OrderStatusHistory, type InsertOrderStatusHistory
 } from "@shared/schema";
-import { eq, and, desc, sql, lte, gte, or, isNull } from "drizzle-orm";
+import { eq, and, desc, sql, lte, gte, or, isNull, isNotNull } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -87,6 +88,14 @@ export interface IStorage {
   getAllPendingPayouts(): Promise<SellerPayout[]>;
   updatePayoutStatus(payoutId: string, status: string, processedBy?: string): Promise<SellerPayout | undefined>;
   
+  // Rider Payout operations
+  createRiderPayout(data: InsertRiderPayout): Promise<RiderPayout>;
+  getRiderPayouts(riderId: string): Promise<RiderPayout[]>;
+  getAllPendingRiderPayouts(): Promise<RiderPayout[]>;
+  updateRiderPayoutStatus(payoutId: string, status: string, processedBy?: string): Promise<RiderPayout | undefined>;
+  getRiderAvailableBalance(riderId: string): Promise<number>;
+  queueRiderPayout(riderId: string, amount: number, orderId: string): Promise<RiderPayout>;
+  
   // Platform settings
   getPlatformSettings(): Promise<PlatformSettings>;
   updatePlatformSettings(data: Partial<PlatformSettings>): Promise<PlatformSettings>;
@@ -149,7 +158,12 @@ export interface IStorage {
   deleteCategory(id: string): Promise<boolean>;
   
   // Hero Banner operations
-  getHeroBanners(): Promise<HeroBanner[]>;
+  getHeroBanners(storeMode?: string): Promise<HeroBanner[]>;
+  getAllHeroBanners(): Promise<HeroBanner[]>;
+  getHeroBanner(id: string): Promise<HeroBanner | undefined>;
+  createHeroBanner(banner: InsertHeroBanner): Promise<HeroBanner>;
+  updateHeroBanner(id: string, data: Partial<HeroBanner>): Promise<HeroBanner | undefined>;
+  deleteHeroBanner(id: string): Promise<boolean>;
   
   // Coupon operations
   createCoupon(coupon: InsertCoupon & { sellerId: string }): Promise<Coupon>;
@@ -188,7 +202,7 @@ export interface IStorage {
   
   // Multi-vendor homepage data
   getApprovedSellers(): Promise<User[]>;
-  getFeaturedProducts(limit?: number): Promise<Product[]>;
+  getFeaturedProducts(limit?: number, sellerId?: string): Promise<Product[]>;
   
   // Media Library operations
   createMediaLibraryItem(data: InsertMediaLibrary): Promise<MediaLibrary>;
@@ -247,6 +261,9 @@ export class DbStorage implements IStorage {
     
     if (filters?.sellerId) {
       query = query.where(eq(products.sellerId, filters.sellerId)) as any;
+    }
+    if (filters?.category) {
+      query = query.where(eq(products.category, filters.category)) as any;
     }
     if (filters?.isActive !== undefined) {
       query = query.where(eq(products.isActive, filters.isActive)) as any;
@@ -1179,6 +1196,74 @@ export class DbStorage implements IStorage {
     });
   }
 
+  // ===== Rider Payout Operations =====
+  
+  // Create rider payout (for approved payouts after delivery completion)
+  async createRiderPayout(data: InsertRiderPayout): Promise<RiderPayout> {
+    const [payout] = await db.insert(riderPayouts)
+      .values(data as any)
+      .returning();
+    return payout;
+  }
+
+  // Get rider payouts
+  async getRiderPayouts(riderId: string): Promise<RiderPayout[]> {
+    return await db.select()
+      .from(riderPayouts)
+      .where(eq(riderPayouts.riderId, riderId))
+      .orderBy(desc(riderPayouts.createdAt));
+  }
+
+  // Get all pending rider payouts (for admin approval)
+  async getAllPendingRiderPayouts(): Promise<RiderPayout[]> {
+    return await db.select()
+      .from(riderPayouts)
+      .where(eq(riderPayouts.status, 'pending_approval'))
+      .orderBy(desc(riderPayouts.createdAt));
+  }
+
+  // Update rider payout status (admin processing)
+  async updateRiderPayoutStatus(payoutId: string, status: string, processedBy?: string): Promise<RiderPayout | undefined> {
+    const [updated] = await db.update(riderPayouts)
+      .set({
+        status,
+        processedBy: processedBy || undefined,
+        processedAt: status === 'completed' || status === 'failed' ? new Date() : undefined,
+      } as any)
+      .where(eq(riderPayouts.id, payoutId))
+      .returning();
+    return updated;
+  }
+
+  // Get rider's available balance (sum of pending payouts)
+  async getRiderAvailableBalance(riderId: string): Promise<number> {
+    const result = await db.select({
+      total: sql`COALESCE(SUM(${riderPayouts.amount}::numeric), 0)::numeric`
+    })
+      .from(riderPayouts)
+      .where(and(
+        eq(riderPayouts.riderId, riderId),
+        eq(riderPayouts.status, 'pending_approval')
+      ));
+    
+    return parseFloat(result[0]?.total as string || '0');
+  }
+
+  // Queue a payout for a completed delivery (called when delivery is marked complete)
+  async queueRiderPayout(riderId: string, amount: number, orderId: string): Promise<RiderPayout> {
+    const [payout] = await db.insert(riderPayouts)
+      .values({
+        riderId,
+        orderId,
+        amount: amount.toFixed(2),
+        method: 'mobile_money',
+        status: 'pending_approval',
+        notes: `Delivery fee for order ${orderId}`
+      })
+      .returning();
+    return payout;
+  }
+
   // Platform settings
   async getPlatformSettings(): Promise<PlatformSettings> {
     try {
@@ -1199,8 +1284,86 @@ export class DbStorage implements IStorage {
         if (settings[key] === '__CLEAR__') settings[key] = null;
       }
       return settings;
-    } catch (err) {
-      console.error('ERROR getPlatformSettings query failed:', (err as any)?.stack || (err as any));
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      console.error('ERROR getPlatformSettings query failed:', msg);
+      // If the settings table or expected columns are not present (e.g., migrations not applied),
+      // return reasonable defaults so the frontend can continue to render without crashing.
+      if (msg.includes('does not exist') || msg.includes('column') || msg.includes('relation')) {
+        console.warn('[STORAGE] platform_settings table or columns missing; returning defaults');
+        // Provide a full shape that satisfies the PlatformSettings type; set optional fields to null/defaults
+        const defaults: PlatformSettings = {
+          id: 'default',
+          isMultiVendor: false,
+          platformName: 'KiyuMart',
+          logo: null,
+          primaryColor: '#1e7b5f',
+          secondaryColor: '#2c3e50',
+          accentColor: '#e74c3c',
+          lightBgColor: '#ffffff',
+          lightTextColor: '#000000',
+          darkBgColor: '#1a1a1a',
+          darkTextColor: '#ffffff',
+          lightCardColor: '#f8f9fa',
+          darkCardColor: '#2a2a2a',
+          onboardingImages: [],
+          defaultCurrency: 'GHS',
+          paystackPublicKey: null,
+          paystackSecretKey: null,
+          processingFeePercent: '1.95',
+          cloudinaryCloudName: null,
+          cloudinaryApiKey: null,
+          cloudinaryApiSecret: null,
+          contactPhone: null,
+          contactEmail: null,
+          contactAddress: null,
+          facebookUrl: null,
+          instagramUrl: null,
+          twitterUrl: null,
+          linkedinUrl: null,
+          youtubeUrl: null,
+          tiktokUrl: null,
+          pinterestUrl: null,
+          whatsappPage: null,
+          showSocialLinks: true,
+          showFacebook: true,
+          showInstagram: true,
+          showTwitter: true,
+          showLinkedin: true,
+          showYoutube: true,
+          showTiktok: true,
+          showPinterest: true,
+          showWhatsapp: true,
+          showShopBySection: true,
+          footerDescription: null,
+          footerLinks: [],
+          footerPaymentIcons: [],
+          activeBannerCollectionId: null,
+          categoryDisplayStyle: null,
+          bannerAutoplayEnabled: false,
+          bannerAutoplayDuration: 5,
+          adsEnabled: true,
+          heroBannerEnabled: true,
+          sidebarAdEnabled: true,
+          footerAdEnabled: true,
+          productPageAdEnabled: true,
+          heroBannerAdImage: null,
+          heroBannerAdUrl: null,
+          sidebarAdImage: null,
+          sidebarAdUrl: null,
+          shopDisplayMode: 'by-store',
+          footerAdImage: null,
+          footerAdUrl: null,
+          productPageAdImage: null,
+          productPageAdUrl: null,
+          allowSellerRegistration: true,
+          allowRiderRegistration: true,
+          primaryStoreId: null,
+          defaultCommissionRate: '1',
+          updatedAt: new Date(),
+        };
+        return defaults;
+      }
       throw err;
     }
   }
@@ -1212,6 +1375,136 @@ export class DbStorage implements IStorage {
       .where(eq(platformSettings.id, existing.id))
       .returning();
     return result[0];
+  }
+
+  // Promotional Ads management
+  async createPromotionalAd(payload: { type: 'store' | 'product'; targetId: string; startAt?: Date | null; endAt?: Date | null; createdBy?: string | null; title?: string | null; description?: string | null; imageUrl?: string | null; ctaText?: string | null; ctaUrl?: string | null; themeColor?: string | null }) {
+    try {
+      const [created] = await db.insert(promotionalAds).values({
+        type: payload.type,
+        targetId: payload.targetId,
+        startAt: payload.startAt || null,
+        endAt: payload.endAt || null,
+        isActive: true,
+        createdBy: payload.createdBy || null,
+        title: payload.title || null,
+        description: payload.description || null,
+        imageUrl: payload.imageUrl || null,
+        ctaText: payload.ctaText || null,
+        ctaUrl: payload.ctaUrl || null,
+        themeColor: payload.themeColor || null,
+      }).returning();
+      return created;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        throw new Error('Promotional ads table not present; please run migrations');
+      }
+      throw err;
+    }
+  }
+
+  async getActivePromotionalAds(): Promise<any[]> {
+    const now = new Date();
+    try {
+      const rows = await db.select().from(promotionalAds).where(and(eq(promotionalAds.isActive, true), or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now))));
+      return rows;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        console.warn('[STORAGE] promotional_ads table missing; getActivePromotionalAds returning empty list');
+        return [];
+      }
+      throw err;
+    }
+  }
+
+  // Return all promotions (active + inactive) for admin listing; resilient if table missing
+  async getAllPromotionalAds(): Promise<any[]> {
+    try {
+      const rows = await db.select().from(promotionalAds).orderBy(desc(promotionalAds.createdAt));
+      return rows;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        console.warn('[STORAGE] promotional_ads table missing; getAllPromotionalAds returning empty list');
+        return [];
+      }
+      throw err;
+    }
+  }
+
+  async expirePromotionalAds() {
+    const now = new Date();
+    try {
+      await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(and(eq(promotionalAds.isActive, true), isNotNull(promotionalAds.endAt), lte(promotionalAds.endAt, now)));
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        console.warn('[STORAGE] promotional_ads table missing; expirePromotionalAds no-op');
+        return;
+      }
+      throw err;
+    }
+  }
+
+  async expirePromotionById(id: string) {
+    try {
+      await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(eq(promotionalAds.id, id));
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        console.warn('[STORAGE] promotional_ads table missing; expirePromotionById no-op');
+        return;
+      }
+      throw err;
+    }
+  }
+
+  // Check if promotions table exists in the database
+  async promotionsTableExists(): Promise<boolean> {
+    try {
+      // Try a harmless query to check table presence
+      const rows = await db.select().from(promotionalAds).limit(1);
+      return true;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
+        return false;
+      }
+      throw err;
+    }
+  }
+
+  // Promotion Pricing operations
+  async createPromotionPricing(data: { type: 'store' | 'product'; durationType: 'hour' | 'day'; duration: number; price: string }): Promise<any> {
+    const result = await db.insert(promotionPricing).values(data as any).returning();
+    return result[0];
+  }
+
+  async getAllPromotionPricing(): Promise<any[]> {
+    return await db.select().from(promotionPricing).where(eq(promotionPricing.isActive, true));
+  }
+
+  async getPromotionPricing(type: 'store' | 'product', durationType: 'hour' | 'day', duration: number): Promise<any | undefined> {
+    const result = await db.select().from(promotionPricing)
+      .where(and(
+        eq(promotionPricing.type, type),
+        eq(promotionPricing.durationType, durationType),
+        eq(promotionPricing.duration, duration),
+        eq(promotionPricing.isActive, true)
+      ))
+      .limit(1);
+    return result[0];
+  }
+
+  async updatePromotionPricing(id: number, data: Partial<{ price: string; isActive: boolean }>): Promise<any> {
+    const result = await db.update(promotionPricing).set({ ...data, updatedAt: new Date() }).where(eq(promotionPricing.id, id)).returning();
+    return result[0];
+  }
+
+  async deletePromotionPricing(id: number): Promise<void> {
+    await db.delete(promotionPricing).where(eq(promotionPricing.id, id));
   }
 
   // Cart operations
@@ -1477,11 +1770,68 @@ export class DbStorage implements IStorage {
     return await db.select().from(productVariants).where(eq(productVariants.productId, productId));
   }
 
+  async createProductVariant(variant: InsertProductVariant): Promise<ProductVariant> {
+    const [newVariant] = await db.insert(productVariants).values(variant).returning();
+    return newVariant;
+  }
+
+  async updateProductVariant(variantId: string, updates: Partial<InsertProductVariant>): Promise<ProductVariant> {
+    const [updatedVariant] = await db
+      .update(productVariants)
+      .set(updates)
+      .where(eq(productVariants.id, variantId))
+      .returning();
+    return updatedVariant;
+  }
+
+  async deleteProductVariant(variantId: string): Promise<void> {
+    await db.delete(productVariants).where(eq(productVariants.id, variantId));
+  }
+
   // Hero Banner operations
-  async getHeroBanners(): Promise<HeroBanner[]> {
+  async getHeroBanners(storeMode?: string): Promise<HeroBanner[]> {
+    if (storeMode && storeMode !== 'both') {
+      return await db.select().from(heroBanners)
+        .where(and(
+          eq(heroBanners.isActive, true),
+          or(
+            eq(heroBanners.storeMode, storeMode as any),
+            eq(heroBanners.storeMode, 'both')
+          )
+        ))
+        .orderBy(heroBanners.displayOrder);
+    }
     return await db.select().from(heroBanners)
       .where(eq(heroBanners.isActive, true))
       .orderBy(heroBanners.displayOrder);
+  }
+  
+  async getAllHeroBanners(): Promise<HeroBanner[]> {
+    return await db.select().from(heroBanners)
+      .orderBy(heroBanners.displayOrder);
+  }
+  
+  async getHeroBanner(id: string): Promise<HeroBanner | undefined> {
+    const [banner] = await db.select().from(heroBanners).where(eq(heroBanners.id, id));
+    return banner;
+  }
+  
+  async createHeroBanner(banner: InsertHeroBanner): Promise<HeroBanner> {
+    const [newBanner] = await db.insert(heroBanners).values(banner).returning();
+    return newBanner;
+  }
+  
+  async updateHeroBanner(id: string, data: Partial<HeroBanner>): Promise<HeroBanner | undefined> {
+    const [updated] = await db.update(heroBanners)
+      .set(data)
+      .where(eq(heroBanners.id, id))
+      .returning();
+    return updated;
+  }
+  
+  async deleteHeroBanner(id: string): Promise<boolean> {
+    const result = await db.delete(heroBanners).where(eq(heroBanners.id, id)).returning();
+    return result.length > 0;
   }
 
   // Delivery Tracking operations
@@ -1754,9 +2104,13 @@ export class DbStorage implements IStorage {
       .orderBy(desc(users.createdAt));
   }
 
-  async getFeaturedProducts(limit: number = 12): Promise<Product[]> {
+  async getFeaturedProducts(limit: number = 12, sellerId?: string): Promise<Product[]> {
+    const conditions = [eq(products.isActive, true)];
+    if (sellerId) {
+      conditions.push(eq(products.sellerId, sellerId));
+    }
     return db.select().from(products)
-      .where(eq(products.isActive, true))
+      .where(and(...conditions))
       .orderBy(desc(products.ratings), desc(products.createdAt))
       .limit(limit);
   }

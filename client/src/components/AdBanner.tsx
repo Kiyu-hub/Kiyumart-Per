@@ -13,6 +13,10 @@ interface PlatformSettings {
   footerAdUrl?: string;
   productPageAdImage?: string;
   productPageAdUrl?: string;
+  heroBannerEnabled?: boolean;
+  sidebarAdEnabled?: boolean;
+  footerAdEnabled?: boolean;
+  productPageAdEnabled?: boolean;
   // branding fields (optional) used as a fallback when ads are missing
   logo?: string;
   platformName?: string;
@@ -25,41 +29,74 @@ interface AdBannerProps {
   className?: string;
   /** When true, render as a full-bleed ad (no rounded corners or card background) */
   fullBleed?: boolean;
+  /** Optional inline styles for the wrapper */
+  style?: React.CSSProperties;
 }
 
-export default function AdBanner({ position, className = "", fullBleed = false }: AdBannerProps) {
+export default function AdBanner({ position, className = "", fullBleed = false, style }: AdBannerProps) {
   const { data: settings } = useQuery<PlatformSettings>({
-    queryKey: ["/api/settings"],
+    // Use the public platform view so children and parents fetch the same data source
+    queryKey: ["/api/platform-settings"],
+    // Be resilient during tests and slow networks: assume ads are enabled by default
+    // so ad placeholders render immediately while the real settings are fetched.
+    initialData: { adsEnabled: true },
+    retry: 2,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    // Proactively refetch so UI reflects server-side changes (admin PATCH) within seconds
+    refetchInterval: 5000,
   });
 
   // Ensure hooks are invoked unconditionally — we need `navigate` available even if not used
   const [, navigate] = useLocation();
+  // Declare other hooks early so component doesn't change hook order between renders
+  const [imgError, setImgError] = useState(false);
 
-  if (!settings?.adsEnabled) {
+  // If settings are present and ads are explicitly disabled, don't render.
+  // If settings are still loading/undefined, assume enabled (see initialData above).
+  if (settings && settings.adsEnabled === false) {
     return null;
   }
+
+  // Respect per-position enable flags so admins can toggle specific ad placements
+  const positionEnabled = (() => {
+    switch (position) {
+      case "hero":
+        return settings?.heroBannerEnabled ?? true;
+      case "sidebar":
+        return settings?.sidebarAdEnabled ?? true;
+      case "footer":
+        return settings?.footerAdEnabled ?? true;
+      case "product-page":
+        return settings?.productPageAdEnabled ?? true;
+      default:
+        return true;
+    }
+  })();
+
+  if (positionEnabled === false) return null;
 
   const getAdData = () => {
     switch (position) {
       case "hero":
         return {
-          image: settings.heroBannerAdImage,
-          url: settings.heroBannerAdUrl,
+          image: settings?.heroBannerAdImage,
+          url: settings?.heroBannerAdUrl,
         };
       case "sidebar":
         return {
-          image: settings.sidebarAdImage,
-          url: settings.sidebarAdUrl,
+          image: settings?.sidebarAdImage,
+          url: settings?.sidebarAdUrl,
         };
       case "footer":
         return {
-          image: settings.footerAdImage,
-          url: settings.footerAdUrl,
+          image: settings?.footerAdImage,
+          url: settings?.footerAdUrl,
         };
       case "product-page":
         return {
-          image: settings.productPageAdImage,
-          url: settings.productPageAdUrl,
+          image: settings?.productPageAdImage,
+          url: settings?.productPageAdUrl,
         };
       default:
         return { image: undefined, url: undefined };
@@ -67,7 +104,6 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   };
 
   const ad = getAdData();
-  const [imgError, setImgError] = useState(false);
 
   // If an ad image is missing or fails to load, render a branded fallback so the site always looks professional
   const hasImage = ad.image && !imgError;
@@ -138,28 +174,40 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   );
 
   if (ad.url) {
-    const url = ad.url.trim();
-    const isInternal = url.startsWith('/') || url.startsWith('#');
-    const isProtocol = url.startsWith('mailto:') || url.startsWith('tel:');
-    const isExternal = /^https?:\/\//i.test(url);
+    const raw = ad.url.trim();
+    // Normalize URL: accept 'category/..', '/category/..', '#anchor', 'mailto:', 'tel:', or full http(s)
+    const isProtocol = /^mailto:|^tel:/i.test(raw);
+    const isHttp = /^https?:\/\//i.test(raw) || /^\/\//.test(raw);
+
+    let normalized = raw;
+    if (!isHttp && !isProtocol && !raw.startsWith('#')) {
+      if (!raw.startsWith('/')) normalized = `/${raw}`; // make relative paths absolute
+    }
+
+    // Treat same-origin absolute URLs as internal
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const isInternal = normalized.startsWith('/') || normalized.startsWith('#') || normalized.startsWith(origin);
+
+    const handleInternalClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (normalized.startsWith('#')) {
+        const el = document.querySelector(normalized);
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      } else if (normalized.startsWith(origin)) {
+        // remove origin and navigate to path
+        const path = normalized.replace(origin, '');
+        navigate(path);
+      } else {
+        navigate(normalized);
+      }
+    };
 
     if (isInternal) {
-      const handleClick = (e: React.MouseEvent) => {
-        e.preventDefault();
-        if (url.startsWith('#')) {
-          const el = document.querySelector(url);
-          if (el) el.scrollIntoView({ behavior: 'smooth' });
-        } else {
-          // use the top-level navigate hook to avoid rendering hooks conditionally
-          navigate(url);
-        }
-      };
-
       return (
-        <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
+        <div className={wrapperClasses} style={style} data-testid={`ad-banner-${position}`}>
           <a
-            href={url}
-            onClick={handleClick}
+            href={normalized}
+            onClick={handleInternalClick}
             className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
             aria-label="Open sponsored content"
             data-testid={`link-ad-${position}`}
@@ -172,9 +220,9 @@ export default function AdBanner({ position, className = "", fullBleed = false }
 
     if (isProtocol) {
       return (
-        <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
+        <div className={wrapperClasses} style={style} data-testid={`ad-banner-${position}`}>
           <a
-            href={url}
+            href={normalized}
             className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
             aria-label="Open sponsored content"
             data-testid={`link-ad-${position}`}
@@ -187,9 +235,9 @@ export default function AdBanner({ position, className = "", fullBleed = false }
 
     // external http(s)
     return (
-      <div className={wrapperClasses} data-testid={`ad-banner-${position}`}>
+      <div className={wrapperClasses} style={style} data-testid={`ad-banner-${position}`}>
         <a
-          href={url}
+          href={normalized}
           target="_blank"
           rel="noopener noreferrer"
           className={`w-full h-full block relative focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary`}
@@ -203,7 +251,7 @@ export default function AdBanner({ position, className = "", fullBleed = false }
   }
 
   return (
-    <div className={wrapperClasses} data-testid={`ad-banner-${position}`} role="img" aria-label="Advertisement">
+    <div className={wrapperClasses} style={style} data-testid={`ad-banner-${position}`} role="img" aria-label="Advertisement">
       <div className="w-full h-full relative">
         {AdInner}
       </div>

@@ -4,8 +4,8 @@ import { Server as SocketIOServer } from "socket.io";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { db } from "../db";
-import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, commissions } from "@shared/schema";
-import { eq, or, isNotNull, and, desc } from "drizzle-orm";
+import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable } from "@shared/schema";
+import { eq, or, isNotNull, and, desc, sql } from "drizzle-orm";
 import { 
   hashPassword, 
   comparePassword, 
@@ -21,6 +21,11 @@ import sharp from "sharp";
 import { insertUserSchema, insertProductSchema, insertDeliveryZoneSchema, insertOrderSchema, insertWishlistSchema, insertReviewSchema, insertRiderReviewSchema, insertBannerCollectionSchema, insertMarketplaceBannerSchema, insertFooterPageSchema, vehicleInfoSchema, type User } from "@shared/schema";
 import { getStoreTypeSchema, type StoreType, STORE_TYPES } from "@shared/storeTypes";
 import buildPaystackInitializePayload from './paystackUtils';
+// WhatsApp-style messaging services
+import { presenceService } from "./services/presenceService";
+import { messageDeliveryService } from "./services/messageDeliveryService";
+import { chatPermissionService } from "./services/chatPermissionService";
+import { jitsiMeetService } from "./services/jitsiMeetService";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -106,6 +111,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       const user = await storage.createUser(userData);
+
+      // Send welcome message from KiyuMart Team
+      try {
+        // Find a super_admin to send the welcome message from
+        const superAdmins = await storage.getUsersByRole("super_admin");
+        const systemSender = superAdmins.length > 0 ? superAdmins[0] : null;
+        
+        // Get platform name from settings
+        const platformSettingsArr = await db.select().from(platformSettingsTable).limit(1);
+        const platformName = platformSettingsArr[0]?.platformName || "KiyuMart";
+        
+        if (systemSender) {
+          const displayName = user.name || user.email?.split('@')[0] || 'there';
+          const welcomeMessage = `Hi ${displayName}! 👋\n\nWelcome to ${platformName}! 🎉\n\nWe're absolutely thrilled to have you join our growing community. Whether you're here to discover amazing products, find great deals, or simply explore what we have to offer — you've come to the right place.\n\nHere's what you can do to get started:\n• 🛍️ Browse our wide selection of quality products\n• ❤️ Save items to your wishlist for later\n• 🔔 Turn on notifications so you never miss a deal\n• 💬 Message us anytime — we're here to help!\n\nIf you ever need assistance, our support team is just a message away. We're committed to making your experience seamless and enjoyable.\n\nHappy shopping, ${displayName}!\nWith love,\n— The ${platformName} Team 💚`;
+          
+          await storage.createMessage({
+            senderId: systemSender.id,
+            receiverId: user.id,
+            message: welcomeMessage,
+            messageType: "text",
+          });
+          
+          // Create notification with FULL welcome message so dialog shows actual content
+          await storage.createNotification({
+            userId: user.id,
+            type: "message",
+            title: `Welcome to ${platformName}, ${displayName}! 🎉`,
+            message: welcomeMessage,
+            metadata: { messageId: "welcome", senderId: systemSender.id } as any,
+          });
+          
+          // Emit real-time notification
+          io.to(user.id).emit("notification", {
+            type: "message",
+            title: `Welcome to ${platformName}, ${displayName}! 🎉`,
+            message: welcomeMessage,
+            data: { senderId: systemSender.id },
+          });
+        }
+      } catch (welcomeError) {
+        console.error("Failed to send welcome message:", welcomeError);
+        // Don't fail signup if welcome message fails
+      }
 
       // Notify admins about new seller/rider registration
       if (requestedRole === "seller" || requestedRole === "rider") {
@@ -1780,10 +1828,193 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create product variant
+  app.post("/api/products/:productId/variants", requireAuth, requireRole("seller", "admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { productId } = req.params;
+      const { color, size, sku, image, stock, priceAdjustment } = req.body;
+
+      // Verify the product belongs to the seller (or admin creating on behalf)
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      if (req.user?.role === "seller" && product.sellerId !== req.user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const variant = await storage.createProductVariant({
+        productId,
+        color: color || null,
+        size: size || null,
+        sku: sku || null,
+        image: image || null,
+        stock: stock || 0,
+        priceAdjustment: priceAdjustment || "0",
+      });
+
+      res.json(variant);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Update product variant
+  app.put("/api/products/:productId/variants/:variantId", requireAuth, requireRole("seller", "admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { productId, variantId } = req.params;
+      const { color, size, sku, image, stock, priceAdjustment } = req.body;
+
+      // Verify the product belongs to the seller
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      if (req.user?.role === "seller" && product.sellerId !== req.user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const variant = await storage.updateProductVariant(variantId, {
+        color: color || null,
+        size: size || null,
+        sku: sku || null,
+        image: image || null,
+        stock: stock || 0,
+        priceAdjustment: priceAdjustment || "0",
+      });
+
+      res.json(variant);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Delete product variant
+  app.delete("/api/products/:productId/variants/:variantId", requireAuth, requireRole("seller", "admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { productId, variantId } = req.params;
+
+      // Verify the product belongs to the seller
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      if (req.user?.role === "seller" && product.sellerId !== req.user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.deleteProductVariant(variantId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/hero-banners", async (req, res) => {
     try {
-      const banners = await storage.getHeroBanners();
+      const { storeMode } = req.query;
+      const banners = await storage.getHeroBanners(storeMode as string | undefined);
       res.json(banners);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Hero Banner Admin Management ============
+  // Get all banners (including inactive) for admin
+  app.get("/api/admin/hero-banners", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const banners = await storage.getAllHeroBanners();
+      res.json(banners);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Get single banner
+  app.get("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const banner = await storage.getHeroBanner(req.params.id);
+      if (!banner) {
+        return res.status(404).json({ error: "Banner not found" });
+      }
+      res.json(banner);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Create banner with storeMode selection
+  app.post("/api/admin/hero-banners", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { title, subtitle, image, ctaText, ctaLink, storeMode, isActive, displayOrder } = req.body;
+      
+      if (!title || !image) {
+        return res.status(400).json({ error: "Title and image are required" });
+      }
+      
+      const validStoreModes = ['single', 'multivendor', 'both'];
+      const selectedStoreMode = validStoreModes.includes(storeMode) ? storeMode : 'both';
+      
+      const banner = await storage.createHeroBanner({
+        title,
+        subtitle: subtitle || null,
+        image,
+        ctaText: ctaText || null,
+        ctaLink: ctaLink || null,
+        storeMode: selectedStoreMode,
+        isActive: isActive !== false,
+        displayOrder: displayOrder || 0,
+      });
+      
+      res.json(banner);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Update banner
+  app.patch("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const banner = await storage.getHeroBanner(req.params.id);
+      if (!banner) {
+        return res.status(404).json({ error: "Banner not found" });
+      }
+      
+      const validStoreModes = ['single', 'multivendor', 'both'];
+      const updates: any = {};
+      
+      if (req.body.title !== undefined) updates.title = req.body.title;
+      if (req.body.subtitle !== undefined) updates.subtitle = req.body.subtitle;
+      if (req.body.image !== undefined) updates.image = req.body.image;
+      if (req.body.ctaText !== undefined) updates.ctaText = req.body.ctaText;
+      if (req.body.ctaLink !== undefined) updates.ctaLink = req.body.ctaLink;
+      if (req.body.storeMode !== undefined && validStoreModes.includes(req.body.storeMode)) {
+        updates.storeMode = req.body.storeMode;
+      }
+      if (req.body.isActive !== undefined) updates.isActive = req.body.isActive;
+      if (req.body.displayOrder !== undefined) updates.displayOrder = req.body.displayOrder;
+      
+      const updated = await storage.updateHeroBanner(req.params.id, updates);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Delete banner
+  app.delete("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const banner = await storage.getHeroBanner(req.params.id);
+      if (!banner) {
+        return res.status(404).json({ error: "Banner not found" });
+      }
+      
+      await storage.deleteHeroBanner(req.params.id);
+      res.json({ success: true, message: "Banner deleted successfully" });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -1974,8 +2205,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/homepage/featured-products", async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 12;
-      const products = await storage.getFeaturedProducts(limit);
-      res.json(products);
+      
+      // Get platform settings to check for single-store mode
+      const platformSettings = await storage.getPlatformSettings();
+      
+      let featuredProducts;
+      if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
+        // In single-store mode, only show products from the primary store
+        const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
+        const primarySellerId = primaryStore?.primarySellerId || undefined;
+        featuredProducts = await storage.getFeaturedProducts(limit, primarySellerId);
+      } else {
+        featuredProducts = await storage.getFeaturedProducts(limit);
+      }
+      
+      res.json(featuredProducts);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -2152,6 +2396,185 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sellerId = req.params.id;
       const payouts = await storage.getSellerPayouts(sellerId);
       res.json(payouts);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ===== Rider Payout Routes =====
+  
+  // Admin: Get all riders with payout summary
+  app.get('/api/admin/riders-payouts', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const riders = await storage.getUsersByRole('rider');
+      const { riderPayouts } = await import("@shared/schema");
+      const { eq, sql } = await import("drizzle-orm");
+      const { db } = await import("../db/index");
+      
+      const results: any[] = [];
+
+      for (const r of riders) {
+        const totals = await db.select({
+          totalPaid: sql`COALESCE(SUM(CASE WHEN ${riderPayouts.status} = 'completed' THEN ${riderPayouts.amount}::numeric ELSE 0 END), 0)`,
+          pending: sql`COALESCE(SUM(CASE WHEN ${riderPayouts.status} IN ('pending_approval', 'approved', 'processing') THEN ${riderPayouts.amount}::numeric ELSE 0 END), 0)`,
+          count: sql`COALESCE(COUNT(*), 0)`,
+          lastPayoutAt: sql`MAX(${riderPayouts.processedAt})`
+        }).from(riderPayouts).where(eq(riderPayouts.riderId, r.id));
+
+        results.push({
+          id: r.id,
+          name: r.name,
+          email: r.email,
+          phone: r.phone,
+          isApproved: r.isApproved,
+          isActive: r.isActive,
+          totalPaid: (totals[0]?.totalPaid as any) || '0.00',
+          pendingAmount: (totals[0]?.pending as any) || '0.00',
+          payoutCount: (totals[0]?.count as any) || 0,
+          lastPayoutAt: totals[0]?.lastPayoutAt || null
+        });
+      }
+      res.json(results);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Get payouts for a specific rider
+  app.get('/api/admin/riders/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const riderId = req.params.id;
+      const payouts = await storage.getRiderPayouts(riderId);
+      res.json(payouts);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Get all pending rider payouts awaiting approval
+  app.get('/api/admin/rider-payouts/pending', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const pending = await storage.getAllPendingRiderPayouts();
+      res.json(pending);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Approve rider payout
+  app.post('/api/admin/rider-payouts/:id/approve', requireAuth, requireRole('super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const payoutId = req.params.id;
+      const adminId = req.user!.id;
+      
+      // Update payout status to completed (in real implementation, trigger actual payment here)
+      const updated = await storage.updateRiderPayoutStatus(payoutId, 'completed', adminId);
+      
+      if (!updated) {
+        return res.status(404).json({ error: 'Payout not found' });
+      }
+
+      // Get rider and order details to include in notification
+      const rider = await storage.getUser(updated.riderId);
+      const order = updated.orderId ? await storage.getOrder(updated.orderId) : null;
+      const orderNumber = order?.orderNumber || updated.orderId?.slice(0, 8) || 'Unknown';
+
+      // Create a transaction record (for auditing)
+      await storage.createTransaction({
+        type: 'payout',
+        amount: updated.amount,
+        currency: updated.currency || 'GHS',
+        status: 'completed',
+        description: `Rider payout approved - Order #${orderNumber} - Admin ID: ${adminId}`,
+        paymentMethod: updated.method || 'mobile_money',
+        userId: updated.riderId
+      });
+
+      // Send notification to rider
+      await storage.createNotification({
+        userId: updated.riderId,
+        type: "payout",
+        title: "Payment Processed",
+        message: `Payment for Order #${orderNumber} has been processed. Amount: ${updated.currency || 'GHS'} ${updated.amount}`,
+        metadata: { 
+          link: `/rider/earnings`,
+          payoutId,
+          orderId: updated.orderId,
+          amount: updated.amount,
+          currency: updated.currency || "GHS"
+        } as any,
+      });
+
+      // Emit real-time event to rider
+      io.to(updated.riderId).emit("payout_completed", {
+        payoutId,
+        orderId: updated.orderId,
+        orderNumber,
+        amount: updated.amount,
+        currency: updated.currency || "GHS",
+        processedAt: new Date().toISOString(),
+      });
+
+      console.log(`Rider payout ${payoutId} approved by admin ${adminId} for order #${orderNumber}`);
+      res.json({ success: true, payout: updated });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin: Reject rider payout (Super Admin only)
+  app.post('/api/admin/rider-payouts/:id/reject', requireAuth, requireRole('super_admin'), async (req: AuthRequest, res) => {
+    try {
+      const payoutId = req.params.id;
+      const adminId = req.user!.id;
+      const { reason } = req.body;
+      
+      const updated = await storage.updateRiderPayoutStatus(payoutId, 'rejected', adminId);
+      
+      if (!updated) {
+        return res.status(404).json({ error: 'Payout not found' });
+      }
+
+      // Get rider and order details
+      const order = updated.orderId ? await storage.getOrder(updated.orderId) : null;
+      const orderNumber = order?.orderNumber || updated.orderId?.slice(0, 8) || 'Unknown';
+
+      // Create transaction record for auditing
+      await storage.createTransaction({
+        type: 'payout',
+        amount: updated.amount,
+        currency: updated.currency || 'GHS',
+        status: 'failed',
+        description: `Rider payout rejected - Order #${orderNumber} - Reason: ${reason || 'No reason provided'} - Admin ID: ${adminId}`,
+        paymentMethod: updated.method || 'mobile_money',
+        userId: updated.riderId
+      });
+
+      // Notify rider about rejection
+      await storage.createNotification({
+        userId: updated.riderId,
+        type: "payout",
+        title: "Payout Rejected",
+        message: `Your payment for Order #${orderNumber} was not approved. ${reason ? `Reason: ${reason}` : 'Please contact support for more information.'}`,
+        metadata: { 
+          link: `/rider/earnings`,
+          payoutId,
+          orderId: updated.orderId,
+          reason
+        } as any,
+      });
+
+      // Emit real-time event
+      io.to(updated.riderId).emit("payout_rejected", {
+        payoutId,
+        orderId: updated.orderId,
+        orderNumber,
+        reason,
+        rejectedAt: new Date().toISOString(),
+      });
+
+      console.log(`Rider payout ${payoutId} rejected by admin ${adminId} for order #${orderNumber}`);
+      res.json({ success: true, payout: updated });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3154,6 +3577,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/orders/:id/items", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const order = await storage.getOrder(req.params.id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      
+      // Only allow buyer or admin to view order items
+      const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
+      const isBuyer = req.user!.id === order.buyerId;
+      
+      if (!isAdmin && !isBuyer) {
+        return res.status(403).json({ error: "Unauthorized to view order items" });
+      }
+      
+      const items = await storage.getOrderItems(req.params.id);
+      res.json(items);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.patch("/api/orders/:id/status", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { status, reason } = req.body;
@@ -3227,12 +3672,208 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Complete delivery with QR code verification (rider scans buyer's QR code)
+  app.post("/api/orders/:id/complete-delivery", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const { qrCode } = req.body;
+      const orderId = req.params.id;
+      const riderId = req.user!.id;
+
+      if (!qrCode) {
+        return res.status(400).json({ error: "QR code is required" });
+      }
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      // Verify the rider is assigned to this order
+      if (order.riderId !== riderId) {
+        return res.status(403).json({ error: "You are not assigned to this delivery" });
+      }
+
+      // Verify the order is in a valid state for completion
+      if (!["delivering", "en_route", "picked_up"].includes(order.status)) {
+        return res.status(400).json({ 
+          error: "Order cannot be completed",
+          details: `Order is currently in "${order.status}" status. Only orders in delivery can be completed.`
+        });
+      }
+
+      // Verify QR code matches
+      if (order.qrCode !== qrCode) {
+        return res.status(400).json({ 
+          error: "Invalid QR code",
+          details: "The scanned QR code does not match this order."
+        });
+      }
+
+      // Update order status to delivered
+      const updatedOrder = await storage.updateOrder(orderId, { 
+        status: "delivered" as any,
+        deliveredAt: new Date(),
+      });
+
+      // Create notifications
+      await storage.createNotification({
+        userId: order.buyerId,
+        type: "order",
+        title: "Order Delivered!",
+        message: `Your order #${order.orderNumber} has been successfully delivered. Thank you for shopping with us!`,
+        metadata: { link: `/orders/${orderId}` } as any,
+      });
+
+      await storage.createNotification({
+        userId: order.sellerId,
+        type: "order", 
+        title: "Delivery Completed",
+        message: `Order #${order.orderNumber} has been delivered to the customer.`,
+        metadata: { link: `/seller/orders/${orderId}` } as any,
+      });
+
+      // Emit real-time events
+      io.to(order.buyerId).emit("order_delivered", {
+        orderId,
+        orderNumber: order.orderNumber,
+        deliveredAt: new Date().toISOString(),
+      });
+
+      io.emit("admin_delivery_completed", {
+        orderId,
+        orderNumber: order.orderNumber,
+        riderId,
+        deliveredAt: new Date().toISOString(),
+      });
+
+      // Create rider payout record (if enabled)
+      try {
+        const rider = await storage.getUser(riderId);
+        if (rider && order.deliveryFee) {
+          const payout = await storage.createRiderPayout({
+            riderId,
+            orderId,
+            amount: order.deliveryFee,
+            currency: order.currency || "GHS",
+            method: "mobile_money",
+            status: "pending_approval",
+          });
+          console.log(`Created rider payout for delivery ${orderId}`);
+
+          // Get all super admins and notify them about pending payout
+          const superAdmins = await storage.getUsersByRole("super_admin");
+          const buyer = await storage.getUser(order.buyerId);
+          
+          for (const admin of superAdmins) {
+            if (!admin.isActive) continue;
+            await storage.createNotification({
+              userId: admin.id,
+              type: "payout",
+              title: "📦 Payout Action Required",
+              message: `Order #${order.orderNumber} delivered by ${rider.name}. Amount: ${order.currency || 'GHS'} ${order.deliveryFee}. Status: Delivered & Verified.`,
+              metadata: { 
+                link: `/admin/riders-payouts`,
+                payoutId: payout.id,
+                orderId,
+                riderId,
+                riderName: rider.name,
+                amount: order.deliveryFee,
+                currency: order.currency || "GHS",
+                orderNumber: order.orderNumber,
+                buyerName: buyer?.name || "Customer",
+                deliveryAddress: order.deliveryAddress || ""
+              } as any,
+            });
+          }
+
+          // Emit real-time event for super admins
+          io.emit("admin_payout_pending", {
+            payoutId: payout.id,
+            orderId,
+            orderNumber: order.orderNumber,
+            riderId,
+            riderName: rider.name,
+            amount: order.deliveryFee,
+            currency: order.currency || "GHS",
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } catch (payoutError) {
+        console.error("Failed to create rider payout:", payoutError);
+        // Don't fail the delivery completion even if payout creation fails
+      }
+
+      console.log(`Order ${orderId} delivered by rider ${riderId} via QR verification`);
+      res.json(updatedOrder);
+    } catch (error: any) {
+      console.error("Error completing delivery:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/riders/available", requireAuth, requireRole("admin", "seller", "super_admin"), async (req, res) => {
     try {
       const availableRiders = await storage.getAvailableRidersWithOrderCounts();
       res.json(availableRiders);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get rider's active delivery (for rider navigation page)
+  app.get("/api/rider/active-delivery", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const riderId = req.user!.id;
+      
+      // Find active order assigned to this rider
+      const activeOrders = await db
+        .select({
+          id: orders.id,
+          orderNumber: orders.orderNumber,
+          status: orders.status,
+          deliveryAddress: orders.deliveryAddress,
+          deliveryLatitude: orders.deliveryLatitude,
+          deliveryLongitude: orders.deliveryLongitude,
+          buyerId: orders.buyerId,
+          qrCode: orders.qrCode,
+        })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.riderId, riderId),
+            or(
+              eq(orders.status, "processing"),
+              eq(orders.status, "delivering")
+            )
+          )
+        )
+        .orderBy(desc(orders.createdAt))
+        .limit(1);
+
+      if (activeOrders.length === 0) {
+        return res.status(404).json({ error: "No active delivery" });
+      }
+
+      const order = activeOrders[0];
+      
+      // Get buyer info
+      const buyer = await storage.getUser(order.buyerId);
+      
+      res.json({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        deliveryAddress: order.deliveryAddress || "Address not available",
+        deliveryLatitude: order.deliveryLatitude ? parseFloat(order.deliveryLatitude) : null,
+        deliveryLongitude: order.deliveryLongitude ? parseFloat(order.deliveryLongitude) : null,
+        buyerId: order.buyerId,
+        buyerName: buyer?.name || "Customer",
+        buyerPhone: buyer?.phone || null,
+        qrCode: order.qrCode || null,
+      });
+    } catch (error: any) {
+      console.error("Error fetching active delivery:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -3308,35 +3949,280 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all active riders with their current locations (for admin tracking)
   app.get("/api/admin/active-riders", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
     try {
-      // Get all orders and filter for delivering status
+      // Get all orders and filter for processing or delivering status with assigned riders
       const allOrders = await storage.getAllOrders();
-      const activeOrders = allOrders.filter(order => order.status === "delivering");
+      const activeOrders = allOrders.filter(order => 
+        (order.status === "delivering" || order.status === "processing") && order.riderId
+      );
       
       const riderLocations = await Promise.all(
         activeOrders.map(async (order: any) => {
           if (!order.riderId) return null;
           
           const rider = await storage.getUser(order.riderId);
+          if (!rider) return null;
+          
           const latestLocation = await storage.getLatestDeliveryLocation(order.id);
           
-          if (!latestLocation || !rider) return null;
-          
+          // Return rider even without location data (they may not have started tracking)
           return {
             riderId: rider.id,
             riderName: rider.name,
             orderId: order.id,
             orderNumber: order.orderNumber,
-            latitude: latestLocation.latitude,
-            longitude: latestLocation.longitude,
-            speed: latestLocation.speed,
-            heading: latestLocation.heading,
-            timestamp: latestLocation.timestamp,
+            orderStatus: order.status,
+            latitude: latestLocation?.latitude ?? null,
+            longitude: latestLocation?.longitude ?? null,
+            speed: latestLocation?.speed ?? null,
+            heading: latestLocation?.heading ?? null,
+            timestamp: latestLocation?.timestamp ?? null,
+            hasLocation: !!latestLocation,
           };
         })
       );
       
       res.json(riderLocations.filter(Boolean));
     } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get pending orders that need rider assignment (for Command Center dispatch)
+  app.get("/api/admin/pending-orders", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const allOrders = await storage.getAllOrders();
+      
+      // Filter for orders that need rider assignment:
+      // - delivery method is "rider"
+      // - status is "processing" or "ready" (paid but not yet picked up)
+      // - no rider assigned yet
+      const pendingOrders = allOrders
+        .filter(order => 
+          order.deliveryMethod === "rider" &&
+          ["processing", "ready", "confirmed"].includes(order.status) &&
+          !order.riderId
+        )
+        .map(order => ({
+          id: order.id,
+          orderNumber: order.orderNumber,
+          buyerName: "Buyer", // Will be populated below
+          deliveryAddress: order.deliveryAddress,
+          deliveryPhone: order.deliveryPhone,
+          deliveryLatitude: order.deliveryLatitude,
+          deliveryLongitude: order.deliveryLongitude,
+          createdAt: order.createdAt,
+          total: order.total,
+          status: order.status,
+        }));
+
+      // Populate buyer names
+      const ordersWithBuyers = await Promise.all(
+        pendingOrders.map(async (order) => {
+          const fullOrder = allOrders.find(o => o.id === order.id);
+          if (fullOrder?.buyerId) {
+            const buyer = await storage.getUser(fullOrder.buyerId);
+            return { ...order, buyerName: buyer?.name || "Unknown" };
+          }
+          return order;
+        })
+      );
+
+      res.json(ordersWithBuyers);
+    } catch (error: any) {
+      console.error("Error fetching pending orders:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get available riders for dispatch (approved, active, not currently on delivery)
+  app.get("/api/admin/available-riders", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const { orderLat, orderLng } = req.query;
+      
+      // Get all approved and active riders
+      const allRiders = await storage.getUsersByRole("rider");
+      const activeRiders = allRiders.filter(r => r.isApproved && r.isActive);
+      
+      // Get orders currently being delivered
+      const allOrders = await storage.getAllOrders();
+      const ridersOnDelivery = new Set(
+        allOrders
+          .filter(o => ["delivering", "picked_up", "en_route"].includes(o.status) && o.riderId)
+          .map(o => o.riderId)
+      );
+      
+      // Filter out riders currently on delivery
+      const availableRiders = activeRiders
+        .filter(r => !ridersOnDelivery.has(r.id))
+        .map(rider => {
+          let distanceToOrder: number | undefined;
+          
+          // Calculate distance if order location provided
+          if (orderLat && orderLng && rider.businessAddress) {
+            // For now, we'll leave distance as undefined
+            // In production, you'd geocode the business address or store rider's current location
+          }
+          
+          return {
+            id: rider.id,
+            name: rider.name,
+            email: rider.email,
+            phone: rider.phone,
+            isAvailable: true,
+            distanceToOrder,
+          };
+        });
+
+      res.json(availableRiders);
+    } catch (error: any) {
+      console.error("Error fetching available riders:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Assign rider to order
+  app.post("/api/orders/:orderId/assign-rider", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const { riderId } = req.body;
+
+      if (!riderId) {
+        return res.status(400).json({ error: "Rider ID is required" });
+      }
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      if (order.riderId) {
+        return res.status(400).json({ error: "Order already has a rider assigned" });
+      }
+
+      const rider = await storage.getUser(riderId);
+      if (!rider || rider.role !== "rider") {
+        return res.status(404).json({ error: "Rider not found" });
+      }
+
+      if (!rider.isApproved || !rider.isActive) {
+        return res.status(400).json({ error: "Rider is not available for deliveries" });
+      }
+
+      // Update order with rider assignment
+      const updatedOrder = await storage.updateOrder(orderId, { 
+        riderId,
+        status: "assigned" as any,
+      });
+
+      // Create notification for rider
+      await storage.createNotification({
+        userId: riderId,
+        type: "order",
+        title: "New Delivery Assigned",
+        message: `You have been assigned to deliver order #${order.orderNumber}. Please pick up the order from the seller.`,
+        metadata: { link: `/rider/deliveries/${orderId}` } as any,
+      });
+
+      // Create notification for buyer
+      await storage.createNotification({
+        userId: order.buyerId,
+        type: "order",
+        title: "Rider Assigned",
+        message: `A rider has been assigned to deliver your order #${order.orderNumber}. You can track the delivery in real-time.`,
+        metadata: { link: `/track-order/${orderId}` } as any,
+      });
+
+      // Emit socket event for real-time update
+      io.emit("order_rider_assigned", {
+        orderId,
+        riderId,
+        riderName: rider.name,
+        orderNumber: order.orderNumber,
+      });
+
+      res.json(updatedOrder);
+    } catch (error: any) {
+      console.error("Error assigning rider to order:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Auto-dispatch: Assign unassigned orders older than 60 minutes to nearest available rider
+  // This should be called by a cron job or scheduled task
+  app.post("/api/admin/auto-dispatch", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const allOrders = await storage.getAllOrders();
+      const now = new Date();
+      const ONE_HOUR = 60 * 60 * 1000;
+
+      // Find orders that need auto-dispatch
+      const overdueOrders = allOrders.filter(order => {
+        if (order.deliveryMethod !== "rider") return false;
+        if (order.riderId) return false; // Already assigned
+        if (!["processing", "ready", "confirmed"].includes(order.status)) return false;
+        
+        const orderAge = now.getTime() - new Date(order.createdAt!).getTime();
+        return orderAge >= ONE_HOUR;
+      });
+
+      if (overdueOrders.length === 0) {
+        return res.json({ message: "No orders require auto-dispatch", assigned: 0 });
+      }
+
+      // Get available riders
+      const allRiders = await storage.getUsersByRole("rider");
+      const activeRiders = allRiders.filter(r => r.isApproved && r.isActive);
+      
+      const ridersOnDelivery = new Set(
+        allOrders
+          .filter(o => ["delivering", "picked_up", "en_route"].includes(o.status) && o.riderId)
+          .map(o => o.riderId)
+      );
+      
+      const availableRiders = activeRiders.filter(r => !ridersOnDelivery.has(r.id));
+
+      if (availableRiders.length === 0) {
+        return res.json({ message: "No available riders for auto-dispatch", assigned: 0, pending: overdueOrders.length });
+      }
+
+      let assignedCount = 0;
+      
+      // Simple round-robin assignment (in production, use proximity-based assignment)
+      for (let i = 0; i < overdueOrders.length && i < availableRiders.length; i++) {
+        const order = overdueOrders[i];
+        const rider = availableRiders[i];
+
+        await storage.updateOrder(order.id, { 
+          riderId: rider.id,
+          status: "assigned" as any,
+        });
+
+        await storage.createNotification({
+          userId: rider.id,
+          type: "order",
+          title: "Auto-Assigned Delivery",
+          message: `You have been auto-assigned to deliver order #${order.orderNumber}. This order has been waiting for pickup.`,
+          metadata: { link: `/rider/deliveries/${order.id}` } as any,
+        });
+
+        io.emit("order_rider_assigned", {
+          orderId: order.id,
+          riderId: rider.id,
+          riderName: rider.name,
+          orderNumber: order.orderNumber,
+          isAutoAssigned: true,
+        });
+
+        assignedCount++;
+      }
+
+      res.json({ 
+        message: `Auto-dispatch completed`, 
+        assigned: assignedCount,
+        pending: overdueOrders.length - assignedCount
+      });
+    } catch (error: any) {
+      console.error("Error in auto-dispatch:", error);
       res.status(400).json({ error: error.message });
     }
   });
@@ -3466,29 +4352,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/messages", requireAuth, async (req: AuthRequest, res) => {
     try {
+      // Ensure IDs are strings for consistent socket room matching
+      const senderId = String(req.user!.id);
+      const receiverId = String(req.body.receiverId);
+      
       const messageData = {
-        senderId: req.user!.id,
-        receiverId: req.body.receiverId,
+        senderId,
+        receiverId,
         message: req.body.message,
         messageType: req.body.messageType || "text",
       };
 
       const message = await storage.createMessage(messageData);
       
+      console.log(`📤 Message sent from ${senderId} to ${receiverId}`);
+      
       // CRITICAL FIX: Broadcast to BOTH sender and receiver for instant message updates
-      io.to(req.body.receiverId).emit("new_message", message);
-      io.to(req.user!.id).emit("new_message", message);
+      io.to(receiverId).emit("new_message", message);
+      io.to(senderId).emit("new_message", message);
+      
+      const receiver = await storage.getUser(receiverId);
+      const sender = await storage.getUser(senderId);
       
       // Notify admins about new messages to admin, agent, or super_admin
-      const receiver = await storage.getUser(req.body.receiverId);
-      const sender = await storage.getUser(req.user!.id);
       if (receiver && (receiver.role === "admin" || receiver.role === "super_admin" || receiver.role === "agent")) {
         await notifyAdmins(
           "message",
           "New message received",
           `You have a new message from ${sender?.name || sender?.email || 'a user'}`,
-          { messageId: message.id, senderId: req.user!.id }
+          { messageId: message.id, senderId }
         );
+      }
+      
+      // Create notification for non-admin receivers (riders, sellers, customers)
+      if (receiver && !["admin", "super_admin", "agent"].includes(receiver.role || "")) {
+        await storage.createNotification({
+          userId: receiver.id,
+          type: "message",
+          title: "New message",
+          message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+          metadata: { messageId: message.id, senderId } as any,
+        });
+        
+        // Also emit a notification event to the receiver's socket room
+        io.to(receiverId).emit("notification", {
+          type: "message",
+          title: "New message",
+          message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+          data: { messageId: message.id, senderId },
+        });
       }
       
       res.json(message);
@@ -3519,6 +4431,638 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const count = await storage.getUnreadMessageCount(req.user!.id);
       res.json({ count });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get message contacts for sellers (admins, agents, and buyers who have messaged)
+  app.get("/api/seller/message-contacts", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      
+      // Get all admins, super_admins, and agents as potential contacts
+      const admins = await storage.getUsersByRole("admin");
+      const superAdmins = await storage.getUsersByRole("super_admin");
+      const agents = await storage.getUsersByRole("agent");
+      
+      // Get users who have had conversations with this seller
+      const allMessages = await db.select({
+        senderId: chatMessages.senderId,
+        receiverId: chatMessages.receiverId,
+      }).from(chatMessages).where(
+        sql`${chatMessages.senderId} = ${userId} OR ${chatMessages.receiverId} = ${userId}`
+      );
+      
+      const conversationPartners = new Set<string>();
+      allMessages.forEach(msg => {
+        if (msg.senderId !== userId) conversationPartners.add(msg.senderId);
+        if (msg.receiverId !== userId) conversationPartners.add(msg.receiverId);
+      });
+      
+      // Get user details for conversation partners
+      const partnerUsers = await Promise.all(
+        Array.from(conversationPartners).map(id => storage.getUser(id))
+      );
+      
+      // Combine all contacts (admins + agents + conversation partners)
+      const allContacts = [...admins, ...superAdmins, ...agents];
+      partnerUsers.forEach(u => {
+        if (u && !allContacts.some(c => c.id === u.id)) {
+          allContacts.push(u);
+        }
+      });
+      
+      // Remove passwords and return
+      const contacts = allContacts.map(u => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        phone: u.phone,
+        isActive: u.isActive,
+      }));
+      
+      res.json(contacts);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get message contacts for riders (admins, agents, sellers, and buyers who have messaged)
+  app.get("/api/rider/message-contacts", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      
+      // Get all admins, super_admins, and agents as potential contacts
+      const admins = await storage.getUsersByRole("admin");
+      const superAdmins = await storage.getUsersByRole("super_admin");
+      const agents = await storage.getUsersByRole("agent");
+      
+      // Get users who have had conversations with this rider
+      const allMessages = await db.select({
+        senderId: chatMessages.senderId,
+        receiverId: chatMessages.receiverId,
+      }).from(chatMessages).where(
+        sql`${chatMessages.senderId} = ${userId} OR ${chatMessages.receiverId} = ${userId}`
+      );
+      
+      const conversationPartners = new Set<string>();
+      allMessages.forEach(msg => {
+        if (msg.senderId !== userId) conversationPartners.add(msg.senderId);
+        if (msg.receiverId !== userId) conversationPartners.add(msg.receiverId);
+      });
+      
+      // Get user details for conversation partners
+      const partnerUsers = await Promise.all(
+        Array.from(conversationPartners).map(id => storage.getUser(id))
+      );
+      
+      // Combine all contacts (admins + agents + conversation partners)
+      const allContacts = [...admins, ...superAdmins, ...agents];
+      partnerUsers.forEach(u => {
+        if (u && !allContacts.some(c => c.id === u.id)) {
+          allContacts.push(u);
+        }
+      });
+      
+      // Remove passwords and return
+      const contacts = allContacts.map(u => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        phone: u.phone,
+        isActive: u.isActive,
+      }));
+      
+      res.json(contacts);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Presence API Endpoints (WhatsApp-style) ============
+  
+  // Get single user presence
+  app.get("/api/presence/:userId", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const presence = presenceService.getPresenceForApi(req.params.userId);
+      res.json(presence);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get multiple users' presence (batch)
+  app.post("/api/presence/batch", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { userIds } = req.body;
+      if (!Array.isArray(userIds)) {
+        return res.status(400).json({ error: "userIds must be an array" });
+      }
+      const presences = presenceService.getBatchPresence(userIds);
+      res.json(presences);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get online users count (for dashboard)
+  app.get("/api/presence/stats", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const stats = presenceService.getStats();
+      res.json(stats);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Chat Permission API Endpoints (RBAC) ============
+  
+  // Check if current user can chat with target
+  app.get("/api/chat/can-message/:targetUserId", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const result = await chatPermissionService.canInitiateChat(
+        req.user!.id,
+        req.params.targetUserId
+      );
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get available chat contacts for current user
+  app.get("/api/chat/contacts", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const contacts = await chatPermissionService.getAvailableChatContacts(req.user!.id);
+      
+      // Also get support agents
+      const agents = await storage.getUsersByRole("agent");
+      const admins = await storage.getUsersByRole("admin");
+      
+      res.json({
+        support: [...agents, ...admins].map(u => ({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          profileImage: u.profileImage,
+          presence: presenceService.getPresenceForApi(u.id),
+        })),
+        orderRelated: contacts.orderRelated,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Jitsi Meet Video Call Endpoints ============
+  
+  // Start a call with another user
+  app.post("/api/calls/start", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { targetUserId, callType, orderId } = req.body;
+      
+      if (!targetUserId) {
+        return res.status(400).json({ error: "targetUserId is required" });
+      }
+      
+      // Check permission
+      const permission = await chatPermissionService.canInitiateChat(req.user!.id, targetUserId);
+      if (!permission.allowed) {
+        return res.status(403).json({ error: permission.reason });
+      }
+      
+      const room = jitsiMeetService.startCall({
+        initiatorId: req.user!.id,
+        targetId: targetUserId,
+        callType: callType || 'video',
+        orderId: permission.orderId || orderId,
+      });
+      
+      // Get current user info for Jitsi config
+      const currentUser = await storage.getUser(req.user!.id);
+      // Admins and super_admins are automatically moderators
+      const isModerator = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+      const config = jitsiMeetService.getJitsiConfig(
+        room.roomName,
+        currentUser?.name || 'User',
+        currentUser?.email,
+        isModerator
+      );
+      
+      // Notify target user about incoming call
+      io.to(targetUserId).emit("jitsi_call_incoming", {
+        roomName: room.roomName,
+        roomUrl: room.roomUrl,
+        callerId: req.user!.id,
+        callerName: currentUser?.name || 'User',
+        callType: room.callType,
+      });
+      
+      res.json({
+        room,
+        config,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Start a group call
+  app.post("/api/calls/group/start", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { participantIds, callType } = req.body;
+      
+      if (!Array.isArray(participantIds) || participantIds.length === 0) {
+        return res.status(400).json({ error: "participantIds array is required" });
+      }
+      
+      const room = jitsiMeetService.startGroupCall({
+        hostId: req.user!.id,
+        participantIds,
+        callType: callType || 'video',
+      });
+      
+      // Get current user info
+      const currentUser = await storage.getUser(req.user!.id);
+      // Admins and super_admins are automatically moderators
+      const isModerator = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+      const config = jitsiMeetService.getJitsiConfig(
+        room.roomName,
+        currentUser?.name || 'User',
+        currentUser?.email,
+        isModerator
+      );
+      
+      // Notify all participants about the group call
+      for (const participantId of participantIds) {
+        io.to(participantId).emit("jitsi_group_call_invite", {
+          roomName: room.roomName,
+          roomUrl: room.roomUrl,
+          hostId: req.user!.id,
+          hostName: currentUser?.name || 'User',
+          callType: room.callType,
+          participants: room.participants,
+        });
+      }
+      
+      res.json({
+        room,
+        config,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Join an existing call
+  app.post("/api/calls/:roomName/join", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const room = jitsiMeetService.joinCall(req.params.roomName, req.user!.id);
+      
+      if (!room) {
+        return res.status(404).json({ error: "Call not found or has ended" });
+      }
+      
+      const currentUser = await storage.getUser(req.user!.id);
+      // Admins joining become moderators, or the call creator is also moderator
+      const isModerator = currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || room.createdBy === req.user!.id;
+      const config = jitsiMeetService.getJitsiConfig(
+        room.roomName,
+        currentUser?.name || 'User',
+        currentUser?.email,
+        isModerator
+      );
+      
+      // Notify other participants
+      for (const participantId of room.participants) {
+        if (participantId !== req.user!.id) {
+          io.to(participantId).emit("jitsi_participant_joined", {
+            roomName: room.roomName,
+            userId: req.user!.id,
+            userName: currentUser?.name || 'User',
+          });
+        }
+      }
+      
+      res.json({
+        room,
+        config,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Leave a call
+  app.post("/api/calls/:roomName/leave", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const success = jitsiMeetService.leaveCall(req.params.roomName, req.user!.id);
+      
+      if (success) {
+        // Notify other participants
+        const room = jitsiMeetService.getRoom(req.params.roomName);
+        if (room) {
+          for (const participantId of room.participants) {
+            io.to(participantId).emit("jitsi_participant_left", {
+              roomName: req.params.roomName,
+              userId: req.user!.id,
+            });
+          }
+        }
+      }
+      
+      res.json({ success });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Record a missed call (when call is rejected or not answered)
+  app.post("/api/calls/missed", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { targetUserId, callType } = req.body;
+      
+      if (!targetUserId) {
+        return res.status(400).json({ error: "targetUserId is required" });
+      }
+      
+      // Get caller info
+      const caller = await storage.getUser(req.user!.id);
+      
+      // Create a system message for missed call
+      const { db } = await import("../db/index");
+      const { chatMessages } = await import("@shared/schema");
+      
+      const missedCallMessage = await db.insert(chatMessages).values({
+        senderId: req.user!.id,
+        receiverId: targetUserId,
+        message: `📞 Missed ${callType || 'voice'} call from ${caller?.name || 'User'}`,
+        messageType: 'missed_call',
+        status: 'delivered',
+      }).returning();
+      
+      // Notify the target user about missed call
+      io.to(targetUserId).emit("missed_call", {
+        callerId: req.user!.id,
+        callerName: caller?.name || 'User',
+        callType: callType || 'voice',
+        messageId: missedCallMessage[0]?.id,
+      });
+      
+      res.json({ success: true, message: missedCallMessage[0] });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // End a call (host only or admin)
+  app.post("/api/calls/:roomName/end", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const room = jitsiMeetService.getRoom(req.params.roomName);
+      
+      if (!room) {
+        return res.status(404).json({ error: "Call not found" });
+      }
+      
+      // Only host or admin can end the call
+      const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin';
+      if (room.createdBy !== req.user!.id && !isAdmin) {
+        return res.status(403).json({ error: "Only call host or admin can end the call" });
+      }
+      
+      // Notify all participants before ending
+      for (const participantId of room.participants) {
+        io.to(participantId).emit("jitsi_call_ended", {
+          roomName: req.params.roomName,
+          endedBy: req.user!.id,
+        });
+      }
+      
+      const success = jitsiMeetService.endCall(req.params.roomName);
+      res.json({ success });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get active calls (admin dashboard)
+  app.get("/api/calls/active", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const activeCalls = jitsiMeetService.getActiveRooms();
+      const stats = jitsiMeetService.getStats();
+      
+      // Enrich with user details
+      const enrichedCalls = await Promise.all(activeCalls.map(async (call) => {
+        const participantDetails = await Promise.all(
+          call.participants.map(async (pId) => {
+            const user = await storage.getUser(pId);
+            return user ? { id: user.id, name: user.name, role: user.role } : { id: pId };
+          })
+        );
+        
+        return {
+          ...call,
+          participantDetails,
+        };
+      }));
+      
+      res.json({
+        calls: enrichedCalls,
+        stats,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Live Support Dashboard Endpoints ============
+  
+  // Get all active support conversations (admin)
+  app.get("/api/admin/live-support", requireAuth, requireRole("admin", "super_admin", "agent"), async (req: AuthRequest, res) => {
+    try {
+      // Get all recent messages grouped by conversation
+      const recentMessages = await db.select()
+        .from(chatMessages)
+        .orderBy(desc(chatMessages.createdAt))
+        .limit(500);
+      
+      // Group by conversation pairs
+      const conversations = new Map<string, {
+        participants: string[];
+        lastMessage: typeof recentMessages[0];
+        messageCount: number;
+        unreadCount: number;
+      }>();
+      
+      for (const msg of recentMessages) {
+        const key = [msg.senderId, msg.receiverId].sort().join('-');
+        const existing = conversations.get(key);
+        
+        if (!existing) {
+          conversations.set(key, {
+            participants: [msg.senderId, msg.receiverId],
+            lastMessage: msg,
+            messageCount: 1,
+            unreadCount: msg.isRead ? 0 : 1,
+          });
+        } else {
+          existing.messageCount++;
+          if (!msg.isRead) existing.unreadCount++;
+        }
+      }
+      
+      // Enrich with user details and presence
+      const enrichedConversations = await Promise.all(
+        Array.from(conversations.entries()).map(async ([key, conv]) => {
+          const [user1Id, user2Id] = conv.participants;
+          const user1 = await storage.getUser(user1Id);
+          const user2 = await storage.getUser(user2Id);
+          
+          const presence1 = presenceService.getPresenceForApi(user1Id);
+          const presence2 = presenceService.getPresenceForApi(user2Id);
+          
+          // Determine if conversation is "active" (at least one participant online)
+          const isActive = presence1.status === 'online' || presence2.status === 'online';
+          
+          // Check if both participants are admins (should be filtered from support)
+          const adminRoles = ['admin', 'super_admin'];
+          const isAdminToAdmin = adminRoles.includes(user1?.role || '') && adminRoles.includes(user2?.role || '');
+          
+          return {
+            id: key,
+            participants: [
+              {
+                id: user1Id,
+                name: user1?.name || 'Unknown',
+                role: user1?.role || 'unknown',
+                presence: presence1,
+              },
+              {
+                id: user2Id,
+                name: user2?.name || 'Unknown',
+                role: user2?.role || 'unknown',
+                presence: presence2,
+              },
+            ],
+            lastMessage: {
+              message: conv.lastMessage.message,
+              createdAt: conv.lastMessage.createdAt,
+              senderId: conv.lastMessage.senderId,
+            },
+            messageCount: conv.messageCount,
+            unreadCount: conv.unreadCount,
+            isActive, // New: indicates if conversation has online participants
+            isAdminToAdmin, // New: flag to filter admin-to-admin chats
+          };
+        })
+      );
+      
+      // Filter out admin-to-admin conversations from support
+      const supportConversations = enrichedConversations.filter(c => !c.isAdminToAdmin);
+      
+      // Sort by most recent activity
+      supportConversations.sort((a, b) => 
+        new Date(b.lastMessage.createdAt || 0).getTime() - new Date(a.lastMessage.createdAt || 0).getTime()
+      );
+      
+      // Separate active vs all for dashboard
+      const activeConversations = supportConversations.filter(c => c.isActive);
+      
+      res.json({
+        conversations: supportConversations,
+        activeConversations: activeConversations,
+        stats: {
+          totalConversations: supportConversations.length,
+          activeConversations: activeConversations.length,
+          onlineUsers: presenceService.getStats().online,
+          activeCalls: jitsiMeetService.getStats().activeCalls,
+        },
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin join conversation (read messages between two users)
+  app.get("/api/admin/live-support/:user1Id/:user2Id", requireAuth, requireRole("admin", "super_admin", "agent"), async (req: AuthRequest, res) => {
+    try {
+      const { user1Id, user2Id } = req.params;
+      
+      const messages = await db.select()
+        .from(chatMessages)
+        .where(
+          or(
+            and(eq(chatMessages.senderId, user1Id), eq(chatMessages.receiverId, user2Id)),
+            and(eq(chatMessages.senderId, user2Id), eq(chatMessages.receiverId, user1Id))
+          )
+        )
+        .orderBy(chatMessages.createdAt);
+      
+      const user1 = await storage.getUser(user1Id);
+      const user2 = await storage.getUser(user2Id);
+      
+      res.json({
+        messages,
+        participants: [
+          {
+            id: user1Id,
+            name: user1?.name || 'Unknown',
+            role: user1?.role || 'unknown',
+            presence: presenceService.getPresenceForApi(user1Id),
+          },
+          {
+            id: user2Id,
+            name: user2?.name || 'Unknown',
+            role: user2?.role || 'unknown',
+            presence: presenceService.getPresenceForApi(user2Id),
+          },
+        ],
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Admin send message to conversation (as mediator)
+  app.post("/api/admin/live-support/:targetUserId/message", requireAuth, requireRole("admin", "super_admin", "agent"), async (req: AuthRequest, res) => {
+    try {
+      const { targetUserId } = req.params;
+      const { message } = req.body;
+      
+      const messageData = {
+        senderId: req.user!.id,
+        receiverId: targetUserId,
+        message,
+        messageType: "text",
+      };
+      
+      const newMessage = await storage.createMessage(messageData);
+      
+      // Emit to target user
+      io.to(targetUserId).emit("new_message", newMessage);
+      io.to(req.user!.id).emit("new_message", newMessage);
+      
+      res.json(newMessage);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Message Delivery Stats (Admin) ============
+  app.get("/api/admin/messaging-stats", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const presenceStats = presenceService.getStats();
+      const deliveryStats = messageDeliveryService.getStats();
+      const callStats = jitsiMeetService.getStats();
+      
+      res.json({
+        presence: presenceStats,
+        messageQueue: deliveryStats,
+        calls: callStats,
+      });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3657,25 +5201,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let settings = await storage.getPlatformSettings();
 
       // Import env secrets to DB if missing (so they appear in admin dashboard)
-      const toUpdate: any = {};
-      if (!settings.paystackSecretKey && process.env.PAYSTACK_SECRET_KEY) {
-        toUpdate.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
-      }
-      if (!settings.paystackPublicKey && process.env.PAYSTACK_PUBLIC_KEY) {
-        toUpdate.paystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY;
-      }
-      if (!settings.cloudinaryApiSecret && process.env.CLOUDINARY_API_SECRET) {
-        toUpdate.cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
-      }
-      if (!settings.cloudinaryApiKey && process.env.CLOUDINARY_API_KEY) {
-        toUpdate.cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
-      }
-      if (!settings.cloudinaryCloudName && process.env.CLOUDINARY_CLOUD_NAME) {
-        toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
-      }
+      try {
+        const toUpdate: any = {};
+        if (!settings.paystackSecretKey && process.env.PAYSTACK_SECRET_KEY) {
+          toUpdate.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+        }
+        if (!settings.paystackPublicKey && process.env.PAYSTACK_PUBLIC_KEY) {
+          toUpdate.paystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY;
+        }
+        if (!settings.cloudinaryApiSecret && process.env.CLOUDINARY_API_SECRET) {
+          toUpdate.cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
+        }
+        if (!settings.cloudinaryApiKey && process.env.CLOUDINARY_API_KEY) {
+          toUpdate.cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
+        }
+        if (!settings.cloudinaryCloudName && process.env.CLOUDINARY_CLOUD_NAME) {
+          toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
+        }
 
-      if (Object.keys(toUpdate).length > 0) {
-        settings = await storage.updatePlatformSettings(toUpdate);
+        if (Object.keys(toUpdate).length > 0) {
+          settings = await storage.updatePlatformSettings(toUpdate);
+        }
+      } catch (err: any) {
+        console.warn('[ROUTES] Failed to persist env secrets to platform_settings, continuing with retrieved defaults:', (err?.message || err));
       }
 
       // Determine secret sources for transparency
@@ -3860,7 +5408,137 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ============ Role Features Management (Super Admin Only) ============
+  // Admin: Promotional ads CRUD (basic scaffolding)
+  app.post('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const { type, targetId, targetIds, startAt, endAt, title, description, imageUrl, ctaText, ctaUrl, themeColor } = req.body;
+      if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+
+      // Support bulk creation for products when targetIds array is provided
+      if (type === 'product' && Array.isArray(targetIds) && targetIds.length > 0) {
+        const createdRows = [] as any[];
+        for (const tId of targetIds) {
+          const created = await storage.createPromotionalAd({ type, targetId: tId, startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null });
+          createdRows.push(created);
+        }
+        res.json(createdRows);
+        return;
+      }
+
+      const created = await storage.createPromotionalAd({ type, targetId: targetId || '', startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null });
+      res.json(created);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const rows = await storage.getAllPromotionalAds();
+      // Enrich with store/product details for admin UI
+      const enriched = await Promise.all(rows.map(async (r: any) => {
+        if (r.type === 'store') {
+          const store = await storage.getStore(r.targetId).catch(() => null);
+          return { ...r, store };
+        }
+        if (r.type === 'product') {
+          const product = await storage.getProduct(r.targetId).catch(() => null);
+          return { ...r, product };
+        }
+        return r;
+      }));
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.patch('/api/admin/promotions/:id/expire', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const id = req.params.id;
+      await storage.expirePromotionById(id);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // Public: homepage promotions
+  app.get('/api/homepage/promotional', async (req, res) => {
+    try {
+      const rows = await storage.getActivePromotionalAds();
+      console.log('[PROMO-API] Retrieved active promos:', rows.length, 'rows');
+      // Enrich with store or product info for frontend display
+      const enriched = await Promise.all(rows.map(async (r: any) => {
+        if (r.type === 'store') {
+          const store = await storage.getStore(r.targetId).catch((err) => { console.warn('[PROMO-API] Failed to get store', r.targetId, err.message); return null; });
+          return { ...r, store };
+        }
+        if (r.type === 'product') {
+          const product = await storage.getProduct(r.targetId).catch((err) => { console.warn('[PROMO-API] Failed to get product', r.targetId, err.message); return null; });
+          return { ...r, product };
+        }
+        return r;
+      }));
+      console.log('[PROMO-API] Enriched:', enriched.length, 'items');
+      res.json(enriched);
+    } catch (e: any) {
+      console.error('[PROMO-API] Error:', e.message);
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // ============ Admin Promotion Pricing Management ============
+  app.post('/api/admin/promotion-pricing', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const { type, durationType, duration, price } = req.body;
+      if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+      if (!['hour', 'day'].includes(durationType)) return res.status(400).json({ error: 'Invalid durationType' });
+      if (typeof duration !== 'number' || duration <= 0) return res.status(400).json({ error: 'Invalid duration' });
+      if (typeof price !== 'string' || isNaN(parseFloat(price))) return res.status(400).json({ error: 'Invalid price' });
+
+      const created = await storage.createPromotionPricing({ type, durationType, duration, price });
+      res.json(created);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/admin/promotion-pricing', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const rows = await storage.getAllPromotionPricing();
+      res.json(rows);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.put('/api/admin/promotion-pricing/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { price, isActive } = req.body;
+      const updateData: any = {};
+      if (price !== undefined) updateData.price = price;
+      if (isActive !== undefined) updateData.isActive = isActive;
+
+      const updated = await storage.updatePromotionPricing(parseInt(id), updateData);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/admin/promotion-pricing/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deletePromotionPricing(parseInt(id));
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // ============ Seller Promotion Application ============
   app.get("/api/role-features", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const { role } = req.query;
@@ -3889,6 +5567,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updatedFeatures);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Seller Promotion Application ============
+  app.get('/api/seller/promotion-pricing', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user;
+      if (!user || user.role !== 'seller') {
+        return res.status(403).json({ error: "Seller access required" });
+      }
+
+      // Check if multi-vendor is enabled
+      const settings = await storage.getPlatformSettings();
+      if (!settings.isMultiVendor) {
+        return res.status(403).json({ error: "Promotions are only available in multi-vendor mode" });
+      }
+
+      const pricing = await storage.getAllPromotionPricing();
+      res.json(pricing);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/seller/apply-promotion', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user;
+      if (!user || user.role !== 'seller') {
+        return res.status(403).json({ error: "Seller access required" });
+      }
+
+      // Check if multi-vendor is enabled
+      const settings = await storage.getPlatformSettings();
+      if (!settings.isMultiVendor) {
+        return res.status(403).json({ error: "Promotions are only available in multi-vendor mode" });
+      }
+
+      const { type, targetId, durationType, duration } = req.body;
+      if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+      if (!['hour', 'day'].includes(durationType)) return res.status(400).json({ error: 'Invalid durationType' });
+      if (typeof duration !== 'number' || duration <= 0) return res.status(400).json({ error: 'Invalid duration' });
+
+      // Validate targetId belongs to seller
+      if (type === 'store') {
+        const store = await storage.getStore(targetId);
+        if (!store || store.primarySellerId !== user.id) {
+          return res.status(403).json({ error: 'You can only promote your own store' });
+        }
+      } else if (type === 'product') {
+        const product = await storage.getProduct(targetId);
+        if (!product || product.sellerId !== user.id) {
+          return res.status(403).json({ error: 'You can only promote your own products' });
+        }
+      }
+
+      // Get pricing
+      const pricing = await storage.getPromotionPricing(type, durationType, duration);
+      if (!pricing) {
+        return res.status(400).json({ error: 'No pricing found for the selected options' });
+      }
+
+      // Calculate total price (for multiple days, multiply)
+      const unitPrice = parseFloat(pricing.price);
+      const totalPrice = unitPrice * duration;
+
+      // Calculate end time
+      const startAt = new Date();
+      const endAt = new Date(startAt);
+      if (durationType === 'hour') {
+        endAt.setHours(endAt.getHours() + duration);
+      } else {
+        endAt.setDate(endAt.getDate() + duration);
+      }
+
+      // Create promotional ad
+      const promo = await storage.createPromotionalAd({
+        type,
+        targetId,
+        startAt,
+        endAt,
+        createdBy: user.id,
+        title: null,
+        description: null,
+        imageUrl: null,
+        ctaText: null,
+        ctaUrl: null,
+        themeColor: null,
+      });
+
+      // TODO: Handle payment here if needed, for now just create the promo
+
+      res.json({
+        ...promo,
+        totalPrice: totalPrice.toFixed(2),
+        currency: 'GHS',
+        durationType,
+        duration,
+        unitPrice: pricing.price,
+      });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
     }
   });
 
@@ -3975,8 +5754,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Initialize payment with Paystack with timeout
-      const callbackUrl = `${req.protocol}://${req.get('host')}/payment/verify`;
-      
+      // Prefer FRONTEND_URL (deployed front-end) for Paystack redirect so users return to the client
+      // Fallback to request host for local/dev runs.
+      const frontendHost = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+      const callbackBase = frontendHost || `${req.protocol}://${req.get('host')}`;
+      const callbackUrl = `${callbackBase}/payment/verify`;
+      console.debug('[PAYMENTS] Using callback URL for Paystack initialize:', callbackUrl);
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
@@ -4301,22 +6085,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error(data.message || "Payment verification failed");
       }
 
-      const isMultiVendor = data.data.metadata?.isMultiVendor || false;
+      console.log('[VERIFY] Paystack verify response data:', JSON.stringify(data.data, null, 2));
+
+      // Determine payment mode based on platform configuration + tolerant metadata parsing
+      // Platform setting has higher authority — if platform is single-store, treat payment as single-vendor.
+      const platformIsMultiVendor = !!settings.isMultiVendor;
+      const rawMeta = data.data.metadata || {};
+
+      const metaIsMultiVendorRaw = rawMeta.isMultiVendor;
+      const metaIsMultiVendor = metaIsMultiVendorRaw === true || (typeof metaIsMultiVendorRaw === 'string' && ['true','1'].includes(metaIsMultiVendorRaw.toLowerCase()));
+      const metaHasOrderIds = Array.isArray(rawMeta.orderIds) && rawMeta.orderIds.length > 0;
+      const metaHasCheckoutSession = Boolean(rawMeta.checkoutSessionId);
+
+      // Only treat as multi-vendor when the platform supports it AND metadata indicates multi-vendor intent
+      const isMultiVendor = platformIsMultiVendor && (metaIsMultiVendor || metaHasOrderIds || metaHasCheckoutSession);
+
+      if (platformIsMultiVendor !== isMultiVendor) {
+        console.warn('[VERIFY] Platform mode vs payment metadata mismatch', { platformIsMultiVendor: platformIsMultiVendor, paymentMeta: rawMeta });
+      }
+
       let orders: any[] = [];
 
       if (isMultiVendor) {
-        const orderIds = data.data.metadata.orderIds || [];
-        if (!Array.isArray(orderIds) || orderIds.length === 0) {
-          throw new Error("Invalid multi-vendor payment data");
+        // Accept orderIds in multiple formats (array | JSON-string | comma-separated string)
+        let orderIds: any = rawMeta.orderIds || [];
+        const checkoutSessionIdFromMeta = rawMeta.checkoutSessionId;
+
+        if (!Array.isArray(orderIds)) {
+          if (typeof orderIds === 'string' && orderIds.length > 0) {
+            try {
+              const parsed = JSON.parse(orderIds);
+              orderIds = Array.isArray(parsed) ? parsed : orderIds.split(',').map((s: string) => s.trim()).filter(Boolean);
+            } catch (e) {
+              orderIds = orderIds.split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+          } else {
+            orderIds = [];
+          }
         }
 
-        const allOrders = await storage.getAllOrders();
-        orders = allOrders.filter((o: any) => orderIds.includes(o.id));
-        if (orders.length !== orderIds.length) {
-          throw new Error("Some orders not found");
+        // Resolve by checkoutSessionId when explicit IDs are not present
+        if ((!Array.isArray(orderIds) || orderIds.length === 0) && checkoutSessionIdFromMeta) {
+          const allOrders = await storage.getAllOrders();
+          const sessionOrders = allOrders.filter((o: any) => o.checkoutSessionId === checkoutSessionIdFromMeta);
+          if (sessionOrders.length === 0) {
+            console.error('[VERIFY] No orders found for checkoutSessionId:', checkoutSessionIdFromMeta);
+            throw new Error("Invalid multi-vendor payment data");
+          }
+          orders = sessionOrders;
+        } else {
+          if (!Array.isArray(orderIds) || orderIds.length === 0) {
+            console.error('[VERIFY] Missing orderIds for multi-vendor payment - metadata:', rawMeta);
+            throw new Error("Invalid multi-vendor payment data");
+          }
+
+          const allOrders = await storage.getAllOrders();
+          orders = allOrders.filter((o: any) => orderIds.includes(o.id));
+          if (orders.length !== orderIds.length) {
+            console.error('[VERIFY] Some orders from metadata not found', { expected: orderIds, found: orders.map((o:any)=>o.id) });
+            throw new Error("Some orders not found");
+          }
         }
 
-        // If a currentUserId is provided, ensure they own all orders; otherwise skip ownership check
         if (currentUserId) {
           const allOwnedByUser = orders.every((o: any) => o.buyerId === currentUserId);
           if (!allOwnedByUser) throw new Error("Unauthorized to verify these payments");
@@ -4726,28 +6556,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
+  // ============ Initialize WhatsApp-style Services ============
+  presenceService.initialize(io);
+  messageDeliveryService.initialize(io);
+  // chatPermissionService uses storage adapter, initialize with storage functions
+  chatPermissionService.initialize({
+    getUser: async (userId: string) => {
+      const user = await storage.getUser(userId);
+      return user ? { id: user.id, role: user.role as any } : null;
+    },
+    getOrdersByBuyer: async (buyerId: string) => {
+      const buyerOrders = await storage.getAllOrders();
+      return buyerOrders.filter((o: any) => o.buyerId === buyerId);
+    },
+    getOrdersBySeller: async (sellerId: string) => {
+      const sellerOrders = await storage.getAllOrders();
+      return sellerOrders.filter((o: any) => o.sellerId === sellerId);
+    },
+    getOrdersByRider: async (riderId: string) => {
+      const riderOrders = await storage.getAllOrders();
+      return riderOrders.filter((o: any) => o.riderId === riderId);
+    },
+    getActiveOrderBetweenUsers: async (userId1: string, userId2: string) => {
+      const allOrders = await storage.getAllOrders();
+      return allOrders.find((o: any) => 
+        ((o.buyerId === userId1 && (o.sellerId === userId2 || o.riderId === userId2)) ||
+         (o.buyerId === userId2 && (o.sellerId === userId1 || o.riderId === userId1)) ||
+         (o.sellerId === userId1 && o.riderId === userId2) ||
+         (o.sellerId === userId2 && o.riderId === userId1)) &&
+        ['pending', 'confirmed', 'processing', 'ready_for_pickup', 'assigned_to_rider', 'picked_up', 'in_transit', 'out_for_delivery'].includes(o.status)
+      ) || null;
+    },
+  });
+  console.log('[BOOT] WhatsApp-style messaging services initialized');
+
   io.on("connection", (socket) => {
     const userId = socket.data.userId; // From authentication middleware
     const userEmail = socket.data.userEmail;
     
     console.log(`✅ User connected: ${userEmail} (${userId})`);
     
-    // Track user socket for online status
+    // Track user socket for online status (legacy)
     userSockets.set(userId, socket.id);
     io.emit("user_online", userId);
+    
+    // Register with presence service
+    presenceService.userConnected(userId, socket.id);
+    
+    // Deliver any queued messages for this user
+    messageDeliveryService.onUserOnline(userId);
 
     socket.on("disconnect", () => {
       console.log(`❌ User disconnected: ${userEmail} (${userId})`);
       userSockets.delete(userId);
       io.emit("user_offline", userId);
+      
+      // Update presence service
+      presenceService.userDisconnected(userId);
+    });
+
+    // Heartbeat for presence tracking
+    socket.on("heartbeat", () => {
+      presenceService.heartbeat(userId);
     });
 
     socket.on("typing", ({ receiverId }) => {
       io.to(receiverId).emit("user_typing", socket.id);
+      presenceService.setTyping(userId, receiverId);
     });
 
     socket.on("stop_typing", ({ receiverId }) => {
       io.to(receiverId).emit("user_stop_typing", socket.id);
+      presenceService.setTyping(userId, null);
+    });
+    
+    // Message acknowledgment events
+    socket.on("message_received", ({ messageId }) => {
+      messageDeliveryService.markDelivered(messageId, userId);
+    });
+    
+    socket.on("messages_read", ({ messageIds }) => {
+      messageDeliveryService.markRead(messageIds, userId);
     });
 
     // WebRTC Call Signaling Events
@@ -5178,6 +7067,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           createdAt: newMessage.createdAt
         });
 
+        // Create notification for the receiver
+        try {
+          const receiver = await storage.getUser(receiverId);
+          const sender = await storage.getUser(senderId);
+          
+          if (receiver) {
+            // Create notification in database
+            await storage.createNotification({
+              userId: receiverId,
+              type: "message",
+              title: "New message",
+              message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+            });
+            
+            // Emit notification event
+            io.to(receiverId).emit("notification", {
+              type: "message",
+              title: "New message",
+              message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+              data: { messageId: newMessage.id, senderId },
+            });
+          }
+        } catch (notifyError) {
+          console.error("Error creating message notification:", notifyError);
+        }
+
       } catch (error) {
         console.error("Error sending message:", error);
         socket.emit("error", { message: "Failed to send message" });
@@ -5596,7 +7511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Category Routes ============
-  app.post("/api/categories", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.post("/api/categories", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const category = await storage.createCategory(req.body);
       res.json(category);
@@ -5641,7 +7556,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/categories/:id", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.patch("/api/categories/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const updated = await storage.updateCategory(req.params.id, req.body);
       if (!updated) {
@@ -5653,7 +7568,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/categories/:id", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.delete("/api/categories/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const success = await storage.deleteCategory(req.params.id);
       if (!success) {
@@ -5666,7 +7581,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Category Migration Endpoint (Admin only) - Backfill categoryId from legacy category text
-  app.post("/api/admin/migrate-categories", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/migrate-categories", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const { dryRun = true } = req.body;
       

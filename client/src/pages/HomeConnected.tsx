@@ -14,7 +14,12 @@ import Footer from "@/components/Footer";
 import CartSidebar from "@/components/CartSidebar";
 import ThemeToggle from "@/components/ThemeToggle";
 import AdBanner from "@/components/AdBanner";
+import PromotionalAd from "@/components/PromotionalAd";
+import PromotionalAdsGrid from "@/components/PromotionalAdsGrid";
+import SinglePromotionSidebar from "@/components/SinglePromotionSidebar";
 import MultiVendorHome from "./MultiVendorHome";
+import LocationPrompt from "@/components/LocationPrompt";
+import { Button } from '@/components/ui/button';
 import type { PlatformSettings } from "@shared/schema";
 
 import heroImage from "@assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png";
@@ -39,6 +44,10 @@ interface CartItem {
   id: string;
   productId: string;
   quantity: number;
+  variantId: string | null;
+  selectedColor: string | null;
+  selectedSize: string | null;
+  selectedImageIndex: number | null;
   createdAt: string;
 }
 
@@ -59,7 +68,37 @@ export default function HomeConnected() {
 
   const { data: platformSettings, isLoading: settingsLoading } = useQuery<PlatformSettings>({
     queryKey: ["/api/platform-settings"],
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000,
   });
+
+  // Defensive flags to avoid runtime errors when settings are undefined during hydration/HMR
+  const adsEnabled = platformSettings?.adsEnabled ?? true;
+  const heroBannerEnabled = platformSettings?.heroBannerEnabled ?? true;
+  const sidebarAdEnabled = platformSettings?.sidebarAdEnabled ?? true;
+  const footerAdEnabled = platformSettings?.footerAdEnabled ?? true;
+  const productPageAdEnabled = platformSettings?.productPageAdEnabled ?? true;
+
+  // Query promotions to determine sidebar display logic
+  const { data: allPromotions = [] } = useQuery<any[]>({
+    queryKey: ["/api/homepage/promotional"],
+    queryFn: async () => {
+      const res = await fetch("/api/homepage/promotional");
+      return res.json();
+    },
+    refetchInterval: 5000,
+  });
+
+  // Determine sidebar display logic based on promotion count
+  const hasExactlyOnePromotion = allPromotions.length === 1;
+  const hasMultiplePromotions = allPromotions.length > 1;
+  const hasPromotion = allPromotions.length >= 1;
+  const singlePromotion = hasPromotion ? allPromotions[0] : null;
+
+  // Sidebar content stacking: both promo + ad can coexist (matching MultiVendorHome)
+  const hasSidebarAd = adsEnabled && sidebarAdEnabled;
+  const sidebarItemCount = (hasPromotion ? 1 : 0) + (hasSidebarAd ? 1 : 0);
 
   const { data: allProducts = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["/api/products"],
@@ -81,12 +120,31 @@ export default function HomeConnected() {
     enabled: platformSettings?.isMultiVendor === true && platformSettings?.shopDisplayMode === "by-store",
   });
 
-  // Filter products by primary store in single-store mode
-  const products = platformSettings?.isMultiVendor 
-    ? allProducts 
-    : platformSettings?.primaryStoreId
-      ? allProducts.filter(p => p.storeId === platformSettings.primaryStoreId)
-      : allProducts;
+  // Products are already filtered server-side by primary store's sellerId in single-store mode
+  // No additional client-side filtering needed — /api/products handles store mode correctly
+  const products = allProducts;
+
+  // Development-only fallback: show a few sample products when DB/products are not available
+  const sampleProducts: Product[] = [
+    { id: 'demo-1', name: 'Classic Abaya', price: '29.99', costPrice: '59.99', images: [heroImage], discount: 50, ratings: '4.7', totalRatings: 12, category: 'abayas' },
+    { id: 'demo-2', name: 'Luxe Hijab', price: '9.99', costPrice: '19.99', images: [hijabCategoryImage], discount: 50, ratings: '4.6', totalRatings: 8, category: 'hijabs' },
+    { id: 'demo-3', name: 'Evening Dress', price: '49.99', costPrice: '79.99', images: [eveningCategoryImage], discount: 38, ratings: '4.8', totalRatings: 21, category: 'evening' },
+    { id: 'demo-4', name: 'Abaya Set', price: '34.99', costPrice: '49.99', images: [abayaCategoryImage], discount: 29, ratings: '4.5', totalRatings: 10, category: 'abayas' },
+  ];
+
+  // Merge DB products with development sample products (DEV only) so the grid always has content for visual checks
+  const mergedProducts = (() => {
+    const seen = new Set<string>();
+    const combined = [ ...(products || []), ...(import.meta.env.DEV ? sampleProducts : []) ].filter((p) => {
+      if (!p || !p.id) return false;
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+    return combined;
+  })();
+
+  const availableProducts = mergedProducts;
 
   const { data: cartItems = [], isLoading: cartLoading } = useQuery<CartItem[]>({
     queryKey: ["/api/cart"],
@@ -257,7 +315,7 @@ export default function HomeConnected() {
     if (!product) return null;
     
     const productImage = Array.isArray(product.images) && product.images.length > 0 
-      ? product.images[0] 
+      ? product.images[cartItem.selectedImageIndex || 0] || product.images[0]
       : heroImage;
     
     return {
@@ -291,7 +349,7 @@ export default function HomeConnected() {
     }
   };
 
-  // Debounced search handler
+  // Debounced search handler - Reduced debounce for more instant feel
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const handleSearch = useCallback((query: string) => {
     if (debounceTimerRef.current) {
@@ -300,7 +358,7 @@ export default function HomeConnected() {
     
     debounceTimerRef.current = setTimeout(() => {
       setSearchQuery(query.toLowerCase().trim());
-    }, 300);
+    }, 150);
   }, []);
 
   // Cleanup debounce timer on unmount
@@ -314,11 +372,17 @@ export default function HomeConnected() {
 
   // Filter products based on search query
   const filteredProducts = searchQuery
-    ? products.filter(product => 
+    ? availableProducts.filter(product => 
         product.name.toLowerCase().includes(searchQuery) ||
-        product.category.toLowerCase().includes(searchQuery)
+        (product.category || '').toLowerCase().includes(searchQuery)
       )
-    : products;
+    : availableProducts;
+
+  // In development, log available products to help debug display issues
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.log('HOME: availableProducts', availableProducts.map(p => ({ id: p.id, name: p.name, images: (p as any).images?.length || 0 }))); 
+  }
 
   if (settingsLoading) {
     return (
@@ -330,6 +394,26 @@ export default function HomeConnected() {
 
   if (platformSettings?.isMultiVendor) {
     return <MultiVendorHome />;
+  }
+
+  function SidebarPromotionsPlaceholder() {
+    const { data: proms = [] } = useQuery<any[]>({ queryKey: ['/api/homepage/promotional'], queryFn: async () => { const res = await fetch('/api/homepage/promotional'); return res.json(); }, refetchInterval: 5000 });
+
+    if (proms && proms.length > 0) {
+      return <div className="min-h-0"><PromotionalAd sidebar /></div>;
+    }
+
+    // No promos: render an expanded placeholder (fills vertical space)
+    return (
+      <div className="h-full flex flex-col min-h-0">
+        <div className="w-full flex-1 flex flex-col justify-center min-h-0">
+          <div className="mb-4 text-muted-foreground text-center">No active promotions</div>
+          <div className="flex-1 flex min-h-0">
+            <AdBanner position="sidebar" className="w-full h-full flex-1 rounded-lg" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -347,95 +431,173 @@ export default function HomeConnected() {
       <HeroCarousel />
 
       {/* Full-bleed hero ad - stretches edge-to-edge and removes card borders for a flush look */}
-      <div className="w-screen -mx-4 md:-mx-8 py-3">
-        {/* much shorter hero ad height per request */}
-        <AdBanner position="hero" className="h-16 md:h-20 rounded-none border-0" fullBleed />
-      </div>
+      {/* Hero ad: render only when ads are enabled and hero is enabled */}
+      {adsEnabled && heroBannerEnabled && (
+        <div className="w-screen -mx-4 md:-mx-8 py-3">
+          {/* much shorter hero ad height per request */}
+          <AdBanner position="hero" className="h-16 md:h-20 rounded-none border-0" fullBleed />
+        </div>
+      )} 
 
       <main className="flex-1">
-        <section className="max-w-7xl mx-auto px-4 py-12">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-bold">{t("shopByCategory")}</h2>
-            {categories.length > 0 && (
-              <p className="text-sm text-muted-foreground">
-                Scroll to see more →
-              </p>
-            )}
-          </div>
-          {categories.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p className="text-lg">No categories available at the moment.</p>
-              <p className="text-sm mt-2">Please check back later.</p>
+        <div className="max-w-7xl mx-auto px-4 py-12">
+          {/* Shop by categories - full-width, above products and sidebar */}
+          {(platformSettings as any)?.showShopBySection !== false && (
+          <section>
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-3xl font-bold">{t("shopByCategory")}</h2>
+              {categories.length > 0 && (
+                <p className="text-sm text-muted-foreground">Scroll to see more →</p>
+              )}
             </div>
-          ) : (
-            <div className="relative">
-              <div className="flex gap-4 md:gap-6 overflow-x-auto pb-4 snap-x snap-mandatory [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50">
-                {categories.map((category) => (
-                  <div key={category.id} className="flex-shrink-0 w-[min(280px,80vw)] md:w-72 snap-start">
-                    <CategoryCard
-                      {...category}
-                      onClick={(id) => navigate(`/category/${id}`)}
-                    />
-                  </div>
-                ))}
+            {categories.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <p className="text-lg">No categories available at the moment.</p>
+                <p className="text-sm mt-2">Please check back later.</p>
               </div>
-            </div>
+            ) : (
+              <div className="relative">
+                <div className="flex gap-4 md:gap-6 overflow-x-auto pb-4 snap-x snap-mandatory [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50">
+                  {categories.map((category) => (
+                    <div key={category.id} className="flex-shrink-0 w-[min(280px,80vw)] md:w-72 snap-start">
+                      <CategoryCard {...category} onClick={(id) => navigate(`/category/${id}`)} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
           )}
-        </section>
 
-        <section className="max-w-7xl mx-auto px-4 py-12">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-bold">
-              {searchQuery ? `${t("search").replace("...", "")} (${filteredProducts.length})` : t("featuredProducts")}
-            </h2>
+          {/* Promotional Ads Grid - Only show if 2+ promotions exist */}
+          {hasMultiplePromotions && <PromotionalAdsGrid />}
+
+          {/* Products and Sidebar row */}
+          {/* Mobile promo: visible on small screens, hidden on large (sidebar shows on lg+) */}
+          <div className="lg:hidden mb-6">
+            <PromotionalAd />
           </div>
-          {productsLoading ? (
-            <div className="text-center py-12">Loading products...</div>
-          ) : filteredProducts.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              No products found matching "{searchQuery}"
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {(searchQuery ? filteredProducts : filteredProducts.slice(0, 8)).map((product) => {
-                const sellingPrice = parseFloat(product.price);
-                const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
-                const calculatedDiscount = originalPrice && originalPrice > sellingPrice
-                  ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
-                  : 0;
 
-                const isWishlisted = wishlist.some(item => item.productId === product.id);
-                const productImage = Array.isArray(product.images) && product.images.length > 0 
-                  ? product.images[0] 
-                  : heroImage;
+          <div className="mt-8 grid lg:grid-cols-12 gap-6">
+            {/* Left Sidebar - Show promo AND/OR ad when available (stacking like MultiVendorHome) */}
+            {sidebarItemCount > 0 && (
+              <aside className="hidden lg:block lg:col-span-4">
+                <div className="sticky top-24 flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
+                  {/* Promotion — fills available height, splits evenly when stacked */}
+                  {hasPromotion && (
+                    <div
+                      className="overflow-hidden rounded-xl"
+                      style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
+                    >
+                      <SinglePromotionSidebar promo={singlePromotion} />
+                    </div>
+                  )}
+                  {/* Advertisement — fills available height, splits evenly when stacked */}
+                  {hasSidebarAd && (
+                    <div
+                      className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md"
+                      style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
+                    >
+                      <AdBanner position="sidebar" className="w-full h-full rounded-none border-0 flex-1" />
+                    </div>
+                  )}
+                </div>
+              </aside>
+            )}
 
-                return (
-                  <ProductCard
-                    key={product.id}
-                    id={product.id}
-                    name={product.name}
-                    price={sellingPrice}
-                    costPrice={originalPrice || undefined}
-                    currency={currencySymbol}
-                    image={productImage}
-                    discount={calculatedDiscount}
-                    rating={parseFloat(product.ratings) || 0}
-                    reviewCount={product.totalRatings}
-                    isWishlisted={isWishlisted}
-                    onToggleWishlist={handleToggleWishlist}
-                  />
-                );
-              })}
+            {/* Products column - Adjust width based on sidebar visibility */}
+            <div className={sidebarItemCount > 0 ? 'lg:col-span-8' : 'lg:col-span-12'}>
+              <section>
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-3xl font-bold">
+                    {searchQuery ? `${t("search").replace("...", "")} (${filteredProducts.length})` : t("featuredProducts")}
+                  </h2>
+                </div>
+
+              {productsLoading ? (
+                <div className="text-center py-12">Loading products...</div>
+              ) : filteredProducts.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">No products found matching "{searchQuery}"</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
+                  {(searchQuery ? filteredProducts : filteredProducts.slice(0, 8)).map((product) => {
+                    const sellingPrice = parseFloat(product.price);
+                    const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
+                    const calculatedDiscount = originalPrice && originalPrice > sellingPrice
+                      ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
+                      : 0;
+
+                    const isWishlisted = wishlist.some(item => item.productId === product.id);
+                    const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : heroImage;
+
+                    return (
+                      <ProductCard
+                        key={product.id}
+                        id={product.id}
+                        name={product.name}
+                        price={sellingPrice}
+                        costPrice={originalPrice || undefined}
+                        currency={currencySymbol}
+                        image={productImage}
+                        discount={calculatedDiscount}
+                        rating={parseFloat(product.ratings) || 0}
+                        reviewCount={product.totalRatings}
+                        isWishlisted={isWishlisted}
+                        onToggleWishlist={handleToggleWishlist}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+              {/* All Products Section */}
+              {filteredProducts.length > 8 && !searchQuery && (
+                <section className="mt-8">
+                  <div className="flex items-center justify-between mb-8">
+                    <h2 className="text-3xl font-bold">All Products</h2>
+                    <span className="text-sm text-muted-foreground">{filteredProducts.length} products</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4 gap-y-6 gap-y-6">
+                    {filteredProducts.map((product) => {
+                      const sellingPrice = parseFloat(product.price);
+                      const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
+                      const calculatedDiscount = originalPrice && originalPrice > sellingPrice
+                        ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
+                        : 0;
+                      const isWishlisted = wishlist.some(item => item.productId === product.id);
+                      const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : heroImage;
+                      return (
+                        <ProductCard
+                          key={product.id}
+                          id={product.id}
+                          name={product.name}
+                          price={sellingPrice}
+                          costPrice={originalPrice || undefined}
+                          currency={currencySymbol}
+                          image={productImage}
+                          discount={calculatedDiscount}
+                          rating={parseFloat(product.ratings) || 0}
+                          reviewCount={product.totalRatings}
+                          isWishlisted={isWishlisted}
+                          onToggleWishlist={handleToggleWishlist}
+                        />
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
             </div>
-          )}
-        </section>
+          </div>
+        </div>
       </main>
-
-      {/* Full-bleed footer ad */}
-      <div className="w-screen -mx-4 md:-mx-8 pb-8">
-        {/* smaller footer ad */}
-        <AdBanner position="footer" className="h-12 md:h-16 rounded-none border-0" fullBleed />
-      </div>
+      {/* Full-bleed footer ad - show only when enabled */}
+      {(adsEnabled && footerAdEnabled) && (
+        <div className="w-screen -mx-4 md:-mx-8 pb-8">
+          {/* smaller footer ad */}
+          <AdBanner position="footer" className="h-12 md:h-16 rounded-none border-0" fullBleed />
+        </div>
+      )} 
 
       <Footer />
 
@@ -456,6 +618,9 @@ export default function HomeConnected() {
           }}
         />
       )}
+      
+      {/* Location prompt for new users */}
+      <LocationPrompt />
     </div>
   );
 }

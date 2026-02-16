@@ -40,10 +40,13 @@ import AdminBranding from "@/pages/AdminBranding";
 import AdminDeliveryTracking from "@/pages/AdminDeliveryTracking";
 import AdminDeliveryZones from "@/pages/AdminDeliveryZones";
 import AdminBannerManager from "@/pages/AdminBannerManager";
+import AdminHeroBanners from "@/pages/AdminHeroBanners";
+import AdminPromotions from "@/pages/AdminPromotions";
 import AdminCategoryManager from "@/pages/AdminCategoryManager";
 import AdminFooterPagesManager from "@/pages/AdminFooterPagesManager";
 import AdminPlatformEarnings from "@/pages/AdminPlatformEarnings";
 import AdminSellersPayouts from "@/pages/AdminSellersPayouts";
+import AdminRiderPayouts from "@/pages/AdminRiderPayouts";
 import AdminProducts from "@/pages/AdminProducts";
 import AdminOrders from "@/pages/AdminOrders";
 import AdminUsers from "@/pages/AdminUsers";
@@ -55,6 +58,7 @@ import AdminMessages from "@/pages/AdminMessages";
 import AdminAnalytics from "@/pages/AdminAnalytics";
 import AdminMediaLibrary from "@/pages/AdminMediaLibrary";
 import AdminNotifications from "@/pages/AdminNotifications";
+import AdminLiveSupportDashboard from "@/pages/AdminLiveSupportDashboard";
 import SellerMediaLibrary from "@/pages/SellerMediaLibrary";
 import SellerProducts from "@/pages/SellerProducts";
 import SellerOrders from "@/pages/SellerOrders";
@@ -129,12 +133,15 @@ function Router() {
       <Route path="/admin/stores" component={AdminStoresList} />
       <Route path="/admin/store" component={AdminStoreManager} />
       <Route path="/admin/settings" component={AdminSettings} />
-      <Route path="/admin/sellers" component={AdminSellersPayouts} />
+      <Route path="/admin/sellers-payouts" component={AdminSellersPayouts} />
+      <Route path="/admin/riders-payouts" component={AdminRiderPayouts} />
       <Route path="/admin/branding" component={AdminBranding} />
       <Route path="/admin/delivery-tracking" component={AdminDeliveryTracking} />
       <Route path="/admin/zones" component={AdminDeliveryZones} />
       <Route path="/admin/delivery-zones" component={AdminDeliveryZones} />
       <Route path="/admin/banners" component={AdminBannerManager} />
+      <Route path="/admin/hero-banners" component={AdminHeroBanners} />
+      <Route path="/admin/promotions" component={AdminPromotions} />
       <Route path="/admin/categories" component={AdminCategoryManager} />
       <Route path="/admin/footer-pages" component={AdminFooterPagesManager} />
       <Route path="/admin/platform-earnings" component={AdminPlatformEarnings} />
@@ -156,9 +163,9 @@ function Router() {
       <Route path="/admin/applications" component={AdminApplications} />
       <Route path="/admin/permissions" component={SuperAdminPermissions} />
       <Route path="/admin/messages" component={AdminMessages} />
+      <Route path="/admin/live-support" component={AdminLiveSupportDashboard} />
       <Route path="/admin/analytics" component={AdminAnalytics} />
       <Route path="/admin/notifications" component={AdminNotifications} />
-      <Route path="/seller" component={SellerDashboard} />
       <Route path="/seller/products" component={SellerProducts} />
       <Route path="/seller/media-library" component={SellerMediaLibrary} />
       <Route path="/seller/orders" component={SellerOrders} />
@@ -169,6 +176,7 @@ function Router() {
       <Route path="/seller/analytics" component={SellerAnalytics} />
       <Route path="/seller/settings" component={SellerSettings} />
       <Route path="/seller/payment-setup" component={SellerPaymentSetup} />
+      <Route path="/seller" component={SellerDashboard} />
       <Route path="/rider" component={RiderDashboard} />
       <Route path="/rider/deliveries" component={RiderDeliveries} />
       <Route path="/rider/route" component={RiderActiveRoute} />

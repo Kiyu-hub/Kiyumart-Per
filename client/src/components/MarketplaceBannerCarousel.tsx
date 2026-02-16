@@ -127,7 +127,7 @@ export default function MarketplaceBannerCarousel({
     } else if (banner.productRef) {
       navigate(`/product/${banner.productRef}`);
     } else if (banner.storeRef) {
-      navigate(`/store/${banner.storeRef}`);
+      navigate(`/sellers/${banner.storeRef}`);
     }
   };
 

@@ -8,6 +8,7 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Search, Package, Edit, Trash2, Plus, Eye, AlertCircle, RotateCcw } from "lucide-react";
@@ -39,6 +40,7 @@ interface Product {
   storeId: string | null;
   stock: number;
   tags: string[] | null;
+  deliveryDuration: string | null;
   isActive: boolean;
   createdAt: string;
   dynamicFields?: Record<string, any>;
@@ -60,6 +62,7 @@ const baseProductSchema = z.object({
   tags: z.string().optional(),
   images: z.array(z.string().url()).min(3, "Minimum 3 product images required").max(8, "Maximum 8 images allowed"),
   videoUrl: z.string().url("Invalid video URL").optional().or(z.literal("")),
+  deliveryDuration: z.string().optional(),
   inStock: z.boolean().default(true),
   dynamicFields: z.record(z.any()).optional(),
 });
@@ -105,6 +108,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       tags: product.tags?.join(", ") || "",
       images: product.images || [],
       videoUrl: product.video || "",
+      deliveryDuration: (product as any).deliveryDuration || "",
       inStock: true,
       dynamicFields: product.dynamicFields || {},
     } : {
@@ -117,6 +121,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       tags: "",
       images: [],
       videoUrl: "",
+      deliveryDuration: "",
       inStock: true,
       dynamicFields: store?.storeType ? (() => {
         const fields = getStoreTypeFields(store.storeType);
@@ -134,6 +139,26 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       })() : {},
     },
   });
+
+  // Variant management state
+  const [productVariants, setProductVariants] = useState<any[]>([]);
+  const [showVariantDialog, setShowVariantDialog] = useState(false);
+  const [editingVariant, setEditingVariant] = useState<any>(null);
+
+  // Fetch variants when editing a product
+  const { data: existingVariants = [] } = useQuery<any[]>({
+    queryKey: ["/api/products", product?.id, "variants"],
+    enabled: !!product?.id && open,
+  });
+
+  // Update variants when fetched
+  useEffect(() => {
+    if (existingVariants && existingVariants.length > 0) {
+      setProductVariants(existingVariants);
+    } else if (mode === "create") {
+      setProductVariants([]);
+    }
+  }, [existingVariants, mode]);
 
   // Reset form when store changes or dialog opens/closes
   useEffect(() => {
@@ -196,6 +221,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         stock: parseInt(data.stockQuantity),
         images: data.images || [],
         video: data.videoUrl || null,
+        deliveryDuration: data.deliveryDuration || null,
         sellerId: user.id,
         storeId: store?.id || null,
         dynamicFields: data.dynamicFields || {},
@@ -208,7 +234,27 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
 
       return apiRequest("POST", "/api/products", productData);
     },
-    onSuccess: () => {
+    onSuccess: async (createdProduct: any) => {
+      // Create variants if any exist
+      if (productVariants.length > 0) {
+        try {
+          for (const variant of productVariants) {
+            if (variant.id?.startsWith('temp-')) {
+              // Remove temp ID and create real variant
+              const { id, ...variantData } = variant;
+              await apiRequest("POST", `/api/products/${createdProduct.id}/variants`, variantData);
+            }
+          }
+        } catch (error: any) {
+          console.error("Failed to create variants:", error);
+          toast({
+            title: "Warning",
+            description: "Product created but some variants failed to save",
+            variant: "destructive",
+          });
+        }
+      }
+
       toast({
         title: "Success",
         description: "Product created successfully",
@@ -216,6 +262,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       setOpen(false);
       form.reset();
+      setProductVariants([]); // Clear variants
     },
     onError: (error: any) => {
       toast({
@@ -237,6 +284,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         stock: parseInt(data.stockQuantity),
         images: data.images,
         video: data.videoUrl || null,
+        deliveryDuration: data.deliveryDuration || null,
         dynamicFields: data.dynamicFields || {},
       };
 
@@ -269,6 +317,63 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       createProductMutation.mutate(data);
     } else {
       updateProductMutation.mutate(data);
+    }
+  };
+
+  // Variant management functions
+  const handleCreateVariant = async (variantData: any) => {
+    try {
+      if (!product?.id) {
+        // For new products, store variants temporarily until product is created
+        setProductVariants(prev => [...prev, { ...variantData, id: `temp-${Date.now()}` }]);
+        setShowVariantDialog(false);
+        setEditingVariant(null);
+        return;
+      }
+
+      const response = await apiRequest("POST", `/api/products/${product.id}/variants`, variantData);
+      setProductVariants(prev => [...prev, response]);
+      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id, "variants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
+      setShowVariantDialog(false);
+      setEditingVariant(null);
+      toast({ title: "Success", description: "Variant created successfully" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to create variant", variant: "destructive" });
+    }
+  };
+
+  const handleUpdateVariant = async (variantData: any) => {
+    try {
+      if (!product?.id || !editingVariant) return;
+
+      const response = await apiRequest("PUT", `/api/products/${product.id}/variants/${editingVariant.id}`, variantData);
+      setProductVariants(prev => prev.map(v => v.id === editingVariant.id ? response : v));
+      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id, "variants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
+      setShowVariantDialog(false);
+      setEditingVariant(null);
+      toast({ title: "Success", description: "Variant updated successfully" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to update variant", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteVariant = async (variantId: string) => {
+    try {
+      if (!product?.id) {
+        // For new products, remove from temporary state
+        setProductVariants(prev => prev.filter(v => v.id !== variantId));
+        return;
+      }
+
+      await apiRequest("DELETE", `/api/products/${product.id}/variants/${variantId}`);
+      setProductVariants(prev => prev.filter(v => v.id !== variantId));
+      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id, "variants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
+      toast({ title: "Success", description: "Variant deleted successfully" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to delete variant", variant: "destructive" });
     }
   };
 
@@ -397,6 +502,21 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="deliveryDuration"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Delivery Duration</FormLabel>
+                    <FormControl>
+                      <Input placeholder="1-2 business days" {...field} data-testid="input-delivery-duration" />
+                    </FormControl>
+                    <FormDescription>How long it takes to deliver this product</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
 
             <FormField
@@ -470,6 +590,79 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
               )}
             />
 
+            {/* Product Variants Management */}
+            <Card className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Product Variants</h3>
+                  <p className="text-sm text-muted-foreground">Create different color/size combinations for this product</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowVariantDialog(true)}
+                  data-testid="button-add-variant"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Variant
+                </Button>
+              </div>
+
+              {productVariants.length > 0 && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-12 gap-2 text-sm font-medium text-muted-foreground border-b pb-2">
+                    <div className="col-span-2">Color</div>
+                    <div className="col-span-2">Size</div>
+                    <div className="col-span-2">SKU</div>
+                    <div className="col-span-2">Stock</div>
+                    <div className="col-span-2">Price Adj.</div>
+                    <div className="col-span-2">Actions</div>
+                  </div>
+                  {productVariants.map((variant) => (
+                    <div key={variant.id} className="grid grid-cols-12 gap-2 text-sm items-center py-2 border-b">
+                      <div className="col-span-2">{variant.color || '-'}</div>
+                      <div className="col-span-2">{variant.size || '-'}</div>
+                      <div className="col-span-2">{variant.sku || '-'}</div>
+                      <div className="col-span-2">{variant.stock}</div>
+                      <div className="col-span-2">{variant.priceAdjustment ? `$${variant.priceAdjustment}` : '-'}</div>
+                      <div className="col-span-2 flex gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditingVariant(variant);
+                            setShowVariantDialog(true);
+                          }}
+                          data-testid={`button-edit-variant-${variant.id}`}
+                        >
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteVariant(variant.id)}
+                          data-testid={`button-delete-variant-${variant.id}`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {productVariants.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Package className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>No variants created yet</p>
+                  <p className="text-sm">Add variants to offer different colors, sizes, or options</p>
+                </div>
+              )}
+            </Card>
+
             <div className="flex justify-end gap-3 pt-4">
               <Button
                 type="button"
@@ -494,7 +687,131 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
           </form>
         </Form>
       </DialogContent>
+
+      {/* Variant Management Dialog */}
+      <Dialog open={showVariantDialog} onOpenChange={setShowVariantDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingVariant ? "Edit Variant" : "Add Variant"}</DialogTitle>
+            <DialogDescription>
+              {editingVariant ? "Update variant details" : "Create a new product variant"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <VariantForm
+            variant={editingVariant}
+            onSubmit={editingVariant ? handleUpdateVariant : handleCreateVariant}
+            onCancel={() => {
+              setShowVariantDialog(false);
+              setEditingVariant(null);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </Dialog>
+  );
+}
+
+// Variant Form Component
+function VariantForm({ variant, onSubmit, onCancel }: { 
+  variant?: any; 
+  onSubmit: (data: any) => void; 
+  onCancel: () => void; 
+}) {
+  const [formData, setFormData] = useState({
+    color: variant?.color || "",
+    size: variant?.size || "",
+    sku: variant?.sku || "",
+    image: variant?.image || "",
+    stock: variant?.stock || 0,
+    priceAdjustment: variant?.priceAdjustment || "0",
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit({
+      ...formData,
+      stock: parseInt(formData.stock.toString()) || 0,
+      priceAdjustment: formData.priceAdjustment || "0",
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="variant-color">Color (Optional)</Label>
+          <Input
+            id="variant-color"
+            value={formData.color}
+            onChange={(e) => setFormData(prev => ({ ...prev, color: e.target.value }))}
+            placeholder="e.g. Red, Blue"
+          />
+        </div>
+        <div>
+          <Label htmlFor="variant-size">Size (Optional)</Label>
+          <Input
+            id="variant-size"
+            value={formData.size}
+            onChange={(e) => setFormData(prev => ({ ...prev, size: e.target.value }))}
+            placeholder="e.g. S, M, L"
+          />
+        </div>
+      </div>
+
+      <div>
+        <Label htmlFor="variant-sku">SKU (Optional)</Label>
+        <Input
+          id="variant-sku"
+          value={formData.sku}
+          onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
+          placeholder="Stock Keeping Unit"
+        />
+      </div>
+
+      <div>
+        <Label htmlFor="variant-image">Image URL (Optional)</Label>
+        <Input
+          id="variant-image"
+          value={formData.image}
+          onChange={(e) => setFormData(prev => ({ ...prev, image: e.target.value }))}
+          placeholder="https://..."
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="variant-stock">Stock</Label>
+          <Input
+            id="variant-stock"
+            type="number"
+            value={formData.stock}
+            onChange={(e) => setFormData(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
+            min="0"
+          />
+        </div>
+        <div>
+          <Label htmlFor="variant-price">Price Adjustment</Label>
+          <Input
+            id="variant-price"
+            type="number"
+            step="0.01"
+            value={formData.priceAdjustment}
+            onChange={(e) => setFormData(prev => ({ ...prev, priceAdjustment: e.target.value }))}
+            placeholder="0.00"
+          />
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-4">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit">
+          {variant ? "Update Variant" : "Create Variant"}
+        </Button>
+      </div>
+    </form>
   );
 }
 

@@ -2,6 +2,7 @@
 
 **Purpose:** Central hub for all KiyuMart project documentation  
 **Created:** January 23, 2026  
+**Updated:** February 10, 2026  
 **For:** Developers, AI models, DevOps engineers, project managers
 
 ---
@@ -256,6 +257,7 @@ This project has comprehensive documentation for every aspect of the platform. C
 
 **Admin Capabilities:**
 - [README.md](./README.md#-admin-features-super-admin) - All admin features listed
+- **Promotional Ads:** Admins can create time-limited promotions (store/product) via `/admin/promotions`. Promotions include a live countdown and are expired by admin action or the background worker. The admin UI supports bulk product creation, rich metadata (title, description, image, CTA, theme color), and a list view where promotions can be ended manually.
 
 **Admin API:**
 - [ARCHITECTURE.md](./ARCHITECTURE.md#restful-endpoints-structure) - `/api/admin` endpoints
@@ -411,8 +413,8 @@ After reading documentation, verify your understanding:
 
 ## 📝 **Documentation Maintenance**
 
-**Updated:** January 23, 2026  
-**Next Review:** February 23, 2026  
+**Updated:** February 3, 2026  
+**Next Review:** March 3, 2026  
 **Maintainer:** Development Team
 
 **How to Update:**

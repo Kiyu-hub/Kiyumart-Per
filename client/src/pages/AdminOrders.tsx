@@ -1,24 +1,29 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useSocket } from "@/contexts/NotificationContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, Eye, Package, ArrowLeft } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Loader2, Search, Eye, Package, ArrowLeft, TrendingUp, Clock, CheckCircle, XCircle, Truck, Filter, RefreshCw, AlertTriangle, DollarSign } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatDistanceToNow } from "date-fns";
 
 interface Order {
   id: string;
   orderNumber: string;
   buyerId: string;
   sellerId: string;
+  riderId?: string;
   total: string;
   subtotal: string;
   deliveryFee: string;
@@ -26,9 +31,25 @@ interface Order {
   status: string;
   paymentStatus: string;
   createdAt: string;
+  updatedAt?: string;
+  deliveredAt?: string;
   deliveryMethod: string;
   deliveryAddress?: string;
   deliveryPhone?: string;
+  buyer?: { id: string; name: string; email: string };
+  seller?: { id: string; name: string };
+  rider?: { id: string; name: string };
+}
+
+interface OrderStats {
+  total: number;
+  pending: number;
+  processing: number;
+  delivering: number;
+  delivered: number;
+  cancelled: number;
+  totalRevenue: number;
+  todayOrders: number;
 }
 
 interface AvailableRider {
@@ -243,9 +264,13 @@ function ViewOrderDialog({
 
 export default function AdminOrders() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState("all-orders");
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
+  const { toast } = useToast();
+  const socket = useSocket();
   
   // Parse URL params to get orderId for dialog
   const urlParams = new URLSearchParams(location.split('?')[1] || '');
@@ -258,27 +283,134 @@ export default function AdminOrders() {
     }
   }, [isAuthenticated, authLoading, user, navigate]);
 
-  const { data: orders = [], isLoading } = useQuery<Order[]>({
-    queryKey: ["/api/orders", user?.id],
+  // Fetch all orders (admin/super_admin sees all)
+  const { data: allOrders = [], isLoading, refetch } = useQuery<Order[]>({
+    queryKey: ["/api/orders"],
+    queryFn: async () => {
+      const res = await fetch("/api/orders", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch orders");
+      return res.json();
+    },
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchInterval: 30000, // Refetch every 30 seconds as fallback
   });
+
+  // Socket.IO real-time updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleOrderUpdate = (data: any) => {
+      console.log("📦 Order update received:", data);
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({
+        title: "Order Updated",
+        description: `Order #${data.orderNumber || data.orderId} status changed`,
+      });
+    };
+
+    const handleRiderAssigned = (data: any) => {
+      console.log("🏍️ Rider assigned:", data);
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({
+        title: "Rider Assigned",
+        description: `Rider assigned to order #${data.orderNumber}`,
+      });
+    };
+
+    const handleDeliveryCompleted = (data: any) => {
+      console.log("✅ Delivery completed:", data);
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({
+        title: "Delivery Completed",
+        description: `Order #${data.orderNumber} has been delivered`,
+      });
+    };
+
+    socket.on("order_status_updated", handleOrderUpdate);
+    socket.on("order_rider_assigned", handleRiderAssigned);
+    socket.on("admin_delivery_completed", handleDeliveryCompleted);
+    socket.on("new_order", handleOrderUpdate);
+
+    return () => {
+      socket.off("order_status_updated", handleOrderUpdate);
+      socket.off("order_rider_assigned", handleRiderAssigned);
+      socket.off("admin_delivery_completed", handleDeliveryCompleted);
+      socket.off("new_order", handleOrderUpdate);
+    };
+  }, [socket, toast]);
+
+  // Calculate order statistics
+  const stats = useMemo<OrderStats>(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    return {
+      total: allOrders.length,
+      pending: allOrders.filter(o => o.status === "pending").length,
+      processing: allOrders.filter(o => o.status === "processing").length,
+      delivering: allOrders.filter(o => ["delivering", "en_route", "picked_up"].includes(o.status)).length,
+      delivered: allOrders.filter(o => o.status === "delivered").length,
+      cancelled: allOrders.filter(o => o.status === "cancelled").length,
+      totalRevenue: allOrders
+        .filter(o => o.paymentStatus === "completed")
+        .reduce((sum, o) => sum + parseFloat(o.total || "0"), 0),
+      todayOrders: allOrders.filter(o => new Date(o.createdAt) >= today).length,
+    };
+  }, [allOrders]);
+
+  // Separate admin's personal orders (where admin is the buyer)
+  const myOrders = useMemo(() => 
+    allOrders.filter(o => o.buyerId === user?.id), [allOrders, user?.id]);
+
+  // Recent orders (last 24 hours)
+  const recentOrders = useMemo(() => {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    return allOrders
+      .filter(o => new Date(o.createdAt) >= yesterday)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10);
+  }, [allOrders]);
+
+  // Filter orders based on search and status
+  const filteredOrders = useMemo(() => {
+    let orders = activeTab === "my-orders" ? myOrders : allOrders;
+    
+    if (statusFilter !== "all") {
+      orders = orders.filter(o => o.status === statusFilter);
+    }
+    
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      orders = orders.filter(o => 
+        o.orderNumber?.toLowerCase().includes(query) ||
+        o.buyer?.name?.toLowerCase().includes(query) ||
+        o.seller?.name?.toLowerCase().includes(query) ||
+        o.status?.toLowerCase().includes(query) ||
+        o.deliveryAddress?.toLowerCase().includes(query)
+      );
+    }
+    
+    return orders.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [allOrders, myOrders, activeTab, statusFilter, searchQuery]);
   
-  // Sync openOrderId with URL params (wouter location hook)
+  // Sync openOrderId with URL params
   useEffect(() => {
     const params = new URLSearchParams(location.split('?')[1] || '');
     const orderId = params.get('orderId');
     setOpenOrderId(orderId);
   }, [location]);
   
-  // Validate orderId exists in orders list, auto-close if invalid
+  // Validate orderId exists in orders list
   useEffect(() => {
-    if (openOrderId && orders.length > 0) {
-      const orderExists = orders.some(o => o.id === openOrderId);
+    if (openOrderId && allOrders.length > 0) {
+      const orderExists = allOrders.some(o => o.id === openOrderId);
       if (!orderExists) {
         handleCloseDialog();
       }
     }
-  }, [openOrderId, orders]);
+  }, [openOrderId, allOrders]);
   
   const handleOpenDialog = (orderId: string) => {
     navigate(`/admin/orders?orderId=${orderId}`, { replace: true });
@@ -290,19 +422,32 @@ export default function AdminOrders() {
     setOpenOrderId(null);
   };
 
-  const filteredOrders = orders.filter(o => 
-    o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    o.status.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const getStatusColor = (status: string) => {
     switch(status.toLowerCase()) {
       case "pending": return "bg-yellow-500";
+      case "confirmed": return "bg-blue-400";
       case "processing": return "bg-blue-500";
-      case "delivering": return "bg-purple-500";
+      case "ready": return "bg-indigo-500";
+      case "assigned": return "bg-violet-500";
+      case "picked_up": return "bg-purple-500";
+      case "en_route": 
+      case "delivering": return "bg-orange-500";
       case "delivered": return "bg-green-500";
       case "cancelled": return "bg-red-500";
+      case "refunded": return "bg-gray-500";
       default: return "bg-gray-500";
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch(status.toLowerCase()) {
+      case "pending": return <Clock className="h-4 w-4" />;
+      case "processing": return <Package className="h-4 w-4" />;
+      case "delivering":
+      case "en_route": return <Truck className="h-4 w-4" />;
+      case "delivered": return <CheckCircle className="h-4 w-4" />;
+      case "cancelled": return <XCircle className="h-4 w-4" />;
+      default: return <Package className="h-4 w-4" />;
     }
   };
 
@@ -316,8 +461,10 @@ export default function AdminOrders() {
 
   return (
     <DashboardLayout role={user?.role as any}>
-      <div className="p-8">
-          <div className="flex items-center gap-4 mb-6">
+      <div className="p-4 md:p-6 lg:p-8 space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
             <Button
               variant="ghost"
               size="icon"
@@ -326,91 +473,288 @@ export default function AdminOrders() {
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div className="flex-1">
-              <h1 className="text-3xl font-bold text-foreground" data-testid="heading-orders">Orders Management</h1>
-              <p className="text-muted-foreground mt-1">Track and manage all orders</p>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-foreground" data-testid="heading-orders">
+                Orders Management
+              </h1>
+              <p className="text-muted-foreground text-sm mt-1">
+                Track and manage all orders in real-time
+              </p>
             </div>
           </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => refetch()}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
 
-          <div className="mb-6">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search orders..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-                data-testid="input-search-orders"
-              />
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-blue-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Total</p>
+                <p className="text-xl font-bold">{stats.total}</p>
+              </div>
             </div>
-          </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-yellow-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Pending</p>
+                <p className="text-xl font-bold">{stats.pending}</p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <Truck className="h-5 w-5 text-orange-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Delivering</p>
+                <p className="text-xl font-bold">{stats.delivering}</p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Delivered</p>
+                <p className="text-xl font-bold">{stats.delivered}</p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-emerald-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Today</p>
+                <p className="text-xl font-bold">{stats.todayOrders}</p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-green-600" />
+              <div>
+                <p className="text-xs text-muted-foreground">Revenue</p>
+                <p className="text-lg font-bold">{formatPrice(stats.totalRevenue)}</p>
+              </div>
+            </div>
+          </Card>
+        </div>
 
-          {isLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        {/* Tabs for All Orders vs My Orders */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="all-orders" className="flex items-center gap-2">
+              <Package className="h-4 w-4" />
+              All Orders ({allOrders.length})
+            </TabsTrigger>
+            <TabsTrigger value="my-orders" className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              My Orders ({myOrders.length})
+            </TabsTrigger>
+          </TabsList>
+
+          <div className="mt-4">
+            {/* Search and Filter */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by order #, customer, seller, address..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                  data-testid="input-search-orders"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <Filter className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="processing">Processing</SelectItem>
+                  <SelectItem value="delivering">Delivering</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          ) : (
-            <div className="grid gap-4">
-              {filteredOrders.map((order) => (
-                <Card key={order.id} className="p-4" data-testid={`card-order-${order.id}`}>
-                  <div className="flex items-center gap-4">
-                    <div className="bg-primary/10 p-3 rounded-lg">
-                      <Package className="h-6 w-6 text-primary" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-lg" data-testid={`text-order-number-${order.id}`}>
-                        Order #{order.orderNumber}
-                      </h3>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className="text-primary font-bold" data-testid={`text-total-${order.id}`}>
-                          {formatPrice(parseFloat(order.total))}
-                        </span>
-                        <Badge className={getStatusColor(order.status)} data-testid={`badge-status-${order.id}`}>
-                          {order.status}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground" data-testid={`text-date-${order.id}`}>
-                          {new Date(order.createdAt).toLocaleDateString()}
-                        </span>
-                        <Badge variant="outline" data-testid={`badge-delivery-${order.id}`}>
-                          {order.deliveryMethod}
-                        </Badge>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
+
+            {/* Recent Orders Widget */}
+            {activeTab === "all-orders" && recentOrders.length > 0 && (
+              <Card className="mb-4 border-2 border-dashed border-blue-200 dark:border-blue-900">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-blue-500" />
+                    Recent Activity (Last 24h)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="flex flex-wrap gap-2">
+                    {recentOrders.slice(0, 5).map(order => (
+                      <Badge
+                        key={order.id}
+                        variant="outline"
+                        className="cursor-pointer hover:bg-primary/10 transition"
                         onClick={() => handleOpenDialog(order.id)}
-                        data-testid={`button-view-${order.id}`}
                       >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </div>
+                        #{order.orderNumber} - {formatDistanceToNow(new Date(order.createdAt), { addSuffix: true })}
+                      </Badge>
+                    ))}
                   </div>
-                </Card>
-              ))}
-              
-              {filteredOrders.length === 0 && (
-                <div className="text-center py-12">
-                  <p className="text-muted-foreground" data-testid="text-no-orders">
-                    No orders found
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-          
-          {/* Conditional ViewOrderDialog render when openOrderId is set */}
-          {openOrderId && (
-            <ViewOrderDialog 
-              orderId={openOrderId}
-              open={!!openOrderId}
-              onOpenChange={(isOpen) => {
-                if (!isOpen) handleCloseDialog();
-              }}
-            />
-          )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Orders List */}
+            <TabsContent value="all-orders" className="mt-0">
+              <OrdersList 
+                orders={filteredOrders}
+                isLoading={isLoading}
+                formatPrice={formatPrice}
+                getStatusColor={getStatusColor}
+                getStatusIcon={getStatusIcon}
+                onViewOrder={handleOpenDialog}
+              />
+            </TabsContent>
+
+            <TabsContent value="my-orders" className="mt-0">
+              <OrdersList 
+                orders={filteredOrders}
+                isLoading={isLoading}
+                formatPrice={formatPrice}
+                getStatusColor={getStatusColor}
+                getStatusIcon={getStatusIcon}
+                onViewOrder={handleOpenDialog}
+                emptyMessage="You haven't made any personal orders yet"
+              />
+            </TabsContent>
+          </div>
+        </Tabs>
+        
+        {/* Order Dialog */}
+        {openOrderId && (
+          <ViewOrderDialog 
+            orderId={openOrderId}
+            open={!!openOrderId}
+            onOpenChange={(isOpen) => {
+              if (!isOpen) handleCloseDialog();
+            }}
+          />
+        )}
       </div>
     </DashboardLayout>
+  );
+}
+
+// Separate OrdersList component for reusability
+function OrdersList({
+  orders,
+  isLoading,
+  formatPrice,
+  getStatusColor,
+  getStatusIcon,
+  onViewOrder,
+  emptyMessage = "No orders found",
+}: {
+  orders: Order[];
+  isLoading: boolean;
+  formatPrice: (price: number) => string;
+  getStatusColor: (status: string) => string;
+  getStatusIcon: (status: string) => React.ReactNode;
+  onViewOrder: (id: string) => void;
+  emptyMessage?: string;
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (orders.length === 0) {
+    return (
+      <Card className="p-12">
+        <div className="text-center">
+          <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+          <p className="text-muted-foreground" data-testid="text-no-orders">
+            {emptyMessage}
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {orders.map((order) => (
+        <Card 
+          key={order.id} 
+          className="p-4 hover:shadow-md transition-shadow cursor-pointer"
+          onClick={() => onViewOrder(order.id)}
+          data-testid={`card-order-${order.id}`}
+        >
+          <div className="flex items-center gap-4">
+            <div className={`p-3 rounded-lg ${getStatusColor(order.status)} text-white`}>
+              {getStatusIcon(order.status)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-semibold" data-testid={`text-order-number-${order.id}`}>
+                  #{order.orderNumber}
+                </h3>
+                <Badge className={getStatusColor(order.status)} data-testid={`badge-status-${order.id}`}>
+                  {order.status.replace(/_/g, " ")}
+                </Badge>
+                <Badge 
+                  variant={order.paymentStatus === "completed" ? "default" : "outline"}
+                  className={order.paymentStatus === "completed" ? "bg-green-600" : ""}
+                >
+                  {order.paymentStatus}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
+                <span>{formatPrice(parseFloat(order.total))}</span>
+                <span>•</span>
+                <span>{order.deliveryMethod}</span>
+                <span>•</span>
+                <span>{formatDistanceToNow(new Date(order.createdAt), { addSuffix: true })}</span>
+                {order.buyer?.name && (
+                  <>
+                    <span>•</span>
+                    <span className="truncate max-w-[150px]">{order.buyer.name}</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewOrder(order.id);
+              }}
+              data-testid={`button-view-${order.id}`}
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+          </div>
+        </Card>
+      ))}
+    </div>
   );
 }

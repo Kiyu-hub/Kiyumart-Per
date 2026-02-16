@@ -15,7 +15,46 @@ export const mediaTypeEnum = pgEnum("media_type", ["image", "video"]);
 export const deliveryAssignmentStatusEnum = pgEnum("delivery_assignment_status", ["assigned", "en_route", "delivered", "cancelled"]);
 export const mediaCategoryEnum = pgEnum("media_category", ["banner", "category", "logo", "product", "general"]);
 export const storeTypeEnum = pgEnum("store_type", ["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness"]);
+export const promoTypeEnum = pgEnum("promo_type", ["store", "product"]);
 export const applicationStatusEnum = pgEnum("application_status", ["pending", "approved", "rejected"]);
+
+// Promotional Ads table for time-limited promoted stores/products
+export const promotionalAds = pgTable("promotional_ads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: promoTypeEnum("type").notNull(),
+  targetId: varchar("target_id").notNull(), // store id or product id
+  startAt: timestamp("start_at"),
+  endAt: timestamp("end_at"),
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  // Promo display fields (migration 0009)
+  title: text("title"),
+  description: text("description"),
+  imageUrl: text("image_url"),
+  ctaText: varchar("cta_text"),
+  ctaUrl: text("cta_url"),
+  themeColor: varchar("theme_color"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  typeIdx: index("promotional_ads_type_idx").on(t.type),
+  activeIdx: index("promotional_ads_active_idx").on(t.isActive),
+}));
+
+// Promotion pricing for sellers to apply for promotions
+export const promotionPricing = pgTable("promotion_pricing", {
+  id: serial("id").primaryKey(),
+  type: promoTypeEnum("type").notNull(), // 'store' or 'product'
+  durationType: varchar("duration_type").notNull(), // 'hour' or 'day'
+  duration: integer("duration").notNull(), // e.g., 1 for 1 hour, 24 for 24 hours (1 day)
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(), // price in GHS
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  typeDurationIdx: index("promotion_pricing_type_duration_idx").on(t.type, t.durationType, t.duration),
+}));
+
 export const payoutTypeEnum = pgEnum("payout_type", ["bank_account", "mobile_money"]);
 export const messageStatusEnum = pgEnum("message_status", ["sent", "delivered", "read"]);
 
@@ -132,11 +171,16 @@ export const platformSettings = pgTable("platform_settings", {
   bannerAutoplayEnabled: boolean("banner_autoplay_enabled").default(true),
   bannerAutoplayDuration: integer("banner_autoplay_duration").default(5000),
   adsEnabled: boolean("ads_enabled").default(false),
+  heroBannerEnabled: boolean("hero_banner_enabled").default(true),
+  sidebarAdEnabled: boolean("sidebar_ad_enabled").default(true),
+  footerAdEnabled: boolean("footer_ad_enabled").default(true),
+  productPageAdEnabled: boolean("product_page_ad_enabled").default(true),
   heroBannerAdImage: text("hero_banner_ad_image"),
   heroBannerAdUrl: text("hero_banner_ad_url"),
   sidebarAdImage: text("sidebar_ad_image"),
   sidebarAdUrl: text("sidebar_ad_url"),
   shopDisplayMode: text("shop_display_mode").default("by-store"), // "by-store" or "by-category"
+  showShopBySection: boolean("show_shop_by_section").default(true), // Toggle visibility of Shop by section per store mode
   footerAdImage: text("footer_ad_image"),
   footerAdUrl: text("footer_ad_url"),
   productPageAdImage: text("product_page_ad_image"),
@@ -226,6 +270,7 @@ export const products = pgTable("products", {
   videoDuration: integer("video_duration"), // Duration in seconds for validation
   tags: text("tags").array(),
   dynamicFields: jsonb("dynamic_fields").$type<Record<string, any>>(), // Category-specific dynamic fields
+  deliveryDuration: varchar("delivery_duration"), // Delivery time estimate (e.g., "1-2 days", "3-5 business days")
   isActive: boolean("is_active").default(true),
   ratings: decimal("ratings", { precision: 3, scale: 2 }).default("0"),
   totalRatings: integer("total_ratings").default(0),
@@ -454,10 +499,14 @@ export const productVariants = pgTable("product_variants", {
   color: text("color"),
   size: text("size"),
   sku: text("sku"),
+  image: text("image"),
   stock: integer("stock").default(0),
   priceAdjustment: decimal("price_adjustment", { precision: 10, scale: 2 }).default("0"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Store mode enum for banners
+export const storeModeEnum = pgEnum("store_mode", ["single", "multivendor", "both"]);
 
 export const heroBanners = pgTable("hero_banners", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -466,6 +515,7 @@ export const heroBanners = pgTable("hero_banners", {
   image: text("image").notNull(),
   ctaText: text("cta_text"),
   ctaLink: text("cta_link"),
+  storeMode: storeModeEnum("store_mode").default("both"),
   isActive: boolean("is_active").default(true),
   displayOrder: integer("display_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
@@ -505,6 +555,8 @@ export const footerPages = pgTable("footer_pages", {
   content: text("content"),
   url: text("url"),
   group: text("group").default("general"),
+  storeMode: text("store_mode").default("both"), // "single", "multivendor", or "both"
+  icon: text("icon"),
   displayOrder: integer("display_order").default(0),
   isActive: boolean("is_active").default(true),
   openInNewTab: boolean("open_in_new_tab").default(false),
@@ -562,6 +614,39 @@ export const sellerPayouts = pgTable("seller_payouts", {
   processedAt: timestamp("processed_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Rider payouts table for automated rider payment with approval workflow
+export const riderPayouts = pgTable("rider_payouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riderId: varchar("rider_id").notNull().references(() => users.id),
+  orderId: varchar("order_id").references(() => orders.id), // Link to completed delivery order
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("GHS"),
+  method: text("method").notNull(), // bank_transfer, mobile_money, paystack
+  status: text("status").notNull().default("pending_approval"), // pending_approval, approved, processing, completed, failed, rejected
+  reference: text("reference").unique(),
+  paymentDetails: jsonb("payment_details").$type<{
+    accountName?: string;
+    accountNumber?: string;
+    bankCode?: string;
+    bankName?: string;
+    mobileNumber?: string;
+    provider?: string; // mtn, vodafone, airteltigo for mobile money
+  }>(),
+  notes: text("notes"),
+  approvedBy: varchar("approved_by").references(() => users.id), // Super admin who approved
+  approvedAt: timestamp("approved_at"),
+  processedBy: varchar("processed_by").references(() => users.id),
+  processedAt: timestamp("processed_at"),
+  rejectedBy: varchar("rejected_by").references(() => users.id),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  riderIdx: index("rider_payouts_rider_id_idx").on(table.riderId),
+  statusIdx: index("rider_payouts_status_idx").on(table.status),
+  createdAtIdx: index("rider_payouts_created_at_idx").on(table.createdAt),
+}));
 
 export const platformEarnings = pgTable("platform_earnings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -731,6 +816,7 @@ export const insertProductSchema = createInsertSchema(products).pick({
   video: true,
   videoDuration: true,
   tags: true,
+  deliveryDuration: true,
   dynamicFields: true,
   storeId: true,
 }).extend({
@@ -811,6 +897,7 @@ export const insertProductVariantSchema = createInsertSchema(productVariants).pi
   color: true,
   size: true,
   sku: true,
+  image: true,
   stock: true,
   priceAdjustment: true,
 });
@@ -821,6 +908,7 @@ export const insertHeroBannerSchema = createInsertSchema(heroBanners).pick({
   image: true,
   ctaText: true,
   ctaLink: true,
+  storeMode: true,
   isActive: true,
   displayOrder: true,
 });
@@ -863,6 +951,8 @@ export const insertFooterPageSchema = createInsertSchema(footerPages).pick({
   slug: true,
   content: true,
   url: true,
+  storeMode: true,
+  icon: true,
   group: true,
   displayOrder: true,
   isActive: true,
@@ -1052,6 +1142,10 @@ export const insertSellerPayoutSchema = createInsertSchema(sellerPayouts).omit({
 export type InsertSellerPayout = z.infer<typeof insertSellerPayoutSchema>;
 export type SellerPayout = typeof sellerPayouts.$inferSelect;
 
+export const insertRiderPayoutSchema = createInsertSchema(riderPayouts).omit({ id: true, createdAt: true });
+export type InsertRiderPayout = z.infer<typeof insertRiderPayoutSchema>;
+export type RiderPayout = typeof riderPayouts.$inferSelect;
+
 export const insertPlatformEarningSchema = createInsertSchema(platformEarnings).omit({ id: true, createdAt: true });
 export type InsertPlatformEarning = z.infer<typeof insertPlatformEarningSchema>;
 export type PlatformEarning = typeof platformEarnings.$inferSelect;
@@ -1070,3 +1164,8 @@ export type Category = typeof categories.$inferSelect;
 export const insertRoleFeaturesSchema = createInsertSchema(roleFeatures).omit({ id: true, updatedAt: true });
 export type InsertRoleFeatures = z.infer<typeof insertRoleFeaturesSchema>;
 export type RoleFeatures = typeof roleFeatures.$inferSelect;
+
+// Promotion Pricing schema
+export const insertPromotionPricingSchema = createInsertSchema(promotionPricing).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPromotionPricing = z.infer<typeof insertPromotionPricingSchema>;
+export type PromotionPricing = typeof promotionPricing.$inferSelect;

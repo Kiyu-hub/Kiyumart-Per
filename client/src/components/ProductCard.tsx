@@ -114,12 +114,12 @@ export default function ProductCard({
 
   return (
     <Card 
-      className="group overflow-hidden hover-elevate transition-all duration-300 cursor-pointer"
+      className={"group overflow-hidden hover-elevate transition-all duration-300 cursor-pointer " + (import.meta.env.DEV ? 'outline outline-1 outline-muted/30' : '')}
       onClick={handleCardClick}
       data-testid={`card-product-${id}`}
     >
       {/* Product Image Container - DO NOT MODIFY ASPECT RATIO */}
-      <div className="relative aspect-[4/3] overflow-hidden bg-muted">
+      <div className="relative aspect-[16/10] overflow-hidden bg-muted">
         <img
           src={image}
           alt={name}
@@ -128,7 +128,7 @@ export default function ProductCard({
         />
         {actualDiscount > 0 && (
           <Badge 
-            className="absolute top-2 left-2 bg-red-600 text-white z-10 font-bold text-xs px-2 py-1 shadow-md"
+            className="absolute top-2 left-2 bg-red-600 text-white z-10 font-semibold text-xs px-2 py-0.5 shadow-sm"
             data-testid={`badge-discount-${id}`}
           >
             {actualDiscount}% OFF
@@ -155,10 +155,10 @@ export default function ProductCard({
       </div>
 
       {/* Product Info Section - DO NOT REORDER ELEMENTS */}
-      <div className="p-2.5 space-y-1">
+      <div className="p-2 space-y-1">
         {/* Product Name */}
         <h3 
-          className="font-semibold text-base line-clamp-2 leading-tight"
+          className="font-semibold text-[12px] line-clamp-2 leading-tight"
           data-testid={`text-product-name-${id}`}
         >
           {name}
@@ -166,11 +166,11 @@ export default function ProductCard({
 
         {/* Rating Row - Star Icon + Number + (Review Count) */}
         <div className="flex items-center gap-1">
-          <Star className="h-4 w-4 fill-primary text-primary" />
-          <span className="text-sm font-medium" data-testid={`text-rating-${id}`}>
+          <Star className="h-3 w-3 fill-primary text-primary" />
+          <span className="text-[11px] font-medium" data-testid={`text-rating-${id}`}>
             {ratingNum.toFixed(1)}
           </span>
-          <span className="text-sm text-muted-foreground" data-testid={`text-reviews-${id}`}>
+          <span className="text-[11px] text-muted-foreground" data-testid={`text-reviews-${id}`}>
             ({reviewCount})
           </span>
         </div>
@@ -186,7 +186,7 @@ export default function ProductCard({
             </span>
           )}
           <span 
-            className="text-xl font-bold text-primary"
+            className="text-sm font-bold text-primary"
             data-testid={`text-selling-price-${id}`}
           >
             {formatPrice(sellingPrice)}

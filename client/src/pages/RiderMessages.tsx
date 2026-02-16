@@ -1,32 +1,477 @@
+import { useState, useEffect, useRef } from "react";
+import { useLocation } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { MessageSquare } from "lucide-react";
-import { useLocation } from "wouter";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2, Search, MessageSquare, Send, ArrowLeft, User } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { MessageStatusTicks } from "@/components/MessageStatusTicks";
+import { useSocket } from "@/contexts/NotificationContext";
+
+interface UserData {
+  id: string;
+  username: string;
+  name: string;
+  email: string;
+  role: string;
+  phone: string | null;
+  isActive: boolean;
+}
+
+interface Message {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  message: string;
+  messageType?: string;
+  createdAt: string;
+  isRead: boolean;
+  status: 'sent' | 'delivered' | 'read';
+  deliveredAt?: string | null;
+  readAt?: string | null;
+}
 
 export default function RiderMessages() {
-  const { user } = useAuth();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
   const [, navigate] = useLocation();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { toast } = useToast();
+  const socket = useSocket();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Get userId from URL search params
+  const urlParams = new URLSearchParams(window.location.search);
+  const userIdFilter = urlParams.get("userId");
+
+  useEffect(() => {
+    if (!authLoading && (!isAuthenticated || user?.role !== "rider")) {
+      navigate("/auth");
+    }
+  }, [isAuthenticated, authLoading, user, navigate]);
+
+  // Listen for real-time messages
+  useEffect(() => {
+    if (!socket || !selectedUserId) return;
+
+    const handleNewMessage = (msg: Message) => {
+      if (msg.senderId === selectedUserId || msg.receiverId === selectedUserId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedUserId] });
+      }
+    };
+
+    socket.on("new_message", handleNewMessage);
+    return () => {
+      socket.off("new_message", handleNewMessage);
+    };
+  }, [socket, selectedUserId]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedUserId]);
+
+  // Fetch contacts (admins, sellers who have messaged)
+  const { data: users = [], isLoading: usersLoading } = useQuery<UserData[]>({
+    queryKey: ["/api/rider/message-contacts"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/rider/message-contacts");
+      if (!res.ok) throw new Error("Failed to load contacts");
+      return res.json();
+    },
+    enabled: isAuthenticated && user?.role === "rider",
+  });
+
+  // Auto-select user when coming from notification with userId
+  useEffect(() => {
+    if (userIdFilter && users.length > 0 && !selectedUserId) {
+      const targetUser = users.find(u => u.id === userIdFilter);
+      if (targetUser) {
+        setSelectedUserId(targetUser.id);
+      } else {
+        // User not in contacts, still try to open chat
+        setSelectedUserId(userIdFilter);
+      }
+    }
+  }, [userIdFilter, users, selectedUserId]);
+
+  const { data: messages = [], isLoading: messagesLoading } = useQuery<Message[]>({
+    queryKey: ["/api/messages", selectedUserId],
+    queryFn: async () => {
+      if (!selectedUserId) return [];
+      const res = await apiRequest("GET", `/api/messages/${selectedUserId}`);
+      if (!res.ok) throw new Error("Failed to load messages");
+      return res.json();
+    },
+    enabled: !!selectedUserId,
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async (data: { receiverId: string; message: string }) => {
+      return apiRequest("POST", "/api/messages", {
+        receiverId: data.receiverId,
+        message: data.message,
+      });
+    },
+    onSuccess: () => {
+      setMessage("");
+      queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedUserId] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send message",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSendMessage = () => {
+    if (message.trim() && selectedUserId) {
+      sendMessageMutation.mutate({
+        receiverId: selectedUserId,
+        message: message.trim(),
+      });
+    }
+  };
+
+  const filteredUsers = users.filter(u => 
+    u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    u.email?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const selectedUser = users.find(u => u.id === selectedUserId);
+
+  const getRoleBadgeColor = (role: string) => {
+    switch (role) {
+      case "admin":
+      case "super_admin":
+        return "bg-purple-500 text-white";
+      case "seller":
+        return "bg-green-500 text-white";
+      case "buyer":
+        return "bg-blue-500 text-white";
+      case "agent":
+        return "bg-orange-500 text-white";
+      default:
+        return "bg-gray-500 text-white";
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <DashboardLayout role="rider">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout role="rider">
-      <div className="p-6">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold" data-testid="text-page-title">Messages</h1>
-          <p className="text-muted-foreground">Chat with customers and support</p>
+      <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
+        <div className="flex items-center gap-4 p-4 md:p-6 flex-shrink-0">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/rider")}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-xl md:text-2xl font-bold">Messages</h1>
+            <p className="text-muted-foreground text-sm">Chat with support and customers</p>
+          </div>
         </div>
 
-        <Card className="p-12">
-          <div className="text-center">
-            <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Message Center</h3>
-            <p className="text-muted-foreground mb-4">Communicate with customers and sellers</p>
-            <Button onClick={() => navigate("/chat")} data-testid="button-open-chat">
-              Open Chat
-            </Button>
+        {/* Mobile: Show user list or chat */}
+        <div className="md:hidden flex-1 min-h-0 flex flex-col p-4 pt-0">
+          {!selectedUserId ? (
+            <Card className="flex-1 min-h-0 p-4 flex flex-col overflow-hidden">
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search contacts..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+              <ScrollArea className="flex-1">
+                {usersLoading ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+                  </div>
+                ) : filteredUsers.length === 0 ? (
+                  <div className="text-center py-12">
+                    <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No conversations yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {filteredUsers.map((userData) => (
+                      <div
+                        key={userData.id}
+                        onClick={() => setSelectedUserId(userData.id)}
+                        className="p-3 rounded-lg cursor-pointer hover:bg-accent/50 flex items-center gap-3"
+                      >
+                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <span className="text-sm font-semibold text-primary">
+                            {(userData.name || 'U').charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
+                          <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
+                            {userData.role}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </Card>
+          ) : (
+            <Card className="h-full flex flex-col">
+              <div className="flex items-center gap-3 p-3 border-b">
+                <Button variant="ghost" size="icon" onClick={() => setSelectedUserId(null)}>
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-sm">{selectedUser?.name || 'Support'}</h3>
+                  <Badge className={`${getRoleBadgeColor(selectedUser?.role || '')} text-[10px]`}>
+                    {selectedUser?.role || 'Unknown'}
+                  </Badge>
+                </div>
+              </div>
+
+              <ScrollArea className="flex-1 p-3">
+                {messagesLoading ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="text-center py-12">
+                    <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No messages yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
+                      >
+                        <div
+                          className={`max-w-[85%] px-3 py-2 rounded-2xl ${
+                            msg.senderId === user?.id
+                              ? "bg-primary text-primary-foreground rounded-br-sm"
+                              : "bg-muted rounded-bl-sm"
+                          }`}
+                        >
+                          <p className="text-sm">{msg.message}</p>
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className="text-[10px] opacity-70">
+                              {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                            </span>
+                            {msg.senderId === user?.id && (
+                              <MessageStatusTicks status={msg.status || "sent"} />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div ref={messagesEndRef} />
+                  </div>
+                )}
+              </ScrollArea>
+
+              <div className="p-3 border-t flex gap-2">
+                <Input
+                  placeholder="Type a message..."
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                  disabled={sendMessageMutation.isPending}
+                  className="flex-1"
+                />
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!message.trim() || sendMessageMutation.isPending}
+                  size="icon"
+                >
+                  {sendMessageMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* Desktop: Side-by-side layout */}
+        <div className="hidden md:flex md:flex-col flex-1 min-h-0 p-6 pt-0">
+          <div className="grid grid-cols-3 gap-4 flex-1 min-h-0 overflow-hidden">
+            <Card className="col-span-1 p-4 flex flex-col overflow-hidden">
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search contacts..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <ScrollArea className="flex-1">
+                {usersLoading ? (
+                  <div className="text-center py-12">
+                    <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+                  </div>
+                ) : filteredUsers.length === 0 ? (
+                  <div className="text-center py-12">
+                    <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No conversations yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {filteredUsers.map((userData) => (
+                      <div
+                        key={userData.id}
+                        onClick={() => setSelectedUserId(userData.id)}
+                        className={`p-3 rounded-lg cursor-pointer ${
+                          selectedUserId === userData.id
+                            ? "bg-primary/10 border-l-4 border-l-primary"
+                            : "hover:bg-accent/50"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                            <span className="text-sm font-semibold text-primary">
+                              {(userData.name || 'U').charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
+                            <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
+                              {userData.role}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </Card>
+
+            <Card className="col-span-2 p-4 flex flex-col overflow-hidden">
+              {selectedUser || selectedUserId ? (
+                <>
+                  <div className="flex items-center gap-3 pb-4 border-b mb-4">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                      <span className="text-lg font-semibold text-primary">
+                        {(selectedUser?.name || 'S').charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg">{selectedUser?.name || 'Support'}</h3>
+                      <Badge className={getRoleBadgeColor(selectedUser?.role || 'admin')}>
+                        {selectedUser?.role || 'Support'}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <ScrollArea className="flex-1 mb-4">
+                    {messagesLoading ? (
+                      <div className="text-center py-12">
+                        <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <div className="text-center py-12">
+                        <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                        <p className="text-sm text-muted-foreground">No messages yet. Start the conversation!</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {messages.map((msg) => (
+                          <div
+                            key={msg.id}
+                            className={`flex gap-3 ${msg.senderId === user?.id ? "flex-row-reverse" : ""}`}
+                          >
+                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                              <User className="h-4 w-4 text-primary" />
+                            </div>
+                            <div className={`flex-1 ${msg.senderId === user?.id ? "text-right" : ""}`}>
+                              <div
+                                className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${
+                                  msg.senderId === user?.id
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-accent"
+                                }`}
+                              >
+                                <p className="text-sm">{msg.message}</p>
+                                <div className="flex items-center gap-1 mt-1">
+                                  <span className={`text-[10px] ${msg.senderId === user?.id ? 'opacity-70' : 'text-muted-foreground'}`}>
+                                    {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                                  </span>
+                                  {msg.senderId === user?.id && (
+                                    <MessageStatusTicks status={msg.status || "sent"} />
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={messagesEndRef} />
+                      </div>
+                    )}
+                  </ScrollArea>
+
+                  <div className="flex gap-2 pt-2 border-t">
+                    <Input
+                      placeholder="Type a message..."
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                      disabled={sendMessageMutation.isPending}
+                      className="flex-1"
+                    />
+                    <Button
+                      onClick={handleSendMessage}
+                      disabled={!message.trim() || sendMessageMutation.isPending}
+                    >
+                      {sendMessageMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center">
+                    <MessageSquare className="h-16 w-16 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-muted-foreground">Select a conversation to start messaging</p>
+                  </div>
+                </div>
+              )}
+            </Card>
           </div>
-        </Card>
+        </div>
       </div>
     </DashboardLayout>
   );

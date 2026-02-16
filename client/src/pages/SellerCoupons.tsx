@@ -80,19 +80,19 @@ export default function SellerCoupons() {
 
   return (
     <DashboardLayout role="seller">
-      <div className="p-6">
-        <div className="flex justify-between items-center mb-6">
+      <div className="container mx-auto max-w-5xl p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold" data-testid="text-page-title">Coupons</h1>
             <p className="text-muted-foreground">Create and manage discount coupons</p>
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-create-coupon">
+            <div>
+              <Button data-testid="button-create-coupon" onClick={() => setOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Coupon
               </Button>
-            </DialogTrigger>
+            </div>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Create New Coupon</DialogTitle>
@@ -170,7 +170,7 @@ export default function SellerCoupons() {
             </div>
           </Card>
         ) : (
-          <div className="grid gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {coupons.map((coupon: any) => (
               <Card key={coupon.id} className="p-4" data-testid={`card-coupon-${coupon.id}`}>
                 <div className="flex items-center justify-between">

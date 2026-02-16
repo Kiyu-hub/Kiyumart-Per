@@ -350,8 +350,11 @@ export default function AdminCategoryManager() {
                             onChange={field.onChange}
                             accept="image"
                             placeholder="https://example.com/category-image.jpg"
-                            description="Upload or enter URL for category image"
+                            description="Upload or enter URL for category image (min 300×300px)"
                             required
+                            skip4KValidation
+                            minDimensions={{ width: 300, height: 300 }}
+                            mediaCategory="category"
                           />
                         </FormControl>
                         <FormMessage />

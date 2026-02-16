@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -10,23 +10,13 @@ export default function AuthPage() {
   const [, navigate] = useLocation();
   const { login, signup, isAuthenticated, user } = useAuth();
   const { toast } = useToast();
+  const [isNewSignup, setIsNewSignup] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      // Redirect based on user role
-      if (user.role === 'super_admin' || user.role === 'admin') {
-        navigate("/admin");
-      } else if (user.role === 'seller') {
-        navigate("/seller");
-      } else if (user.role === 'rider') {
-        navigate("/rider");
-      } else if (user.role === 'buyer') {
-        navigate("/buyer");
-      } else if (user.role === 'agent') {
-        navigate("/agent");
-      } else {
-        navigate("/");
-      }
+      // All users (both login and signup) go to homepage
+      // They can access their dashboard from the navigation menu
+      navigate("/");
     }
   }, [isAuthenticated, user, navigate]);
 
@@ -46,14 +36,16 @@ export default function AuthPage() {
     }
   };
 
-  const handleSignup = async (name: string, email: string, password: string) => {
+  const handleSignup = async (name: string, email: string, password: string, location?: { latitude: number; longitude: number }) => {
     try {
+      setIsNewSignup(true);
       await signup({ name, email, password, role: "buyer" });
       toast({
         title: "Account Created",
         description: "Welcome to KiyuMart!",
       });
     } catch (error: any) {
+      setIsNewSignup(false);
       toast({
         title: "Signup Failed",
         description: error.message || "Failed to create account",

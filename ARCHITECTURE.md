@@ -2,8 +2,8 @@
 
 **Purpose:** Complete technical architecture overview for developers and AI models
 
-**Last Updated:** January 23, 2026  
-**Version:** 1.1.1 (Security Hardened)
+**Last Updated:** February 3, 2026  
+**Version:** 1.1.4 (Multi-Vendor Promotional Ads Parity)
 
 ---
 

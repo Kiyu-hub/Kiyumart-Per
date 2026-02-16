@@ -6,9 +6,9 @@
 >
 > A **fully functional, production-ready local marketplace platform** enabling small businesses, artisans, and entrepreneurs to sell their products to local and regional customers. Multi-vendor support, comprehensive admin management, real-time order tracking, and secure payment processing.
 > 
-> **Version:** 1.1.1 (Latest - Security Hardened)  
+> **Version:** 1.1.7 (Cart Variant Image Display Fix)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
-> **Last Updated:** January 23, 2026
+> **Last Updated:** February 10, 2026
 > 
 > **📚 Documentation:** Start with [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) for complete guides  
 > **🚀 Quick Start:** See [QUICK_START.md](./QUICK_START.md) to get running in 5 minutes  
@@ -158,6 +158,18 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Ad links accept absolute URLs (https://...), relative paths (/category/...), anchors (#section), and protocol links like mailto: and tel:
   - Recommended image sizes and responsive behavior are shown in the Admin Settings UI
   - Ads respect `adsEnabled` flag and can be toggled on/off by admin
+  - Individual ad placements (Hero, Sidebar, Footer, Product page) now have per-position toggles (`heroBannerEnabled`, `sidebarAdEnabled`, `footerAdEnabled`, `productPageAdEnabled`) in Admin Settings.
+  - External ad links now support protocol-relative URLs (`//host/path`) and external http(s) links open in a new tab (`target="_blank"`). Internal/anchor links remain SPA-friendly and use client navigation or smooth-scroll behavior.
+  - UI Display: The platform now renders **Hero** (homepage), **Sidebar** (homepage - large screens), **Product Page** (product detail pages), and **Footer** ads when configured.
+  
+  - Promotional Ads: Admins can create time-limited promotional placements that feature a **store** or **product**. Promotions include a live client-side countdown, appear as a full-height sticky **Sidebar** variant on large screens and as a full-width block on mobile, and are automatically expired either by admin action or by the background worker. The Admin Promotions UI provides a seller→product selector, supports adding multiple products at once (bulk create for product promotions), and scheduling (start/end times). Promotions now support rich fields: **title**, **description**, **image URL**, **CTA text & URL**, and **theme color** for custom branding. Playwright e2e tests cover create → visible → expire → removal lifecycle.
+  
+  - **Multi-Vendor Mode Parity (v1.1.4):** Promotional ads and banner ads are now fully supported in multi-vendor mode. The MultiVendorHome component displays hero ads, promotional grids (for 2+ promotions), sidebar promotions/ads, and footer ads—identical to single-vendor mode. Store routes use `/sellers/:id` consistently across all components.
+
+Development notes:
+  - The Vite dev server proxies `/api` to `http://localhost:5000` (backend) to keep client API calls consistent in development and avoid mismatches between ports (e.g., `5173`, `5174`). This is set in `vite.config.ts`.
+  - If you see inconsistent behavior between ports (frontend appearing stale on one port while the backend reflects changes), kill extra Vite instances and restart the dev server (`npm run dev:frontend`) so only one dev server runs on `5173`.
+  - Optionally set `VITE_API_URL` to `http://localhost:5000` if you want the client to always use the backend origin for API calls instead of relying on the proxy.
 
 - **Product Card Pricing**
   - Product cards show a sale price and (when applicable) the original/cost price as a struck-through value to highlight discounts and savings.
@@ -169,6 +181,11 @@ To be the leading online marketplace platform for local businesses, connecting q
   - View rider earnings and payouts
   - Approve/reject rider applications
   - Manage rider commissions
+  - **Automated payout notifications on delivery completion**
+  - **Pending Payouts Dashboard Widget for Super Admin**
+  - **Real-time rider notifications on payment processing**
+  - **Super Admin approval required for all payouts**
+  - **Complete audit trail with admin ID logging**
 
 - **Reporting & Analytics**
   - Sales reports by product, category, seller
@@ -984,6 +1001,33 @@ For support and questions:
 
 ## 🔄 Recent Updates
 
+### February 2, 2026
+- **Enhanced Promotional System**: Complete overhaul of promotional ads with real-time updates and improvements
+  - Auto-generate CTA URLs based on store/product selection
+  - Image upload functionality with drag-drop support
+  - Automatic fallback to store logo/product image if no custom upload
+  - Real-time table updates using 3-second polling + instant mutation refetch
+  - Fixed status calculation to use server-side `isActive` field
+  - Fixed promotion expiry logic to handle NULL endAt values properly
+- **Admin UI Improvements**: 
+  - Fixed ProductAutocomplete visibility - now uses proper background/foreground colors
+  - Improved dropdown styling with better contrast and accessibility
+  - Fixed product input field visibility when seller is selected
+- **Bug Fixes**:
+  - Resolved multiple promotions showing as active but not updating
+  - Fixed end promotion action not reflecting changes in real-time
+  - Improved mutation refetch handling with proper async/await
+  - Added `isNotNull` check to promotional ads expiry query
+
+### February 1, 2026
+- **Comprehensive Promotions Overhaul**:
+  - Removed theme color input (now uses primary brand colors)
+  - Implemented auto-CTA URL generation
+  - Added image upload with default fallback
+  - Fixed promotions dashboard visibility
+  - Redesigned promotion cards with better display
+  - Implemented vertical space optimization
+
 ### November 6, 2025
 - **Fixed Admin Messaging**: AdminMessages now properly filters conversations by userId when clicking "Message" from AdminUsers page
 - **Renamed Delivery Partner**: Changed all "Become a Rider" references to "Become a Delivery Partner" throughout the platform
@@ -1006,4 +1050,5 @@ For support and questions:
 
 **Built with ❤️ for the Islamic Fashion Community**
 
-*Last Updated: November 6, 2025*
+*Last Updated: February 2, 2026*
+

@@ -398,7 +398,7 @@ export default function AdminStoresList() {
                           <Button 
                             variant="ghost" 
                             size="icon"
-                            onClick={() => navigate(`/store/${store.id}`)}
+                            onClick={() => navigate(`/sellers/${store.id}`)}
                             data-testid={`button-view-${store.id}`}
                           >
                             <Eye className="h-4 w-4" />

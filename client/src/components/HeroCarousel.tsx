@@ -19,19 +19,40 @@ interface HeroBanner {
   image: string;
   ctaText: string | null;
   ctaLink: string | null;
+  storeMode: "single" | "multivendor" | "both";
   isActive: boolean;
   displayOrder: number;
+}
+
+interface PlatformSettings {
+  isMultiVendor: boolean;
 }
 
 export default function HeroCarousel() {
   const [, navigate] = useLocation();
   const { t } = useLanguage();
 
-  const { data: banners = [], isLoading } = useQuery<HeroBanner[]>({
-    queryKey: ["/api/hero-banners"],
+  // Fetch platform settings to determine store mode
+  const { data: platformSettings } = useQuery<PlatformSettings>({
+    queryKey: ["/api/settings"],
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
-  if (isLoading || banners.length === 0) {
+  // Determine which store mode to filter by
+  const storeMode = platformSettings?.isMultiVendor ? "multivendor" : "single";
+
+  const { data: banners = [], isLoading } = useQuery<HeroBanner[]>({
+    queryKey: ["/api/hero-banners", storeMode],
+    queryFn: async () => {
+      const res = await fetch(`/api/hero-banners?storeMode=${storeMode}`);
+      return res.json();
+    },
+    enabled: !!platformSettings,
+    staleTime: 0,
+  });
+
+  if (isLoading || !platformSettings || banners.length === 0) {
     return (
       <div className="relative h-[400px] md:h-[500px] w-full bg-gradient-to-r from-primary/20 to-primary/10 rounded-lg" />
     );

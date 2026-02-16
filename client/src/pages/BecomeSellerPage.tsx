@@ -6,6 +6,7 @@ import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -51,6 +52,8 @@ type BecomeSellerFormData = z.infer<ReturnType<typeof getSellerSchema>>;
 export default function BecomeSellerPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isLoggedIn = !!user;
   const [uploading, setUploading] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState<string>("");
   const [cardFrontPreview, setCardFrontPreview] = useState<string>("");
@@ -76,6 +79,21 @@ export default function BecomeSellerPage() {
       storeTypeMetadata: {},
     },
   });
+
+  // Auto-fill form fields from authenticated user data
+  useEffect(() => {
+    if (user) {
+      if (user.name) form.setValue("name", user.name);
+      if (user.email) form.setValue("email", user.email);
+      if ((user as any).phone) form.setValue("phone", (user as any).phone);
+      // Set a placeholder password for logged-in users (they already have an account)
+      if (isLoggedIn) form.setValue("password", "existing-user");
+      if ((user as any).profilePicture) {
+        form.setValue("profileImage", (user as any).profilePicture);
+        setProfilePreview((user as any).profilePicture);
+      }
+    }
+  }, [user]);
 
   useEffect(() => {
     if (selectedStoreType) {
@@ -243,6 +261,16 @@ export default function BecomeSellerPage() {
                 </AlertDescription>
               </Alert>
 
+              {isLoggedIn && (
+                <Alert className="mb-6 border-green-500/20 bg-green-500/5">
+                  <AlertCircle className="h-4 w-4 text-green-600" />
+                  <AlertDescription className="text-sm">
+                    <strong>Welcome, {user?.name}!</strong> We've pre-filled your details from your account. 
+                    Just complete the store information and verification documents below.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                   <div className="space-y-4">
@@ -270,8 +298,9 @@ export default function BecomeSellerPage() {
                         <FormItem>
                           <FormLabel>Email Address</FormLabel>
                           <FormControl>
-                            <Input type="email" placeholder="john@example.com" {...field} data-testid="input-email" />
+                            <Input type="email" placeholder="john@example.com" {...field} readOnly={isLoggedIn} className={isLoggedIn ? "bg-muted cursor-not-allowed" : ""} data-testid="input-email" />
                           </FormControl>
+                          {isLoggedIn && <FormDescription>Auto-filled from your account</FormDescription>}
                           <FormMessage />
                         </FormItem>
                       )}
@@ -291,6 +320,7 @@ export default function BecomeSellerPage() {
                       )}
                     />
 
+                    {!isLoggedIn && (
                     <FormField
                       control={form.control}
                       name="password"
@@ -304,6 +334,7 @@ export default function BecomeSellerPage() {
                         </FormItem>
                       )}
                     />
+                    )}
                   </div>
 
                   <div className="space-y-4">

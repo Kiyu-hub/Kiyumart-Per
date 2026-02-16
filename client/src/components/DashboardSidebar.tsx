@@ -23,6 +23,8 @@ import {
   Home,
   DollarSign,
   UserCheck,
+  CreditCard,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -62,8 +64,12 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Heart, label: "My Wishlist", id: "my-wishlist" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
+    { icon: Activity, label: "Live Support", id: "live-support" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
     { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
+    { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts" },
+    { icon: Truck, label: "Rider Payouts", id: "riders-payouts" },
+    { icon: Tag, label: "Promotions", id: "promotions" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
   admin : [
@@ -80,7 +86,13 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Heart, label: "My Wishlist", id: "my-wishlist" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
-    { icon: BarChart3, label: "Analytics", id: "analytics" },    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },  ],
+    { icon: Activity, label: "Live Support", id: "live-support" },
+    { icon: BarChart3, label: "Analytics", id: "analytics" },
+    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
+    { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts" },
+    { icon: Truck, label: "Rider Payouts", id: "riders-payouts" },
+    { icon: Tag, label: "Promotions", id: "promotions" },
+  ],
   seller: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: ImagePlus, label: "Media Library", id: "media-library" },

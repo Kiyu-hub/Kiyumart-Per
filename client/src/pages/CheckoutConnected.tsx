@@ -11,6 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Package, Bike, Building2, MapPin, Tag, X } from "lucide-react";
+import AddressMap from "@/components/AddressMap";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -50,6 +51,8 @@ export default function CheckoutConnected() {
   const { formatPrice, currency } = useLanguage();
   const [deliveryMethod, setDeliveryMethod] = useState<"pickup" | "bus" | "rider">("pickup");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [deliveryLat, setDeliveryLat] = useState<number | null>(null);
+  const [deliveryLng, setDeliveryLng] = useState<number | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState("");
   const [couponCode, setCouponCode] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
@@ -285,6 +288,8 @@ export default function CheckoutConnected() {
       deliveryMethod,
       deliveryZoneId: selectedZoneId || null,
       deliveryAddress: deliveryAddress || null,
+      deliveryLatitude: deliveryLat,
+      deliveryLongitude: deliveryLng,
       deliveryFee: deliveryFee.toFixed(2),
       subtotal: subtotal.toFixed(2),
       couponCode: appliedCoupon?.code || null,
@@ -378,6 +383,20 @@ export default function CheckoutConnected() {
                       onChange={(e) => setDeliveryAddress(e.target.value)}
                       data-testid="input-address"
                     />
+
+                    {/* Live map tied to the address input. Map updates address and vice-versa. */}
+                    <div className="mt-3">
+                      <AddressMap
+                        address={deliveryAddress}
+                        onAddressChange={(addr) => setDeliveryAddress(addr)}
+                        onLocationChange={(lat, lng, addr) => {
+                          // Keep deliveryAddress in sync; if reverse geocode returns a value prefer it
+                          if (addr) setDeliveryAddress(addr);
+                          setDeliveryLat(lat);
+                          setDeliveryLng(lng);
+                        }}
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="zone">Delivery Zone</Label>
@@ -439,6 +458,11 @@ export default function CheckoutConnected() {
                           : `${formatPrice(parseFloat(appliedCoupon.discountValue))} off`}
                       </span>
                     </div>
+                      {couponDiscount > 0 && (
+                        <div className="mt-2 text-sm text-green-600 dark:text-green-400 font-medium" data-testid="text-coupon-amount">
+                          -{formatPrice(couponDiscount)}
+                        </div>
+                      )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -506,12 +530,7 @@ export default function CheckoutConnected() {
                       <span data-testid="text-product-discounts">-{formatPrice(productSavings)}</span>
                     </div>
                   )}
-                  {couponDiscount > 0 && (
-                    <div className="flex justify-between text-green-600 dark:text-green-400">
-                      <span className="font-medium">Coupon Discount</span>
-                      <span data-testid="text-checkout-coupon">-{formatPrice(couponDiscount)}</span>
-                    </div>
-                  )}
+                  {/* Coupon discount is shown inline with the coupon code card only */}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Delivery Fee</span>
                     <span data-testid="text-checkout-delivery">{formatPrice(deliveryFee)}</span>

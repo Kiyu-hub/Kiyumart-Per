@@ -1,0 +1,1 @@
+ALTER TABLE footer_pages ADD COLUMN IF NOT EXISTS icon text DEFAULT NULL;

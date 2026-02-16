@@ -15,7 +15,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud } from "lucide-react";
+import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid,
+  Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive
+} from "lucide-react";
+import { insertFooterPageSchema, type FooterPage } from "@shared/schema";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +53,7 @@ const settingsSchema = z.object({
   allowSellerRegistration: z.boolean(),
   allowRiderRegistration: z.boolean(),
   shopDisplayMode: z.enum(["by-store", "by-category"]).optional(),
+  showShopBySection: z.boolean().optional(),
   primaryStoreId: z.string().optional().nullable(),
   primaryColor: z.string().regex(/^#([A-Fa-f0-9]{6})$/, "Must be a valid hex color"),
   defaultCurrency: z.string(),
@@ -73,6 +87,10 @@ const settingsSchema = z.object({
   showSocialLinks: z.boolean(),
   footerDescription: z.string().min(1, "Footer description is required"),
   adsEnabled: z.boolean(),
+  heroBannerEnabled: z.boolean(),
+  sidebarAdEnabled: z.boolean(),
+  footerAdEnabled: z.boolean(),
+  productPageAdEnabled: z.boolean(),
   // Ad image and link fields accept absolute URLs, protocol links (mailto:, tel:), or relative/anchor paths (e.g. /category/abayas, #section)
   heroBannerAdImage: z.string().optional().or(z.literal("")),
   heroBannerAdUrl: z.string().optional().or(z.literal("")),
@@ -111,9 +129,213 @@ export default function AdminSettings() {
   const [showImportCloudinaryDialog, setShowImportCloudinaryDialog] = useState(false);
   const [isImportingCloudinary, setIsImportingCloudinary] = useState(false);
 
+  // Footer Management state
+  const [footerDialogOpen, setFooterDialogOpen] = useState(false);
+  const [editingFooterPage, setEditingFooterPage] = useState<FooterPage | null>(null);
+  const [footerStoreModeFilter, setFooterStoreModeFilter] = useState<string | null>(null);
+  const [footerGroupFilter, setFooterGroupFilter] = useState("all");
+
+  const FOOTER_GROUPS = [
+    { value: "quick_links", label: "Quick Links / Marketplace" },
+    { value: "customer_service", label: "Customer Service" },
+    { value: "legal", label: "Legal" },
+    { value: "trust_bar", label: "Trust Bar" },
+    { value: "general", label: "General" },
+  ];
+  const STORE_MODES_FOOTER = [
+    { value: "both", label: "Both Modes" },
+    { value: "single", label: "Single Store" },
+    { value: "multivendor", label: "Multi-Vendor" },
+  ];
+
+  const footerForm = useForm({
+    defaultValues: {
+      title: "", slug: "", content: "", url: "", group: "general",
+      storeMode: "both", icon: "", displayOrder: 0, isActive: true, openInNewTab: false,
+    },
+  });
+
+  // Icon options for trust bar items
+  const TRUST_BAR_ICONS: { value: string; label: string; icon: any }[] = [
+    { value: "Truck", label: "Delivery Truck", icon: Truck },
+    { value: "ShieldCheck", label: "Shield Check", icon: ShieldCheck },
+    { value: "CreditCard", label: "Credit Card", icon: CreditCard },
+    { value: "Clock", label: "Clock", icon: Clock },
+    { value: "Heart", label: "Heart", icon: Heart },
+    { value: "Star", label: "Star", icon: Star },
+    { value: "Award", label: "Award", icon: Award },
+    { value: "Gift", label: "Gift", icon: Gift },
+    { value: "Shield", label: "Shield", icon: Shield },
+    { value: "Lock", label: "Lock", icon: Lock },
+    { value: "Headphones", label: "Headphones", icon: Headphones },
+    { value: "Phone", label: "Phone", icon: Phone },
+    { value: "MapPin", label: "Location", icon: MapPin },
+    { value: "Package", label: "Package", icon: Package },
+    { value: "Percent", label: "Percent", icon: Percent },
+    { value: "ThumbsUp", label: "Thumbs Up", icon: ThumbsUp },
+    { value: "CheckCircle", label: "Check Circle", icon: CheckCircle },
+    { value: "Users", label: "Users", icon: Users },
+    { value: "Flame", label: "Flame", icon: Flame },
+    { value: "Gem", label: "Gem", icon: Gem },
+    { value: "Crown", label: "Crown", icon: Crown },
+    { value: "BadgeCheck", label: "Badge Check", icon: BadgeCheck },
+    { value: "Wallet", label: "Wallet", icon: Wallet },
+    { value: "RefreshCcw", label: "Refresh", icon: RefreshCcw },
+    { value: "LifeBuoy", label: "Life Buoy", icon: LifeBuoy },
+    { value: "Rocket", label: "Rocket", icon: Rocket },
+    { value: "Timer", label: "Timer", icon: Timer },
+    { value: "Tag", label: "Tag", icon: Tag },
+    { value: "ShoppingBag", label: "Shopping Bag", icon: ShoppingBag },
+    { value: "ShoppingCart", label: "Shopping Cart", icon: ShoppingCart },
+    { value: "Home", label: "Home", icon: Home },
+    { value: "Search", label: "Search", icon: Search },
+    { value: "Bell", label: "Bell", icon: Bell },
+    { value: "MessageCircle", label: "Message", icon: MessageCircle },
+    { value: "Wifi", label: "Wifi", icon: Wifi },
+    { value: "Sun", label: "Sun", icon: Sun },
+    { value: "Moon", label: "Moon", icon: Moon },
+    { value: "BarChart", label: "Chart", icon: BarChart },
+    { value: "Key", label: "Key", icon: Key },
+    { value: "Fingerprint", label: "Fingerprint", icon: Fingerprint },
+    { value: "Globe2", label: "Globe", icon: Globe2 },
+    { value: "Umbrella", label: "Umbrella", icon: Umbrella },
+    { value: "Coffee", label: "Coffee", icon: Coffee },
+    { value: "Music", label: "Music", icon: Music },
+    { value: "Camera", label: "Camera", icon: Camera },
+    { value: "Target", label: "Target", icon: Target },
+    { value: "Compass", label: "Compass", icon: Compass },
+    { value: "Anchor", label: "Anchor", icon: Anchor },
+    { value: "Feather", label: "Feather", icon: Feather },
+    { value: "Leaf", label: "Leaf", icon: Leaf },
+    { value: "Droplets", label: "Droplets", icon: Droplets },
+    { value: "Wind", label: "Wind", icon: Wind },
+    { value: "DollarSign", label: "Dollar", icon: DollarSign },
+    { value: "Mail", label: "Mail", icon: Mail },
+    { value: "Box", label: "Box", icon: Box },
+    { value: "Database", label: "Database", icon: Database },
+    { value: "HardDrive", label: "Hard Drive", icon: HardDrive },
+  ];
+
+  const { data: footerPages = [], isLoading: footerPagesLoading } = useQuery<FooterPage[]>({
+    queryKey: ["/api/admin/footer-pages"],
+  });
+
+  const createFooterMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("POST", "/api/admin/footer-pages", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/footer-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/footer-pages"] });
+      setFooterDialogOpen(false);
+      setEditingFooterPage(null);
+      footerForm.reset();
+      toast({ title: "Success", description: "Footer item created" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateFooterMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const response = await apiRequest("PATCH", `/api/admin/footer-pages/${id}`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/footer-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/footer-pages"] });
+      setFooterDialogOpen(false);
+      setEditingFooterPage(null);
+      footerForm.reset();
+      toast({ title: "Success", description: "Footer item updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteFooterMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("DELETE", `/api/admin/footer-pages/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/footer-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/footer-pages"] });
+      toast({ title: "Success", description: "Footer item deleted" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const toggleFooterVisibility = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      const response = await apiRequest("PATCH", `/api/admin/footer-pages/${id}`, { isActive });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/footer-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/footer-pages"] });
+    },
+  });
+
+  const handleFooterSubmit = (data: any) => {
+    if (editingFooterPage) {
+      updateFooterMutation.mutate({ id: editingFooterPage.id, data });
+    } else {
+      createFooterMutation.mutate(data);
+    }
+  };
+
+  const handleEditFooter = (page: FooterPage) => {
+    setEditingFooterPage(page);
+    footerForm.reset({
+      title: page.title, slug: page.slug, content: page.content || "",
+      url: page.url || "", group: page.group || "general",
+      storeMode: (page as any).storeMode || "both",
+      icon: (page as any).icon || "",
+      displayOrder: page.displayOrder || 0,
+      isActive: page.isActive ?? true, openInNewTab: page.openInNewTab ?? false,
+    });
+    setFooterDialogOpen(true);
+  };
+
+  const handleFooterTitleChange = (title: string) => {
+    if (!editingFooterPage) {
+      const slug = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").trim();
+      footerForm.setValue("slug", slug);
+    }
+  };
+
+  const getFooterGroupLabel = (g: string) => FOOTER_GROUPS.find(f => f.value === g)?.label || g;
+  const getFooterStoreModeLabel = (m: string) => STORE_MODES_FOOTER.find(s => s.value === m)?.label || m;
+  const getFooterStoreModeBadgeClass = (m: string) => {
+    if (m === "single") return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
+    if (m === "multivendor") return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20";
+    return "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
+  };
+
   const { data: settings, isLoading } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
   });
+
+  const activeFooterModeFilter = footerStoreModeFilter ?? (settings?.isMultiVendor ? "multivendor" : "single");
+  const filteredFooterPages = footerPages.filter((page) => {
+    const sm = (page as any).storeMode || "both";
+    const matchesStore = sm === activeFooterModeFilter || sm === "both";
+    const matchesGroup = footerGroupFilter === "all" || (page.group || "general") === footerGroupFilter;
+    return matchesStore && matchesGroup;
+  });
+
+  const groupedFooterPages = filteredFooterPages.reduce((acc, page) => {
+    const g = page.group || "general";
+    if (!acc[g]) acc[g] = [];
+    acc[g].push(page);
+    return acc;
+  }, {} as Record<string, FooterPage[]>);
 
   const { data: stores = [] } = useQuery<Array<{id: string; name: string; isActive: boolean}>>({
     queryKey: ["/api/stores"],
@@ -123,11 +345,116 @@ export default function AdminSettings() {
     },
   });
 
+  // Fetch hero banners for preview
+  interface HeroBannerPreview {
+    id: string;
+    title: string;
+    subtitle: string | null;
+    image: string;
+    storeMode: "single" | "multivendor" | "both";
+    isActive: boolean;
+    displayOrder: number;
+  }
+
+  const { data: heroBanners = [] } = useQuery<HeroBannerPreview[]>({
+    queryKey: ["/api/admin/hero-banners"],
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+  });
+
+  // Filter banners by store mode
+  const singleStoreBanners = heroBanners.filter(b => b.storeMode === "single" || b.storeMode === "both");
+  const multiVendorBanners = heroBanners.filter(b => b.storeMode === "multivendor" || b.storeMode === "both");
+
+  // Delete banner mutation
+  const deleteBannerMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/admin/hero-banners/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/hero-banners"] });
+      toast({ title: "Success", description: "Banner deleted successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Toggle banner active status
+  const toggleBannerMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      return apiRequest("PATCH", `/api/admin/hero-banners/${id}`, { isActive });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/hero-banners"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Banner preview component
+  const BannerPreviewCard = ({ banner }: { banner: HeroBannerPreview }) => (
+    <div className="relative group border rounded-lg overflow-hidden bg-background">
+      <div className="aspect-[16/6] relative">
+        <img
+          src={banner.image}
+          alt={banner.title}
+          className="w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => navigate(`/admin/hero-banners?edit=${banner.id}`)}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => window.open(banner.image, "_blank")}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              if (confirm(`Delete banner "${banner.title}"?`)) {
+                deleteBannerMutation.mutate(banner.id);
+              }
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="p-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-medium text-sm truncate">{banner.title}</p>
+          <Badge variant={banner.isActive ? "default" : "secondary"} className="text-xs">
+            {banner.isActive ? "Active" : "Inactive"}
+          </Badge>
+        </div>
+        {banner.subtitle && (
+          <p className="text-xs text-muted-foreground truncate">{banner.subtitle}</p>
+        )}
+      </div>
+    </div>
+  );
+
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
       navigate("/auth");
     }
   }, [isAuthenticated, authLoading, user, navigate]);
+
+  // Ensure super admins don't see branding/currency tabs and reset active tab if needed
+  useEffect(() => {
+    if (user?.role === "super_admin" && (activeTab === "branding" || activeTab === "currency")) {
+      setActiveTab("general");
+    }
+  }, [user?.role, activeTab]);
 
   const form = useForm<SettingsFormData>({
     resolver: zodResolver(settingsSchema),
@@ -137,6 +464,7 @@ export default function AdminSettings() {
       allowSellerRegistration: (settings as any).allowSellerRegistration || false,
       allowRiderRegistration: (settings as any).allowRiderRegistration || false,
       shopDisplayMode: (settings as any).shopDisplayMode || "by-store",
+      showShopBySection: (settings as any).showShopBySection ?? true,
       primaryStoreId: (settings as any).primaryStoreId || null,
       primaryColor: settings.primaryColor,
       defaultCurrency: settings.defaultCurrency,
@@ -163,6 +491,10 @@ export default function AdminSettings() {
       showWhatsapp: (settings as any).showWhatsapp ?? true,
       footerDescription: settings.footerDescription,
       adsEnabled: settings.adsEnabled || false,
+      heroBannerEnabled: (settings as any).heroBannerEnabled ?? true,
+      sidebarAdEnabled: (settings as any).sidebarAdEnabled ?? true,
+      footerAdEnabled: (settings as any).footerAdEnabled ?? true,
+      productPageAdEnabled: (settings as any).productPageAdEnabled ?? true,
       heroBannerAdImage: settings.heroBannerAdImage || "",
       heroBannerAdUrl: settings.heroBannerAdUrl || "",
       sidebarAdImage: settings.sidebarAdImage || "",
@@ -213,6 +545,9 @@ export default function AdminSettings() {
       await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
       await queryClient.refetchQueries({ queryKey: ["/api/settings", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/platform-settings"] });
+      
+      // Invalidate hero banners so they refetch with new store mode
+      queryClient.invalidateQueries({ queryKey: ["/api/hero-banners"] });
 
       // Reset cleared keys after successful update
       setClearedSocialKeys([]);
@@ -224,6 +559,7 @@ export default function AdminSettings() {
         allowSellerRegistration: data.allowSellerRegistration || false,
         allowRiderRegistration: data.allowRiderRegistration || false,
         shopDisplayMode: data.shopDisplayMode || "by-store",
+        showShopBySection: data.showShopBySection ?? true,
         primaryStoreId: data.primaryStoreId || null,
         primaryColor: data.primaryColor,
         defaultCurrency: data.defaultCurrency,
@@ -256,6 +592,10 @@ export default function AdminSettings() {
         showSocialLinks: data.showSocialLinks ?? true,
         footerDescription: data.footerDescription,
         adsEnabled: data.adsEnabled || false,
+        heroBannerEnabled: (data as any).heroBannerEnabled ?? true,
+        sidebarAdEnabled: (data as any).sidebarAdEnabled ?? true,
+        footerAdEnabled: (data as any).footerAdEnabled ?? true,
+        productPageAdEnabled: (data as any).productPageAdEnabled ?? true,
         heroBannerAdImage: data.heroBannerAdImage || "",
         heroBannerAdUrl: data.heroBannerAdUrl || "",
         sidebarAdImage: data.sidebarAdImage || "",
@@ -268,13 +608,15 @@ export default function AdminSettings() {
 
       toast({
         title: "Settings updated",
-        description: "Platform settings have been saved successfully. Branding colors updated!",
+        description: "Platform settings have been saved successfully.",
       });
     },
   });
 
-  const onSubmit = (data: SettingsFormData) => {
-    updateSettingsMutation.mutate(data);
+  const onSubmit = (_data: SettingsFormData) => {
+    // Use getValues to ensure controlled switches and all values are included
+    const payload = form.getValues();
+    updateSettingsMutation.mutate(payload as SettingsFormData);
   };
 
   // Keep form in sync when settings change externally
@@ -286,6 +628,7 @@ export default function AdminSettings() {
         allowSellerRegistration: (settings as any).allowSellerRegistration || false,
         allowRiderRegistration: (settings as any).allowRiderRegistration || false,
         shopDisplayMode: (settings as any).shopDisplayMode || "by-store",
+        showShopBySection: (settings as any).showShopBySection ?? true,
         primaryStoreId: (settings as any).primaryStoreId || null,
         primaryColor: settings.primaryColor,
         defaultCurrency: settings.defaultCurrency,
@@ -318,6 +661,10 @@ export default function AdminSettings() {
           showSocialLinks: (settings as any).showSocialLinks ?? true,
         footerDescription: settings.footerDescription,
         adsEnabled: settings.adsEnabled || false,
+        heroBannerEnabled: (settings as any).heroBannerEnabled ?? true,
+        sidebarAdEnabled: (settings as any).sidebarAdEnabled ?? true,
+        footerAdEnabled: (settings as any).footerAdEnabled ?? true,
+        productPageAdEnabled: (settings as any).productPageAdEnabled ?? true,
         heroBannerAdImage: settings.heroBannerAdImage || "",
         heroBannerAdUrl: settings.heroBannerAdUrl || "",
         sidebarAdImage: settings.sidebarAdImage || "",
@@ -361,7 +708,7 @@ export default function AdminSettings() {
 
           <form onSubmit={form.handleSubmit(onSubmit)}>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-7 mb-6">
+            <TabsList className="flex flex-wrap w-full gap-1 mb-6 h-auto">
               <TabsTrigger value="general" data-testid="tab-general">
                 <Settings2 className="h-4 w-4 mr-2" />
                 General
@@ -378,21 +725,75 @@ export default function AdminSettings() {
                 <Mail className="h-4 w-4 mr-2" />
                 Contact
               </TabsTrigger>
-              <TabsTrigger value="branding" data-testid="tab-branding">
-                <Palette className="h-4 w-4 mr-2" />
-                Branding
-              </TabsTrigger>
-              <TabsTrigger value="currency" data-testid="tab-currency">
-                <DollarSign className="h-4 w-4 mr-2" />
-                Currency
-              </TabsTrigger>
+              {user?.role !== "super_admin" && (
+                <>
+                  <TabsTrigger value="branding" data-testid="tab-branding">
+                    <Palette className="h-4 w-4 mr-2" />
+                    Branding
+                  </TabsTrigger>
+                  <TabsTrigger value="currency" data-testid="tab-currency">
+                    <DollarSign className="h-4 w-4 mr-2" />
+                    Currency
+                  </TabsTrigger>
+                </>
+              )}
               <TabsTrigger value="ads" data-testid="tab-ads">
                 <ImageIcon className="h-4 w-4 mr-2" />
                 Ads
               </TabsTrigger>
+              <TabsTrigger value="footer" data-testid="tab-footer">
+                <Layers className="h-4 w-4 mr-2" />
+                Footer
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="general" className="space-y-4">
+              {user?.role === "super_admin" && (
+                <Card className="border-primary/50 bg-primary/5">
+                  <CardHeader>
+                    <CardTitle className="text-primary">Super Admin Profile</CardTitle>
+                    <CardDescription>
+                      Your administrator profile and account information
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-foreground font-semibold">Full Name</Label>
+                        <div className="p-3 bg-muted/50 rounded-lg border">
+                          <p className="text-foreground font-medium">{user?.name || "N/A"}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-foreground font-semibold">Email Address</Label>
+                        <div className="p-3 bg-muted/50 rounded-lg border">
+                          <p className="text-foreground font-medium">{user?.email || "N/A"}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-foreground font-semibold">Role</Label>
+                        <div className="p-3 bg-muted/50 rounded-lg border">
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-primary text-primary-foreground">
+                            Super Administrator
+                          </span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-foreground font-semibold">Phone</Label>
+                        <div className="p-3 bg-muted/50 rounded-lg border">
+                          <p className="text-foreground font-medium">{user?.phone || "Not provided"}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t">
+                      <Button variant="outline" onClick={() => navigate("/profile")}>
+                        Edit Profile Details
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <Card>
                 <CardHeader>
                   <CardTitle>General Settings</CardTitle>
@@ -463,20 +864,66 @@ export default function AdminSettings() {
 
                   {form.watch("isMultiVendor") && (
                     <div className="p-4 border rounded-lg bg-muted/50 space-y-4">
-                      <div className="space-y-2">
-                        <Label>Multi-Vendor Features</Label>
-                        <p className="text-sm text-muted-foreground mb-3">
-                          Manage marketplace banners, collections, and homepage layout
-                        </p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Layers className="h-5 w-5 text-primary" />
+                          <div>
+                            <Label className="text-base font-semibold">Multi-Vendor Mode</Label>
+                            <p className="text-sm text-muted-foreground">
+                              Marketplace banners, collections, and homepage layout
+                            </p>
+                          </div>
+                        </div>
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => navigate("/admin/banners")}
-                          data-testid="button-banner-manager"
+                          size="sm"
+                          onClick={() => form.setValue("isMultiVendor", false)}
+                          className="gap-2"
                         >
-                          <ImageIcon className="w-4 h-4 mr-2" />
-                          Manage Banners
+                          <ArrowRightLeft className="h-4 w-4" />
+                          Switch to Single Store
                         </Button>
+                      </div>
+
+                      {/* Hero Banner Management */}
+                      <div className="space-y-3 pt-3 border-t">
+                        <div className="flex items-center justify-between">
+                          <Label>Hero Banners for Multi-Vendor Mode</Label>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => navigate("/admin/hero-banners")}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Manage Banners
+                          </Button>
+                        </div>
+                        {multiVendorBanners.length === 0 ? (
+                          <div className="text-center py-6 border border-dashed rounded-lg">
+                            <ImageIcon className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                            <p className="text-sm text-muted-foreground">No banners configured for multi-vendor mode</p>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => navigate("/admin/hero-banners")}
+                            >
+                              Create your first banner
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {multiVendorBanners.slice(0, 6).map((banner) => (
+                              <BannerPreviewCard key={banner.id} banner={banner} />
+                            ))}
+                          </div>
+                        )}
+                        {multiVendorBanners.length > 6 && (
+                          <p className="text-sm text-muted-foreground text-center">
+                            +{multiVendorBanners.length - 6} more banners. <Button variant="ghost" className="p-0 h-auto" onClick={() => navigate("/admin/hero-banners")}>View all</Button>
+                          </p>
+                        )}
                       </div>
                       
                       <div className="space-y-2 pt-2 border-t">
@@ -497,13 +944,48 @@ export default function AdminSettings() {
                           Choose how products are displayed on the multi-vendor homepage
                         </p>
                       </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <div>
+                          <Label>Show "Shop By" Section</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Toggle visibility of the Shop by Store/Category section on the homepage
+                          </p>
+                        </div>
+                        <Switch
+                          checked={form.watch("showShopBySection") !== false}
+                          onCheckedChange={(checked) => form.setValue("showShopBySection", checked)}
+                        />
+                      </div>
                     </div>
                   )}
 
                   {!form.watch("isMultiVendor") && (
                     <div className="p-4 border rounded-lg bg-muted/50 space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="primaryStoreId">Primary Store (Single-Store Mode)</Label>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Store className="h-5 w-5 text-primary" />
+                          <div>
+                            <Label className="text-base font-semibold">Single Store Mode</Label>
+                            <p className="text-sm text-muted-foreground">
+                              Display products from one primary store
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => form.setValue("isMultiVendor", true)}
+                          className="gap-2"
+                        >
+                          <ArrowRightLeft className="h-4 w-4" />
+                          Switch to Multi-Vendor
+                        </Button>
+                      </div>
+                      
+                      <div className="space-y-2 pt-2 border-t">
+                        <Label htmlFor="primaryStoreId">Primary Store</Label>
                         <Select
                           value={form.watch("primaryStoreId") || "none"}
                           onValueChange={(value) => form.setValue("primaryStoreId", value === "none" ? null : value)}
@@ -523,6 +1005,58 @@ export default function AdminSettings() {
                         <p className="text-xs text-muted-foreground">
                           Select the store to display in single-store mode. Only one store can be primary. Leave empty to show the first active store.
                         </p>
+                      </div>
+                      {/* Single-Store Banner Preview */}
+                      <div className="space-y-3 pt-3 border-t">
+                        <div className="flex items-center justify-between">
+                          <Label>Hero Banners for Single-Store Mode</Label>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => navigate("/admin/hero-banners")}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Manage Banners
+                          </Button>
+                        </div>
+                        {singleStoreBanners.length === 0 ? (
+                          <div className="text-center py-6 border border-dashed rounded-lg">
+                            <ImageIcon className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                            <p className="text-sm text-muted-foreground">No banners configured for single-store mode</p>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => navigate("/admin/hero-banners")}
+                            >
+                              Create your first banner
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {singleStoreBanners.slice(0, 6).map((banner) => (
+                              <BannerPreviewCard key={banner.id} banner={banner} />
+                            ))}
+                          </div>
+                        )}
+                        {singleStoreBanners.length > 6 && (
+                          <p className="text-sm text-muted-foreground text-center">
+                            +{singleStoreBanners.length - 6} more banners. <Button variant="ghost" className="p-0 h-auto" onClick={() => navigate("/admin/hero-banners")}>View all</Button>
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <div>
+                          <Label>Show "Shop By" Section</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Toggle visibility of the Shop by Category section on the homepage
+                          </p>
+                        </div>
+                        <Switch
+                          checked={form.watch("showShopBySection") !== false}
+                          onCheckedChange={(checked) => form.setValue("showShopBySection", checked)}
+                        />
                       </div>
                     </div>
                   )}
@@ -1097,69 +1631,73 @@ export default function AdminSettings() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="branding" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Branding & Appearance</CardTitle>
-                  <CardDescription>
-                    Customize your platform's visual identity
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="primaryColor">Primary Color</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="primaryColor"
-                        {...form.register("primaryColor")}
-                        placeholder="#1e7b5f"
-                        data-testid="input-primary-color"
-                        className="flex-1"
-                      />
-                      <div 
-                        className="w-12 h-10 rounded border"
-                        style={{ backgroundColor: form.watch("primaryColor") }}
-                      />
-                    </div>
-                    {form.formState.errors.primaryColor && (
-                      <p className="text-sm text-destructive">
-                        {form.formState.errors.primaryColor.message}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Hex color code for your brand's primary color
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+            {user?.role !== "super_admin" && (
+              <>
+                <TabsContent value="branding" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Branding & Appearance</CardTitle>
+                      <CardDescription>
+                        Customize your platform's visual identity
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="primaryColor">Primary Color</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="primaryColor"
+                            {...form.register("primaryColor")}
+                            placeholder="#1e7b5f"
+                            data-testid="input-primary-color"
+                            className="flex-1"
+                          />
+                          <div 
+                            className="w-12 h-10 rounded border"
+                            style={{ backgroundColor: form.watch("primaryColor") }}
+                          />
+                        </div>
+                        {form.formState.errors.primaryColor && (
+                          <p className="text-sm text-destructive">
+                            {form.formState.errors.primaryColor.message}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Hex color code for your brand's primary color
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
 
-            <TabsContent value="currency" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Currency Settings</CardTitle>
-                  <CardDescription>
-                    Configure your platform's default currency
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="defaultCurrency">Default Currency</Label>
-                    <Select
-                      value={form.watch("defaultCurrency")}
-                      onValueChange={(value) => form.setValue("defaultCurrency", value)}
-                    >
-                      <SelectTrigger data-testid="select-default-currency">
-                        <SelectValue placeholder="Select currency" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="GHS">GHS - Ghanaian Cedi</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+                <TabsContent value="currency" className="space-y-4">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Currency Settings</CardTitle>
+                        <CardDescription>
+                          Configure your platform's default currency
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="defaultCurrency">Default Currency</Label>
+                          <Select
+                            value={form.watch("defaultCurrency")}
+                            onValueChange={(value) => form.setValue("defaultCurrency", value)}
+                          >
+                            <SelectTrigger data-testid="select-default-currency">
+                              <SelectValue placeholder="Select currency" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="GHS">GHS - Ghanaian Cedi</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+              </>
+            )}
 
             <TabsContent value="ads" className="space-y-4">
               <Card>
@@ -1188,10 +1726,18 @@ export default function AdminSettings() {
                   {form.watch("adsEnabled") && (
                     <div className="space-y-6 pt-4">
                       <div className="space-y-4 p-4 border rounded-lg">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <ImageIcon className="h-4 w-4" />
-                          Hero Banner Ad
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <ImageIcon className="h-4 w-4" />
+                            Hero Banner Ad
+                          </h4>
+                          <Switch
+                            id="heroBannerEnabled"
+                            checked={form.watch("heroBannerEnabled")}
+                            onCheckedChange={(checked) => form.setValue("heroBannerEnabled", checked)}
+                            data-testid="switch-hero-enabled"
+                          />
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           Display an advertisement banner prominently on the homepage hero section
                         </p>
@@ -1220,10 +1766,18 @@ export default function AdminSettings() {
                       </div>
 
                       <div className="space-y-4 p-4 border rounded-lg">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <ImageIcon className="h-4 w-4" />
-                          Sidebar Ad
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <ImageIcon className="h-4 w-4" />
+                            Sidebar Ad
+                          </h4>
+                          <Switch
+                            id="sidebarAdEnabled"
+                            checked={form.watch("sidebarAdEnabled")}
+                            onCheckedChange={(checked) => form.setValue("sidebarAdEnabled", checked)}
+                            data-testid="switch-sidebar-enabled"
+                          />
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           Display an advertisement in the sidebar on product listing pages
                         </p>
@@ -1252,10 +1806,18 @@ export default function AdminSettings() {
                       </div>
 
                       <div className="space-y-4 p-4 border rounded-lg">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <ImageIcon className="h-4 w-4" />
-                          Product Page Ad
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <ImageIcon className="h-4 w-4" />
+                            Product Page Ad
+                          </h4>
+                          <Switch
+                            id="productPageAdEnabled"
+                            checked={form.watch("productPageAdEnabled")}
+                            onCheckedChange={(checked) => form.setValue("productPageAdEnabled", checked)}
+                            data-testid="switch-product-enabled"
+                          />
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           Display an advertisement below product details on individual product pages
                         </p>
@@ -1284,10 +1846,18 @@ export default function AdminSettings() {
                       </div>
 
                       <div className="space-y-4 p-4 border rounded-lg">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <ImageIcon className="h-4 w-4" />
-                          Footer Ad
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <ImageIcon className="h-4 w-4" />
+                            Footer Ad
+                          </h4>
+                          <Switch
+                            id="footerAdEnabled"
+                            checked={form.watch("footerAdEnabled")}
+                            onCheckedChange={(checked) => form.setValue("footerAdEnabled", checked)}
+                            data-testid="switch-footer-enabled"
+                          />
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           Display an advertisement in the footer section across all pages
                         </p>
@@ -1314,6 +1884,217 @@ export default function AdminSettings() {
                           <p className="text-xs text-muted-foreground">Supports absolute URLs, relative paths, anchors, and protocol links.</p>
                         </div>
                       </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Footer Management Tab */}
+            <TabsContent value="footer" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Footer Management</CardTitle>
+                      <CardDescription>
+                        Manage all footer sections, links, and pages. Changes apply globally across the site based on store mode.
+                      </CardDescription>
+                    </div>
+                    <Dialog open={footerDialogOpen} onOpenChange={setFooterDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button onClick={() => { setEditingFooterPage(null); footerForm.reset({ title: "", slug: "", content: "", url: "", group: "general", storeMode: "both", icon: "", displayOrder: footerPages.length, isActive: true, openInNewTab: false }); }} data-testid="button-add-footer-page">
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add Footer Item
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>{editingFooterPage ? "Edit Footer Item" : "Create Footer Item"}</DialogTitle>
+                        </DialogHeader>
+                        <form onSubmit={footerForm.handleSubmit(handleFooterSubmit)} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="footerTitle">Title</Label>
+                            <Input id="footerTitle" {...footerForm.register("title")} onChange={(e) => { footerForm.setValue("title", e.target.value); handleFooterTitleChange(e.target.value); }} placeholder="e.g., Returns & Refunds" data-testid="input-footer-title" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="footerSlug">Slug (URL)</Label>
+                            <Input id="footerSlug" {...footerForm.register("slug")} placeholder="e.g., returns-refunds" data-testid="input-footer-slug" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Footer Section</Label>
+                              <Select value={footerForm.watch("group")} onValueChange={(v) => footerForm.setValue("group", v)}>
+                                <SelectTrigger data-testid="select-footer-group"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {FOOTER_GROUPS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Store Mode</Label>
+                              <Select value={footerForm.watch("storeMode")} onValueChange={(v) => footerForm.setValue("storeMode", v)}>
+                                <SelectTrigger data-testid="select-footer-store-mode"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {STORE_MODES_FOOTER.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-muted-foreground">Controls which storefront mode shows this link</p>
+                            </div>
+                          </div>
+                          {/* Icon Picker - only shown for Trust Bar items */}
+                          {footerForm.watch("group") === "trust_bar" && (
+                            <div className="space-y-2">
+                              <Label>Trust Bar Icon</Label>
+                              <p className="text-xs text-muted-foreground mb-2">Select an icon to display next to this trust bar item</p>
+                              <div className="grid grid-cols-8 sm:grid-cols-10 gap-1.5 max-h-[200px] overflow-y-auto border rounded-lg p-3 bg-muted/20">
+                                {TRUST_BAR_ICONS.map((iconItem) => {
+                                  const IconComp = iconItem.icon;
+                                  const isSelected = footerForm.watch("icon") === iconItem.value;
+                                  return (
+                                    <button
+                                      key={iconItem.value}
+                                      type="button"
+                                      title={iconItem.label}
+                                      onClick={() => footerForm.setValue("icon", isSelected ? "" : iconItem.value)}
+                                      className={`flex items-center justify-center w-9 h-9 rounded-md transition-all ${isSelected ? "bg-primary text-white ring-2 ring-primary ring-offset-1 scale-110" : "bg-background hover:bg-muted border border-border hover:border-primary/50"}`}
+                                    >
+                                      <IconComp className="h-4 w-4" />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {footerForm.watch("icon") && (
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-xs text-muted-foreground">Selected:</span>
+                                  <Badge variant="secondary" className="gap-1">
+                                    {(() => { const found = TRUST_BAR_ICONS.find(i => i.value === footerForm.watch("icon")); const IC = found?.icon; return IC ? <><IC className="h-3 w-3" />{found?.label}</> : footerForm.watch("icon"); })()}
+                                  </Badge>
+                                  <Button type="button" variant="ghost" size="sm" className="h-6 text-xs text-destructive" onClick={() => footerForm.setValue("icon", "")}>Clear</Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div className="space-y-2">
+                            <Label htmlFor="footerUrl">External URL (optional)</Label>
+                            <Input id="footerUrl" {...footerForm.register("url")} placeholder="https://... (leave empty for internal page)" data-testid="input-footer-url" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="footerContent">Page Content (HTML)</Label>
+                            <Textarea id="footerContent" {...footerForm.register("content")} rows={6} placeholder="Enter page content..." data-testid="textarea-footer-content" />
+                          </div>
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="footerOrder">Order</Label>
+                              <Input id="footerOrder" type="number" {...footerForm.register("displayOrder", { valueAsNumber: true })} data-testid="input-footer-order" />
+                            </div>
+                            <div className="space-y-2 flex flex-col justify-end">
+                              <Label>Visible</Label>
+                              <div className="flex items-center gap-2">
+                                <Switch checked={footerForm.watch("isActive")} onCheckedChange={(v) => footerForm.setValue("isActive", v)} data-testid="switch-footer-active" />
+                                <span className="text-sm">{footerForm.watch("isActive") ? "Yes" : "No"}</span>
+                              </div>
+                            </div>
+                            <div className="space-y-2 flex flex-col justify-end">
+                              <Label>New Tab</Label>
+                              <div className="flex items-center gap-2">
+                                <Switch checked={footerForm.watch("openInNewTab")} onCheckedChange={(v) => footerForm.setValue("openInNewTab", v)} data-testid="switch-footer-newtab" />
+                                <span className="text-sm">{footerForm.watch("openInNewTab") ? "Yes" : "No"}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <DialogFooter>
+                            <Button type="submit" disabled={createFooterMutation.isPending || updateFooterMutation.isPending} data-testid="button-save-footer">
+                              {(createFooterMutation.isPending || updateFooterMutation.isPending) ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : editingFooterPage ? "Update" : "Create"}
+                            </Button>
+                          </DialogFooter>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Filters */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-muted-foreground">Store Mode:</span>
+                      <Select value={activeFooterModeFilter} onValueChange={setFooterStoreModeFilter}>
+                        <SelectTrigger className="w-[180px]" data-testid="select-footer-mode-filter"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="single">Single Store</SelectItem>
+                          <SelectItem value="multivendor">Multi-Vendor</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-muted-foreground">Section:</span>
+                      <Select value={footerGroupFilter} onValueChange={setFooterGroupFilter}>
+                        <SelectTrigger className="w-[200px]" data-testid="select-footer-section-filter"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Sections</SelectItem>
+                          {FOOTER_GROUPS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Badge variant="outline" className="ml-auto">
+                      {filteredFooterPages.length} of {footerPages.length} items
+                    </Badge>
+                  </div>
+
+                  {/* Current mode indicator */}
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border text-sm">
+                    <Store className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">Current store mode:</span>
+                    <Badge variant="outline" className={settings?.isMultiVendor ? "border-purple-500 text-purple-500" : "border-blue-500 text-blue-500"}>
+                      {settings?.isMultiVendor ? "Multi-Vendor" : "Single Store"}
+                    </Badge>
+                  </div>
+
+                  {/* Footer items grouped by section */}
+                  {footerPagesLoading ? (
+                    <div className="text-center py-8"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></div>
+                  ) : Object.keys(groupedFooterPages).length > 0 ? (
+                    Object.entries(groupedFooterPages)
+                      .sort(([a], [b]) => {
+                        const order = FOOTER_GROUPS.map(g => g.value);
+                        return (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b));
+                      })
+                      .map(([group, gPages]) => (
+                        <div key={group} className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-semibold">{getFooterGroupLabel(group)}</h4>
+                            <Badge variant="secondary" className="text-xs">{gPages.length}</Badge>
+                          </div>
+                          {gPages.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)).map((page) => (
+                            <div key={page.id} className={`flex items-center justify-between p-3 rounded-lg border ${!page.isActive ? 'opacity-60' : ''}`} data-testid={`footer-item-${page.id}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-sm">{page.title}</span>
+                                  {page.isActive ? <Badge variant="default" className="text-[10px] h-5">Active</Badge> : <Badge variant="secondary" className="text-[10px] h-5">Hidden</Badge>}
+                                  <Badge variant="outline" className={`text-[10px] h-5 ${getFooterStoreModeBadgeClass((page as any).storeMode || 'both')}`}>
+                                    {getFooterStoreModeLabel((page as any).storeMode || 'both')}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5">{page.url || `/page/${page.slug}`} &bull; Order: {page.displayOrder}</p>
+                              </div>
+                              <div className="flex gap-1 ml-2 shrink-0">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleFooterVisibility.mutate({ id: page.id, isActive: !page.isActive })}>
+                                  {page.isActive ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditFooter(page)}>
+                                  <Edit className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => { if (confirm("Delete this footer item?")) deleteFooterMutation.mutate(page.id); }}>
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ))
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground" data-testid="footer-empty-state">
+                      {footerPages.length === 0 ? "No footer items yet. Click \"Add Footer Item\" to create one." : "No items match the current filters."}
                     </div>
                   )}
                 </CardContent>

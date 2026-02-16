@@ -16,6 +16,10 @@ interface CartItem {
   id: string;
   productId: string;
   quantity: number;
+  variantId: string | null;
+  selectedColor: string | null;
+  selectedSize: string | null;
+  selectedImageIndex: number | null;
   createdAt: string;
 }
 
@@ -101,8 +105,11 @@ export default function Cart() {
         originalPrice,
         quantity: cartItem.quantity,
         stock: product.stock,
-        image: product.images[0] || '',
+        image: product.images[cartItem.selectedImageIndex || 0] || product.images[0] || '',
         category: product.category,
+        variantId: cartItem.variantId,
+        selectedColor: cartItem.selectedColor,
+        selectedSize: cartItem.selectedSize,
       };
     })
     .filter(Boolean);
@@ -194,6 +201,14 @@ export default function Cart() {
                           <p className="text-sm text-muted-foreground mb-2">
                             {item.category}
                           </p>
+                          
+                          {(item.selectedColor || item.selectedSize) && (
+                            <div className="text-sm text-muted-foreground mb-2">
+                              {item.selectedColor && <span>Color: {item.selectedColor}</span>}
+                              {item.selectedColor && item.selectedSize && <span> • </span>}
+                              {item.selectedSize && <span>Size: {item.selectedSize}</span>}
+                            </div>
+                          )}
                           
                           <div className="flex items-center gap-2">
                             <span 

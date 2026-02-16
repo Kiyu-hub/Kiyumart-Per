@@ -321,7 +321,9 @@ export default function AdminUserCreate() {
                               setStoreBannerUrl(url);
                             }}
                             accept="image"
-                            description="Upload a banner image for the store (recommended: 1200x400px)"
+                            description="Upload a banner image for the store (min 800×200px)"
+                            skip4KValidation
+                            minDimensions={{ width: 800, height: 200 }}
                           />
                           <FormMessage />
                         </FormItem>

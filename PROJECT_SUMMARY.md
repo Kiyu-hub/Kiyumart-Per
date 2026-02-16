@@ -1,7 +1,7 @@
-# KiyuMart v1.1.1 - Complete Project Summary
+# KiyuMart v1.1.6 - Complete Project Summary
 
-**Date:** January 23, 2026  
-**Version:** 1.1.1 (Security Hardened)  
+**Date:** February 5, 2026  
+**Version:** 1.1.6 (Automated Rider Payout Notifications)  
 **Status:** ✅ **PRODUCTION READY**
 
 ---
@@ -15,23 +15,31 @@ KiyuMart is a **production-ready, enterprise-grade local marketplace platform** 
 - Shopping cart & checkout
 - Secure payment processing (Paystack)
 - Order management with real-time tracking
-- Multi-currency support (6 currencies)
-- Multi-language support (3 languages)
- - Order management with real-time tracking
- - Single-currency operation (GHS)
- - English-only UI
+- Single-currency operation (GHS)
+- English-only UI
 
 ✅ **Multi-Vendor Marketplace**
 - Seller onboarding & management
 - Commission-based revenue model
-- Seller earnings & payouts
+- Seller earnings & payouts (v1.1.5)
 - Seller analytics dashboard
+- Full promotional ads support (v1.1.4)
 
 ✅ **Delivery Management**
 - Rider assignment
 - Real-time map tracking
 - Delivery zone configuration
-- Delivery partner earnings
+- Rider payouts with admin approval (v1.1.5)
+- Automated payout notifications (v1.1.6)
+
+✅ **Payout Management (v1.1.6)**
+- Standalone Seller Payouts page
+- Rider Payouts with pending approval workflow
+- Super admin approval required for all payouts
+- **Real-time notifications when deliveries complete**
+- **Dashboard widget for pending payout actions**
+- **Rider confirmation on payment processing**
+- Complete audit trail for payout approvals/rejections
 
 ✅ **Admin Control**
 - Comprehensive platform settings

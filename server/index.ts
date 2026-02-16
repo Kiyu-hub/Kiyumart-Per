@@ -27,18 +27,21 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
 
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
+    // Verbose logging: always log requests with errors (4xx/5xx), and
+    // also log API responses to capture useful JSON payloads for debugging.
+    if (!path.startsWith("/api") && res.statusCode < 400) return;
 
-      log(logLine);
+    let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+    if (path.startsWith("/api") && capturedJsonResponse) {
+      logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
     }
+
+    if (logLine.length > 200) {
+      logLine = logLine.slice(0, 199) + "…";
+    }
+
+    log(logLine);
   });
 
   next();
@@ -48,13 +51,19 @@ app.use((req, res, next) => {
 const allowedOrigins = [
   'http://localhost:5000',
   'http://localhost:5173',
-  process.env.FRONTEND_URL,  // Netlify URL
+  'http://127.0.0.1:5000',
+  'http://127.0.0.1:5173',
+  process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
+
+    // In development, be permissive so Vite client and headless browsers can load dev assets
+    if (process.env.NODE_ENV !== 'production') return callback(null, true);
+
     if (allowedOrigins.some(allowed => origin.startsWith(allowed.replace(/\/$/, '')))) {
       return callback(null, true);
     }
@@ -243,6 +252,58 @@ app.use(cookieParser());
     console.warn('[BOOT] Could not seed super_admin role features:', (e as any)?.message ?? String(e));
   }
 
+  // Auto-populate default footer items into DB so they're editable from admin
+  try {
+    const { storage } = await import('./storage');
+    const existing = await storage.getAllFooterPages();
+    const existingGroups = new Set(existing.map((p: any) => p.group || 'general'));
+    const keyGroups = ['trust_bar', 'quick_links', 'customer_service', 'legal'];
+    const missingGroups = keyGroups.filter(g => !existingGroups.has(g));
+
+    if (missingGroups.length > 0) {
+      const allDefaults = [
+        // Trust Bar
+        { title: 'Fast Delivery', slug: 'fast-delivery', content: 'Nationwide shipping', url: '', group: 'trust_bar', storeMode: 'both', displayOrder: 0, isActive: true, openInNewTab: false },
+        { title: 'Secure Shopping', slug: 'secure-shopping', content: '100% protected payments', url: '', group: 'trust_bar', storeMode: 'both', displayOrder: 1, isActive: true, openInNewTab: false },
+        { title: 'Easy Payments', slug: 'easy-payments', content: 'Mobile money & cards', url: '', group: 'trust_bar', storeMode: 'both', displayOrder: 2, isActive: true, openInNewTab: false },
+        { title: '24/7 Support', slug: '247-support', content: 'Always here to help', url: '', group: 'trust_bar', storeMode: 'both', displayOrder: 3, isActive: true, openInNewTab: false },
+        // Quick Links (both modes)
+        { title: 'Home', slug: 'home-link', content: '', url: '/', group: 'quick_links', storeMode: 'both', displayOrder: 0, isActive: true, openInNewTab: false },
+        { title: 'All Products', slug: 'all-products', content: '', url: '/products', group: 'quick_links', storeMode: 'both', displayOrder: 1, isActive: true, openInNewTab: false },
+        // Quick Links (multi-vendor only)
+        { title: 'Browse Stores', slug: 'browse-stores', content: '', url: '/stores', group: 'quick_links', storeMode: 'multivendor', displayOrder: 2, isActive: true, openInNewTab: false },
+        { title: 'Become a Seller', slug: 'become-seller', content: '', url: '/become-seller', group: 'quick_links', storeMode: 'multivendor', displayOrder: 3, isActive: true, openInNewTab: false },
+        { title: 'Become a Rider', slug: 'become-rider', content: '', url: '/become-rider', group: 'quick_links', storeMode: 'multivendor', displayOrder: 4, isActive: true, openInNewTab: false },
+        // Customer Service
+        { title: 'Customer Support', slug: 'customer-support', content: '', url: '/support', group: 'customer_service', storeMode: 'both', displayOrder: 0, isActive: true, openInNewTab: false },
+        { title: 'Track My Order', slug: 'track-order', content: '', url: '/orders', group: 'customer_service', storeMode: 'both', displayOrder: 1, isActive: true, openInNewTab: false },
+        { title: 'My Wishlist', slug: 'my-wishlist', content: '', url: '/wishlist', group: 'customer_service', storeMode: 'both', displayOrder: 2, isActive: true, openInNewTab: false },
+        { title: 'My Account', slug: 'my-account', content: '', url: '/profile', group: 'customer_service', storeMode: 'both', displayOrder: 3, isActive: true, openInNewTab: false },
+        // Legal
+        { title: 'Privacy Policy', slug: 'privacy-policy', content: '<h1>Privacy Policy</h1><p>Your privacy is important to us.</p>', url: '', group: 'legal', storeMode: 'both', displayOrder: 0, isActive: true, openInNewTab: false },
+        { title: 'Terms of Service', slug: 'terms-of-service', content: '<h1>Terms of Service</h1><p>By using this platform, you agree to our terms.</p>', url: '', group: 'legal', storeMode: 'both', displayOrder: 1, isActive: true, openInNewTab: false },
+        { title: 'Return Policy', slug: 'return-policy', content: '<h1>Return Policy</h1><p>We accept returns within 7 days of delivery.</p>', url: '', group: 'legal', storeMode: 'both', displayOrder: 2, isActive: true, openInNewTab: false },
+      ];
+
+      const existingSlugs = new Set(existing.map((p: any) => p.slug));
+      const toInsert = allDefaults.filter(d => missingGroups.includes(d.group!) && !existingSlugs.has(d.slug));
+      let created = 0;
+      for (const item of toInsert) {
+        try {
+          await storage.createFooterPage(item);
+          created++;
+        } catch (e: any) {
+          // Skip duplicates
+        }
+      }
+      console.log(`[BOOT] Populated ${created} default footer items for sections: ${missingGroups.join(', ')}`);
+    } else {
+      console.log('[BOOT] All footer sections already populated');
+    }
+  } catch (e) {
+    console.warn('[BOOT] Could not populate footer defaults:', (e as any)?.message ?? String(e));
+  }
+
   // Global Error Handler - Must be after all routes
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -296,7 +357,6 @@ app.use(cookieParser());
   const port = parseInt(process.env.PORT || '5000', 10);
   server.listen({
     port,
-    host: "0.0.0.0",
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
@@ -310,5 +370,14 @@ app.use(cookieParser());
     console.log('[BOOT] Payout worker started');
   } catch (e) {
     console.warn('[BOOT] Could not start payout worker:', (e as any)?.message ?? String(e));
+  }
+
+  // Start promotional ads worker (optional)
+  try {
+    const { runPromotionalWorker } = await import('./workers/promotionalWorker');
+    runPromotionalWorker();
+    console.log('[BOOT] Promotional ads worker started');
+  } catch (e) {
+    console.warn('[BOOT] Could not start promotional worker:', (e as any)?.message ?? String(e));
   }
 })();
