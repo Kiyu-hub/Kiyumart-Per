@@ -137,6 +137,7 @@ export const platformSettings = pgTable("platform_settings", {
   darkCardColor: text("dark_card_color").default("#2a2a2a"),
   onboardingImages: text("onboarding_images").array(),
   defaultCurrency: text("default_currency").default("GHS"),
+  frontendUrl: text("frontend_url"), // Paystack callback URL for payment redirects (e.g., https://mystore.com)
   paystackPublicKey: text("paystack_public_key"),
   paystackSecretKey: text("paystack_secret_key"),
   processingFeePercent: decimal("processing_fee_percent", { precision: 4, scale: 2 }).default("1.95"),

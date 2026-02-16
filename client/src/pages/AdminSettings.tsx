@@ -57,6 +57,7 @@ const settingsSchema = z.object({
   primaryStoreId: z.string().optional().nullable(),
   primaryColor: z.string().regex(/^#([A-Fa-f0-9]{6})$/, "Must be a valid hex color"),
   defaultCurrency: z.string(),
+  frontendUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")).default(""),
   paystackPublicKey: z.string().optional(),
   paystackSecretKey: z.string().optional(),
   processingFeePercent: z.string().min(0),
@@ -468,6 +469,7 @@ export default function AdminSettings() {
       primaryStoreId: (settings as any).primaryStoreId || null,
       primaryColor: settings.primaryColor,
       defaultCurrency: settings.defaultCurrency,
+      frontendUrl: (settings as any).frontendUrl || "",
       paystackPublicKey: settings.paystackPublicKey || "",
       paystackSecretKey: settings.paystackSecretKey || "",
       processingFeePercent: settings.processingFeePercent,
@@ -563,6 +565,7 @@ export default function AdminSettings() {
         primaryStoreId: data.primaryStoreId || null,
         primaryColor: data.primaryColor,
         defaultCurrency: data.defaultCurrency,
+        frontendUrl: data.frontendUrl || "",
         paystackPublicKey: data.paystackPublicKey || "",
         paystackSecretKey: data.paystackSecretKey || "",
         processingFeePercent: data.processingFeePercent,
@@ -1194,6 +1197,25 @@ export default function AdminSettings() {
                     <p className="text-xs text-muted-foreground">
                       Percentage fee charged per transaction
                     </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="frontendUrl">Payment Callback URL</Label>
+                    <Input
+                      id="frontendUrl"
+                      type="url"
+                      {...form.register("frontendUrl")}
+                      placeholder="https://yourstore.com"
+                      data-testid="input-frontend-url"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Your store's frontend URL used for Paystack payment redirects (e.g., https://mystore.com). Leave empty to use environment variable FRONTEND_URL.
+                    </p>
+                    {form.formState.errors.frontendUrl && (
+                      <p className="text-sm text-destructive">
+                        {form.formState.errors.frontendUrl.message}
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">

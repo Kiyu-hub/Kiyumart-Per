@@ -1360,6 +1360,7 @@ export class DbStorage implements IStorage {
           allowRiderRegistration: true,
           primaryStoreId: null,
           defaultCommissionRate: '1',
+          frontendUrl: null,
           updatedAt: new Date(),
         };
         return defaults;
