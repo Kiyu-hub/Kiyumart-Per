@@ -5754,8 +5754,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Initialize payment with Paystack with timeout
-      const callbackUrl = `${req.protocol}://${req.get('host')}/payment/verify`;
-      
+      // Prefer FRONTEND_URL (deployed front-end) for Paystack redirect so users return to the client
+      // Fallback to request host for local/dev runs.
+      const frontendHost = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+      const callbackBase = frontendHost || `${req.protocol}://${req.get('host')}`;
+      const callbackUrl = `${callbackBase}/payment/verify`;
+      console.debug('[PAYMENTS] Using callback URL for Paystack initialize:', callbackUrl);
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
