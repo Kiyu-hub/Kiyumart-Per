@@ -2171,9 +2171,9 @@ export default function AdminSettings() {
                         size="sm" 
                         variant="outline"
                         onClick={() => frontendUrlQuery.refetch()}
-                        disabled={frontendUrlQuery.isLoading}
+                        disabled={frontendUrlQuery.isLoading || frontendUrlQuery.isPending}
                       >
-                        {frontendUrlQuery.isLoading ? (
+                        {frontendUrlQuery.isLoading || frontendUrlQuery.isPending ? (
                           <>
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                             Checking...
@@ -2187,7 +2187,16 @@ export default function AdminSettings() {
                       </Button>
                     </div>
 
-                    {frontendUrlQuery.data && (
+                    {/* Loading state */}
+                    {(frontendUrlQuery.isLoading || frontendUrlQuery.isPending) && (
+                      <div className="p-4 rounded-lg bg-muted/50 border flex items-center gap-3">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">Checking Frontend URL status...</p>
+                      </div>
+                    )}
+
+                    {/* Success state */}
+                    {frontendUrlQuery.data && !frontendUrlQuery.isLoading && (
                       <div className="space-y-3 p-4 rounded-lg bg-muted/50 border">
                         <div>
                           <p className="text-xs font-medium text-muted-foreground uppercase">Configured URL</p>
@@ -2197,7 +2206,7 @@ export default function AdminSettings() {
                         <div>
                           <p className="text-xs font-medium text-muted-foreground uppercase">Resolved URL</p>
                           <div className="flex items-center gap-2 mt-1">
-                            <p className="text-sm font-mono break-all flex-1">{frontendUrlQuery.data.resolvedUrl}</p>
+                            <p className="text-sm font-mono break-all flex-1">{frontendUrlQuery.data.resolvedUrl || 'Unknown'}</p>
                             <Badge variant={frontendUrlQuery.data.isHealthy ? "default" : "secondary"}>
                               {frontendUrlQuery.data.isFallingBack ? "⚠️ Fallback" : "✓ Primary"}
                             </Badge>
@@ -2213,15 +2222,16 @@ export default function AdminSettings() {
                         )}
 
                         <div className="text-xs text-muted-foreground">
-                          <p>💾 {frontendUrlQuery.data.cacheInfo.message} • TTL: {frontendUrlQuery.data.cacheInfo.ttl}</p>
+                          <p>💾 {frontendUrlQuery.data.cacheInfo?.message || 'Status cached'} • TTL: {frontendUrlQuery.data.cacheInfo?.ttl || '60 seconds'}</p>
                         </div>
                       </div>
                     )}
 
-                    {frontendUrlQuery.isError && (
+                    {/* Error state */}
+                    {frontendUrlQuery.isError && !frontendUrlQuery.isLoading && (
                       <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
                         <p className="text-sm text-red-600 dark:text-red-400">
-                          Failed to fetch diagnostics. Please try again.
+                          Failed to fetch diagnostics. The endpoint may be temporarily unavailable.
                         </p>
                       </div>
                     )}
