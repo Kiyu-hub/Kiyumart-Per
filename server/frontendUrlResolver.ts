@@ -39,8 +39,9 @@ export async function getValidFrontendUrl(): Promise<string> {
   const now = Date.now();
 
   // Return cached result if still valid
-  if (URL_CACHE.url && now - URL_CACHE.timestamp < URL_CACHE.cacheDuration) {
-    return URL_CACHE.url;
+  const cachedUrl = URL_CACHE.url;
+  if (cachedUrl && now - URL_CACHE.timestamp < URL_CACHE.cacheDuration) {
+    return cachedUrl;
   }
 
   // 1) Try DB-configured value (platform settings)
