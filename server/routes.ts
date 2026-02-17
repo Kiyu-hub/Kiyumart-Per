@@ -5412,8 +5412,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Frontend URL Status (Admin) ============
   app.get("/api/admin/frontend-url-status", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
     try {
-      const { getValidFrontendUrl, getFrontendUrlSync, clearFrontendUrlCache } = await import('./frontendUrlResolver');
-      
       // Get synchronously first (uses cache)
       const syncUrl = getFrontendUrlSync();
       
@@ -5438,7 +5436,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error('[FRONTEND_URL_STATUS] Error:', error?.message || String(error));
+      res.status(500).json({ error: error?.message || "Failed to check frontend URL status" });
     }
   });
 
