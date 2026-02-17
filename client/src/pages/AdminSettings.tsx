@@ -49,6 +49,8 @@ import {
 
 // Type definitions
 interface FrontendUrlStatus {
+  dbConfiguredUrl?: string | null;
+  envConfiguredUrl?: string | null;
   configuredUrl: string;
   resolvedUrl: string;
   isHealthy: boolean;
