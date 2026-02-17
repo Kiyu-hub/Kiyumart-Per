@@ -98,14 +98,14 @@ export function getFrontendUrlSync(requestHost?: string): string {
     return URL_CACHE.url;
   }
 
-  // Try to use environment URL
+  // Fall back to environment variable if present
   if (ENV_FRONTEND_URL) {
     return ENV_FRONTEND_URL.replace(/\/$/, '');
   }
 
   // Use request host if provided
   if (requestHost) {
-    return `http://${requestHost}`;
+    return `${requestHost}`.replace(/\/$/, '');
   }
 
   // Final fallback
