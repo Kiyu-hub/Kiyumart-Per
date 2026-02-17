@@ -95,8 +95,9 @@ export async function getValidFrontendUrl(): Promise<string> {
  */
 export function getFrontendUrlSync(requestHost?: string): string {
   // If cache is still valid, use it
-  if (URL_CACHE.url && Date.now() - URL_CACHE.timestamp < URL_CACHE.cacheDuration) {
-    return URL_CACHE.url;
+  const cachedUrl = URL_CACHE.url;
+  if (cachedUrl && Date.now() - URL_CACHE.timestamp < URL_CACHE.cacheDuration) {
+    return cachedUrl;
   }
 
   // Fall back to environment variable if present
