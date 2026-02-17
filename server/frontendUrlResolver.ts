@@ -9,6 +9,7 @@ const DEFAULT_LOCAL_URL = 'http://localhost:5173';
 const ENV_FRONTEND_URL = process.env.FRONTEND_URL || '';
 const URL_CACHE = {
   url: null as string | null,
+  source: null as 'env' | 'db' | 'cache' | null,
   timestamp: 0,
   cacheDuration: 60000, // 1 minute cache
 };
