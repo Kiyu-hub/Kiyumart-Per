@@ -2201,8 +2201,12 @@ export default function AdminSettings() {
                     {frontendUrlQuery.data && !frontendUrlQuery.isLoading && (
                       <div className="space-y-3 p-4 rounded-lg bg-muted/50 border">
                         <div>
-                          <p className="text-xs font-medium text-muted-foreground uppercase">Configured URL</p>
+                          <p className="text-xs font-medium text-muted-foreground uppercase">Configured URL (DB / ENV)</p>
                           <p className="text-sm font-mono break-all">{frontendUrlQuery.data.configuredUrl || '(not set)'}</p>
+                          <div className="text-xs text-muted-foreground mt-2">
+                            <p>DB: <span className="font-mono">{frontendUrlQuery.data.dbConfiguredUrl || '(not set)'}</span></p>
+                            <p>ENV: <span className="font-mono">{frontendUrlQuery.data.envConfiguredUrl || '(not set)'}</span></p>
+                          </div>
                         </div>
 
                         <div>
