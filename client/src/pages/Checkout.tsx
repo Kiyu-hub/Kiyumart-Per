@@ -17,6 +17,7 @@ export default function Checkout() {
   const [deliveryMethod, setDeliveryMethod] = useState<"pickup" | "bus" | "rider">("pickup");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [deliveryZone, setDeliveryZone] = useState("");
+  const [deliveryPhone, setDeliveryPhone] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
   const mockCartItems = [
@@ -33,6 +34,15 @@ export default function Checkout() {
       toast({
         title: "Missing Information",
         description: "Please provide a delivery address",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (deliveryMethod !== "pickup" && !deliveryPhone) {
+      toast({
+        title: "Missing Information",
+        description: "Please provide a contact phone number",
         variant: "destructive",
       });
       return;
@@ -150,6 +160,17 @@ export default function Checkout() {
                       value={deliveryZone}
                       onChange={(e) => setDeliveryZone(e.target.value)}
                       data-testid="input-zone"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Contact Phone Number</Label>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="Enter your contact phone number"
+                      value={deliveryPhone}
+                      onChange={(e) => setDeliveryPhone(e.target.value)}
+                      data-testid="input-delivery-phone"
                     />
                   </div>
                 </CardContent>

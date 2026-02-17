@@ -6,13 +6,13 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import UserAvatar from "@/components/UserAvatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { User, MapPin, CreditCard, Package, LogOut, Settings, Camera, Loader2, Truck, Store } from "lucide-react";
 import MediaUploadInput from "@/components/MediaUploadInput";
 import { useLocation } from "wouter";
@@ -213,10 +213,13 @@ export default function Profile() {
           <div className="mb-8">
             <div className="flex items-center gap-6 mb-6">
               <div className="relative">
-                <Avatar className="h-24 w-24">
-                  <AvatarImage src={profile?.profileImage || user?.profileImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || user?.email}`} />
-                  <AvatarFallback>{getInitials(user?.name || profile?.name)}</AvatarFallback>
-                </Avatar>
+                <UserAvatar 
+                  profileImage={profile?.profileImage || user?.profileImage}
+                  name={user?.name || profile?.name}
+                  email={user?.email}
+                  size="lg"
+                  className="h-24 w-24"
+                />
                 <Button
                   size="icon"
                   variant="secondary"

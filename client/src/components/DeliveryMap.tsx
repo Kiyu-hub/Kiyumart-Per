@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-
 import { Icon, LatLngExpression, DivIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import UserAvatar from "@/components/UserAvatar";
 import { Loader2, MapPin, Navigation, Star, Car, Clock } from "lucide-react";
 
 // Fix Leaflet icon issue
@@ -232,12 +232,12 @@ export default function DeliveryMap({
         {riderPos && riderInfo && (
           <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-900 rounded-t-3xl p-6 shadow-2xl z-[1000]" data-testid="rider-profile">
             <div className="flex items-center gap-4">
-              <Avatar className="h-14 w-14 border-2 border-primary">
-                <AvatarImage src={riderInfo.profileImage} alt={riderInfo.name} />
-                <AvatarFallback className="bg-primary text-primary-foreground">
-                  {riderInfo.name?.charAt(0) || 'R'}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar 
+                profileImage={riderInfo.profileImage}
+                name={riderInfo.name || 'Rider'}
+                size="lg"
+                className="h-14 w-14 border-2 border-primary"
+              />
               
               <div className="flex-1">
                 <div className="flex items-center gap-2">
@@ -407,12 +407,12 @@ export default function DeliveryMap({
         {riderInfo && riderPos && (
           <div className="mt-4 p-4 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border border-primary/20">
             <div className="flex items-center gap-3">
-              <Avatar className="h-12 w-12 border-2 border-primary">
-                <AvatarImage src={riderInfo.profileImage} alt={riderInfo.name} />
-                <AvatarFallback className="bg-primary text-primary-foreground">
-                  {riderInfo.name?.charAt(0) || 'R'}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar 
+                profileImage={riderInfo.profileImage}
+                name={riderInfo.name || 'Rider'}
+                size="md"
+                className="h-12 w-12 border-2 border-primary"
+              />
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <h4 className="font-semibold">{riderInfo.name || 'Your Rider'}</h4>

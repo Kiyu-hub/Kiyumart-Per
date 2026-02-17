@@ -5,6 +5,7 @@ import { useLocation } from "wouter";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import UserAvatar from "@/components/UserAvatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -181,8 +182,18 @@ export default function Header({
               size="icon"
               onClick={() => isAuthenticated ? navigate("/profile") : navigate("/auth")}
               data-testid="button-account"
+              title={user?.name || "Account"}
             >
-              <User className={`h-5 w-5 ${isActive("/profile") ? "text-primary" : ""}`} />
+              {isAuthenticated && user ? (
+                <UserAvatar 
+                  profileImage={user.profileImage}
+                  name={user.name}
+                  email={user.email}
+                  size="sm"
+                />
+              ) : (
+                <User className={`h-5 w-5 ${isActive("/profile") ? "text-primary" : ""}`} />
+              )}
             </Button>
 
             <CartPopover isAuthenticated={isAuthenticated} />
