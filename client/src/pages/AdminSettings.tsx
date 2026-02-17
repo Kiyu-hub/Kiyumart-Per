@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid,
+import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid, Activity,
   Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive
 } from "lucide-react";
 import { insertFooterPageSchema, type FooterPage } from "@shared/schema";
@@ -46,6 +46,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+// Type definitions
+interface FrontendUrlStatus {
+  configuredUrl: string;
+  resolvedUrl: string;
+  isHealthy: boolean;
+  isFallingBack: boolean;
+  fallbackUrl: string;
+  cacheInfo: {
+    message: string;
+    ttl: string;
+  };
+}
 
 const settingsSchema = z.object({
   platformName: z.string().min(1, "Platform name is required"),
@@ -362,6 +375,18 @@ export default function AdminSettings() {
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
+  // Frontend URL Status Query
+  const frontendUrlQuery = useQuery<FrontendUrlStatus>({
+    queryKey: ["/api/admin/frontend-url-status"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/admin/frontend-url-status");
+      return response as unknown as FrontendUrlStatus;
+    },
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchInterval: 60000, // Refetch every 60 seconds
+    staleTime: 30000, // Consider data stale after 30 seconds
+  });
+
   // Filter banners by store mode
   const singleStoreBanners = heroBanners.filter(b => b.storeMode === "single" || b.storeMode === "both");
   const multiVendorBanners = heroBanners.filter(b => b.storeMode === "multivendor" || b.storeMode === "both");
@@ -635,6 +660,7 @@ export default function AdminSettings() {
         primaryStoreId: (settings as any).primaryStoreId || null,
         primaryColor: settings.primaryColor,
         defaultCurrency: settings.defaultCurrency,
+        frontendUrl: (settings as any).frontendUrl || "",
         paystackPublicKey: settings.paystackPublicKey || "",
         paystackSecretKey: settings.paystackSecretKey || "",
         processingFeePercent: settings.processingFeePercent,
@@ -747,6 +773,10 @@ export default function AdminSettings() {
               <TabsTrigger value="footer" data-testid="tab-footer">
                 <Layers className="h-4 w-4 mr-2" />
                 Footer
+              </TabsTrigger>
+              <TabsTrigger value="diagnostics" data-testid="tab-diagnostics">
+                <Activity className="h-4 w-4 mr-2" />
+                Diagnostics
               </TabsTrigger>
             </TabsList>
 
@@ -2119,6 +2149,92 @@ export default function AdminSettings() {
                       {footerPages.length === 0 ? "No footer items yet. Click \"Add Footer Item\" to create one." : "No items match the current filters."}
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Diagnostics Tab */}
+            <TabsContent value="diagnostics" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>System Diagnostics</CardTitle>
+                  <CardDescription>Monitor system health and configuration status</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Frontend URL Status */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold">Frontend URL Health</h3>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => frontendUrlQuery.refetch()}
+                        disabled={frontendUrlQuery.isLoading}
+                      >
+                        {frontendUrlQuery.isLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Checking...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCcw className="h-4 w-4 mr-2" />
+                            Refresh
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    {frontendUrlQuery.data && (
+                      <div className="space-y-3 p-4 rounded-lg bg-muted/50 border">
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground uppercase">Configured URL</p>
+                          <p className="text-sm font-mono break-all">{frontendUrlQuery.data.configuredUrl || '(not set)'}</p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground uppercase">Resolved URL</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-sm font-mono break-all flex-1">{frontendUrlQuery.data.resolvedUrl}</p>
+                            <Badge variant={frontendUrlQuery.data.isHealthy ? "default" : "secondary"}>
+                              {frontendUrlQuery.data.isFallingBack ? "⚠️ Fallback" : "✓ Primary"}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        {frontendUrlQuery.data.isFallingBack && (
+                          <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                            <p className="text-xs text-yellow-700 dark:text-yellow-400">
+                              <strong>Fallback Active:</strong> The configured Netlify URL appears to be unreachable. Payment redirects are using localhost instead. Check your deployment status.
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="text-xs text-muted-foreground">
+                          <p>💾 {frontendUrlQuery.data.cacheInfo.message} • TTL: {frontendUrlQuery.data.cacheInfo.ttl}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {frontendUrlQuery.isError && (
+                      <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
+                        <p className="text-sm text-red-600 dark:text-red-400">
+                          Failed to fetch diagnostics. Please try again.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Info Section */}
+                  <div className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/20 space-y-2">
+                    <p className="text-sm font-medium text-blue-700 dark:text-blue-400">ℹ️ How it works</p>
+                    <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                      <li>Server checks your configured FRONTEND_URL every 60 seconds</li>
+                      <li>If unreachable, payment redirects fall back to localhost</li>
+                      <li>This ensures uninterrupted payment processing during outages</li>
+                      <li>Use the Refresh button to force an immediate health check</li>
+                    </ul>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

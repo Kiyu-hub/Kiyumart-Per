@@ -5408,6 +5408,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============ Frontend URL Status (Admin) ============
+  app.get("/api/admin/frontend-url-status", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+    try {
+      const { getValidFrontendUrl, getFrontendUrlSync, clearFrontendUrlCache } = await import('./frontendUrlResolver');
+      
+      // Get synchronously first (uses cache)
+      const syncUrl = getFrontendUrlSync();
+      
+      // Get async to perform fresh check if requested
+      const forceRefresh = req.query.refresh === 'true';
+      if (forceRefresh) {
+        clearFrontendUrlCache();
+      }
+      
+      const validUrl = await getValidFrontendUrl();
+      const envUrl = process.env.FRONTEND_URL || '';
+      
+      res.json({
+        configuredUrl: envUrl,
+        resolvedUrl: validUrl,
+        isHealthy: validUrl === (envUrl.replace(/\/$/, '') || 'http://localhost:5173'),
+        isFallingBack: validUrl === 'http://localhost:5173' && envUrl !== '',
+        fallbackUrl: 'http://localhost:5173',
+        cacheInfo: {
+          message: forceRefresh ? 'Cache cleared, fresh check performed' : 'Using cached result',
+          ttl: '60 seconds'
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Admin: Promotional ads CRUD (basic scaffolding)
   app.post('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
     try {
