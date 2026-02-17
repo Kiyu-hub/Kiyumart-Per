@@ -385,6 +385,8 @@ export default function AdminSettings() {
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
     refetchInterval: 60000, // Refetch every 60 seconds
     staleTime: 30000, // Consider data stale after 30 seconds
+    retry: 1, // Retry once on failure
+    throwOnError: false, // Don't throw errors, handle them gracefully
   });
 
   // Filter banners by store mode
