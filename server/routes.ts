@@ -5423,12 +5423,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const validUrl = await getValidFrontendUrl();
       const envUrl = process.env.FRONTEND_URL || '';
-      
+      // Prefer DB-configured value for display when present
+      let dbUrl = '';
+      try {
+        const currentSettings = await storage.getPlatformSettings();
+        dbUrl = (currentSettings as any).frontendUrl || '';
+      } catch (err) {
+        // ignore
+      }
+
+      const configuredUrl = dbUrl || envUrl;
+      const isHealthy = validUrl === (configuredUrl.replace(/\/$/, '') || 'http://localhost:5173');
+
       res.json({
-        configuredUrl: envUrl,
+        dbConfiguredUrl: dbUrl || null,
+        envConfiguredUrl: envUrl || null,
+        configuredUrl,
         resolvedUrl: validUrl,
-        isHealthy: validUrl === (envUrl.replace(/\/$/, '') || 'http://localhost:5173'),
-        isFallingBack: validUrl === 'http://localhost:5173' && envUrl !== '',
+        isHealthy,
+        isFallingBack: validUrl === 'http://localhost:5173' && Boolean(configuredUrl),
         fallbackUrl: 'http://localhost:5173',
         cacheInfo: {
           message: forceRefresh ? 'Cache cleared, fresh check performed' : 'Using cached result',
