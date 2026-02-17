@@ -75,7 +75,7 @@ export async function getValidFrontendUrl(): Promise<string> {
       URL_CACHE.source = 'env';
       URL_CACHE.timestamp = now;
       console.log(`[FRONTEND_URL] Using environment URL: ${URL_CACHE.url}`);
-      return URL_CACHE.url;
+      return normalized;
     }
     console.warn(`[FRONTEND_URL] Environment URL (${ENV_FRONTEND_URL}) is not accessible, falling back to localhost`);
   }
