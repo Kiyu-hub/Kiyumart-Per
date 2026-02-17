@@ -21,6 +21,7 @@ import sharp from "sharp";
 import { insertUserSchema, insertProductSchema, insertDeliveryZoneSchema, insertOrderSchema, insertWishlistSchema, insertReviewSchema, insertRiderReviewSchema, insertBannerCollectionSchema, insertMarketplaceBannerSchema, insertFooterPageSchema, vehicleInfoSchema, type User } from "@shared/schema";
 import { getStoreTypeSchema, type StoreType, STORE_TYPES } from "@shared/storeTypes";
 import buildPaystackInitializePayload from './paystackUtils';
+import { getValidFrontendUrl, getFrontendUrlSync, clearFrontendUrlCache } from './frontendUrlResolver';
 // WhatsApp-style messaging services
 import { presenceService } from "./services/presenceService";
 import { messageDeliveryService } from "./services/messageDeliveryService";
