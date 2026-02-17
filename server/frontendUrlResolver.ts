@@ -57,7 +57,7 @@ export async function getValidFrontendUrl(): Promise<string> {
         URL_CACHE.source = 'db';
         URL_CACHE.timestamp = now;
         console.log(`[FRONTEND_URL] Using DB-configured URL: ${URL_CACHE.url}`);
-        return URL_CACHE.url;
+        return normalized;
       }
       console.warn(`[FRONTEND_URL] DB-configured URL (${dbUrl}) is not accessible, falling back to other sources`);
     }
