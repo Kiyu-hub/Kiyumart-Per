@@ -43,11 +43,35 @@ export async function getValidFrontendUrl(): Promise<string> {
     return URL_CACHE.url;
   }
 
-  // Try environment FRONTEND_URL first
+  // 1) Try DB-configured value (platform settings)
+  try {
+    const { storage } = await import('./storage');
+    const settings = await storage.getPlatformSettings();
+    const dbUrl = (settings as any).frontendUrl || '';
+    if (dbUrl) {
+      const normalized = dbUrl.replace(/\/$/, '');
+      const ok = await checkUrlAccessibility(normalized);
+      if (ok) {
+        URL_CACHE.url = normalized;
+        URL_CACHE.source = 'db';
+        URL_CACHE.timestamp = now;
+        console.log(`[FRONTEND_URL] Using DB-configured URL: ${URL_CACHE.url}`);
+        return URL_CACHE.url;
+      }
+      console.warn(`[FRONTEND_URL] DB-configured URL (${dbUrl}) is not accessible, falling back to other sources`);
+    }
+  } catch (err) {
+    // If storage is unavailable, continue to env fallback
+    console.warn('[FRONTEND_URL] Could not read DB-configured frontendUrl:', (err as any)?.message || String(err));
+  }
+
+  // 2) Try environment FRONTEND_URL
   if (ENV_FRONTEND_URL) {
-    const isAccessible = await checkUrlAccessibility(ENV_FRONTEND_URL.replace(/\/$/, ''));
+    const normalized = ENV_FRONTEND_URL.replace(/\/$/, '');
+    const isAccessible = await checkUrlAccessibility(normalized);
     if (isAccessible) {
-      URL_CACHE.url = ENV_FRONTEND_URL.replace(/\/$/, '');
+      URL_CACHE.url = normalized;
+      URL_CACHE.source = 'env';
       URL_CACHE.timestamp = now;
       console.log(`[FRONTEND_URL] Using environment URL: ${URL_CACHE.url}`);
       return URL_CACHE.url;
@@ -55,8 +79,9 @@ export async function getValidFrontendUrl(): Promise<string> {
     console.warn(`[FRONTEND_URL] Environment URL (${ENV_FRONTEND_URL}) is not accessible, falling back to localhost`);
   }
 
-  // Fallback to localhost
+  // 3) Fallback to localhost
   URL_CACHE.url = DEFAULT_LOCAL_URL;
+  URL_CACHE.source = 'cache';
   URL_CACHE.timestamp = now;
   console.log(`[FRONTEND_URL] Using localhost fallback: ${DEFAULT_LOCAL_URL}`);
   return DEFAULT_LOCAL_URL;
