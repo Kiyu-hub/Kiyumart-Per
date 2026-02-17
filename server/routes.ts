@@ -5802,8 +5802,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Initialize payment with Paystack with timeout
       // Prefer FRONTEND_URL (deployed front-end) for Paystack redirect so users return to the client
       // Fallback to request host for local/dev runs.
+      // Prefer DB-configured frontendUrl (if set) then resolver
+      const settingsForCallback = await storage.getPlatformSettings();
+      const dbFrontend = (settingsForCallback as any).frontendUrl || '';
       const { getFrontendUrlSync } = await import('./frontendUrlResolver');
-      const frontendHost = getFrontendUrlSync(`${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      const resolverHost = getFrontendUrlSync(`${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      const frontendHost = (dbFrontend || resolverHost).replace(/\/$/, '');
       const callbackBase = frontendHost || `${req.protocol}://${req.get('host')}`;
       const callbackUrl = `${callbackBase}/payment/verify`;
       console.debug('[PAYMENTS] Using callback URL for Paystack initialize:', callbackUrl);
