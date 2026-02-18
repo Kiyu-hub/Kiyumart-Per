@@ -85,6 +85,7 @@ export default function AdminNotifications() {
       case "order": return <ShoppingCart className="h-4 w-4" />;
       case "user": return <User className="h-4 w-4" />;
       case "product": return <Package className="h-4 w-4" />;
+      case "review": return <MessageSquare className="h-4 w-4" />;
       case "message": return <MessageSquare className="h-4 w-4" />;
       case "system": return <AlertCircle className="h-4 w-4" />;
       case "payout": return <Tag className="h-4 w-4" />;
@@ -120,6 +121,13 @@ export default function AdminNotifications() {
         break;
       case "product":
         navigate("/admin/products");
+        break;
+      case "review":
+        if (metadata?.productId) {
+          navigate(`/product/${metadata.productId}`);
+        } else {
+          navigate("/admin/products");
+        }
         break;
       case "message":
         navigate("/admin/messages");

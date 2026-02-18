@@ -1,4 +1,4 @@
-import { Search, Menu, User, LayoutDashboard, ShoppingBag, Store as StoreIcon, Truck } from "lucide-react";
+import { Search, Menu, User, LayoutDashboard, ShoppingBag, Store as StoreIcon, Truck, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
@@ -141,6 +141,18 @@ export default function Header({
 
             {isAuthenticated && (
               <NotificationPopover />
+            )}
+
+            {isAuthenticated && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate("/wishlist")}
+                data-testid="button-wishlist"
+                title="Wishlist"
+              >
+                <Heart className="h-5 w-5" />
+              </Button>
             )}
 
             {hasDashboard && (

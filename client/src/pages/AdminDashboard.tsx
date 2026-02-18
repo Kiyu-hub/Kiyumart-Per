@@ -275,50 +275,52 @@ export default function AdminDashboard() {
                     <Loader2 className="h-4 w-4 animate-spin" />
                   </div>
                 ) : recentOrders.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b bg-muted/50">
-                          <th className="text-left py-3 px-3 font-semibold">Order #</th>
-                          <th className="text-left py-3 px-3 font-semibold">Date</th>
-                          <th className="text-left py-3 px-3 font-semibold">Amount</th>
-                          <th className="text-left py-3 px-3 font-semibold">Status</th>
-                          <th className="text-left py-3 px-3 font-semibold">Payment</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {recentOrders.map((order) => (
-                          <tr key={order.id} className="border-b hover:bg-muted/30 transition-colors">
-                            <td className="py-3 px-3 font-medium">#{order.orderNumber || order.id.slice(0, 8)}</td>
-                            <td className="py-3 px-3 text-muted-foreground">
-                              {new Date(order.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                            </td>
-                            <td className="py-3 px-3 font-semibold text-green-600">
-                              {order.total ? formatPrice(parseFloat(order.total)) : 'N/A'}
-                            </td>
-                            <td className="py-3 px-3">
-                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                order.status === 'delivered' ? 'bg-green-100 text-green-800' :
-                                order.status === 'processing' ? 'bg-blue-100 text-blue-800' :
-                                order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                                'bg-yellow-100 text-yellow-800'
-                              }`}>
-                                {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3">
-                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                order.paymentStatus === 'completed' ? 'bg-green-100 text-green-800' :
-                                order.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                                'bg-red-100 text-red-800'
-                              }`}>
-                                {order.paymentStatus ? order.paymentStatus.charAt(0).toUpperCase() + order.paymentStatus.slice(1) : 'N/A'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {recentOrders.map((order) => (
+                      <Card key={order.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate(`/admin/orders?orderId=${order.id}`)}>
+                        <CardContent className="pt-6">
+                          <div className="space-y-3">
+                            <div>
+                              <p className="text-xs text-muted-foreground uppercase font-semibold">Order Number</p>
+                              <p className="font-bold text-lg">#{order.orderNumber || order.id.slice(0, 8)}</p>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="text-xs text-muted-foreground uppercase font-semibold">Date</p>
+                                <p className="text-sm">{new Date(order.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground uppercase font-semibold">Amount</p>
+                                <p className="font-semibold text-green-600">{order.total ? formatPrice(parseFloat(order.total)) : 'N/A'}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 pt-2">
+                              <div className="flex-1">
+                                <p className="text-xs text-muted-foreground uppercase font-semibold mb-1">Status</p>
+                                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
+                                  order.status === 'delivered' ? 'bg-green-100 text-green-800' :
+                                  order.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                                  order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                                  'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                                </span>
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-xs text-muted-foreground uppercase font-semibold mb-1">Payment</p>
+                                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
+                                  order.paymentStatus === 'completed' ? 'bg-green-100 text-green-800' :
+                                  order.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-red-100 text-red-800'
+                                }`}>
+                                  {order.paymentStatus ? order.paymentStatus.charAt(0).toUpperCase() + order.paymentStatus.slice(1) : 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
                 ) : (
                   <p className="text-center text-muted-foreground py-4">No orders yet</p>
