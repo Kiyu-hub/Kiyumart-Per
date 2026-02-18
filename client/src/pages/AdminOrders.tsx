@@ -343,14 +343,16 @@ export default function AdminOrders() {
   const stats = useMemo<OrderStats>(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
+    const normalize = (s?: string) => (s || "").toLowerCase().trim();
+
     return {
       total: allOrders.length,
-      pending: allOrders.filter(o => o.status === "pending").length,
-      processing: allOrders.filter(o => o.status === "processing").length,
-      delivering: allOrders.filter(o => ["delivering", "en_route", "picked_up"].includes(o.status)).length,
-      delivered: allOrders.filter(o => o.status === "delivered").length,
-      cancelled: allOrders.filter(o => o.status === "cancelled").length,
+      pending: allOrders.filter(o => normalize(o.status) === "pending").length,
+      processing: allOrders.filter(o => normalize(o.status) === "processing").length,
+      delivering: allOrders.filter(o => ["delivering", "en_route", "picked_up"].includes(normalize(o.status))).length,
+      delivered: allOrders.filter(o => normalize(o.status) === "delivered").length,
+      cancelled: allOrders.filter(o => normalize(o.status) === "cancelled").length,
       totalRevenue: allOrders
         .filter(o => o.paymentStatus === "completed")
         .reduce((sum, o) => sum + parseFloat(o.total || "0"), 0),
@@ -373,10 +375,11 @@ export default function AdminOrders() {
 
   // Filter orders based on search and status
   const filteredOrders = useMemo(() => {
+    const normalize = (s?: string) => (s || "").toLowerCase().trim();
     let orders = activeTab === "my-orders" ? myOrders : allOrders;
-    
+
     if (statusFilter !== "all") {
-      orders = orders.filter(o => o.status === statusFilter);
+      orders = orders.filter(o => normalize(o.status) === normalize(statusFilter));
     }
     
     if (searchQuery.trim()) {
@@ -753,19 +756,44 @@ function OrdersList({
             </div>
           </div>
           
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className="w-full mt-3 text-xs"
-            onClick={(e) => {
-              e.stopPropagation();
-              onViewOrder(order.id);
-            }}
-            data-testid={`button-view-${order.id}`}
-          >
-            <Eye className="h-3 w-3 mr-1" />
-            View Details
-          </Button>
+          {(() => {
+            const s = (order.status || "").toLowerCase().trim();
+            const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
+            if (trackStatuses.has(s)) {
+              return (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full mt-3 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Navigate to tracking page with order id
+                    window.location.href = `/track?orderId=${order.id}`;
+                  }}
+                  data-testid={`button-track-${order.id}`}
+                >
+                  <Truck className="h-3 w-3 mr-1" />
+                  Track Order
+                </Button>
+              );
+            }
+
+            return (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                className="w-full mt-3 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewOrder(order.id);
+                }}
+                data-testid={`button-view-${order.id}`}
+              >
+                <Eye className="h-3 w-3 mr-1" />
+                View Details
+              </Button>
+            );
+          })()}
         </Card>
       ))}
     </div>
