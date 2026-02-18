@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Search, Eye, Package, ShoppingBag, Store } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useLocation } from "wouter";
 
 interface Order {
   id: string;
@@ -37,7 +38,7 @@ export default function SellerOrders() {
   );
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case "pending": return "bg-yellow-500";
       case "processing": return "bg-blue-500";
       case "delivering": return "bg-purple-500";
@@ -132,10 +133,57 @@ export default function SellerOrders() {
                 <div className="flex-1 mb-3">
                   <p className="text-lg font-bold">{formatPrice(Number(order.total) || 0)}</p>
                 </div>
-                <Button variant="outline" size="sm" className="w-full text-xs" data-testid={`button-view-${order.id}`}>
-                  <Eye className="h-3 w-3 mr-2" />
-                  View Details
-                </Button>
+                {(() => {
+                  const s = (order.status || "").toLowerCase().trim();
+                  const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
+
+                  if (orderContext === "buyer") {
+                    const paymentStatus = (order as any).paymentStatus?.toLowerCase()?.trim() || "";
+                    if (paymentStatus === "completed" || paymentStatus === "paid") {
+                      return (
+                        <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => { window.location.href = `/track?orderId=${order.id}`; }}>
+                          <Package className="h-3 w-3 mr-2" />
+                          Track Order
+                        </Button>
+                      );
+                    }
+                    if (paymentStatus === "processing") {
+                      return (
+                        <Button variant="secondary" size="sm" className="w-full text-xs" disabled>
+                          Completing Payment...
+                        </Button>
+                      );
+                    }
+
+                    return (
+                      <Button variant="default" size="sm" className="w-full text-xs" onClick={() => { window.location.href = `/payment/${order.id}`; }}>
+                        Continue Payment
+                      </Button>
+                    );
+                  }
+
+                  if (trackStatuses.has(s)) {
+                    return (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-xs"
+                        onClick={() => { window.location.href = `/track?orderId=${order.id}`; }}
+                        data-testid={`button-track-${order.id}`}
+                      >
+                        <Package className="h-3 w-3 mr-2" />
+                        Track Order
+                      </Button>
+                    );
+                  }
+
+                  return (
+                    <Button variant="outline" size="sm" className="w-full text-xs" data-testid={`button-view-${order.id}`}>
+                      <Eye className="h-3 w-3 mr-2" />
+                      View Details
+                    </Button>
+                  );
+                })()}
               </Card>
             ))}
           </div>

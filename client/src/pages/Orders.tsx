@@ -29,6 +29,7 @@ interface Order {
 
 export default function Orders() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
   const { currencySymbol, formatPrice } = useLanguage();
 
   // Always fetch orders where the user is the buyer (their purchases)
@@ -108,8 +109,7 @@ export default function Orders() {
   };
 
   const getPaymentButtonConfig = (order: Order) => {
-    const { user } = useAuth();
-    // If current user is an admin or super_admin, show Track Order instead of payment CTAs
+    // Admins and super_admins should always see tracking controls
     if (user && (user.role === "admin" || user.role === "super_admin")) {
       return {
         label: "Track Order",
@@ -119,43 +119,37 @@ export default function Orders() {
         title: "View order status and tracking information",
       };
     }
-    const paymentStatus = order.paymentStatus?.toLowerCase() || "pending";
-    
-    switch (paymentStatus) {
-      case "completed":
-        return {
-          label: "Track Order",
-          variant: "outline" as const,
-          disabled: false,
-          onClick: () => navigate(`/track?orderId=${order.id}`),
-          title: "View order status and tracking information"
-        };
-      case "processing":
-        return {
-          label: "Completing Payment...",
-          variant: "secondary" as const,
-          disabled: true,
-          onClick: () => {},
-          title: "Your payment is being processed. Do not refresh the page."
-        };
-      case "failed":
-      case "pending":
-        return {
-          label: "Continue Payment",
-          variant: "default" as const,
-          disabled: false,
-          onClick: () => navigate(`/payment/${order.id}`),
-          title: "Resume payment for this order"
-        };
-      default:
-        return {
-          label: "Track Order",
-          variant: "outline" as const,
-          disabled: false,
-          onClick: () => navigate(`/track?orderId=${order.id}`),
-          title: "View order details"
-        };
+
+    const paymentStatus = (order.paymentStatus || "").toLowerCase().trim();
+
+    if (paymentStatus === "completed" || paymentStatus === "paid") {
+      return {
+        label: "Track Order",
+        variant: "outline" as const,
+        disabled: false,
+        onClick: () => navigate(`/track?orderId=${order.id}`),
+        title: "View order status and tracking information",
+      };
     }
+
+    if (paymentStatus === "processing") {
+      return {
+        label: "Completing Payment...",
+        variant: "secondary" as const,
+        disabled: true,
+        onClick: () => {},
+        title: "Your payment is being processed. Do not refresh the page.",
+      };
+    }
+
+    // Default to showing payment CTA for unpaid/failed states
+    return {
+      label: "Continue Payment",
+      variant: "default" as const,
+      disabled: false,
+      onClick: () => navigate(`/payment/${order.id}`),
+      title: "Resume payment for this order",
+    };
   };
 
   const OrderCard = ({ order }: { order: Order }) => {
