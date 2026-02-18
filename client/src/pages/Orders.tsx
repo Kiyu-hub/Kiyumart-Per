@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -107,6 +108,17 @@ export default function Orders() {
   };
 
   const getPaymentButtonConfig = (order: Order) => {
+    const { user } = useAuth();
+    // If current user is an admin or super_admin, show Track Order instead of payment CTAs
+    if (user && (user.role === "admin" || user.role === "super_admin")) {
+      return {
+        label: "Track Order",
+        variant: "outline" as const,
+        disabled: false,
+        onClick: () => navigate(`/track?orderId=${order.id}`),
+        title: "View order status and tracking information",
+      };
+    }
     const paymentStatus = order.paymentStatus?.toLowerCase() || "pending";
     
     switch (paymentStatus) {

@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import UserAvatar from "@/components/UserAvatar";
 
 interface MenuItem {
@@ -154,7 +155,9 @@ export default function DashboardSidebar({
   userName = "User",
   userProfileImage,
 }: DashboardSidebarProps) {
-  const items = menuItems[role];
+  // Normalize incoming role variants (some tokens may be "superadmin")
+  const normalizedRole = role === "superadmin" ? "super_admin" : role;
+  const items = menuItems[normalizedRole];
 
   // Fetch real notification count
   const { data: notificationData } = useQuery<{ count: number }>({
@@ -163,6 +166,19 @@ export default function DashboardSidebar({
   });
 
   const notificationCount = notificationData?.count || 0;
+
+  // Ensure we have the current user available for the avatar even if parent hasn't passed it yet
+  const { data: currentUser } = useQuery<any>({
+    queryKey: ["/api/auth/me"],
+    queryFn: async () => {
+      const res = await fetch("/api/auth/me", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    // Use cached value if present
+    initialData: () => queryClient.getQueryData(["/api/auth/me"]),
+    staleTime: 5 * 60 * 1000,
+  });
 
   return (
     <div className="flex flex-col h-full w-64 bg-card border-r">
@@ -176,7 +192,7 @@ export default function DashboardSidebar({
               KiyuMart
             </h2>
             <p className="text-xs text-muted-foreground capitalize">
-              {role} Dashboard
+              {normalizedRole} Dashboard
             </p>
           </div>
         </div>
@@ -216,15 +232,15 @@ export default function DashboardSidebar({
       </nav>
 
       <div className="p-4 border-t">
-        <div className="flex items-center gap-3 px-4 py-3">
+          <div className="flex items-center gap-3 px-4 py-3">
           <UserAvatar 
-            profileImage={userProfileImage}
-            name={userName}
+            profileImage={userProfileImage || currentUser?.profileImage}
+            name={userName || currentUser?.name}
             size="md"
           />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{userName}</p>
-            <p className="text-xs text-muted-foreground capitalize">{role}</p>
+            <p className="text-sm font-medium truncate">{userName || currentUser?.name}</p>
+            <p className="text-xs text-muted-foreground capitalize">{normalizedRole}</p>
           </div>
         </div>
       </div>

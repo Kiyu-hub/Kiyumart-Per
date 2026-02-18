@@ -105,6 +105,9 @@ export default function DashboardLayout({
   // Hook is always called (React Hooks Rules), but internally exempts /seller/settings
   useSellerProfileGuard(role === "seller" ? location : undefined);
 
+  // Normalize role variants (some tokens may use `superadmin` without underscore)
+  const normalizedRole = role === "superadmin" ? "super_admin" : role;
+
   const activeItem = useMemo(() => {
     // Handle shopping routes for all roles
     if (location === "/cart") return "my-cart";
@@ -124,7 +127,7 @@ export default function DashboardLayout({
   }, [location, role]);
 
   const handleItemClick = (id: string) => {
-    const basePath = roleBasePaths[role];
+    const basePath = roleBasePaths[normalizedRole];
     
     if (id === "dashboard") {
       setLocation(basePath);
@@ -140,21 +143,20 @@ export default function DashboardLayout({
     } else if (id === "my-wishlist") {
       // All non-buyer roles access their wishlist at /wishlist
       setLocation("/wishlist");
-    } else if (role === "buyer" && (id === "orders" || id === "wishlist" || id === "support" || id === "notifications" || id === "settings")) {
+    } else if (normalizedRole === "buyer" && (id === "orders" || id === "wishlist" || id === "support" || id === "notifications" || id === "settings")) {
       // Buyer uses global routes for these pages
       setLocation(`/${id}`);
     } else {
       setLocation(`${basePath}/${id}`);
     }
   };
-
-  const fallbackRoute = roleBasePaths[role] || "/";
+  const fallbackRoute = roleBasePaths[normalizedRole] || "/";
   const isDashboardHome = location === fallbackRoute;
 
   return (
     <div className="flex h-screen bg-background">
       <DashboardSidebar
-        role={role}
+        role={normalizedRole as any}
         activeItem={activeItem}
         onItemClick={handleItemClick}
         userName={user?.name || "User"}
