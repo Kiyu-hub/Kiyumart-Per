@@ -530,7 +530,6 @@ export class DbStorage implements IStorage {
   async assignRider(orderId: string, riderId: string): Promise<Order | undefined> {
     const result = await db.update(orders).set({ 
       riderId,
-      status: "processing",
       updatedAt: new Date()
     }).where(eq(orders.id, orderId)).returning();
     return result[0];

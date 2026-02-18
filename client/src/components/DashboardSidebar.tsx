@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
+import UserAvatar from "@/components/UserAvatar";
 
 interface MenuItem {
   icon: React.ElementType;
@@ -42,6 +43,7 @@ interface DashboardSidebarProps {
   activeItem?: string;
   onItemClick?: (id: string) => void;
   userName?: string;
+  userProfileImage?: string;
 }
 
 const menuItems: Record<string, MenuItem[]> = {
@@ -150,6 +152,7 @@ export default function DashboardSidebar({
   activeItem = "dashboard",
   onItemClick,
   userName = "User",
+  userProfileImage,
 }: DashboardSidebarProps) {
   const items = menuItems[role];
 
@@ -214,9 +217,11 @@ export default function DashboardSidebar({
 
       <div className="p-4 border-t">
         <div className="flex items-center gap-3 px-4 py-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-            {userName.charAt(0).toUpperCase()}
-          </div>
+          <UserAvatar 
+            profileImage={userProfileImage}
+            name={userName}
+            size="md"
+          />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{userName}</p>
             <p className="text-xs text-muted-foreground capitalize">{role}</p>

@@ -10,6 +10,7 @@ interface User {
   name: string;
   email: string;
   role: "admin" | "seller" | "buyer" | "rider" | "agent" | "super_admin";
+  profileImage?: string;
 }
 
 interface DashboardLayoutProps {
@@ -157,6 +158,7 @@ export default function DashboardLayout({
         activeItem={activeItem}
         onItemClick={handleItemClick}
         userName={user?.name || "User"}
+        userProfileImage={user?.profileImage}
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">

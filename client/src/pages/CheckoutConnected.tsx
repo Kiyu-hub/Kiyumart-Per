@@ -51,6 +51,7 @@ export default function CheckoutConnected() {
   const { formatPrice, currency } = useLanguage();
   const [deliveryMethod, setDeliveryMethod] = useState<"pickup" | "bus" | "rider">("pickup");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [deliveryPhone, setDeliveryPhone] = useState(user?.phone || "");
   const [deliveryLat, setDeliveryLat] = useState<number | null>(null);
   const [deliveryLng, setDeliveryLng] = useState<number | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState("");
@@ -288,6 +289,7 @@ export default function CheckoutConnected() {
       deliveryMethod,
       deliveryZoneId: selectedZoneId || null,
       deliveryAddress: deliveryAddress || null,
+      deliveryPhone: deliveryPhone || null,
       deliveryLatitude: deliveryLat,
       deliveryLongitude: deliveryLng,
       deliveryFee: deliveryFee.toFixed(2),
@@ -383,20 +385,32 @@ export default function CheckoutConnected() {
                       onChange={(e) => setDeliveryAddress(e.target.value)}
                       data-testid="input-address"
                     />
+                  </div>
 
-                    {/* Live map tied to the address input. Map updates address and vice-versa. */}
-                    <div className="mt-3">
-                      <AddressMap
-                        address={deliveryAddress}
-                        onAddressChange={(addr) => setDeliveryAddress(addr)}
-                        onLocationChange={(lat, lng, addr) => {
-                          // Keep deliveryAddress in sync; if reverse geocode returns a value prefer it
-                          if (addr) setDeliveryAddress(addr);
-                          setDeliveryLat(lat);
-                          setDeliveryLng(lng);
-                        }}
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Contact Phone Number</Label>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="Enter your phone number for delivery"
+                      value={deliveryPhone}
+                      onChange={(e) => setDeliveryPhone(e.target.value)}
+                      data-testid="input-delivery-phone"
+                    />
+                  </div>
+
+                  {/* Live map tied to the address input. Map updates address and vice-versa. */}
+                  <div className="mt-3">
+                    <AddressMap
+                      address={deliveryAddress}
+                      onAddressChange={(addr) => setDeliveryAddress(addr)}
+                      onLocationChange={(lat, lng, addr) => {
+                        // Keep deliveryAddress in sync; if reverse geocode returns a value prefer it
+                        if (addr) setDeliveryAddress(addr);
+                        setDeliveryLat(lat);
+                        setDeliveryLng(lng);
+                      }}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="zone">Delivery Zone</Label>
