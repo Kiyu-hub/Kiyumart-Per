@@ -14,6 +14,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
 import ProductCard from "@/components/ProductCard";
+import UserAvatar from "@/components/UserAvatar";
 import { PriceDisplay } from "@/components/PriceDisplay";
 import AdBanner from "@/components/AdBanner";
 import ProductPageAd from "@/pages/ProductPageAd";
@@ -51,6 +52,7 @@ interface Review {
   comment: string | null;
   createdAt: string;
   userName: string;
+  profileImage: string | null;
 }
 
 interface ProductVariant {
@@ -877,11 +879,11 @@ export default function ProductDetails() {
 
                       {/* Author */}
                       <div className="flex items-center gap-3 pt-2 border-t">
-                        <Avatar className="h-9 w-9">
-                          <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
-                            {review.userName.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                        <UserAvatar
+                          profileImage={review.profileImage}
+                          name={review.userName}
+                          size="md"
+                        />
                         <div>
                           <p className="text-sm font-semibold" data-testid={`review-name-${review.id}`}>
                             {review.userName}

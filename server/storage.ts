@@ -119,7 +119,7 @@ export interface IStorage {
   
   // Review operations
   createReview(review: InsertReview & { userId: string }): Promise<Review>;
-  getProductReviews(productId: string): Promise<Array<Review & { userName: string }>>;
+  getProductReviews(productId: string): Promise<Array<Review & { userName: string; profileImage: string | null }>>;
   addSellerReply(reviewId: string, reply: string): Promise<Review | undefined>;
   verifyPurchaseForReview(userId: string, productId: string): Promise<{ verified: boolean; orderId?: string }>;
   
@@ -1642,7 +1642,7 @@ export class DbStorage implements IStorage {
     return newReview;
   }
 
-  async getProductReviews(productId: string): Promise<Array<Review & { userName: string }>> {
+  async getProductReviews(productId: string): Promise<Array<Review & { userName: string; profileImage: string | null }>> {
     const result = await db.select({
       id: reviews.id,
       productId: reviews.productId,
@@ -1651,12 +1651,13 @@ export class DbStorage implements IStorage {
       comment: reviews.comment,
       createdAt: reviews.createdAt,
       userName: users.name,
+      profileImage: users.profileImage,
     })
       .from(reviews)
       .leftJoin(users, eq(reviews.userId, users.id))
       .where(eq(reviews.productId, productId))
       .orderBy(desc(reviews.createdAt));
-    return result as Array<Review & { userName: string }>;
+    return result as Array<Review & { userName: string; profileImage: string | null }>;
   }
 
   async createRiderReview(review: InsertRiderReview & { userId: string }): Promise<RiderReview> {

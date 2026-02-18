@@ -177,6 +177,8 @@ export default function Header({
               </DropdownMenu>
             )}
 
+            <CartPopover isAuthenticated={isAuthenticated} />
+
             <Button 
               variant="ghost" 
               size="icon"
@@ -195,8 +197,6 @@ export default function Header({
                 <User className={`h-5 w-5 ${isActive("/profile") ? "text-primary" : ""}`} />
               )}
             </Button>
-
-            <CartPopover isAuthenticated={isAuthenticated} />
           </div>
         </div>
 
