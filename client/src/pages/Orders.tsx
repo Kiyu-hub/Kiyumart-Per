@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
-import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard } from "lucide-react";
+import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard, AlertCircle, Loader2 } from "lucide-react";
 
 interface Order {
   id: string;
@@ -52,6 +52,23 @@ export default function Orders() {
     }
   };
 
+  const getPaymentStatusColor = (paymentStatus: string) => {
+    switch (paymentStatus.toLowerCase()) {
+      case "pending":
+        return "bg-yellow-100 text-yellow-800";
+      case "processing":
+        return "bg-blue-100 text-blue-800";
+      case "completed":
+        return "bg-green-100 text-green-800";
+      case "failed":
+        return "bg-red-100 text-red-800";
+      case "refunded":
+        return "bg-purple-100 text-purple-800";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status.toLowerCase()) {
       case "pending":
@@ -69,82 +86,148 @@ export default function Orders() {
     }
   };
 
+  const getPaymentStatusIcon = (paymentStatus: string) => {
+    switch (paymentStatus.toLowerCase()) {
+      case "pending":
+        return <AlertCircle className="h-3 w-3" />;
+      case "processing":
+        return <Loader2 className="h-3 w-3 animate-spin" />;
+      case "completed":
+        return <CheckCircle className="h-3 w-3" />;
+      case "failed":
+        return <XCircle className="h-3 w-3" />;
+      default:
+        return <CreditCard className="h-3 w-3" />;
+    }
+  };
+
   const filterOrdersByStatus = (status: string) => {
     if (status === "all") return orders;
     return orders.filter((order) => order.status.toLowerCase() === status.toLowerCase());
   };
 
-  const OrderCard = ({ order }: { order: Order }) => (
-    <Card
-      className="cursor-pointer hover-elevate active-elevate-2 transition-all"
-      onClick={() => navigate(`/track?orderId=${order.id}`)}
-      data-testid={`order-card-${order.id}`}
-    >
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-muted">
-              {getStatusIcon(order.status)}
+  const getPaymentButtonConfig = (order: Order) => {
+    const paymentStatus = order.paymentStatus?.toLowerCase() || "pending";
+    
+    switch (paymentStatus) {
+      case "completed":
+        return {
+          label: "Track Order",
+          variant: "outline" as const,
+          disabled: false,
+          onClick: () => navigate(`/track?orderId=${order.id}`),
+          title: "View order status and tracking information"
+        };
+      case "processing":
+        return {
+          label: "Completing Payment...",
+          variant: "secondary" as const,
+          disabled: true,
+          onClick: () => {},
+          title: "Your payment is being processed. Do not refresh the page."
+        };
+      case "failed":
+      case "pending":
+        return {
+          label: "Continue Payment",
+          variant: "default" as const,
+          disabled: false,
+          onClick: () => navigate(`/payment/${order.id}`),
+          title: "Resume payment for this order"
+        };
+      default:
+        return {
+          label: "Track Order",
+          variant: "outline" as const,
+          disabled: false,
+          onClick: () => navigate(`/track?orderId=${order.id}`),
+          title: "View order details"
+        };
+    }
+  };
+
+  const OrderCard = ({ order }: { order: Order }) => {
+    const paymentButtonConfig = getPaymentButtonConfig(order);
+    const orderStatus = order.status?.toLowerCase() || "pending";
+    const paymentStatus = order.paymentStatus?.toLowerCase() || "pending";
+
+    return (
+      <Card
+        className="cursor-pointer hover-elevate active-elevate-2 transition-all"
+        onClick={() => navigate(`/track?orderId=${order.id}`)}
+        data-testid={`order-card-${order.id}`}
+      >
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-muted">
+                {getStatusIcon(orderStatus)}
+              </div>
+              <div>
+                <CardTitle className="text-lg">Order #{order.id.slice(0, 8)}</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  {new Date(order.createdAt).toLocaleDateString()}
+                </p>
+              </div>
             </div>
-            <div>
-              <CardTitle className="text-lg">Order #{order.id.slice(0, 8)}</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                {new Date(order.createdAt).toLocaleDateString()}
-              </p>
-            </div>
-          </div>
-          <Badge className={getStatusColor(order.status)} data-testid={`badge-status-${order.id}`}>
-            {order.status}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Items:</span>
-            <span className="font-medium">{order.items?.length || 0} items</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Total:</span>
-            <span className="font-bold text-primary">
-              {formatPrice(parseFloat(order.totalAmount))}
-            </span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Payment:</span>
-            <Badge 
-              variant={order.paymentStatus === 'completed' ? 'default' : 'secondary'}
-              className="h-5"
-            >
-              <CreditCard className="h-3 w-3 mr-1" />
-              {order.paymentStatus === 'completed' ? 'Paid' : order.paymentStatus}
+            <Badge className={getStatusColor(orderStatus)} data-testid={`badge-status-${order.id}`}>
+              {orderStatus}
             </Badge>
           </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Delivery:</span>
-            <span className="font-medium truncate max-w-[200px]">
-              {order.deliveryAddress || "N/A"}
-            </span>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Items:</span>
+              <span className="font-medium">{order.items?.length || 0} items</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Total:</span>
+              <span className="font-bold text-primary">
+                {formatPrice(parseFloat(order.totalAmount))}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Payment:</span>
+              <Badge 
+                variant="secondary"
+                className={`h-5 gap-1 ${getPaymentStatusColor(paymentStatus)}`}
+                data-testid={`badge-payment-status-${order.id}`}
+              >
+                {getPaymentStatusIcon(paymentStatus)}
+                {paymentStatus === "completed"
+                  ? "Paid"
+                  : paymentStatus === "processing"
+                  ? "Processing..."
+                  : paymentStatus === "failed"
+                  ? "Failed"
+                  : "Pending"}
+              </Badge>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Delivery:</span>
+              <span className="font-medium truncate max-w-[200px]">
+                {order.deliveryAddress || "N/A"}
+              </span>
+            </div>
           </div>
-        </div>
-        <Button
-          className="w-full mt-4"
-          variant={order.paymentStatus !== 'completed' ? 'default' : 'outline'}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (order.paymentStatus !== 'completed') {
-              navigate(`/payment/${order.id}`);
-            } else {
-              navigate(`/track?orderId=${order.id}`);
-            }
-          }}
-          data-testid={`button-track-${order.id}`}
-        >
-          {order.paymentStatus !== 'completed' ? 'Continue Payment' : 'Track Order'}
-        </Button>
-      </CardContent>
-    </Card>
-  );
+          <Button
+            className="w-full mt-4"
+            variant={paymentButtonConfig.variant}
+            onClick={(e) => {
+              e.stopPropagation();
+              paymentButtonConfig.onClick();
+            }}
+            disabled={paymentButtonConfig.disabled}
+            title={paymentButtonConfig.title}
+            data-testid={`button-action-${order.id}`}
+          >
+            {paymentButtonConfig.label}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  };
 
   if (isLoading) {
     return (
