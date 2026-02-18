@@ -700,59 +700,72 @@ function OrdersList({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {orders.map((order) => (
         <Card 
           key={order.id} 
-          className="p-4 hover:shadow-md transition-shadow cursor-pointer"
+          className="p-4 hover:shadow-md transition-shadow cursor-pointer flex flex-col"
           onClick={() => onViewOrder(order.id)}
           data-testid={`card-order-${order.id}`}
         >
-          <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-lg ${getStatusColor(order.status)} text-white`}>
+          <div className="flex items-start gap-3 mb-3">
+            <div className={`p-2.5 rounded-lg ${getStatusColor(order.status)} text-white shrink-0`}>
               {getStatusIcon(order.status)}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-semibold" data-testid={`text-order-number-${order.id}`}>
-                  #{order.orderNumber}
-                </h3>
-                <Badge className={getStatusColor(order.status)} data-testid={`badge-status-${order.id}`}>
-                  {order.status.replace(/_/g, " ")}
-                </Badge>
-                <Badge 
-                  variant={order.paymentStatus === "completed" ? "default" : "outline"}
-                  className={order.paymentStatus === "completed" ? "bg-green-600" : ""}
-                >
-                  {order.paymentStatus}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
-                <span>{formatPrice(parseFloat(order.total))}</span>
-                <span>•</span>
-                <span>{order.deliveryMethod}</span>
-                <span>•</span>
-                <span>{formatDistanceToNow(new Date(order.createdAt), { addSuffix: true })}</span>
-                {order.buyer?.name && (
-                  <>
-                    <span>•</span>
-                    <span className="truncate max-w-[150px]">{order.buyer.name}</span>
-                  </>
-                )}
-              </div>
+              <h3 className="font-semibold text-sm" data-testid={`text-order-number-${order.id}`}>
+                #{order.orderNumber}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {formatDistanceToNow(new Date(order.createdAt), { addSuffix: true })}
+              </p>
             </div>
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewOrder(order.id);
-              }}
-              data-testid={`button-view-${order.id}`}
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
           </div>
+          
+          <div className="space-y-2 flex-1">
+            {order.buyer?.name && (
+              <div className="text-xs">
+                <p className="text-muted-foreground">Customer</p>
+                <p className="font-medium truncate">{order.buyer.name}</p>
+              </div>
+            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge className={getStatusColor(order.status)} data-testid={`badge-status-${order.id}`} variant="secondary">
+                {order.status.replace(/_/g, " ")}
+              </Badge>
+              <Badge 
+                variant={order.paymentStatus === "completed" ? "default" : "outline"}
+                className={order.paymentStatus === "completed" ? "bg-green-600 text-white" : ""}
+              >
+                {order.paymentStatus}
+              </Badge>
+            </div>
+          </div>
+          
+          <div className="border-t pt-3 mt-3 space-y-1 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total</span>
+              <span className="font-semibold">{formatPrice(parseFloat(order.total))}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Method</span>
+              <span className="font-medium capitalize">{order.deliveryMethod}</span>
+            </div>
+          </div>
+          
+          <Button 
+            variant="ghost" 
+            size="sm"
+            className="w-full mt-3 text-xs"
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewOrder(order.id);
+            }}
+            data-testid={`button-view-${order.id}`}
+          >
+            <Eye className="h-3 w-3 mr-1" />
+            View Details
+          </Button>
         </Card>
       ))}
     </div>

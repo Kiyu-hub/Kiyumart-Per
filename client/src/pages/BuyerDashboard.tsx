@@ -93,8 +93,8 @@ export default function BuyerDashboard() {
               <CardTitle>Recent Orders</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {orders.slice(0, 5).map((order) => {
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {orders.slice(0, 6).map((order) => {
                   const isUnpaid = order.status === "pending" || order.status === "payment_pending" || order.status === "payment_failed";
                   const handleClick = () => {
                     if (isUnpaid) {
@@ -107,22 +107,24 @@ export default function BuyerDashboard() {
                   return (
                     <div 
                       key={order.id} 
-                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
+                      className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors flex flex-col"
                       onClick={handleClick}
                       data-testid={`order-${order.id}`}
                     >
-                      <div>
-                        <p className="font-medium">{order.orderNumber}</p>
-                        <p className="text-sm text-muted-foreground">
+                      <div className="mb-2">
+                        <p className="font-medium text-sm">{order.orderNumber}</p>
+                        <p className="text-xs text-muted-foreground">
                           {new Date(order.createdAt).toLocaleDateString()}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className="font-medium">GHS {order.total}</p>
-                        <p className="text-sm text-muted-foreground capitalize">{order.status}</p>
-                        {isUnpaid && (
-                          <p className="text-xs text-destructive font-medium mt-1">Click to pay</p>
-                        )}
+                      <div className="flex-1">
+                        <p className="text-lg font-semibold mb-2">GHS {order.total}</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-muted-foreground capitalize">{order.status}</p>
+                          {isUnpaid && (
+                            <p className="text-xs text-destructive font-medium">Click to pay</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

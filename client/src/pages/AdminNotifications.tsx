@@ -123,7 +123,9 @@ export default function AdminNotifications() {
         navigate("/admin/products");
         break;
       case "review":
-        if (metadata?.productId) {
+        if (metadata?.link) {
+          navigate(metadata.link);
+        } else if (metadata?.productId) {
           navigate(`/product/${metadata.productId}`);
         } else {
           navigate("/admin/products");

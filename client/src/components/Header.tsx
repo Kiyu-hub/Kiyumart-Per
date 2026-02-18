@@ -140,19 +140,18 @@ export default function Header({
             )}
 
             {isAuthenticated && (
-              <NotificationPopover />
-            )}
-
-            {isAuthenticated && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate("/wishlist")}
-                data-testid="button-wishlist"
-                title="Wishlist"
-              >
-                <Heart className="h-5 w-5" />
-              </Button>
+              <>
+                <NotificationPopover />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => navigate("/wishlist")}
+                  data-testid="button-wishlist"
+                  title="Wishlist"
+                >
+                  <Heart className="h-5 w-5" />
+                </Button>
+              </>
             )}
 
             {hasDashboard && (

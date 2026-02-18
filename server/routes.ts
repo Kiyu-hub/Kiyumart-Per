@@ -1747,13 +1747,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isVerifiedPurchase: verification.verified,
       });
       
-      // Notify admins about new review
+      // Notify admins about new review with proper redirect metadata
       const product = await storage.getProduct(validatedData.productId);
       await notifyAdmins(
         "review",
         "New review posted",
         `A customer posted a ${validatedData.rating}-star review${product ? ` for ${product.name}` : ''}`,
-        { reviewId: review.id, productId: validatedData.productId, userId: req.user!.id }
+        { reviewId: review.id, productId: validatedData.productId, userId: req.user!.id, link: `/product/${validatedData.productId}?reviewId=${review.id}` }
       );
       
       res.json(review);

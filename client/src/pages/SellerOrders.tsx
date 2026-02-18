@@ -110,32 +110,32 @@ export default function SellerOrders() {
             </div>
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredOrders.map((order) => (
-              <Card key={order.id} className="p-4" data-testid={`card-order-${order.id}`}>
-                <div className="flex items-center justify-between">
+              <Card key={order.id} className="p-4 flex flex-col" data-testid={`card-order-${order.id}`}>
+                <div className="flex items-start gap-3 mb-3">
                   <div className="flex-1">
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <p className="font-semibold text-lg">#{order.orderNumber}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(order.createdAt).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Badge className={`${getStatusColor(order.status)} text-white`}>
-                        {order.status}
-                      </Badge>
-                      <Badge variant={order.paymentStatus === "paid" ? "default" : "outline"}>
-                        {order.paymentStatus}
-                      </Badge>
-                    </div>
-                    <p className="text-lg font-bold mt-2">{formatPrice(Number(order.total) || 0)}</p>
+                    <p className="font-bold text-sm">#{order.orderNumber}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(order.createdAt).toLocaleDateString()}
+                    </p>
                   </div>
-                  <Button variant="outline" size="sm" data-testid={`button-view-${order.id}`}>
-                    <Eye className="h-4 w-4 mr-2" />
-                    View Details
-                  </Button>
                 </div>
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  <Badge className={`${getStatusColor(order.status)} text-white text-xs`}>
+                    {order.status}
+                  </Badge>
+                  <Badge variant={order.paymentStatus === "paid" ? "default" : "outline"} className="text-xs">
+                    {order.paymentStatus}
+                  </Badge>
+                </div>
+                <div className="flex-1 mb-3">
+                  <p className="text-lg font-bold">{formatPrice(Number(order.total) || 0)}</p>
+                </div>
+                <Button variant="outline" size="sm" className="w-full text-xs" data-testid={`button-view-${order.id}`}>
+                  <Eye className="h-3 w-3 mr-2" />
+                  View Details
+                </Button>
               </Card>
             ))}
           </div>
