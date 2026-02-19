@@ -8,7 +8,7 @@
  * - Participant list
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import {
   Phone,
   PhoneOff,
@@ -80,9 +79,43 @@ export function JitsiCallDialog({
 }: JitsiCallDialogProps) {
   const jitsiContainerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<any>(null);
+  const [participantCount, setParticipantCount] = useState(1);
+  const [conferenceJoined, setConferenceJoined] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isVideoMuted, setIsVideoMuted] = useState(callType === "voice");
+  const [mountError, setMountError] = useState<string | null>(null);
+
+  const quickToolbarButtons = useMemo(
+    () => [
+      "microphone",
+      "camera",
+      "desktop",
+      "fullscreen",
+      "chat",
+      "participants-pane",
+      "tileview",
+      "settings",
+      "select-background",
+      "hangup",
+    ],
+    []
+  );
+
+  const runCommand = (command: string) => {
+    try {
+      apiRef.current?.executeCommand?.(command);
+    } catch (error) {
+      console.warn(`Jitsi command failed: ${command}`, error);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen || !roomUrl || !jitsiContainerRef.current) return;
+    setMountError(null);
+    setConferenceJoined(false);
+    setParticipantCount(1);
+    setIsAudioMuted(false);
+    setIsVideoMuted(callType === "voice");
 
     const parsed = (() => {
       try {
@@ -146,6 +179,7 @@ export function JitsiCallDialog({
             startWithVideoMuted: callType === "voice",
             disableInviteFunctions: true,
             hideLobbyButton: true,
+            toolbarButtons: quickToolbarButtons,
             ...(jitsiConfig?.configOverwrite || {}),
           },
           interfaceConfigOverwrite: {
@@ -155,23 +189,36 @@ export function JitsiCallDialog({
             SHOW_POWERED_BY: false,
             MOBILE_APP_PROMO: false,
             DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+            TOOLBAR_BUTTONS: quickToolbarButtons,
             ...(jitsiConfig?.interfaceConfigOverwrite || {}),
           },
         });
 
         apiRef.current = api;
+        api.addListener("videoConferenceJoined", () => {
+          setConferenceJoined(true);
+          setParticipantCount(1);
+          if (callType === "voice") {
+            runCommand("toggleVideo");
+            setIsVideoMuted(true);
+          }
+        });
+        api.addListener("participantJoined", () => {
+          setParticipantCount((prev) => prev + 1);
+        });
+        api.addListener("participantLeft", () => {
+          setParticipantCount((prev) => Math.max(1, prev - 1));
+        });
+        api.addListener("audioMuteStatusChanged", (payload: { muted: boolean }) => {
+          setIsAudioMuted(!!payload?.muted);
+        });
+        api.addListener("videoMuteStatusChanged", (payload: { muted: boolean }) => {
+          setIsVideoMuted(!!payload?.muted);
+        });
 
-        if (callType === "voice") {
-          api.addListener("videoConferenceJoined", () => {
-            try {
-              api.executeCommand("toggleVideo");
-            } catch {
-              // no-op
-            }
-          });
-        }
       } catch (error) {
         console.error("Jitsi mount failed:", error);
+        setMountError("Unable to initialize call interface.");
       }
     };
 
@@ -268,35 +315,106 @@ export function JitsiCallDialog({
           <div className="absolute left-4 top-4 z-20 rounded-full bg-black/55 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
             <span className="inline-flex items-center gap-1.5">
               {callType === "video" ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
-              {participants.length > 0
-                ? `${participants.length} participant${participants.length !== 1 ? "s" : ""}`
+              {participantCount > 0
+                ? `${participantCount} participant${participantCount !== 1 ? "s" : ""}`
                 : "In call"}
             </span>
           </div>
 
           <div className="relative flex-1 min-h-0 bg-black">
             <div ref={jitsiContainerRef} className="w-full h-full min-h-[320px]" />
+            {!conferenceJoined && !mountError && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/70 text-white">
+                <div className="text-center">
+                  <Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin" />
+                  <p className="text-sm">Connecting call...</p>
+                </div>
+              </div>
+            )}
+            {mountError && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80 text-white">
+                <div className="text-center">
+                  <p className="text-sm font-medium">{mountError}</p>
+                  <p className="text-xs text-white/70 mt-1">Please end and start the call again.</p>
+                </div>
+              </div>
+            )}
+            {conferenceJoined && participantCount <= 1 && (
+              <div className="pointer-events-none absolute inset-0 z-[9] flex items-center justify-center bg-gradient-to-b from-black/10 via-black/0 to-black/35 text-white">
+                <div className="rounded-xl border border-white/20 bg-black/40 px-4 py-2 text-center backdrop-blur-sm">
+                  <p className="text-sm font-medium">
+                    {callType === "voice" ? "Voice call started" : "Call started"}
+                  </p>
+                  <p className="text-xs text-white/75">Waiting for others to join...</p>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="absolute inset-x-0 bottom-4 z-20 flex items-center justify-center gap-3">
+          <div className="absolute inset-x-0 bottom-4 z-20 flex items-center justify-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleAudio")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title={isAudioMuted ? "Unmute microphone" : "Mute microphone"}
+            >
+              {isAudioMuted ? <MicOff className="h-4.5 w-4.5" /> : <Mic className="h-4.5 w-4.5" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleVideo")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title={isVideoMuted ? "Turn camera on" : "Turn camera off"}
+            >
+              {isVideoMuted ? <VideoOff className="h-4.5 w-4.5" /> : <Video className="h-4.5 w-4.5" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleParticipantsPane")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title="Participants"
+            >
+              <Users className="h-4.5 w-4.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleVirtualBackgroundDialog")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title="Background effects"
+            >
+              <span className="text-[10px] font-semibold">BG</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleSettings")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title="Audio and video settings"
+            >
+              <span className="text-[10px] font-semibold">AV</span>
+            </Button>
             <Button
               variant="outline"
               size="icon"
               onClick={onLeave}
-              className="h-12 w-12 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
               title="Leave call"
             >
-              <PhoneOff className="h-5 w-5" />
+              <PhoneOff className="h-4.5 w-4.5" />
             </Button>
             {isHost && (
               <Button
                 variant="outline"
                 size="icon"
                 onClick={onEnd}
-                className="h-12 w-12 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+                className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
                 title="End call for all"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4.5 w-4.5" />
               </Button>
             )}
           </div>
