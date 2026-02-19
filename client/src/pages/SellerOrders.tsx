@@ -154,6 +154,18 @@ export default function SellerOrders() {
 
                   if (orderContext === "buyer") {
                     const paymentStatus = normalizePaymentStatus((order as any).paymentStatus);
+                    if (s === "pending") {
+                      return (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="w-full text-xs"
+                          onClick={() => navigate(`/payment/${order.id}`)}
+                        >
+                          Continue Payment
+                        </Button>
+                      );
+                    }
                     if (paymentStatus === "paid") {
                       return (
                         <Button

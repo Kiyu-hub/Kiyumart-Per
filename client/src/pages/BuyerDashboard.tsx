@@ -110,6 +110,10 @@ export default function BuyerDashboard() {
                   const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
 
                   const handleClick = () => {
+                    if (s === "pending") {
+                      navigate(`/payment/${order.id}`);
+                      return;
+                    }
                     if (paymentStatus === "processing") {
                       navigate(`/track?orderId=${order.id}`);
                       return;
