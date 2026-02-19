@@ -6837,12 +6837,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     socket.on("typing", ({ receiverId }) => {
-      io.to(receiverId).emit("user_typing", socket.id);
+      io.to(receiverId).emit("user_typing", { userId });
       presenceService.setTyping(userId, receiverId);
     });
 
     socket.on("stop_typing", ({ receiverId }) => {
-      io.to(receiverId).emit("user_stop_typing", socket.id);
+      io.to(receiverId).emit("user_stop_typing", { userId });
       presenceService.setTyping(userId, null);
     });
     
@@ -7334,9 +7334,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             customerId: supportConversations.customerId,
             customerName: users.name,
             customerEmail: users.email,
+            customerProfileImage: users.profileImage,
             agentId: supportConversations.agentId,
             agentName: sql<string | null>`(
               select ${users.name}
+              from ${users}
+              where ${users.id} = ${supportConversations.agentId}
+              limit 1
+            )`,
+            agentProfileImage: sql<string | null>`(
+              select ${users.profileImage}
               from ${users}
               where ${users.id} = ${supportConversations.agentId}
               limit 1
@@ -7358,9 +7365,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             customerId: supportConversations.customerId,
             customerName: users.name,
             customerEmail: users.email,
+            customerProfileImage: users.profileImage,
             agentId: supportConversations.agentId,
             agentName: sql<string | null>`(
               select ${users.name}
+              from ${users}
+              where ${users.id} = ${supportConversations.agentId}
+              limit 1
+            )`,
+            agentProfileImage: sql<string | null>`(
+              select ${users.profileImage}
               from ${users}
               where ${users.id} = ${supportConversations.agentId}
               limit 1

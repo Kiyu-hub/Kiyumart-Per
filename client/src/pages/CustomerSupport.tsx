@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useSocket } from "@/contexts/NotificationContext";
+import { formatLastSeen, useBatchPresence, usePresence } from "@/hooks/usePresence";
 import { AlertCircle, Check, CheckCircle2, Clock, Loader2, MessageCircle, Mic, Paperclip, Send, Square, User, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -20,8 +21,10 @@ interface SupportConversation {
   customerId: string;
   customerName: string;
   customerEmail: string;
+  customerProfileImage?: string | null;
   agentId: string | null;
   agentName: string | null;
+  agentProfileImage?: string | null;
   status: "open" | "assigned" | "resolved";
   subject: string;
   lastMessage: string;
@@ -78,6 +81,9 @@ export default function CustomerSupport() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
+  const [isPeerTyping, setIsPeerTyping] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localTypingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -216,6 +222,9 @@ export default function CustomerSupport() {
 
   const handleSendMessage = () => {
     if (!message.trim() || !selectedConversation) return;
+    if (socket && peerUserId) {
+      socket.emit("stop_typing", { receiverId: peerUserId });
+    }
     sendMessageMutation.mutate({ conversationId: selectedConversation, message: message.trim() });
   };
 
@@ -390,6 +399,23 @@ export default function CustomerSupport() {
   };
 
   const selectedConv = conversations.find(c => c.id === selectedConversation);
+  const peerUserId = selectedConv
+    ? (isSupportStaff ? selectedConv.customerId : selectedConv.agentId)
+    : null;
+
+  const presenceUserIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          conversations
+            .map((conv) => (isSupportStaff ? conv.customerId : conv.agentId))
+            .filter((id): id is string => Boolean(id))
+        )
+      ),
+    [conversations, isSupportStaff]
+  );
+  const batchPresence = useBatchPresence(presenceUserIds);
+  const peerPresence = usePresence(peerUserId || undefined);
 
   useEffect(() => {
     return () => {
@@ -399,8 +425,35 @@ export default function CustomerSupport() {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (localTypingStopTimeoutRef.current) clearTimeout(localTypingStopTimeoutRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handlePeerTyping = (payload: { userId: string }) => {
+      if (payload?.userId && payload.userId === peerUserId) {
+        setIsPeerTyping(true);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => setIsPeerTyping(false), 2500);
+      }
+    };
+
+    const handlePeerStopTyping = (payload: { userId: string }) => {
+      if (payload?.userId && payload.userId === peerUserId) {
+        setIsPeerTyping(false);
+      }
+    };
+
+    socket.on("user_typing", handlePeerTyping);
+    socket.on("user_stop_typing", handlePeerStopTyping);
+    return () => {
+      socket.off("user_typing", handlePeerTyping);
+      socket.off("user_stop_typing", handlePeerStopTyping);
+    };
+  }, [socket, peerUserId]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -512,11 +565,38 @@ export default function CustomerSupport() {
                       data-testid={`conversation-${conv.id}`}
                     >
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="min-w-0">
-                          <p className="font-medium text-sm truncate">{conv.subject}</p>
-                          {isSupportStaff && (
-                            <p className="text-xs text-muted-foreground truncate">{conv.customerName || conv.customerEmail}</p>
-                          )}
+                        <div className="flex items-start gap-2 min-w-0 flex-1">
+                          <div className="relative mt-0.5">
+                            {((isSupportStaff ? conv.customerProfileImage : conv.agentProfileImage) || "") ? (
+                              <img
+                                src={(isSupportStaff ? conv.customerProfileImage : conv.agentProfileImage) || ""}
+                                alt={isSupportStaff ? (conv.customerName || "Customer") : (conv.agentName || "Support")}
+                                className="h-8 w-8 rounded-full object-cover border"
+                              />
+                            ) : (
+                              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+                                <User className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            )}
+                            {(() => {
+                              const id = isSupportStaff ? conv.customerId : conv.agentId;
+                              if (!id) return null;
+                              const p = batchPresence.getPresence(id);
+                              return (
+                                <span
+                                  className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-background ${
+                                    p.status === "online" ? "bg-green-500" : p.status === "away" ? "bg-yellow-500" : "bg-gray-400"
+                                  }`}
+                                />
+                              );
+                            })()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{conv.subject}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {isSupportStaff ? (conv.customerName || conv.customerEmail) : (conv.agentName || "Support Team")}
+                            </p>
+                          </div>
                         </div>
                         <Badge className={`${getStatusColor(conv.status)} text-white`}>{conv.status}</Badge>
                       </div>
@@ -550,12 +630,22 @@ export default function CustomerSupport() {
                         <Badge className={`${getStatusColor(selectedConv.status)} text-white`}>{selectedConv.status}</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground truncate">
-                        {isSupportStaff
-                          ? `Customer: ${selectedConv.customerName || "Unknown"} (${selectedConv.customerEmail || "No email"})`
-                          : selectedConv.agentName
-                            ? `Agent: ${selectedConv.agentName}`
-                            : "Waiting for agent assignment"}
+                        {isPeerTyping
+                          ? "typing..."
+                          : isSupportStaff
+                            ? `Customer: ${selectedConv.customerName || "Unknown"} (${peerPresence.isOnline ? "Online" : peerPresence.isAway ? "Away" : `Last seen ${formatLastSeen(peerPresence.presence?.lastSeen || null)}`})`
+                            : selectedConv.agentName
+                              ? `Agent: ${selectedConv.agentName} (${peerPresence.isOnline ? "Online" : peerPresence.isAway ? "Away" : `Last seen ${formatLastSeen(peerPresence.presence?.lastSeen || null)}`})`
+                              : "Waiting for agent assignment"}
                       </p>
+                      {isPeerTyping && (
+                        <div className="flex items-center gap-1 text-xs text-green-600 mt-1">
+                          <span>typing</span>
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-600 animate-bounce [animation-delay:-0.3s]" />
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-600 animate-bounce [animation-delay:-0.15s]" />
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-600 animate-bounce" />
+                        </div>
+                      )}
                     </div>
                     {isSupportStaff && (
                       <div className="flex items-center gap-2">
@@ -706,7 +796,26 @@ export default function CustomerSupport() {
                       <Input
                         placeholder="Type your message..."
                         value={message}
-                        onChange={(e) => setMessage(e.target.value)}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setMessage(next);
+
+                          if (!socket || !peerUserId) return;
+                          if (next.trim().length > 0) {
+                            socket.emit("typing", { receiverId: peerUserId });
+                            if (localTypingStopTimeoutRef.current) clearTimeout(localTypingStopTimeoutRef.current);
+                            localTypingStopTimeoutRef.current = setTimeout(() => {
+                              socket.emit("stop_typing", { receiverId: peerUserId });
+                            }, 1200);
+                          } else {
+                            socket.emit("stop_typing", { receiverId: peerUserId });
+                          }
+                        }}
+                        onBlur={() => {
+                          if (socket && peerUserId) {
+                            socket.emit("stop_typing", { receiverId: peerUserId });
+                          }
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
