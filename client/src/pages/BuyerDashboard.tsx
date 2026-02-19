@@ -172,6 +172,7 @@ export default function BuyerDashboard() {
                   const s = normalize(order.status);
                   const paymentStatus = normalizePaymentStatus(order.paymentStatus);
                   const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
+                  const requiresPaymentAction = s === "pending" || isUnpaid;
 
                   const handleClick = () => {
                     if (s === "pending") {
@@ -222,13 +223,13 @@ export default function BuyerDashboard() {
                           </div>
                         </div>
 
-                        {isUnpaid && (
+                        {requiresPaymentAction && (
                           <p className="text-xs text-destructive font-medium">Payment required</p>
                         )}
                       </div>
 
                       <div className="mt-3">
-                        {isUnpaid ? (
+                        {requiresPaymentAction ? (
                           <Button
                             size="sm"
                             variant="outline"
