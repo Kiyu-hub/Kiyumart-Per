@@ -6120,8 +6120,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Check if transaction already exists (idempotency)
     const existingTransaction = await storage.getTransactionByReference(reference);
     if (existingTransaction) {
-      const order = await storage.getOrder(existingTransaction.orderId);
-      return { transaction: existingTransaction, verified: existingTransaction.status === "completed", orderId: existingTransaction.orderId, message: "Transaction already processed" };
+      const txCompleted = existingTransaction.status === "completed";
+      const txMeta = (existingTransaction as any).metadata || {};
+      const orderIdsFromTx = Array.isArray(txMeta.orderIds) ? txMeta.orderIds : [];
+      const targetOrderIds = orderIdsFromTx.length > 0 ? orderIdsFromTx : [existingTransaction.orderId];
+
+      // Self-heal order state when transaction is already completed but order status was left stale.
+      if (txCompleted) {
+        await Promise.all(
+          targetOrderIds.map(async (id: string) => {
+            const o = await storage.getOrder(id);
+            if (!o) return;
+            const needsPaymentSync = o.paymentStatus !== "completed";
+            const needsStatusSync = o.status === "pending";
+            if (needsPaymentSync || needsStatusSync) {
+              await storage.updateOrder(id, {
+                paymentStatus: "completed",
+                status: needsStatusSync ? "processing" : o.status,
+              } as any);
+            }
+          })
+        );
+      }
+
+      return {
+        transaction: existingTransaction,
+        verified: txCompleted,
+        orderId: existingTransaction.orderId,
+        orderIds: targetOrderIds,
+        isMultiVendor: targetOrderIds.length > 1,
+        orderCount: targetOrderIds.length,
+        message: "Transaction already processed",
+      };
     }
 
     const controller = new AbortController();
@@ -8183,15 +8213,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const event = req.body;
 
       if (event.event === "charge.success") {
-        const reference = event.data.reference;
-        const transaction = await storage.getTransactionByReference(reference);
-
-        if (transaction && transaction.orderId) {
-          // Update order payment status
-          await storage.updateOrder(transaction.orderId, {
-            paymentStatus: "completed"
-          });
-        }
+        const { processPaystackChargeSuccess } = await import('./payments');
+        await processPaystackChargeSuccess(event.data, storage, io);
       }
 
       res.status(200).json({ status: "success" });
