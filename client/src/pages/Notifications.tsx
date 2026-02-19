@@ -123,8 +123,16 @@ export default function Notifications() {
           }
           break;
         case "message":
-          if (isBuyer) {
-            // Buyers don't have /buyer/messages — show in preview dialog
+          if (metadata.conversationId) {
+            if (isAdmin) {
+              navigate(`/admin/live-support?conversationId=${metadata.conversationId}`);
+            } else if (user?.role === "agent") {
+              navigate(`/agent/tickets?conversationId=${metadata.conversationId}`);
+            } else {
+              navigate(`/support?conversationId=${metadata.conversationId}`);
+            }
+          } else if (isBuyer) {
+            // Buyers don't have /buyer/messages — show in preview dialog for direct chats
             setSelectedNotification(notification);
             setPreviewOpen(true);
           } else if (metadata.senderId) {

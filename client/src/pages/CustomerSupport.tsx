@@ -13,9 +13,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useSocket } from "@/contexts/NotificationContext";
 import { formatLastSeen, useBatchPresence, usePresence } from "@/hooks/usePresence";
-import { AlertCircle, Check, CheckCircle2, Clock, Loader2, MessageCircle, Paperclip, Send, User } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Loader2, MessageCircle, Paperclip, Send, User } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
+import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 
 interface SupportConversation {
   id: string;
@@ -140,6 +141,15 @@ export default function CustomerSupport() {
       setSelectedConversation(conversations[0].id);
     }
   }, [conversations, selectedConversation]);
+
+  useEffect(() => {
+    if (conversations.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const conversationId = params.get("conversationId");
+    if (!conversationId) return;
+    const exists = conversations.some((conv) => conv.id === conversationId);
+    if (exists) setSelectedConversation(conversationId);
+  }, [conversations]);
 
   const createTicketMutation = useMutation({
     mutationFn: async (data: { subject: string; message: string }) => {
@@ -674,15 +684,31 @@ export default function CustomerSupport() {
                         <h2 className="font-semibold truncate">{selectedConv.subject}</h2>
                         <Badge className={`${getStatusColor(selectedConv.status)} text-white`}>{selectedConv.status}</Badge>
                       </div>
-                      <p className={`text-sm truncate ${peerPresence.isOnline ? "text-[#25D366] font-medium" : "text-muted-foreground"}`}>
-                        {isPeerTyping
-                          ? "typing..."
-                          : isSupportStaff
-                            ? `Customer: ${peerDisplayName} (${peerStatusText})`
-                            : selectedConv.agentName
-                              ? `Agent: ${peerDisplayName} (${peerStatusText})`
-                              : "Waiting for agent assignment"}
-                      </p>
+                      <div className="text-sm truncate text-muted-foreground">
+                        {isPeerTyping ? (
+                          <span className="text-[#25D366] font-medium">typing...</span>
+                        ) : isSupportStaff ? (
+                          <>
+                            <span>{`Customer: ${peerDisplayName}`}</span>
+                            {peerStatusText === "Online" ? (
+                              <span className="ml-2 text-[#25D366] font-medium">Online</span>
+                            ) : (
+                              <span className="ml-2">{peerStatusText}</span>
+                            )}
+                          </>
+                        ) : selectedConv.agentName ? (
+                          <>
+                            <span>{`Agent: ${peerDisplayName}`}</span>
+                            {peerStatusText === "Online" ? (
+                              <span className="ml-2 text-[#25D366] font-medium">Online</span>
+                            ) : (
+                              <span className="ml-2">{peerStatusText}</span>
+                            )}
+                          </>
+                        ) : (
+                          <span>Waiting for agent assignment</span>
+                        )}
+                      </div>
                       {isPeerTyping && (
                         <div className="flex items-center gap-1 text-xs text-[#25D366] mt-1">
                           <span>typing</span>
@@ -730,9 +756,11 @@ export default function CustomerSupport() {
                       <div className="text-center py-10 text-muted-foreground">No messages yet</div>
                     ) : (
                       <div className="space-y-4">
-                        {messages.map((msg) => {
+                        {messages.map((msg, idx) => {
                           const isMe = msg.senderId === user?.id;
                           const attachment = parseAttachmentMessage(msg.message);
+                          const hasPeerReplyAfter = messages.slice(idx + 1).some((nextMsg) => nextMsg.senderId !== msg.senderId);
+                          const inferredStatus: "delivered" | "read" = hasPeerReplyAfter ? "read" : "delivered";
                           return (
                             <div
                               key={msg.id}
@@ -796,7 +824,7 @@ export default function CustomerSupport() {
                                 )}
                                 <div className="text-xs mt-1 opacity-70 flex items-center gap-1 justify-end">
                                   <span>{formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}</span>
-                                  {isMe && <Check className="h-3 w-3" />}
+                                  {isMe && <MessageStatusTicks status={inferredStatus} variant="primary" />}
                                 </div>
                               </div>
                               {!isMe && (

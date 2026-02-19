@@ -132,7 +132,13 @@ export default function AdminNotifications() {
         }
         break;
       case "message":
-        navigate("/admin/messages");
+        if (metadata?.conversationId) {
+          navigate(`/admin/live-support?conversationId=${metadata.conversationId}`);
+        } else if (metadata?.senderId) {
+          navigate(`/admin/messages?userId=${metadata.senderId}`);
+        } else {
+          navigate("/admin/messages");
+        }
         break;
       case "payout":
         navigate("/admin/payouts");

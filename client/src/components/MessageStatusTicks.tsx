@@ -25,7 +25,7 @@ export function MessageStatusTicks({
 }: MessageStatusTicksProps) {
   // Derive status from timestamps and isRead flag
   const getStatus = (): "sent" | "delivered" | "read" => {
-    if (isRead || readAt) return "read";
+    if (isRead || readAt || status === "read") return "read";
     if (deliveredAt || status === "delivered") return "delivered";
     return "sent";
   };
@@ -35,7 +35,7 @@ export function MessageStatusTicks({
   // Variant-aware colors (primary for light text on colored backgrounds)
   const getSentColor = () => variant === "primary" ? "text-primary-foreground/70" : "text-muted-foreground";
   const getDeliveredColor = () => variant === "primary" ? "text-primary-foreground/70" : "text-muted-foreground";
-  const getReadColor = () => variant === "primary" ? "text-sky-300" : "text-sky-500";
+  const getReadColor = () => variant === "primary" ? "text-[#34B7F1]" : "text-[#34B7F1]";
 
   // Sent: single gray check
   if (derivedStatus === "sent") {

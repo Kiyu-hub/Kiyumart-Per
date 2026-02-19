@@ -183,7 +183,7 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
     switch (notification.type) {
       case "order":
         if (isBuyer) {
-          navigate(metadata?.orderId ? `/orders/${metadata.orderId}` : "/orders");
+          navigate(metadata?.orderId ? `/track?orderId=${metadata.orderId}` : "/orders");
         } else {
           navigate(`${rolePrefix}/orders`);
         }
@@ -203,9 +203,19 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
         }
         break;
       case "message":
-        // Buyers don't have a /buyer/messages route — navigate to notifications page
-        if (isBuyer) {
+        if (metadata?.conversationId) {
+          if (isAdmin) {
+            navigate(`/admin/live-support?conversationId=${metadata.conversationId}`);
+          } else if (user?.role === "agent") {
+            navigate(`/agent/tickets?conversationId=${metadata.conversationId}`);
+          } else {
+            navigate(`/support?conversationId=${metadata.conversationId}`);
+          }
+        } else if (isBuyer) {
+          // Buyers don't have a /buyer/messages route — open notifications page for preview
           navigate("/notifications");
+        } else if (metadata?.senderId) {
+          navigate(`${rolePrefix}/messages?userId=${metadata.senderId}`);
         } else {
           navigate(`${rolePrefix}/messages`);
         }

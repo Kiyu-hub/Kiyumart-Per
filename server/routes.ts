@@ -4421,7 +4421,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Create notification for non-admin receivers (riders, sellers, customers)
       if (receiver && !["admin", "super_admin", "agent"].includes(receiver.role || "")) {
-        const messagePreview = (message.message || "").trim();
+        const rawMessage = (message.message || "").trim();
+        const messagePreview = rawMessage.startsWith("__CHAT_ATTACHMENT__:")
+          ? "Sent an attachment"
+          : rawMessage.startsWith("__SUPPORT_ATTACHMENT__:")
+            ? "Sent an attachment"
+            : rawMessage;
         const notificationBody = messagePreview || `You have a new message from ${sender?.name || sender?.email || 'Support'}`;
         await storage.createNotification({
           userId: receiver.id,
@@ -7511,19 +7516,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .filter((staff, idx, arr) => staff.id !== user.id && arr.findIndex((x) => x.id === staff.id) === idx);
 
         for (const staff of supportStaff) {
+          const supportLink = staff.role === "agent"
+            ? `/agent/tickets?conversationId=${conversation.id}`
+            : `/admin/live-support?conversationId=${conversation.id}`;
+          const ticketPreview = `${senderLabel}: ${message}`;
           await storage.createNotification({
             userId: staff.id,
             type: "message",
             title: "New Support Ticket",
-            message: `${senderLabel} created a support ticket: ${subject}`,
-            metadata: { conversationId: conversation.id, customerId: user.id } as any,
+            message: ticketPreview,
+            metadata: { conversationId: conversation.id, customerId: user.id, link: supportLink } as any,
           });
 
           io.to(staff.id).emit("notification", {
             type: "message",
             title: "New Support Ticket",
-            message: `${senderLabel} created a support ticket: ${subject}`,
-            data: { conversationId: conversation.id, customerId: user.id },
+            message: ticketPreview,
+            data: { conversationId: conversation.id, customerId: user.id, link: supportLink },
           });
           io.to(staff.id).emit("support_conversation_updated", {
             conversationId: conversation.id,
@@ -7632,19 +7641,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const isSupportStaffSender = ["admin", "super_admin", "agent"].includes(user.role || "");
 
         if (isSupportStaffSender) {
+          const customerLink = `/support?conversationId=${id}`;
+          const supportReplyPreview = `${senderName}: ${message}`;
           await storage.createNotification({
             userId: conversation.customerId,
             type: "message",
             title: "Support Reply",
-            message: `You have a new reply from support on "${conversation.subject}"`,
-            metadata: { conversationId: id, senderId: user.id } as any,
+            message: supportReplyPreview,
+            metadata: { conversationId: id, senderId: user.id, link: customerLink } as any,
           });
 
           io.to(conversation.customerId).emit("notification", {
             type: "message",
             title: "Support Reply",
-            message: `You have a new reply from support on "${conversation.subject}"`,
-            data: { conversationId: id, senderId: user.id },
+            message: supportReplyPreview,
+            data: { conversationId: id, senderId: user.id, link: customerLink },
           });
           io.to(conversation.customerId).emit("support_conversation_updated", {
             conversationId: id,
@@ -7658,19 +7669,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .filter((staff, idx, arr) => staff.id !== user.id && arr.findIndex((x) => x.id === staff.id) === idx);
 
           for (const staff of supportStaff) {
+            const supportLink = staff.role === "agent"
+              ? `/agent/tickets?conversationId=${id}`
+              : `/admin/live-support?conversationId=${id}`;
+            const supportMessagePreview = `${senderName}: ${message}`;
             await storage.createNotification({
               userId: staff.id,
               type: "message",
               title: "New Support Message",
-              message: `${senderName} sent a message on "${conversation.subject}"`,
-              metadata: { conversationId: id, customerId: user.id } as any,
+              message: supportMessagePreview,
+              metadata: { conversationId: id, customerId: user.id, link: supportLink } as any,
             });
 
             io.to(staff.id).emit("notification", {
               type: "message",
               title: "New Support Message",
-              message: `${senderName} sent a message on "${conversation.subject}"`,
-              data: { conversationId: id, customerId: user.id },
+              message: supportMessagePreview,
+              data: { conversationId: id, customerId: user.id, link: supportLink },
             });
             io.to(staff.id).emit("support_conversation_updated", {
               conversationId: id,
