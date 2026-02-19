@@ -118,17 +118,6 @@ export default function Orders() {
   };
 
   const getPaymentButtonConfig = (order: Order) => {
-    // Admins and super_admins should always see tracking controls
-    if (user && (user.role === "admin" || user.role === "super_admin")) {
-      return {
-        label: "Track Order",
-        variant: "outline" as const,
-        disabled: false,
-        onClick: () => navigate(`/track?orderId=${order.id}`),
-        title: "View order status and tracking information",
-      };
-    }
-
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const orderStatus = normalize(order.status);
 
