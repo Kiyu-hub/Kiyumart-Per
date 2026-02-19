@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Package, MapPin, CreditCard, Loader2, ShoppingBag, Wallet, Clock3, TrendingUp } from "lucide-react";
+import { Package, MapPin, Loader2, ShoppingBag, Wallet, Clock3, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,12 +16,6 @@ interface Order {
   status: string;
   paymentStatus?: string;
   createdAt: string;
-  deliveryPhone?: string;
-  deliveryAddress?: string;
-  buyer?: {
-    email?: string;
-    name?: string;
-  };
 }
 
 export default function BuyerDashboard() {
@@ -70,6 +64,7 @@ export default function BuyerDashboard() {
   };
 
   const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
+  const buyerButtonClass = "hover:bg-muted hover:text-foreground";
 
   return (
     <DashboardLayout role="buyer">
@@ -85,7 +80,7 @@ export default function BuyerDashboard() {
             <Button size="sm" variant="default" disabled data-testid="button-mode-dashboard">
               Dashboard Mode
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => navigate("/")} data-testid="button-mode-shop">
+            <Button size="sm" variant="ghost" className={buyerButtonClass} onClick={() => navigate("/")} data-testid="button-mode-shop">
               Shop Mode
             </Button>
           </div>
@@ -151,11 +146,11 @@ export default function BuyerDashboard() {
               </Badge>
             </div>
             {stats.pendingPayments > 0 ? (
-              <Button size="sm" onClick={() => navigate("/orders")} data-testid="button-resume-pending-payments">
+              <Button size="sm" variant="outline" className={buyerButtonClass} onClick={() => navigate("/orders")} data-testid="button-resume-pending-payments">
                 Continue Pending Payment
               </Button>
             ) : (
-              <Button size="sm" variant="outline" onClick={() => navigate("/orders")} data-testid="button-view-all-orders">
+              <Button size="sm" variant="outline" className={buyerButtonClass} onClick={() => navigate("/orders")} data-testid="button-view-all-orders">
                 View All Orders
               </Button>
             )}
@@ -177,8 +172,6 @@ export default function BuyerDashboard() {
                   const s = normalize(order.status);
                   const paymentStatus = normalizePaymentStatus(order.paymentStatus);
                   const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
-                  const contactEmail = order.buyer?.email || user?.email || "N/A";
-                  const contactPhone = order.deliveryPhone || "N/A";
 
                   const handleClick = () => {
                     if (s === "pending") {
@@ -224,14 +217,6 @@ export default function BuyerDashboard() {
 
                         <div className="text-xs space-y-1">
                           <div className="flex justify-between gap-2">
-                            <span className="text-muted-foreground">Email</span>
-                            <span className="font-medium truncate">{contactEmail}</span>
-                          </div>
-                          <div className="flex justify-between gap-2">
-                            <span className="text-muted-foreground">Phone</span>
-                            <span className="font-medium">{contactPhone}</span>
-                          </div>
-                          <div className="flex justify-between gap-2">
                             <span className="text-muted-foreground">Total</span>
                             <span className="font-semibold">{formatPrice(Number(order.total) || 0)}</span>
                           </div>
@@ -247,6 +232,7 @@ export default function BuyerDashboard() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className={buyerButtonClass}
                             onClick={(e) => {
                               e.stopPropagation();
                               navigate(`/payment/${order.id}`);
@@ -258,6 +244,7 @@ export default function BuyerDashboard() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className={buyerButtonClass}
                             onClick={(e) => {
                               e.stopPropagation();
                               navigate(`/track?orderId=${order.id}`);
@@ -269,6 +256,7 @@ export default function BuyerDashboard() {
                           <Button
                             size="sm"
                             variant="ghost"
+                            className={buyerButtonClass}
                             onClick={(e) => {
                               e.stopPropagation();
                               navigate(`/track?orderId=${order.id}`);
