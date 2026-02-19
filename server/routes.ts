@@ -7219,11 +7219,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user!;
       const { db } = await import("../db/index");
       const { supportConversations, supportMessages, users } = await import("@shared/schema");
-      const { eq, desc, or } = await import("drizzle-orm");
+      const { eq, desc, sql } = await import("drizzle-orm");
 
       let conversationsQuery;
       
-      if (user.role === "agent" || user.role === "admin") {
+      if (user.role === "agent" || user.role === "admin" || user.role === "super_admin") {
         // Agents and admins see all conversations
         conversationsQuery = db
           .select({
@@ -7232,7 +7232,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             customerName: users.name,
             customerEmail: users.email,
             agentId: supportConversations.agentId,
-            agentName: users.name,
+            agentName: sql<string | null>`(
+              select ${users.name}
+              from ${users}
+              where ${users.id} = ${supportConversations.agentId}
+              limit 1
+            )`,
             status: supportConversations.status,
             subject: supportConversations.subject,
             lastMessage: supportConversations.lastMessage,
@@ -7251,7 +7256,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             customerName: users.name,
             customerEmail: users.email,
             agentId: supportConversations.agentId,
-            agentName: users.name,
+            agentName: sql<string | null>`(
+              select ${users.name}
+              from ${users}
+              where ${users.id} = ${supportConversations.agentId}
+              limit 1
+            )`,
             status: supportConversations.status,
             subject: supportConversations.subject,
             lastMessage: supportConversations.lastMessage,
@@ -7323,7 +7333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Conversation not found" });
       }
 
-      if (user.role !== "agent" && user.role !== "admin" && conversation.customerId !== user.id) {
+      if (user.role !== "agent" && user.role !== "admin" && user.role !== "super_admin" && conversation.customerId !== user.id) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -7371,7 +7381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Conversation not found" });
       }
 
-      if (user.role !== "agent" && user.role !== "admin" && conversation.customerId !== user.id) {
+      if (user.role !== "agent" && user.role !== "admin" && user.role !== "super_admin" && conversation.customerId !== user.id) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -7399,7 +7409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const user = req.user!;
 
-      if (req.user?.role !== "agent" && req.user?.role !== "admin") {
+      if (req.user?.role !== "agent" && req.user?.role !== "admin" && req.user?.role !== "super_admin") {
         return res.status(403).json({ error: "Only agents and admins can assign conversations" });
       }
 
@@ -7427,7 +7437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
 
-      if (req.user?.role !== "agent" && req.user?.role !== "admin") {
+      if (req.user?.role !== "agent" && req.user?.role !== "admin" && req.user?.role !== "super_admin") {
         return res.status(403).json({ error: "Only agents and admins can resolve conversations" });
       }
 
