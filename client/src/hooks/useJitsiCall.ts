@@ -80,9 +80,10 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
   const [jitsiConfig, setJitsiConfig] = useState<JitsiConfig | null>(null);
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const inCallRef = useRef(false);
-  const ringtoneRef = useRef<{ audioContext: AudioContext | null; intervalId: number | null }>({
+  const ringtoneRef = useRef<{ audioContext: AudioContext | null; intervalId: number | null; outgoingIntervalId: number | null }>({
     audioContext: null,
     intervalId: null,
+    outgoingIntervalId: null,
   });
   const outgoingUnansweredRef = useRef<OutgoingUnansweredCall | null>(null);
 
@@ -97,16 +98,22 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     return ctx;
   }, []);
 
-  const stopRingtone = useCallback(() => {
-    if (ringtoneRef.current.intervalId !== null) {
-      window.clearInterval(ringtoneRef.current.intervalId);
-      ringtoneRef.current.intervalId = null;
-    }
+  const closeAudioContextIfIdle = useCallback(() => {
+    if (ringtoneRef.current.intervalId !== null) return;
+    if (ringtoneRef.current.outgoingIntervalId !== null) return;
     if (ringtoneRef.current.audioContext) {
       void ringtoneRef.current.audioContext.close();
       ringtoneRef.current.audioContext = null;
     }
   }, []);
+
+  const stopRingtone = useCallback(() => {
+    if (ringtoneRef.current.intervalId !== null) {
+      window.clearInterval(ringtoneRef.current.intervalId);
+      ringtoneRef.current.intervalId = null;
+    }
+    closeAudioContextIfIdle();
+  }, [closeAudioContextIfIdle]);
 
   const playRingBurst = useCallback((audioContext: AudioContext) => {
     const now = audioContext.currentTime;
@@ -142,6 +149,49 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       // Ignore ringtone init failures
     }
   }, [getOrCreateAudioContext, playRingBurst]);
+
+  const playOutgoingRingBurst = useCallback((audioContext: AudioContext) => {
+    const now = audioContext.currentTime;
+    const envelope = 0.24;
+    [540, 720].forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "triangle";
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, now + index * envelope);
+      gain.gain.exponentialRampToValueAtTime(0.09, now + index * envelope + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * envelope + envelope);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(now + index * envelope);
+      oscillator.stop(now + index * envelope + envelope);
+    });
+  }, []);
+
+  const startOutgoingRingback = useCallback(async () => {
+    if (ringtoneRef.current.outgoingIntervalId !== null) return;
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
+    try {
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+      playOutgoingRingBurst(ctx);
+      ringtoneRef.current.outgoingIntervalId = window.setInterval(() => {
+        playOutgoingRingBurst(ctx);
+      }, 1600);
+    } catch {
+      // Ignore ringback init failures
+    }
+  }, [getOrCreateAudioContext, playOutgoingRingBurst]);
+
+  const stopOutgoingRingback = useCallback(() => {
+    if (ringtoneRef.current.outgoingIntervalId !== null) {
+      window.clearInterval(ringtoneRef.current.outgoingIntervalId);
+      ringtoneRef.current.outgoingIntervalId = null;
+    }
+    closeAudioContextIfIdle();
+  }, [closeAudioContextIfIdle]);
 
   const clearOutgoingUnanswered = useCallback(() => {
     const state = outgoingUnansweredRef.current;
@@ -270,6 +320,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     },
     onSuccess: (data) => {
       stopRingtone();
+      stopOutgoingRingback();
       setCurrentRoom(data.room);
       setJitsiConfig(data.config);
       setIncomingCall(null);
@@ -297,6 +348,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     },
     onSuccess: () => {
       stopRingtone();
+      stopOutgoingRingback();
       setCurrentRoom(null);
       setJitsiConfig(null);
       inCallRef.current = false;
@@ -323,6 +375,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     },
     onSuccess: () => {
       stopRingtone();
+      stopOutgoingRingback();
       setCurrentRoom(null);
       setJitsiConfig(null);
       inCallRef.current = false;
@@ -379,6 +432,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       if (outgoingUnansweredRef.current?.roomName === data.roomName) {
         clearOutgoingUnanswered();
       }
+      stopOutgoingRingback();
       if (currentRoom?.roomName === data.roomName) {
         stopRingtone();
         setCurrentRoom(null);
@@ -396,6 +450,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       if (outgoingUnansweredRef.current?.roomName === data.roomName) {
         outgoingUnansweredRef.current.answered = true;
         clearOutgoingUnanswered();
+        stopOutgoingRingback();
       }
       if (currentRoom?.roomName === data.roomName) {
         toast({
@@ -428,7 +483,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       socket.off('jitsi_participant_joined', handleParticipantJoined);
       socket.off('jitsi_participant_left', handleParticipantLeft);
     };
-  }, [clearOutgoingUnanswered, socket, currentRoom, startRingtone, stopRingtone, toast]);
+  }, [clearOutgoingUnanswered, socket, currentRoom, startRingtone, stopOutgoingRingback, stopRingtone, toast]);
 
   // Actions
   const startCall = useCallback(async (
@@ -438,16 +493,20 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
   ) => {
     const data = await startCallMutation.mutateAsync({ targetUserId, callType, orderId });
     if (data?.room?.roomName) {
+      await startOutgoingRingback();
       scheduleOutgoingUnanswered(data.room.roomName, targetUserId, callType);
     }
-  }, [scheduleOutgoingUnanswered, startCallMutation]);
+  }, [scheduleOutgoingUnanswered, startCallMutation, startOutgoingRingback]);
 
   const startGroupCall = useCallback(async (
     participantIds: string[],
     callType: 'voice' | 'video' = 'video'
   ) => {
-    await startGroupCallMutation.mutateAsync({ participantIds, callType });
-  }, [startGroupCallMutation]);
+    const data = await startGroupCallMutation.mutateAsync({ participantIds, callType });
+    if (data?.room?.roomName) {
+      await startOutgoingRingback();
+    }
+  }, [startGroupCallMutation, startOutgoingRingback]);
 
   const joinCall = useCallback(async (roomName: string) => {
     await joinCallMutation.mutateAsync(roomName);
@@ -473,16 +532,18 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       await recordOutgoingMissedCall(outgoingUnansweredRef.current);
       clearOutgoingUnanswered();
     }
+    stopOutgoingRingback();
     await leaveCallMutation.mutateAsync();
-  }, [clearOutgoingUnanswered, leaveCallMutation, recordOutgoingMissedCall]);
+  }, [clearOutgoingUnanswered, leaveCallMutation, recordOutgoingMissedCall, stopOutgoingRingback]);
 
   const endCall = useCallback(async () => {
     if (outgoingUnansweredRef.current && !outgoingUnansweredRef.current.answered) {
       await recordOutgoingMissedCall(outgoingUnansweredRef.current);
       clearOutgoingUnanswered();
     }
+    stopOutgoingRingback();
     await endCallMutation.mutateAsync();
-  }, [clearOutgoingUnanswered, endCallMutation, recordOutgoingMissedCall]);
+  }, [clearOutgoingUnanswered, endCallMutation, recordOutgoingMissedCall, stopOutgoingRingback]);
 
   const getJitsiUrl = useCallback(() => {
     const baseUrl = jitsiConfig?.roomUrl || currentRoom?.roomUrl || null;
@@ -533,9 +594,10 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
   useEffect(() => {
     return () => {
       clearOutgoingUnanswered();
+      stopOutgoingRingback();
       stopRingtone();
     };
-  }, [clearOutgoingUnanswered, stopRingtone]);
+  }, [clearOutgoingUnanswered, stopOutgoingRingback, stopRingtone]);
 
   return {
     inCall: !!currentRoom,
