@@ -183,22 +183,39 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
-/* Global safety net (light mode only): neutralize red/destructive hover colors across the app */
+/* Global safety net: convert red/destructive hover utility classes to green across themes */
 @layer utilities {
-  html:not(.dark) [class*="hover:bg-red"]:hover,
-  html:not(.dark) [class*="hover:bg-destructive"]:hover {
-    background-color: hsl(var(--muted)) !important;
-    border-color: hsl(var(--border)) !important;
-    color: hsl(var(--foreground)) !important;
+  [class*="hover:bg-red"]:hover,
+  [class*="hover:bg-destructive"]:hover {
+    background-color: #16a34a !important;
+    border-color: #16a34a !important;
+    color: #ffffff !important;
   }
 
-  html:not(.dark) [class*="hover:text-red"]:hover,
-  html:not(.dark) [class*="hover:text-destructive"]:hover {
-    color: hsl(var(--foreground)) !important;
+  [class*="hover:text-red"]:hover,
+  [class*="hover:text-destructive"]:hover {
+    color: #16a34a !important;
   }
 
-  html:not(.dark) [class*="hover:border-red"]:hover,
-  html:not(.dark) [class*="hover:border-destructive"]:hover {
-    border-color: hsl(var(--border)) !important;
+  [class*="hover:border-red"]:hover,
+  [class*="hover:border-destructive"]:hover {
+    border-color: #16a34a !important;
+  }
+
+  .dark [class*="hover:bg-red"]:hover,
+  .dark [class*="hover:bg-destructive"]:hover {
+    background-color: #22c55e !important;
+    border-color: #22c55e !important;
+    color: #052e16 !important;
+  }
+
+  .dark [class*="hover:text-red"]:hover,
+  .dark [class*="hover:text-destructive"]:hover {
+    color: #4ade80 !important;
+  }
+
+  .dark [class*="hover:border-red"]:hover,
+  .dark [class*="hover:border-destructive"]:hover {
+    border-color: #22c55e !important;
   }
 }
