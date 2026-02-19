@@ -77,6 +77,7 @@ export default function CustomerSupport() {
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -259,16 +260,53 @@ export default function CustomerSupport() {
 
     try {
       setUploadingAttachment(true);
-      const base = (import.meta.env as any).VITE_API_URL || "";
-      const res = await fetch(`${base}${endpoint}`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload?.error || "Upload failed");
+      const envBase = (import.meta.env as any).VITE_API_URL || "";
+      const candidates: string[] = [];
+      if (envBase) candidates.push(`${envBase}${endpoint}`);
+      // Fallback to same-origin proxy
+      candidates.push(endpoint);
+      // Local dev fallback when frontend is on 5173 and backend is on 5000
+      if (!envBase && typeof window !== "undefined" && window.location.hostname === "localhost" && window.location.port !== "5000") {
+        candidates.push(`http://localhost:5000${endpoint}`);
       }
+
+      let payload: any = null;
+      let lastError = "Upload failed";
+
+      for (const url of candidates) {
+        const res = await fetch(url, {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+
+        const contentType = res.headers.get("content-type") || "";
+        const raw = await res.text();
+        let parsed: any = null;
+
+        if (contentType.includes("application/json")) {
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            parsed = null;
+          }
+        }
+
+        if (res.ok && parsed?.url) {
+          payload = parsed;
+          break;
+        }
+
+        lastError = parsed?.error
+          || (contentType.includes("text/html")
+            ? "Backend upload endpoint returned HTML. Check API base/proxy and backend status."
+            : raw.slice(0, 180) || `Upload failed (${res.status})`);
+      }
+
+      if (!payload?.url) {
+        throw new Error(lastError);
+      }
+
       sendAttachmentMessage({
         kind,
         url: payload.url,
@@ -298,12 +336,8 @@ export default function CustomerSupport() {
     mediaRecorderRef.current.stop();
   };
 
-  const toggleVoiceRecording = async () => {
-    if (isRecording) {
-      stopRecordingAndUpload();
-      return;
-    }
-
+  const startVoiceRecording = async () => {
+    if (isRecording) return;
     try {
       setRecordingError(null);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -322,6 +356,7 @@ export default function CustomerSupport() {
         stream.getTracks().forEach((track) => track.stop());
         mediaStreamRef.current = null;
         setIsRecording(false);
+        setRecordingStartedAt(null);
 
         const file = new File([blob], `voice-note-${Date.now()}.webm`, {
           type: blob.type || "audio/webm",
@@ -331,6 +366,7 @@ export default function CustomerSupport() {
 
       recorder.start();
       setIsRecording(true);
+      setRecordingStartedAt(Date.now());
     } catch (error: any) {
       setRecordingError(error?.message || "Could not start voice recording");
       toast({
@@ -649,7 +685,7 @@ export default function CustomerSupport() {
                     )}
                   </ScrollArea>
                   {selectedConv.status !== "resolved" && (
-                    <div className="p-4 border-t flex gap-2 flex-shrink-0">
+                    <div className="p-4 border-t flex gap-2 flex-shrink-0 items-center">
                       <input
                         ref={attachmentInputRef}
                         type="file"
@@ -667,16 +703,6 @@ export default function CustomerSupport() {
                       >
                         {uploadingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
                       </Button>
-                      <Button
-                        type="button"
-                        variant={isRecording ? "destructive" : "outline"}
-                        size="icon"
-                        onClick={toggleVoiceRecording}
-                        disabled={uploadingAttachment || sendMessageMutation.isPending}
-                        title={isRecording ? "Stop recording" : "Record voice note"}
-                      >
-                        {isRecording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                      </Button>
                       <Input
                         placeholder="Type your message..."
                         value={message}
@@ -689,21 +715,51 @@ export default function CustomerSupport() {
                         }}
                         data-testid="input-message"
                       />
-                      <Button
-                        onClick={handleSendMessage}
-                        disabled={sendMessageMutation.isPending || uploadingAttachment || !message.trim()}
-                        data-testid="button-send"
-                      >
-                        {sendMessageMutation.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="h-4 w-4" />
-                        )}
-                      </Button>
+                      {message.trim() ? (
+                        <Button
+                          onClick={handleSendMessage}
+                          disabled={sendMessageMutation.isPending || uploadingAttachment}
+                          data-testid="button-send"
+                        >
+                          {sendMessageMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Send className="h-4 w-4" />
+                          )}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant={isRecording ? "destructive" : "default"}
+                          size="icon"
+                          onMouseDown={startVoiceRecording}
+                          onMouseUp={stopRecordingAndUpload}
+                          onMouseLeave={() => {
+                            if (isRecording) stopRecordingAndUpload();
+                          }}
+                          onTouchStart={startVoiceRecording}
+                          onTouchEnd={stopRecordingAndUpload}
+                          disabled={uploadingAttachment || sendMessageMutation.isPending}
+                          title={isRecording ? "Recording... release to send" : "Hold to record voice note"}
+                        >
+                          {isRecording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                        </Button>
+                      )}
+                      {isRecording && (
+                        <span className="text-xs text-red-500 whitespace-nowrap">
+                          Recording{recordingStartedAt ? ` ${Math.max(1, Math.floor((Date.now() - recordingStartedAt) / 1000))}s` : "..."}
+                        </span>
+                      )}
+                      {uploadingAttachment && (
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">Uploading...</span>
+                      )}
                       {recordingError && (
                         <Button type="button" variant="ghost" size="icon" onClick={() => setRecordingError(null)}>
                           <X className="h-4 w-4" />
                         </Button>
+                      )}
+                      {!message.trim() && !isRecording && (
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">Hold mic to record</span>
                       )}
                     </div>
                   )}
