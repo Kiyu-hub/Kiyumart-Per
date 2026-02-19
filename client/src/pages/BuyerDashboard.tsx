@@ -58,9 +58,7 @@ export default function BuyerDashboard() {
     totalSpend: orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0),
     pendingPayments: orders.filter((o) => {
       const paymentStatus = normalizePaymentStatus(o.paymentStatus);
-      const isPaid = paymentStatus === "paid";
-      const status = normalize(o.status);
-      return !isPaid && (status === "pending" || paymentStatus === "pending" || paymentStatus === "failed");
+      return paymentStatus === "pending" || paymentStatus === "failed";
     }).length,
   };
 
@@ -191,12 +189,14 @@ export default function BuyerDashboard() {
               const s = normalize(order.status);
               const paymentStatus = normalizePaymentStatus(order.paymentStatus);
               const isPaid = paymentStatus === "paid";
+              const isProcessingPayment = paymentStatus === "processing";
               const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
-              const requiresPaymentAction = !isPaid && (s === "pending" || isUnpaid);
+              const requiresPaymentAction = isUnpaid;
+              const displayStatus = (s === "pending" && (isPaid || isProcessingPayment)) ? "processing" : order.status;
 
               const action = requiresPaymentAction
                 ? { label: "Continue Payment", path: `/payment/${order.id}`, variant: "outline" as const }
-                : (trackStatuses.has(s) || paymentStatus === "paid" || paymentStatus === "processing")
+                : (trackStatuses.has(s) || isPaid || isProcessingPayment)
                   ? { label: "Track Order", path: `/track?orderId=${order.id}`, variant: "outline" as const }
                   : { label: "View Order", path: "/orders", variant: "ghost" as const };
 
@@ -217,7 +217,7 @@ export default function BuyerDashboard() {
                     <div className="space-y-2 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="secondary" className="capitalize">
-                          {order.status}
+                          {displayStatus}
                         </Badge>
                         <Badge variant={paymentStatus === "paid" ? "default" : "outline"}>
                           {paymentStatus}
