@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Package, MapPin, Loader2, ShoppingBag, Wallet, TrendingUp, ArrowRight, Receipt } from "lucide-react";
+import { Package, MapPin, Loader2, ShoppingBag, Wallet, TrendingUp, Receipt } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -93,16 +93,6 @@ export default function BuyerDashboard() {
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="bg-white text-emerald-700 hover:bg-white/90 hover:text-emerald-700"
-                  onClick={() => navigate(stats.pendingPayments > 0 ? "/orders" : "/orders")}
-                  data-testid="button-primary-dashboard-action"
-                >
-                  {stats.pendingPayments > 0 ? "Continue Payment" : "View Orders"}
-                  <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
                 <Button
                   size="sm"
                   variant="outline"
