@@ -42,14 +42,22 @@ interface RiderLocation {
 }
 
 export default function OrderTracking() {
+  const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const [, navigate] = useLocation();
   const { toast } = useToast();
   const { formatPrice } = useLanguage();
+  const searchParams = new URLSearchParams(location.split("?")[1] || "");
+  const requestedOrderId = searchParams.get("orderId");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [riderLocations, setRiderLocations] = useState<Map<string, RiderLocation>>(new Map());
   const socketRef = useRef<Socket | null>(null);
+  const normalizeStatus = (value?: string) => {
+    const s = (value || "").toLowerCase().trim();
+    if (s === "ready" || s === "confirmed") return "processing";
+    if (s === "assigned" || s === "picked_up" || s === "en_route") return "delivering";
+    return s || "pending";
+  };
 
   // Redirect to auth if not authenticated
   useEffect(() => {
@@ -129,7 +137,10 @@ export default function OrderTracking() {
     if (!orders || orders.length === 0) return;
 
     const fetchRiderLocations = async () => {
-      const deliveringOrders = orders.filter(order => order.status === "delivering");
+      const deliveringOrders = orders.filter(order => {
+        const status = normalizeStatus(order.status);
+        return status === "delivering";
+      });
       
       for (const order of deliveringOrders) {
         try {
@@ -167,14 +178,19 @@ export default function OrderTracking() {
 
   // Filter orders based on search and status
   const filteredOrders = orders.filter((order) => {
+    if (requestedOrderId && order.id !== requestedOrderId) return false;
+
+    const normalized = normalizeStatus(order.status);
+    const address = order.deliveryAddress || "";
+    const city = order.deliveryCity || "";
     const matchesSearch = 
       searchQuery === "" ||
       order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.deliveryAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.deliveryCity.toLowerCase().includes(searchQuery.toLowerCase());
+      address.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      city.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesStatus = 
-      statusFilter === "all" || order.status === statusFilter;
+      statusFilter === "all" || normalized === statusFilter;
 
     return matchesSearch && matchesStatus;
   });
@@ -265,6 +281,11 @@ export default function OrderTracking() {
                     </Select>
                   </div>
                 </div>
+                {requestedOrderId && (
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Showing tracking for selected order.
+                  </p>
+                )}
               </Card>
 
               {/* Results Count */}
@@ -354,7 +375,7 @@ export default function OrderTracking() {
                         </div>
 
                         {/* Live Delivery Map for Delivering Orders */}
-                        {order.status === "delivering" && order.deliveryLatitude && order.deliveryLongitude && 
+                        {normalizeStatus(order.status) === "delivering" && order.deliveryLatitude && order.deliveryLongitude && 
                          !isNaN(parseFloat(order.deliveryLatitude)) && !isNaN(parseFloat(order.deliveryLongitude)) && (
                           <div className="pt-4 border-t space-y-4">
                             <div className="flex items-center justify-between">

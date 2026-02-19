@@ -9,6 +9,13 @@ interface OrderStatusTimelineProps {
   className?: string;
 }
 
+const normalizeStatus = (status?: string) => {
+  const s = (status || "").toLowerCase().trim();
+  if (s === "ready" || s === "confirmed" || s === "assigned") return "processing";
+  if (s === "picked_up" || s === "en_route") return "delivering";
+  return s || "pending";
+};
+
 const statusSteps = [
   { key: "pending", label: "Order Placed", icon: Clock },
   { key: "processing", label: "Processing", icon: Package },
@@ -25,10 +32,11 @@ export default function OrderStatusTimeline({
   deliveredAt,
   className 
 }: OrderStatusTimelineProps) {
+  const normalizedStatus = normalizeStatus(currentStatus);
   // Handle cancelled and disputed separately
-  const isCancelled = currentStatus === "cancelled";
-  const isDisputed = currentStatus === "disputed";
-  const currentIndex = statusOrder.indexOf(currentStatus);
+  const isCancelled = normalizedStatus === "cancelled";
+  const isDisputed = normalizedStatus === "disputed";
+  const currentIndex = statusOrder.indexOf(normalizedStatus);
 
   if (isCancelled) {
     return (
@@ -122,7 +130,7 @@ export default function OrderStatusTimeline({
       </div>
 
       {/* Timestamp Information */}
-      {currentStatus === "delivered" && deliveredAt && (
+      {normalizedStatus === "delivered" && deliveredAt && (
         <div className="mt-4 text-center" data-testid="delivery-timestamp">
           <p className="text-sm text-muted-foreground">
             Delivered on {new Date(deliveredAt).toLocaleDateString()} at{" "}
