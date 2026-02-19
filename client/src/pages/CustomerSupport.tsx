@@ -13,8 +13,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useSocket } from "@/contexts/NotificationContext";
 import { formatLastSeen, useBatchPresence, usePresence } from "@/hooks/usePresence";
-import { AlertCircle, Check, CheckCircle2, Clock, Loader2, MessageCircle, Mic, Paperclip, Send, Square, User, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Clock, Loader2, MessageCircle, Paperclip, Send, User } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 
 interface SupportConversation {
   id: string;
@@ -78,17 +79,10 @@ export default function CustomerSupport() {
   const [newSupportMessage, setNewSupportMessage] = useState("");
   const [showNewTicketForm, setShowNewTicketForm] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingError, setRecordingError] = useState<string | null>(null);
-  const [recordingDurationSec, setRecordingDurationSec] = useState(0);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localTypingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
 
   const normalizedRole = useMemo(() => {
     if (!user?.role) return "buyer";
@@ -371,92 +365,8 @@ export default function CustomerSupport() {
     uploadAttachment(file);
   };
 
-  const getSupportedAudioMimeType = (): string | undefined => {
-    if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
-      return undefined;
-    }
-    const candidates = [
-      "audio/webm;codecs=opus",
-      "audio/webm",
-      "audio/ogg;codecs=opus",
-      "audio/ogg",
-      "audio/mp4",
-      "audio/mpeg",
-    ];
-    return candidates.find((mime) => MediaRecorder.isTypeSupported(mime));
-  };
-
-  const stopRecordingAndUpload = () => {
-    if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== "recording") return;
-    mediaRecorderRef.current.stop();
-  };
-
-  const startVoiceRecording = async () => {
-    if (isRecording) return;
-    try {
-      setRecordingError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      audioChunksRef.current = [];
-
-      const selectedMime = getSupportedAudioMimeType();
-      const recorder = selectedMime ? new MediaRecorder(stream, { mimeType: selectedMime }) : new MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (evt) => {
-        if (evt.data.size > 0) audioChunksRef.current.push(evt.data);
-      };
-
-      recorder.onstop = async () => {
-        const mimeType = recorder.mimeType || selectedMime || "audio/webm";
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        stream.getTracks().forEach((track) => track.stop());
-        mediaStreamRef.current = null;
-        setIsRecording(false);
-        if (recordingTimerRef.current) {
-          clearInterval(recordingTimerRef.current);
-          recordingTimerRef.current = null;
-        }
-        setRecordingDurationSec(0);
-
-        const extension =
-          mimeType.includes("ogg") ? "ogg" :
-          mimeType.includes("mp4") ? "m4a" :
-          mimeType.includes("mpeg") ? "mp3" :
-          "webm";
-        const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
-          type: blob.type || mimeType,
-        });
-        await uploadAttachment(file);
-      };
-
-      recorder.start();
-      setIsRecording(true);
-      setRecordingDurationSec(0);
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingDurationSec((prev) => prev + 1);
-      }, 1000);
-    } catch (error: any) {
-      setRecordingError(error?.message || "Could not start voice recording");
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
-      toast({
-        title: "Recording failed",
-        description: "Please allow microphone access and try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const toggleVoiceRecording = () => {
-    if (isRecording) {
-      stopRecordingAndUpload();
-      return;
-    }
-    startVoiceRecording();
+  const handleSendAudio = async (file: File) => {
+    await uploadAttachment(file);
   };
 
   const handleCreateTicket = () => {
@@ -510,13 +420,6 @@ export default function CustomerSupport() {
 
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current?.state === "recording") {
-        mediaRecorderRef.current.stop();
-      }
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       if (localTypingStopTimeoutRef.current) clearTimeout(localTypingStopTimeoutRef.current);
     };
@@ -986,31 +889,15 @@ export default function CustomerSupport() {
                           )}
                         </Button>
                       ) : (
-                        <Button
-                          type="button"
-                          variant={isRecording ? "destructive" : "default"}
-                          size="icon"
-                          onClick={toggleVoiceRecording}
+                        <VoiceRecorderControls
+                          onSendAudio={handleSendAudio}
                           disabled={uploadingAttachment || sendMessageMutation.isPending}
-                          title={isRecording ? "Stop and send voice note" : "Start voice recording"}
-                        >
-                          {isRecording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                        </Button>
-                      )}
-                      {isRecording && (
-                        <span className="text-xs text-red-500 whitespace-nowrap">
-                          Recording {recordingDurationSec}s
-                        </span>
+                        />
                       )}
                       {uploadingAttachment && (
                         <span className="text-xs text-muted-foreground whitespace-nowrap">Uploading...</span>
                       )}
-                      {recordingError && (
-                        <Button type="button" variant="ghost" size="icon" onClick={() => setRecordingError(null)}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {!message.trim() && !isRecording && (
+                      {!message.trim() && (
                         <span className="text-xs text-muted-foreground whitespace-nowrap">Tap mic to record</span>
                       )}
                     </div>

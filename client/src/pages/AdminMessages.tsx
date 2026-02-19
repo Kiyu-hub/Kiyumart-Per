@@ -22,6 +22,9 @@ import { GroupCallDialog } from "@/components/GroupCallDialog";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
 import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
+import VoiceRecorderControls from "@/components/VoiceRecorderControls";
+import MessageAttachmentContent from "@/components/MessageAttachmentContent";
+import { buildChatAttachmentMessage } from "@/lib/chatAttachments";
 
 interface UserData {
   id: string;
@@ -51,6 +54,7 @@ export default function AdminMessages() {
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [uploadingAudio, setUploadingAudio] = useState(false);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
@@ -354,6 +358,41 @@ export default function AdminMessages() {
         receiverId: selectedUserId,
         message: message.trim(),
       });
+    }
+  };
+
+  const handleSendAudio = async (file: File) => {
+    if (!selectedUserId) return;
+    try {
+      setUploadingAudio(true);
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await fetch("/api/upload/audio", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const payload = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok || !payload?.url) {
+        throw new Error(payload?.error || "Failed to upload voice note");
+      }
+      await sendMessageMutation.mutateAsync({
+        receiverId: selectedUserId,
+        message: buildChatAttachmentMessage({
+          kind: "audio",
+          url: payload.url,
+          name: file.name,
+          size: file.size,
+        }),
+      });
+    } catch (error: any) {
+      toast({
+        title: "Voice note failed",
+        description: error?.message || "Could not send voice note",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingAudio(false);
     }
   };
 
@@ -840,7 +879,9 @@ export default function AdminMessages() {
                           }`}
                         >
                           <div className="flex items-end gap-2">
-                            <p className="text-sm flex-1">{msg.message}</p>
+                            <div className="flex-1">
+                              <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />
+                            </div>
                             <span className="flex items-center gap-0.5 flex-shrink-0">
                               <span className="text-[10px] opacity-70 whitespace-nowrap">
                                 {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
@@ -872,18 +913,25 @@ export default function AdminMessages() {
                   disabled={sendMessageMutation.isPending}
                   className="flex-1"
                 />
-                <Button
-                  onClick={handleSendMessage}
-                  disabled={!message.trim() || sendMessageMutation.isPending}
-                  size="icon"
-                  className="rounded-full"
-                >
-                  {sendMessageMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                </Button>
+                {message.trim() ? (
+                  <Button
+                    onClick={handleSendMessage}
+                    disabled={sendMessageMutation.isPending || uploadingAudio}
+                    size="icon"
+                    className="rounded-full"
+                  >
+                    {sendMessageMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                ) : (
+                  <VoiceRecorderControls
+                    onSendAudio={handleSendAudio}
+                    disabled={sendMessageMutation.isPending || uploadingAudio}
+                  />
+                )}
               </div>
             </Card>
           )}
@@ -1101,7 +1149,9 @@ export default function AdminMessages() {
                               }`}
                             >
                               <div className="flex items-end gap-2">
-                                <p className="text-sm flex-1">{msg.message}</p>
+                                <div className="flex-1">
+                                  <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />
+                                </div>
                                 <span className="flex items-center gap-0.5 flex-shrink-0">
                                   <span className={`text-[10px] whitespace-nowrap ${
                                     msg.senderId === user?.id ? 'opacity-70' : 'text-muted-foreground'
@@ -1136,17 +1186,24 @@ export default function AdminMessages() {
                     className="flex-1"
                     data-testid="input-message"
                   />
-                  <Button
-                    onClick={handleSendMessage}
-                    disabled={!message.trim() || sendMessageMutation.isPending}
-                    data-testid="button-send"
-                  >
-                    {sendMessageMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
+                  {message.trim() ? (
+                    <Button
+                      onClick={handleSendMessage}
+                      disabled={sendMessageMutation.isPending || uploadingAudio}
+                      data-testid="button-send"
+                    >
+                      {sendMessageMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  ) : (
+                    <VoiceRecorderControls
+                      onSendAudio={handleSendAudio}
+                      disabled={sendMessageMutation.isPending || uploadingAudio}
+                    />
+                  )}
                 </div>
               </div>
             ) : (

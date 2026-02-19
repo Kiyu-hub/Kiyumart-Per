@@ -6,6 +6,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Phone, MoreVertical, Paperclip } from "lucide-react";
 import { useState } from "react";
 import { MessageStatusTicks } from "./MessageStatusTicks";
+import VoiceRecorderControls from "./VoiceRecorderControls";
+import MessageAttachmentContent from "./MessageAttachmentContent";
 
 interface Message {
   id: string;
@@ -27,6 +29,8 @@ interface ChatInterfaceProps {
   messages: Message[];
   onSendMessage?: (message: string) => void;
   onTypingChange?: (value: string) => void;
+  onSendAudio?: (file: File) => Promise<void> | void;
+  isSendingAudio?: boolean;
 }
 
 export default function ChatInterface({
@@ -38,6 +42,8 @@ export default function ChatInterface({
   messages,
   onSendMessage,
   onTypingChange,
+  onSendAudio,
+  isSendingAudio = false,
 }: ChatInterfaceProps) {
   const [newMessage, setNewMessage] = useState("");
 
@@ -102,7 +108,7 @@ export default function ChatInterface({
                 }`}
                 data-testid={`message-${message.id}`}
               >
-                <p className="text-sm">{message.text}</p>
+                <MessageAttachmentContent message={message.text} className="text-sm whitespace-pre-wrap" />
                 <div className="flex items-center justify-between gap-2 mt-1">
                   <p
                     className={`text-xs ${
@@ -141,13 +147,17 @@ export default function ChatInterface({
             onKeyPress={(e) => e.key === "Enter" && handleSend()}
             data-testid="input-message"
           />
-          <Button 
-            size="icon"
-            onClick={handleSend}
-            data-testid="button-send"
-          >
-            <Send className="h-5 w-5" />
-          </Button>
+          {newMessage.trim() ? (
+            <Button size="icon" onClick={handleSend} data-testid="button-send">
+              <Send className="h-5 w-5" />
+            </Button>
+          ) : onSendAudio ? (
+            <VoiceRecorderControls onSendAudio={onSendAudio} disabled={isSendingAudio} />
+          ) : (
+            <Button size="icon" onClick={handleSend} data-testid="button-send" disabled>
+              <Send className="h-5 w-5" />
+            </Button>
+          )}
         </div>
       </div>
     </Card>

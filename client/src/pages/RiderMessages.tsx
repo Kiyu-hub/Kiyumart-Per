@@ -16,6 +16,9 @@ import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { useSocket } from "@/contexts/NotificationContext";
 import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
+import VoiceRecorderControls from "@/components/VoiceRecorderControls";
+import MessageAttachmentContent from "@/components/MessageAttachmentContent";
+import { buildChatAttachmentMessage } from "@/lib/chatAttachments";
 
 interface UserData {
   id: string;
@@ -51,6 +54,7 @@ export default function RiderMessages() {
   const socket = useSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
 
@@ -235,6 +239,41 @@ export default function RiderMessages() {
     }
   };
 
+  const handleSendAudio = async (file: File) => {
+    if (!selectedUserId) return;
+    try {
+      setUploadingAudio(true);
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await fetch("/api/upload/audio", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const payload = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok || !payload?.url) {
+        throw new Error(payload?.error || "Failed to upload voice note");
+      }
+      await sendMessageMutation.mutateAsync({
+        receiverId: selectedUserId,
+        message: buildChatAttachmentMessage({
+          kind: "audio",
+          url: payload.url,
+          name: file.name,
+          size: file.size,
+        }),
+      });
+    } catch (error: any) {
+      toast({
+        title: "Voice note failed",
+        description: error?.message || "Could not send voice note",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingAudio(false);
+    }
+  };
+
   const filteredUsers = users.filter(u => 
     u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     u.email?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -415,7 +454,7 @@ export default function RiderMessages() {
                               : "bg-muted rounded-bl-sm"
                           }`}
                         >
-                          <p className="text-sm">{msg.message}</p>
+                          <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />
                           <div className="flex items-center gap-1 mt-1">
                             <span className="text-[10px] opacity-70">
                               {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
@@ -446,17 +485,24 @@ export default function RiderMessages() {
                   disabled={sendMessageMutation.isPending}
                   className="flex-1"
                 />
-                <Button
-                  onClick={handleSendMessage}
-                  disabled={!message.trim() || sendMessageMutation.isPending}
-                  size="icon"
-                >
-                  {sendMessageMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                </Button>
+                {message.trim() ? (
+                  <Button
+                    onClick={handleSendMessage}
+                    disabled={sendMessageMutation.isPending || uploadingAudio}
+                    size="icon"
+                  >
+                    {sendMessageMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                ) : (
+                  <VoiceRecorderControls
+                    onSendAudio={handleSendAudio}
+                    disabled={sendMessageMutation.isPending || uploadingAudio}
+                  />
+                )}
               </div>
             </Card>
           )}
@@ -580,7 +626,7 @@ export default function RiderMessages() {
                                     : "bg-accent"
                                 }`}
                               >
-                                <p className="text-sm">{msg.message}</p>
+                                <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />
                                 <div className="flex items-center gap-1 mt-1">
                                   <span className={`text-[10px] ${msg.senderId === user?.id ? 'opacity-70' : 'text-muted-foreground'}`}>
                                     {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
@@ -612,16 +658,23 @@ export default function RiderMessages() {
                       disabled={sendMessageMutation.isPending}
                       className="flex-1"
                     />
-                    <Button
-                      onClick={handleSendMessage}
-                      disabled={!message.trim() || sendMessageMutation.isPending}
-                    >
-                      {sendMessageMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </Button>
+                    {message.trim() ? (
+                      <Button
+                        onClick={handleSendMessage}
+                        disabled={sendMessageMutation.isPending || uploadingAudio}
+                      >
+                        {sendMessageMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </Button>
+                    ) : (
+                      <VoiceRecorderControls
+                        onSendAudio={handleSendAudio}
+                        disabled={sendMessageMutation.isPending || uploadingAudio}
+                      />
+                    )}
                   </div>
                 </>
               ) : (

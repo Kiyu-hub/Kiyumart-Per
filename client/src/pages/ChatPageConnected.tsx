@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowLeft, Loader2, AlertCircle, Users, Phone, Video } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
+import { buildChatAttachmentMessage } from "@/lib/chatAttachments";
 
 interface ChatMessage {
   id: string;
@@ -55,6 +56,7 @@ export default function ChatPageConnected() {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
   const [incomingCallData, setIncomingCallData] = useState<{ callerId: string; callerName: string; callType: "audio" | "video"; offer: any } | null>(null);
   const [remotePeerId, setRemotePeerId] = useState<string | null>(null); // Track remote peer for ICE candidates
   
@@ -507,6 +509,41 @@ export default function ChatPageConnected() {
     sendMessageMutation.mutate(message);
   };
 
+  const handleSendAudio = async (file: File) => {
+    if (!selectedContact) return;
+    try {
+      setUploadingAudio(true);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const uploadRes = await fetch("/api/upload/audio", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const payload = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok || !payload?.url) {
+        throw new Error(payload?.error || "Failed to upload voice note");
+      }
+
+      const voiceMessage = buildChatAttachmentMessage({
+        kind: "audio",
+        url: payload.url,
+        name: file.name,
+        size: file.size,
+      });
+      await sendMessageMutation.mutateAsync(voiceMessage);
+    } catch (error: any) {
+      toast({
+        title: "Voice note failed",
+        description: error?.message || "Could not send voice note",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingAudio(false);
+    }
+  };
+
   const handleTypingChange = (value: string) => {
     if (!selectedContact || !socketRef.current) return;
 
@@ -701,6 +738,8 @@ export default function ChatPageConnected() {
                 messages={transformedMessages}
                 onSendMessage={handleSendMessage}
                 onTypingChange={handleTypingChange}
+                onSendAudio={handleSendAudio}
+                isSendingAudio={uploadingAudio || sendMessageMutation.isPending}
               />
             </div>
           ) : contactsLoading ? (
