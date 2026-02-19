@@ -108,7 +108,7 @@ export function JitsiCallDialog({
       "select-background",
       "hangup",
       ...(jitsiConfig?.isModerator
-        ? ["security", "lobby", "mute-everyone", "mute-video-everyone", "av-moderation"]
+        ? ["mute-everyone", "mute-video-everyone"]
         : []),
     ],
     [jitsiConfig?.isModerator]
@@ -181,6 +181,8 @@ export function JitsiCallDialog({
             requireDisplayName: false,
             disableDeepLinking: true,
             enableWelcomePage: false,
+            enableFeaturesBasedOnToken: false,
+            enableUserRolesBasedOnToken: false,
             enableClosePage: false,
             enableLobbyChat: false,
             disableLobbyPassword: true,
