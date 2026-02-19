@@ -4899,18 +4899,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Leave a call
   app.post("/api/calls/:roomName/leave", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const success = jitsiMeetService.leaveCall(req.params.roomName, req.user!.id);
+      const roomName = req.params.roomName;
+      const roomBeforeLeave = jitsiMeetService.getRoom(roomName);
+      const wasOneToOneCall = !!roomBeforeLeave && !roomBeforeLeave.endedAt && roomBeforeLeave.participants.length <= 2;
+      const remainingParticipantsBeforeLeave = roomBeforeLeave
+        ? roomBeforeLeave.participants.filter((participantId) => participantId !== req.user!.id)
+        : [];
+
+      const success = jitsiMeetService.leaveCall(roomName, req.user!.id);
       
       if (success) {
         // Notify other participants
-        const room = jitsiMeetService.getRoom(req.params.roomName);
+        const room = jitsiMeetService.getRoom(roomName);
         if (room) {
           for (const participantId of room.participants) {
             io.to(participantId).emit("jitsi_participant_left", {
-              roomName: req.params.roomName,
+              roomName,
               userId: req.user!.id,
             });
           }
+        }
+
+        // For 1-on-1 calls, remote hang-up should explicitly end the call for the other side too
+        if (wasOneToOneCall && remainingParticipantsBeforeLeave.length > 0) {
+          for (const participantId of remainingParticipantsBeforeLeave) {
+            io.to(participantId).emit("jitsi_call_ended", {
+              roomName,
+              endedBy: req.user!.id,
+            });
+          }
+          jitsiMeetService.endCall(roomName);
         }
       }
       

@@ -121,6 +121,7 @@ export function JitsiCallDialog({
     setParticipantCount(1);
     setIsAudioMuted(false);
     setIsVideoMuted(callType === "voice");
+    const enforcedDomain = "meet.jit.si";
 
     const parsed = (() => {
       try {
@@ -128,12 +129,12 @@ export function JitsiCallDialog({
         const url = new URL(noHash);
         const parsedRoom = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
         return {
-          domain: jitsiConfig?.domain || url.hostname,
+          domain: enforcedDomain,
           room: jitsiConfig?.roomName || roomName || parsedRoom,
         };
       } catch {
         return {
-          domain: jitsiConfig?.domain || "meet.jit.si",
+          domain: enforcedDomain,
           room: jitsiConfig?.roomName || roomName || "",
         };
       }
@@ -180,6 +181,13 @@ export function JitsiCallDialog({
             requireDisplayName: false,
             disableDeepLinking: true,
             enableWelcomePage: false,
+            enableClosePage: false,
+            enableLobbyChat: false,
+            disableLobbyPassword: true,
+            lobby: {
+              enabled: false,
+              autoKnock: false,
+            },
             startWithAudioMuted: false,
             startWithVideoMuted: callType === "voice",
             startAudioOnly: callType === "voice",
@@ -255,19 +263,13 @@ export function JitsiCallDialog({
     }
   };
 
-  const runCommand = (...commands: Array<string | [string, ...any[]]>) => {
-    for (const cmd of commands) {
-      try {
-        if (Array.isArray(cmd)) {
-          const [name, ...args] = cmd;
-          apiRef.current?.executeCommand?.(name, ...args);
-        } else {
-          apiRef.current?.executeCommand?.(cmd);
-        }
-        return;
-      } catch {
-        // try next fallback
-      }
+  const runCommand = (name: string, ...args: any[]) => {
+    const api = apiRef.current;
+    if (!conferenceJoined || !api || typeof api.executeCommand !== "function") return;
+    try {
+      api.executeCommand(name, ...args);
+    } catch {
+      // no-op
     }
   };
 
@@ -386,6 +388,7 @@ export function JitsiCallDialog({
               variant="outline"
               size="icon"
               onClick={() => runCommand("toggleAudio")}
+              disabled={!conferenceJoined}
               className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
               title={isAudioMuted ? "Unmute microphone" : "Mute microphone"}
             >
@@ -395,6 +398,7 @@ export function JitsiCallDialog({
               variant="outline"
               size="icon"
               onClick={() => runCommand("toggleVideo")}
+              disabled={!conferenceJoined}
               className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
               title={isVideoMuted ? "Turn camera on" : "Turn camera off"}
             >
@@ -404,6 +408,7 @@ export function JitsiCallDialog({
               variant="outline"
               size="icon"
               onClick={() => runCommand("toggleChat")}
+              disabled={!conferenceJoined}
               className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
               title="Chat"
             >
@@ -413,6 +418,7 @@ export function JitsiCallDialog({
               variant="outline"
               size="icon"
               onClick={() => runCommand("toggleParticipantsPane")}
+              disabled={!conferenceJoined}
               className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
               title="Participants"
             >
@@ -421,7 +427,8 @@ export function JitsiCallDialog({
             <Button
               variant="outline"
               size="icon"
-              onClick={() => runCommand("toggleTileView", ["setTileView", true])}
+              onClick={() => runCommand("toggleTileView")}
+              disabled={!conferenceJoined}
               className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
               title="Tile view"
             >
@@ -430,7 +437,8 @@ export function JitsiCallDialog({
             <Button
               variant="outline"
               size="icon"
-              onClick={() => runCommand("toggleVirtualBackgroundDialog", "showVideoBackgroundDialog")}
+              onClick={() => runCommand("toggleVirtualBackgroundDialog")}
+              disabled={!conferenceJoined}
               className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
               title="Background effects"
             >
@@ -440,6 +448,7 @@ export function JitsiCallDialog({
               variant="outline"
               size="icon"
               onClick={() => runCommand("toggleSettings")}
+              disabled={!conferenceJoined}
               className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
               title="Settings"
             >
