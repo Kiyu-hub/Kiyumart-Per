@@ -225,6 +225,9 @@ export default function CustomerSupport() {
     if (socket && peerUserId) {
       socket.emit("stop_typing", { receiverId: peerUserId });
     }
+    if (socket) {
+      socket.emit("support_stop_typing", { conversationId: selectedConversation });
+    }
     sendMessageMutation.mutate({ conversationId: selectedConversation, message: message.trim() });
   };
 
@@ -445,6 +448,11 @@ export default function CustomerSupport() {
   );
   const batchPresence = useBatchPresence(presenceUserIds);
   const peerPresence = usePresence(peerUserId || undefined);
+  const getConversationPresence = (conv: SupportConversation) => {
+    const id = isSupportStaff ? conv.customerId : conv.agentId;
+    if (!id) return { status: "offline" as const, lastSeen: null as string | null };
+    return batchPresence.getPresence(id);
+  };
 
   useEffect(() => {
     return () => {
@@ -483,6 +491,31 @@ export default function CustomerSupport() {
       socket.off("user_stop_typing", handlePeerStopTyping);
     };
   }, [socket, peerUserId]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleSupportTyping = (payload: { conversationId: string; userId: string }) => {
+      if (payload?.conversationId === selectedConversation && payload?.userId !== user?.id) {
+        setIsPeerTyping(true);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => setIsPeerTyping(false), 2500);
+      }
+    };
+
+    const handleSupportStopTyping = (payload: { conversationId: string; userId: string }) => {
+      if (payload?.conversationId === selectedConversation && payload?.userId !== user?.id) {
+        setIsPeerTyping(false);
+      }
+    };
+
+    socket.on("support_user_typing", handleSupportTyping);
+    socket.on("support_user_stop_typing", handleSupportStopTyping);
+    return () => {
+      socket.off("support_user_typing", handleSupportTyping);
+      socket.off("support_user_stop_typing", handleSupportStopTyping);
+    };
+  }, [socket, selectedConversation, user?.id]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -608,13 +641,11 @@ export default function CustomerSupport() {
                               </div>
                             )}
                             {(() => {
-                              const id = isSupportStaff ? conv.customerId : conv.agentId;
-                              if (!id) return null;
-                              const p = batchPresence.getPresence(id);
+                              const p = getConversationPresence(conv);
                               return (
                                 <span
                                   className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-background ${
-                                    p.status === "online" ? "bg-green-500" : p.status === "away" ? "bg-yellow-500" : "bg-gray-400"
+                                    p.status === "online" ? "bg-[#25D366]" : p.status === "away" ? "bg-yellow-500" : "bg-gray-400"
                                   }`}
                                 />
                               );
@@ -625,6 +656,14 @@ export default function CustomerSupport() {
                             <p className="text-xs text-muted-foreground truncate">
                               {isSupportStaff ? (conv.customerName || conv.customerEmail) : (conv.agentName || "Support Team")}
                             </p>
+                            {(() => {
+                              const p = getConversationPresence(conv);
+                              return (
+                                <p className={`text-[11px] ${p.status === "online" ? "text-[#25D366] font-medium" : "text-muted-foreground"}`}>
+                                  {p.status === "online" ? "Online" : p.status === "away" ? "Away" : p.lastSeen ? `Last seen ${formatLastSeen(p.lastSeen)}` : "Offline"}
+                                </p>
+                              );
+                            })()}
                           </div>
                         </div>
                         <Badge className={`${getStatusColor(conv.status)} text-white`}>{conv.status}</Badge>
@@ -668,11 +707,11 @@ export default function CustomerSupport() {
                               : "Waiting for agent assignment"}
                       </p>
                       {isPeerTyping && (
-                        <div className="flex items-center gap-1 text-xs text-green-600 mt-1">
+                        <div className="flex items-center gap-1 text-xs text-[#25D366] mt-1">
                           <span>typing</span>
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-600 animate-bounce [animation-delay:-0.3s]" />
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-600 animate-bounce [animation-delay:-0.15s]" />
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-600 animate-bounce" />
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#25D366] animate-bounce [animation-delay:-0.3s]" />
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#25D366] animate-bounce [animation-delay:-0.15s]" />
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#25D366] animate-bounce" />
                         </div>
                       )}
                     </div>
@@ -829,20 +868,26 @@ export default function CustomerSupport() {
                           const next = e.target.value;
                           setMessage(next);
 
-                          if (!socket || !peerUserId) return;
+                          if (!socket) return;
                           if (next.trim().length > 0) {
-                            socket.emit("typing", { receiverId: peerUserId });
+                            if (peerUserId) socket.emit("typing", { receiverId: peerUserId });
+                            if (selectedConversation) socket.emit("support_typing", { conversationId: selectedConversation });
                             if (localTypingStopTimeoutRef.current) clearTimeout(localTypingStopTimeoutRef.current);
                             localTypingStopTimeoutRef.current = setTimeout(() => {
-                              socket.emit("stop_typing", { receiverId: peerUserId });
+                              if (peerUserId) socket.emit("stop_typing", { receiverId: peerUserId });
+                              if (selectedConversation) socket.emit("support_stop_typing", { conversationId: selectedConversation });
                             }, 1200);
                           } else {
-                            socket.emit("stop_typing", { receiverId: peerUserId });
+                            if (peerUserId) socket.emit("stop_typing", { receiverId: peerUserId });
+                            if (selectedConversation) socket.emit("support_stop_typing", { conversationId: selectedConversation });
                           }
                         }}
                         onBlur={() => {
                           if (socket && peerUserId) {
                             socket.emit("stop_typing", { receiverId: peerUserId });
+                          }
+                          if (socket && selectedConversation) {
+                            socket.emit("support_stop_typing", { conversationId: selectedConversation });
                           }
                         }}
                         onKeyDown={(e) => {

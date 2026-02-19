@@ -6845,6 +6845,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
       io.to(receiverId).emit("user_stop_typing", { userId });
       presenceService.setTyping(userId, null);
     });
+
+    // Support conversation typing events (works even when ticket is unassigned)
+    socket.on("support_typing", async ({ conversationId }) => {
+      try {
+        if (!conversationId) return;
+        const { db } = await import("../db/index");
+        const { supportConversations } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+
+        const [conversation] = await db
+          .select()
+          .from(supportConversations)
+          .where(eq(supportConversations.id, conversationId))
+          .limit(1);
+        if (!conversation) return;
+
+        const targetUserIds = new Set<string>();
+        targetUserIds.add(conversation.customerId);
+        if (conversation.agentId) {
+          targetUserIds.add(conversation.agentId);
+        } else {
+          const admins = await storage.getUsersByRole("admin");
+          const superAdmins = await storage.getUsersByRole("super_admin");
+          const agents = await storage.getUsersByRole("agent");
+          [...admins, ...superAdmins, ...agents].forEach((u) => targetUserIds.add(u.id));
+        }
+        targetUserIds.delete(userId);
+
+        Array.from(targetUserIds).forEach((targetUserId) => {
+          io.to(targetUserId).emit("support_user_typing", { conversationId, userId });
+        });
+      } catch (err) {
+        console.error("support_typing handler error:", err);
+      }
+    });
+
+    socket.on("support_stop_typing", async ({ conversationId }) => {
+      try {
+        if (!conversationId) return;
+        const { db } = await import("../db/index");
+        const { supportConversations } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+
+        const [conversation] = await db
+          .select()
+          .from(supportConversations)
+          .where(eq(supportConversations.id, conversationId))
+          .limit(1);
+        if (!conversation) return;
+
+        const targetUserIds = new Set<string>();
+        targetUserIds.add(conversation.customerId);
+        if (conversation.agentId) {
+          targetUserIds.add(conversation.agentId);
+        } else {
+          const admins = await storage.getUsersByRole("admin");
+          const superAdmins = await storage.getUsersByRole("super_admin");
+          const agents = await storage.getUsersByRole("agent");
+          [...admins, ...superAdmins, ...agents].forEach((u) => targetUserIds.add(u.id));
+        }
+        targetUserIds.delete(userId);
+
+        Array.from(targetUserIds).forEach((targetUserId) => {
+          io.to(targetUserId).emit("support_user_stop_typing", { conversationId, userId });
+        });
+      } catch (err) {
+        console.error("support_stop_typing handler error:", err);
+      }
+    });
     
     // Message acknowledgment events
     socket.on("message_received", ({ messageId }) => {
