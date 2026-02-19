@@ -16,6 +16,12 @@ interface Order {
   status: string;
   paymentStatus?: string;
   createdAt: string;
+  deliveryPhone?: string;
+  deliveryAddress?: string;
+  buyer?: {
+    email?: string;
+    name?: string;
+  };
 }
 
 export default function BuyerDashboard() {
@@ -171,6 +177,8 @@ export default function BuyerDashboard() {
                   const s = normalize(order.status);
                   const paymentStatus = normalizePaymentStatus(order.paymentStatus);
                   const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
+                  const contactEmail = order.buyer?.email || user?.email || "N/A";
+                  const contactPhone = order.deliveryPhone || "N/A";
 
                   const handleClick = () => {
                     if (s === "pending") {
@@ -197,20 +205,41 @@ export default function BuyerDashboard() {
                       onClick={handleClick}
                       data-testid={`order-${order.id}`}
                     >
-                      <div className="mb-2">
-                        <p className="font-medium text-sm">{order.orderNumber}</p>
+                      <div className="mb-3">
+                        <p className="font-semibold text-sm">{order.orderNumber}</p>
                         <p className="text-xs text-muted-foreground">
                           {new Date(order.createdAt).toLocaleDateString()}
                         </p>
                       </div>
-                      <div className="flex-1">
-                        <p className="text-lg font-semibold mb-2">{formatPrice(Number(order.total) || 0)}</p>
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm text-muted-foreground capitalize">{order.status}</p>
-                          {isUnpaid && (
-                            <p className="text-xs text-destructive font-medium">Payment required</p>
-                          )}
+
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="secondary" className="capitalize">
+                            {order.status}
+                          </Badge>
+                          <Badge variant={paymentStatus === "paid" ? "default" : "outline"}>
+                            {paymentStatus}
+                          </Badge>
                         </div>
+
+                        <div className="text-xs space-y-1">
+                          <div className="flex justify-between gap-2">
+                            <span className="text-muted-foreground">Email</span>
+                            <span className="font-medium truncate">{contactEmail}</span>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <span className="text-muted-foreground">Phone</span>
+                            <span className="font-medium">{contactPhone}</span>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <span className="text-muted-foreground">Total</span>
+                            <span className="font-semibold">{formatPrice(Number(order.total) || 0)}</span>
+                          </div>
+                        </div>
+
+                        {isUnpaid && (
+                          <p className="text-xs text-destructive font-medium">Payment required</p>
+                        )}
                       </div>
 
                       <div className="mt-3">
