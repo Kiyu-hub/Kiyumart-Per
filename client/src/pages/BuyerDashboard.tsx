@@ -79,6 +79,7 @@ export default function BuyerDashboard() {
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
               <div>
                 <p className="text-white/80 text-sm">Welcome back</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-white/90">New Buyer Workspace</p>
                 <h1 className="text-2xl md:text-3xl font-bold mt-1">
                   {user?.name ? `${user.name.split(" ")[0]}'s Buyer Dashboard` : "Buyer Dashboard"}
                 </h1>
