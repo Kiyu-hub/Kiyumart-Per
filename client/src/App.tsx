@@ -172,6 +172,9 @@ function Router() {
       <Route path="/seller/notifications" component={SellerNotifications} />
       <Route path="/seller/messages" component={SellerMessages} />
       <Route path="/seller/analytics" component={SellerAnalytics} />
+      <Route path="/seller/platform-earnings" component={SellerAnalytics} />
+      <Route path="/seller/payout" component={SellerPaymentSetup} />
+      <Route path="/seller/payouts" component={SellerPaymentSetup} />
       <Route path="/seller/settings" component={SellerSettings} />
       <Route path="/seller/payment-setup" component={SellerPaymentSetup} />
       <Route path="/seller" component={SellerDashboard} />

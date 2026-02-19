@@ -67,6 +67,7 @@ const routeToMenuId: Record<string, string> = {
   "/seller/analytics": "analytics",
   "/seller/platform-earnings": "platform-earnings",
   "/seller/payout": "payout",
+  "/seller/payouts": "payout",
   "/seller/settings": "settings",
   "/buyer": "dashboard",
   "/orders": "orders",

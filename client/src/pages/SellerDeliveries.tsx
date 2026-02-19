@@ -1,8 +1,8 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
-import { useLanguage } from "@/contexts/LanguageContext";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,25 +21,43 @@ interface Delivery {
 
 export default function SellerDeliveries() {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const [, navigate] = useLocation();
 
   const { data: deliveries = [], isLoading } = useQuery<Delivery[]>({
-    queryKey: ["/api/deliveries", "seller"],
+    queryKey: ["/api/orders", "seller-deliveries", user?.id],
     queryFn: async () => {
-      const res = await fetch("/api/deliveries?role=seller");
-      if (!res.ok) throw new Error("Failed to fetch deliveries");
-      return res.json();
+      const res = await apiRequest("GET", "/api/orders?context=seller");
+      const orders = await res.json();
+      if (!Array.isArray(orders)) return [];
+
+      return orders.map((order: any) => ({
+        id: order.id,
+        orderNumber: order.orderNumber || order.id,
+        status: order.status || "pending",
+        riderId: order.riderId || undefined,
+        riderName: order.riderName || undefined,
+        deliveryAddress: order.deliveryAddress || "No delivery address provided",
+        estimatedTime: order.estimatedDelivery || undefined,
+        createdAt: order.createdAt,
+      }));
     },
+    enabled: !!user && user.role === "seller",
   });
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "pending": return "bg-yellow-500";
-      case "assigned": return "bg-blue-500";
-      case "picked_up": return "bg-purple-500";
-      case "in_transit": return "bg-orange-500";
-      case "delivered": return "bg-green-500";
-      default: return "bg-gray-500";
+      case "pending":
+        return "bg-yellow-500";
+      case "assigned":
+        return "bg-blue-500";
+      case "picked_up":
+        return "bg-purple-500";
+      case "in_transit":
+        return "bg-orange-500";
+      case "delivered":
+        return "bg-green-500";
+      default:
+        return "bg-gray-500";
     }
   };
 
@@ -47,7 +65,9 @@ export default function SellerDeliveries() {
     <DashboardLayout role="seller">
       <div className="p-6">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold" data-testid="text-page-title">Deliveries</h1>
+          <h1 className="text-3xl font-bold" data-testid="text-page-title">
+            Deliveries
+          </h1>
           <p className="text-muted-foreground">Track your order deliveries</p>
         </div>
 
@@ -86,7 +106,12 @@ export default function SellerDeliveries() {
                       </p>
                     )}
                   </div>
-                  <Button variant="outline" size="sm" data-testid={`button-track-${delivery.id}`}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate(`/orders/${delivery.id}`)}
+                    data-testid={`button-track-${delivery.id}`}
+                  >
                     Track
                   </Button>
                 </div>
