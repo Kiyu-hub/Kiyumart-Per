@@ -3534,6 +3534,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const filterRole = context as "buyer" | "seller" | "rider";
         orders = await storage.getOrdersByUser(req.user!.id, filterRole);
       }
+
+      // Payment state normalization: paid orders must not remain pending.
+      // Self-heal stale records and normalize response immediately.
+      const stalePaidPending = orders.filter((o: any) => o.paymentStatus === "completed" && o.status === "pending");
+      if (stalePaidPending.length > 0) {
+        await Promise.allSettled(
+          stalePaidPending.map((o: any) =>
+            storage.updateOrder(o.id, { status: "processing" as any })
+          )
+        );
+        orders = orders.map((o: any) =>
+          o.paymentStatus === "completed" && o.status === "pending"
+            ? { ...o, status: "processing" }
+            : o
+        );
+      }
       
       // Fetch order items with product names for each order
       const ordersWithItems = await Promise.all(
@@ -3555,32 +3571,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/orders/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const order = await storage.getOrder(req.params.id);
+      let order = await storage.getOrder(req.params.id);
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
       }
+
+      // Payment state normalization for single-order reads as well.
+      if (order.paymentStatus === "completed" && order.status === "pending") {
+        const healed = await storage.updateOrder(order.id, { status: "processing" as any });
+        if (healed) order = healed as any;
+      }
+      const finalOrder = order as NonNullable<typeof order>;
       
       // Only include customer PII for admin/super_admin or the buyer themselves
       const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
-      const isBuyer = req.user!.id === order.buyerId;
+      const isBuyer = req.user!.id === finalOrder.buyerId;
       
       if (isAdmin || isBuyer) {
         // Fetch customer/buyer information to display in order details
-        const buyer = await storage.getUser(order.buyerId);
+        const buyer = await storage.getUser(finalOrder.buyerId);
         
         // Return order with complete customer info (authorized)
         res.json({
-          ...order,
+          ...finalOrder,
           customerInfo: buyer ? {
             name: buyer.name,
             email: buyer.email,
             phone: buyer.phone,
-            address: order.deliveryAddress || buyer.businessAddress || null,
+            address: finalOrder.deliveryAddress || buyer.businessAddress || null,
           } : null
         });
       } else {
         // Return order without PII for unauthorized roles
-        res.json(order);
+        res.json(finalOrder);
       }
     } catch (error: any) {
       res.status(400).json({ error: error.message });
