@@ -4466,12 +4466,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Emit WhatsApp-style read status updates back to original senders
       for (const msg of updatedMessages) {
-        io.to(msg.senderId).emit("message_status_updated", {
+        const payload = {
           messageId: msg.id,
           status: "read",
           readAt: msg.readAt?.toISOString?.() || new Date().toISOString(),
           deliveredAt: msg.deliveredAt?.toISOString?.() || new Date().toISOString(),
-        });
+        };
+        // Keep both participants in sync (sender + receiver)
+        io.to(msg.senderId).emit("message_status_updated", payload);
+        io.to(req.user!.id).emit("message_status_updated", payload);
       }
 
       // Backward-compat event for any legacy listeners
@@ -7260,11 +7263,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
 
         // Notify sender of delivery status using senderId from message record
-        io.to(message.senderId).emit("message_status_updated", {
+        const payload = {
           messageId,
           status: "delivered",
           deliveredAt: new Date().toISOString()
-        });
+        };
+        // Send to both participants so each client state stays consistent
+        io.to(message.senderId).emit("message_status_updated", payload);
+        io.to(receiverId).emit("message_status_updated", payload);
 
         console.debug(`✅ Message delivered: ${messageId} from ${message.senderId} to ${receiverId}`);
       } catch (error) {
@@ -7304,12 +7310,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(eq(chatMessages.id, messageId));
 
         // Notify sender of read status using senderId from message record
-        io.to(message.senderId).emit("message_status_updated", {
+        const payload = {
           messageId,
           status: "read",
           readAt: now.toISOString(),
           deliveredAt: now.toISOString()
-        });
+        };
+        // Send to both participants so each client state stays consistent
+        io.to(message.senderId).emit("message_status_updated", payload);
+        io.to(receiverId).emit("message_status_updated", payload);
 
         console.debug(`✅ Message read: ${messageId} from ${message.senderId} to ${receiverId}`);
       } catch (error) {
