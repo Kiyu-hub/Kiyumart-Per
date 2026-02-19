@@ -182,3 +182,23 @@
   border-color: rgba(255, 255, 255, 0.07);
   background: rgba(255, 255, 255, 0.04);
 }
+
+/* Global safety net: neutralize red/destructive hover colors across the app */
+@layer utilities {
+  [class*="hover:bg-red"]:hover,
+  [class*="hover:bg-destructive"]:hover {
+    background-color: hsl(var(--muted)) !important;
+    border-color: hsl(var(--border)) !important;
+    color: hsl(var(--foreground)) !important;
+  }
+
+  [class*="hover:text-red"]:hover,
+  [class*="hover:text-destructive"]:hover {
+    color: hsl(var(--foreground)) !important;
+  }
+
+  [class*="hover:border-red"]:hover,
+  [class*="hover:border-destructive"]:hover {
+    border-color: hsl(var(--border)) !important;
+  }
+}

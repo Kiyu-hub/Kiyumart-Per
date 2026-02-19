@@ -64,7 +64,7 @@ export default function BuyerDashboard() {
   };
 
   const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
-  const buyerButtonClass = "hover:bg-muted hover:text-foreground";
+  const buyerButtonClass = "!hover:bg-muted !hover:text-foreground";
 
   return (
     <DashboardLayout role="buyer">
@@ -194,7 +194,7 @@ export default function BuyerDashboard() {
                   return (
                     <div 
                       key={order.id} 
-                      className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors flex flex-col"
+                      className="p-4 border rounded-lg hover:bg-muted/40 cursor-pointer transition-colors flex flex-col"
                       onClick={handleClick}
                       data-testid={`order-${order.id}`}
                     >
