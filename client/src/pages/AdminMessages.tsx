@@ -287,15 +287,24 @@ export default function AdminMessages() {
         );
       });
     };
+    const handleMissedCall = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
+      toast({
+        title: "Missed call",
+        description: "A missed call alert was received.",
+      });
+    };
 
     socket.on("new_message", handleNewMessage);
     socket.on("message_status_updated", handleMessageStatusUpdated);
+    socket.on("missed_call", handleMissedCall);
 
     return () => {
       socket.off("new_message", handleNewMessage);
       socket.off("message_status_updated", handleMessageStatusUpdated);
+      socket.off("missed_call", handleMissedCall);
     };
-  }, [socket, selectedUserId, user?.id]);
+  }, [socket, selectedUserId, toast, user?.id]);
 
   useEffect(() => {
     if (!socket || !selectedUserId || messages.length === 0) return;

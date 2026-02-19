@@ -4924,35 +4924,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/calls/missed", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { targetUserId, callType } = req.body;
-      
+
       if (!targetUserId) {
         return res.status(400).json({ error: "targetUserId is required" });
       }
-      
-      // Get caller info
+
       const caller = await storage.getUser(req.user!.id);
-      
-      // Create a system message for missed call
+
       const { db } = await import("../db/index");
       const { chatMessages } = await import("@shared/schema");
-      
+
       const missedCallMessage = await db.insert(chatMessages).values({
         senderId: req.user!.id,
         receiverId: targetUserId,
-        message: `📞 Missed ${callType || 'voice'} call from ${caller?.name || 'User'}`,
+        message: `Missed ${callType || 'voice'} call from ${caller?.name || 'User'}`,
         messageType: 'missed_call',
         status: 'delivered',
       }).returning();
-      
-      // Notify the target user about missed call
+
+      const messageRecord = missedCallMessage[0];
+
       io.to(targetUserId).emit("missed_call", {
         callerId: req.user!.id,
         callerName: caller?.name || 'User',
         callType: callType || 'voice',
-        messageId: missedCallMessage[0]?.id,
+        messageId: messageRecord?.id,
       });
-      
-      res.json({ success: true, message: missedCallMessage[0] });
+
+      if (messageRecord) {
+        io.to(targetUserId).emit("new_message", messageRecord);
+        io.to(req.user!.id).emit("new_message", messageRecord);
+      }
+
+      res.json({ success: true, message: messageRecord });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -8632,3 +8636,4 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   return httpServer;
 }
+

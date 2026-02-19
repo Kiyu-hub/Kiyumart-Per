@@ -41,6 +41,15 @@ interface IncomingCall {
   callType: 'voice' | 'video';
 }
 
+interface OutgoingUnansweredCall {
+  roomName: string;
+  targetUserId: string;
+  callType: 'voice' | 'video';
+  timerId: number | null;
+  answered: boolean;
+  recordedMissed: boolean;
+}
+
 interface UseJitsiCallReturn {
   // State
   inCall: boolean;
@@ -75,6 +84,18 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     audioContext: null,
     intervalId: null,
   });
+  const outgoingUnansweredRef = useRef<OutgoingUnansweredCall | null>(null);
+
+  const getOrCreateAudioContext = useCallback(() => {
+    if (ringtoneRef.current.audioContext) {
+      return ringtoneRef.current.audioContext;
+    }
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) return null;
+    const ctx = new AudioContextCtor();
+    ringtoneRef.current.audioContext = ctx;
+    return ctx;
+  }, []);
 
   const stopRingtone = useCallback(() => {
     if (ringtoneRef.current.intervalId !== null) {
@@ -105,13 +126,14 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     });
   }, []);
 
-  const startRingtone = useCallback(() => {
+  const startRingtone = useCallback(async () => {
     if (ringtoneRef.current.intervalId !== null) return;
-    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextCtor) return;
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
     try {
-      const ctx = new AudioContextCtor();
-      ringtoneRef.current.audioContext = ctx;
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
       playRingBurst(ctx);
       ringtoneRef.current.intervalId = window.setInterval(() => {
         playRingBurst(ctx);
@@ -119,7 +141,62 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     } catch {
       // Ignore ringtone init failures
     }
-  }, [playRingBurst]);
+  }, [getOrCreateAudioContext, playRingBurst]);
+
+  const clearOutgoingUnanswered = useCallback(() => {
+    const state = outgoingUnansweredRef.current;
+    if (!state) return;
+    if (state.timerId !== null) {
+      window.clearTimeout(state.timerId);
+    }
+    outgoingUnansweredRef.current = null;
+  }, []);
+
+  const recordOutgoingMissedCall = useCallback(async (state: OutgoingUnansweredCall) => {
+    if (state.recordedMissed || state.answered) return;
+    state.recordedMissed = true;
+    try {
+      await apiRequest('POST', '/api/calls/missed', {
+        targetUserId: state.targetUserId,
+        callType: state.callType,
+      });
+    } catch (error) {
+      console.error('Failed to record outgoing missed call:', error);
+    }
+  }, []);
+
+  const scheduleOutgoingUnanswered = useCallback((
+    roomName: string,
+    targetUserId: string,
+    callType: 'voice' | 'video'
+  ) => {
+    clearOutgoingUnanswered();
+    const state: OutgoingUnansweredCall = {
+      roomName,
+      targetUserId,
+      callType,
+      timerId: null,
+      answered: false,
+      recordedMissed: false,
+    };
+    state.timerId = window.setTimeout(async () => {
+      if (!outgoingUnansweredRef.current || outgoingUnansweredRef.current.roomName !== roomName) return;
+      if (!state.answered) {
+        await recordOutgoingMissedCall(state);
+        try {
+          await apiRequest('POST', `/api/calls/${roomName}/end`);
+        } catch (error) {
+          console.error('Failed to auto-end unanswered call:', error);
+        }
+        toast({
+          title: 'No answer',
+          description: 'Missed call recorded.',
+        });
+      }
+      clearOutgoingUnanswered();
+    }, 30000);
+    outgoingUnansweredRef.current = state;
+  }, [clearOutgoingUnanswered, recordOutgoingMissedCall, toast]);
 
   // Start 1-on-1 call
   const startCallMutation = useMutation({
@@ -299,6 +376,9 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
 
     // Call ended by host
     const handleCallEnded = (data: { roomName: string; endedBy: string }) => {
+      if (outgoingUnansweredRef.current?.roomName === data.roomName) {
+        clearOutgoingUnanswered();
+      }
       if (currentRoom?.roomName === data.roomName) {
         stopRingtone();
         setCurrentRoom(null);
@@ -313,6 +393,10 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
 
     // Participant joined
     const handleParticipantJoined = (data: { roomName: string; userId: string; userName: string }) => {
+      if (outgoingUnansweredRef.current?.roomName === data.roomName) {
+        outgoingUnansweredRef.current.answered = true;
+        clearOutgoingUnanswered();
+      }
       if (currentRoom?.roomName === data.roomName) {
         toast({
           title: 'Participant joined',
@@ -344,7 +428,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       socket.off('jitsi_participant_joined', handleParticipantJoined);
       socket.off('jitsi_participant_left', handleParticipantLeft);
     };
-  }, [socket, currentRoom, startRingtone, stopRingtone, toast]);
+  }, [clearOutgoingUnanswered, socket, currentRoom, startRingtone, stopRingtone, toast]);
 
   // Actions
   const startCall = useCallback(async (
@@ -352,8 +436,11 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     callType: 'voice' | 'video' = 'video',
     orderId?: string
   ) => {
-    await startCallMutation.mutateAsync({ targetUserId, callType, orderId });
-  }, [startCallMutation]);
+    const data = await startCallMutation.mutateAsync({ targetUserId, callType, orderId });
+    if (data?.room?.roomName) {
+      scheduleOutgoingUnanswered(data.room.roomName, targetUserId, callType);
+    }
+  }, [scheduleOutgoingUnanswered, startCallMutation]);
 
   const startGroupCall = useCallback(async (
     participantIds: string[],
@@ -373,17 +460,6 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
   }, [incomingCall, joinCall]);
 
   const rejectIncomingCall = useCallback(async () => {
-    if (incomingCall) {
-      // Record the missed call in the chat
-      try {
-        await apiRequest('POST', '/api/calls/missed', {
-          targetUserId: incomingCall.callerId,
-          callType: incomingCall.callType,
-        });
-      } catch (error) {
-        console.error('Failed to record missed call:', error);
-      }
-    }
     stopRingtone();
     setIncomingCall(null);
     toast({
@@ -393,12 +469,20 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
   }, [incomingCall, stopRingtone, toast]);
 
   const leaveCall = useCallback(async () => {
+    if (outgoingUnansweredRef.current && !outgoingUnansweredRef.current.answered) {
+      await recordOutgoingMissedCall(outgoingUnansweredRef.current);
+      clearOutgoingUnanswered();
+    }
     await leaveCallMutation.mutateAsync();
-  }, [leaveCallMutation]);
+  }, [clearOutgoingUnanswered, leaveCallMutation, recordOutgoingMissedCall]);
 
   const endCall = useCallback(async () => {
+    if (outgoingUnansweredRef.current && !outgoingUnansweredRef.current.answered) {
+      await recordOutgoingMissedCall(outgoingUnansweredRef.current);
+      clearOutgoingUnanswered();
+    }
     await endCallMutation.mutateAsync();
-  }, [endCallMutation]);
+  }, [clearOutgoingUnanswered, endCallMutation, recordOutgoingMissedCall]);
 
   const getJitsiUrl = useCallback(() => {
     const baseUrl = jitsiConfig?.roomUrl || currentRoom?.roomUrl || null;
@@ -427,10 +511,31 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
   }, [incomingCall, stopRingtone]);
 
   useEffect(() => {
+    const unlockRingtone = async () => {
+      const ctx = getOrCreateAudioContext();
+      if (!ctx) return;
+      if (ctx.state === "suspended") {
+        try {
+          await ctx.resume();
+        } catch {
+          // no-op
+        }
+      }
+    };
+    window.addEventListener("pointerdown", unlockRingtone, { once: true });
+    window.addEventListener("keydown", unlockRingtone, { once: true });
     return () => {
+      window.removeEventListener("pointerdown", unlockRingtone);
+      window.removeEventListener("keydown", unlockRingtone);
+    };
+  }, [getOrCreateAudioContext]);
+
+  useEffect(() => {
+    return () => {
+      clearOutgoingUnanswered();
       stopRingtone();
     };
-  }, [stopRingtone]);
+  }, [clearOutgoingUnanswered, stopRingtone]);
 
   return {
     inCall: !!currentRoom,

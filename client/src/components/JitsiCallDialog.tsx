@@ -38,6 +38,7 @@ interface JitsiCallDialogProps {
   jitsiConfig?: {
     domain: string;
     roomName: string;
+    isModerator?: boolean;
     userInfo?: { displayName?: string; email?: string };
     configOverwrite?: Record<string, any>;
     interfaceConfigOverwrite?: Record<string, any>;
@@ -97,8 +98,9 @@ export function JitsiCallDialog({
       "settings",
       "select-background",
       "hangup",
+      ...(jitsiConfig?.isModerator ? ["security", "mute-everyone", "mute-video-everyone"] : []),
     ],
-    []
+    [jitsiConfig?.isModerator]
   );
 
   const runCommand = (command: string) => {
@@ -107,6 +109,11 @@ export function JitsiCallDialog({
     } catch (error) {
       console.warn(`Jitsi command failed: ${command}`, error);
     }
+  };
+
+  const runModeratorCommand = (command: string) => {
+    if (!jitsiConfig?.isModerator) return;
+    runCommand(command);
   };
 
   useEffect(() => {
@@ -406,6 +413,28 @@ export function JitsiCallDialog({
             >
               <PhoneOff className="h-4.5 w-4.5" />
             </Button>
+            {isHost && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => runModeratorCommand("muteEveryone")}
+                className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+                title="Mute all participants"
+              >
+                <MicOff className="h-4.5 w-4.5" />
+              </Button>
+            )}
+            {isHost && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => runModeratorCommand("toggleLobby")}
+                className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+                title="Moderator controls"
+              >
+                <span className="text-[10px] font-semibold">MOD</span>
+              </Button>
+            )}
             {isHost && (
               <Button
                 variant="outline"
