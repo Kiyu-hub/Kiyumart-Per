@@ -97,6 +97,11 @@ const SELLER_NAV_ROUTES: Record<string, string> = {
   "platform-earnings": "/seller/analytics",
 };
 
+function safeNumber(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function SellerDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
   const [location, navigate] = useLocation();
@@ -214,8 +219,13 @@ export default function SellerDashboardConnected() {
     enabled: isAuthenticated && user?.role === "seller",
   });
 
-  const { data: analytics, isLoading: analyticsLoading } = useQuery<Analytics>({
-    queryKey: ["/api/analytics"],
+  const { data: analytics, isLoading: analyticsLoading } = useQuery<Partial<Analytics>>({
+    queryKey: ["/api/analytics", user?.id, user?.role],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/analytics");
+      const data = await res.json();
+      return data && typeof data === "object" ? data : {};
+    },
     enabled: isAuthenticated && user?.role === "seller",
   });
 
@@ -403,6 +413,10 @@ export default function SellerDashboardConnected() {
   const safeProducts = Array.isArray(products) ? products : [];
   const safeOrders = Array.isArray(orders) ? orders : [];
   const safeCoupons = Array.isArray(coupons) ? coupons : [];
+  const safeAnalytics: Analytics = {
+    totalOrders: safeNumber((analytics as any)?.totalOrders),
+    totalRevenue: safeNumber((analytics as any)?.totalRevenue),
+  };
 
   const pendingOrders = safeOrders.filter((o) =>
     o?.sellerId === user.id &&
@@ -491,17 +505,17 @@ export default function SellerDashboardConnected() {
                   <div className="flex justify-center p-8">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
-                ) : analytics ? (
+                ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <MetricCard
                       title="Total Sales"
-                      value={formatPrice(parseFloat(analytics.totalRevenue.toString()))}
+                      value={formatPrice(safeAnalytics.totalRevenue)}
                       icon={DollarSign}
                       change={18.2}
                     />
                     <MetricCard
                       title="Total Orders"
-                      value={analytics.totalOrders.toString()}
+                      value={safeAnalytics.totalOrders.toString()}
                       icon={Package}
                       change={12.5}
                     />
@@ -517,13 +531,6 @@ export default function SellerDashboardConnected() {
                       change={5.4}
                     />
                   </div>
-                ) : (
-                  <Card>
-                    <CardContent className="p-6 flex items-center gap-3 text-destructive">
-                      <AlertCircle className="h-5 w-5" />
-                      <span>Failed to load analytics</span>
-                    </CardContent>
-                  </Card>
                 )}
 
                 <div>
