@@ -9,8 +9,10 @@ import CallInterface from "@/components/CallInterface";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowLeft, Loader2, AlertCircle, Users, Phone, Video } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
 
 interface ChatMessage {
   id: string;
@@ -30,6 +32,7 @@ interface User {
   name: string;
   email: string;
   role: string;
+  profileImage?: string | null;
 }
 
 export default function ChatPageConnected() {
@@ -38,8 +41,12 @@ export default function ChatPageConnected() {
   const { toast } = useToast();
   const [selectedContact, setSelectedContact] = useState<User | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isContactTyping, setIsContactTyping] = useState(false);
   const socketRef = useRef<Socket | null>(null);
+  const selectedContactIdRef = useRef<string | null>(null);
   const prevContactsLength = useRef(0);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = useRef(false);
 
   // WebRTC Call State
   const [callState, setCallState] = useState<"idle" | "calling" | "incoming" | "connected" | "ended">("idle");
@@ -61,6 +68,10 @@ export default function ChatPageConnected() {
       navigate("/auth");
     }
   }, [authLoading, user, navigate]);
+
+  useEffect(() => {
+    selectedContactIdRef.current = selectedContact?.id || null;
+  }, [selectedContact?.id]);
 
   // Initialize Socket.io connection ONCE per user
   useEffect(() => {
@@ -86,8 +97,8 @@ export default function ChatPageConnected() {
     socket.on("new_message", (message: ChatMessage) => {
       // Update messages if from/to current contact
       setMessages((prevMessages) => {
-        const currentContact = selectedContact;
-        if (currentContact && (message.senderId === currentContact.id || message.receiverId === currentContact.id)) {
+        const currentContactId = selectedContactIdRef.current;
+        if (currentContactId && (message.senderId === currentContactId || message.receiverId === currentContactId)) {
           return [...prevMessages, message];
         }
         return prevMessages;
@@ -117,6 +128,22 @@ export default function ChatPageConnected() {
         )
       );
       console.log(`✅ Message ${messageId} status updated to: ${status}`);
+    });
+
+    const resolveUserId = (payload: any) => (typeof payload === "string" ? payload : payload?.userId);
+
+    socket.on("user_typing", (payload: any) => {
+      const typingUserId = resolveUserId(payload);
+      if (typingUserId && selectedContactIdRef.current === typingUserId) {
+        setIsContactTyping(true);
+      }
+    });
+
+    socket.on("user_stop_typing", (payload: any) => {
+      const typingUserId = resolveUserId(payload);
+      if (typingUserId && selectedContactIdRef.current === typingUserId) {
+        setIsContactTyping(false);
+      }
     });
 
     // WebRTC Call Signaling Events
@@ -176,6 +203,9 @@ export default function ChatPageConnected() {
     socketRef.current = socket;
 
     return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
       socket.disconnect();
       cleanupCall();
     };
@@ -401,6 +431,10 @@ export default function ChatPageConnected() {
     enabled: !authLoading && !!user,
   });
 
+  const contactIds = contacts.map((contact) => contact.id);
+  const contactsPresence = useBatchPresence(contactIds);
+  const selectedContactPresence = usePresence(selectedContact?.id);
+
   // Auto-select first contact for non-admin users (prevents empty chat state)
   useEffect(() => {
     if (!selectedContact && contacts.length > 0 && user?.role !== "admin") {
@@ -449,8 +483,48 @@ export default function ChatPageConnected() {
 
   const handleSendMessage = (message: string) => {
     if (!selectedContact) return;
+    if (isTypingRef.current) {
+      socketRef.current?.emit("stop_typing", { receiverId: selectedContact.id });
+      isTypingRef.current = false;
+    }
     sendMessageMutation.mutate(message);
   };
+
+  const handleTypingChange = (value: string) => {
+    if (!selectedContact || !socketRef.current) return;
+
+    if (value.trim().length > 0 && !isTypingRef.current) {
+      socketRef.current.emit("typing", { receiverId: selectedContact.id });
+      isTypingRef.current = true;
+    }
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      if (isTypingRef.current && selectedContact) {
+        socketRef.current?.emit("stop_typing", { receiverId: selectedContact.id });
+        isTypingRef.current = false;
+      }
+    }, 1200);
+  };
+
+  useEffect(() => {
+    setIsContactTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    isTypingRef.current = false;
+  }, [selectedContact?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (selectedContact?.id && isTypingRef.current) {
+        socketRef.current?.emit("stop_typing", { receiverId: selectedContact.id });
+      }
+    };
+  }, [selectedContact?.id]);
 
   // Show loading state while auth is resolving
   if (authLoading) {
@@ -517,24 +591,46 @@ export default function ChatPageConnected() {
               </div>
             ) : contacts.length > 0 ? (
               <div className="space-y-2">
-                {contacts.map((contact) => (
-                  <button
-                    key={contact.id}
-                    onClick={() => {
-                      setSelectedContact(contact);
-                      // TanStack Query will auto-refetch when selectedContact?.id changes
-                    }}
-                    className={`w-full text-left p-3 rounded-lg transition-colors hover-elevate ${
-                      selectedContact?.id === contact.id 
-                        ? 'bg-accent' 
-                        : 'bg-muted'
-                    }`}
-                    data-testid={`contact-${contact.id}`}
-                  >
-                    <div className="font-medium">{contact.name}</div>
-                    <div className="text-sm text-muted-foreground capitalize">{contact.role}</div>
-                  </button>
-                ))}
+                {contacts.map((contact) => {
+                  const presence = contactsPresence.getPresence(contact.id);
+                  const isOnline = presence.status === "online";
+                  const statusText = isOnline
+                    ? "Online"
+                    : presence.status === "away"
+                    ? "Away"
+                    : presence.lastSeen
+                    ? `Last seen ${formatLastSeen(presence.lastSeen)}`
+                    : "Offline";
+
+                  return (
+                    <button
+                      key={contact.id}
+                      onClick={() => {
+                        setSelectedContact(contact);
+                        // TanStack Query will auto-refetch when selectedContact?.id changes
+                      }}
+                      className={`w-full text-left p-3 rounded-lg transition-colors hover-elevate ${
+                        selectedContact?.id === contact.id
+                          ? "bg-accent"
+                          : "bg-muted"
+                      }`}
+                      data-testid={`contact-${contact.id}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={contact.profileImage || undefined} alt={contact.name} />
+                          <AvatarFallback>{(contact.name || "U").charAt(0).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{contact.name}</div>
+                          <div className={`text-xs ${isOnline ? "text-green-600" : "text-muted-foreground"}`}>
+                            {statusText}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center text-muted-foreground p-4">
@@ -573,9 +669,21 @@ export default function ChatPageConnected() {
 
               <ChatInterface
                 contactName={selectedContact.name}
-                contactStatus="online"
+                contactStatus={selectedContactPresence.isOnline ? "online" : "offline"}
+                contactStatusText={
+                  selectedContactPresence.isOnline
+                    ? "Online"
+                    : selectedContactPresence.isAway
+                    ? "Away"
+                    : selectedContactPresence.presence?.lastSeen
+                    ? `Last seen ${formatLastSeen(selectedContactPresence.presence.lastSeen)}`
+                    : "Offline"
+                }
+                contactAvatarUrl={selectedContact.profileImage || undefined}
+                isContactTyping={isContactTyping}
                 messages={transformedMessages}
                 onSendMessage={handleSendMessage}
+                onTypingChange={handleTypingChange}
               />
             </div>
           ) : contactsLoading ? (

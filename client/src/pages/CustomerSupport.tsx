@@ -80,10 +80,11 @@ export default function CustomerSupport() {
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
-  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
+  const [recordingDurationSec, setRecordingDurationSec] = useState(0);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localTypingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -271,9 +272,6 @@ export default function CustomerSupport() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
       setUploadingAttachment(true);
       const envBase = (import.meta.env as any).VITE_API_URL || "";
@@ -287,11 +285,7 @@ export default function CustomerSupport() {
         if (legacyEndpoint) add(`${envBase}${legacyEndpoint}`);
       }
 
-      // Same-origin proxy candidates
-      add(primaryEndpoint);
-      if (legacyEndpoint) add(legacyEndpoint);
-
-      // Explicit backend port fallbacks (works when proxy is misconfigured)
+      // Explicit backend candidates first
       if (typeof window !== "undefined") {
         const host = window.location.hostname;
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
@@ -302,6 +296,9 @@ export default function CustomerSupport() {
       if (legacyEndpoint) add(`http://localhost:5000${legacyEndpoint}`);
       add(`http://127.0.0.1:5000${primaryEndpoint}`);
       if (legacyEndpoint) add(`http://127.0.0.1:5000${legacyEndpoint}`);
+      // Same-origin proxy candidates last
+      add(primaryEndpoint);
+      if (legacyEndpoint) add(legacyEndpoint);
 
       const candidates = candidatesRaw;
 
@@ -311,6 +308,8 @@ export default function CustomerSupport() {
       for (const url of candidates) {
         let res: Response;
         try {
+          const formData = new FormData();
+          formData.append("file", file);
           res = await fetch(url, {
             method: "POST",
             body: formData,
@@ -372,6 +371,21 @@ export default function CustomerSupport() {
     uploadAttachment(file);
   };
 
+  const getSupportedAudioMimeType = (): string | undefined => {
+    if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+      return undefined;
+    }
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+      "audio/mp4",
+      "audio/mpeg",
+    ];
+    return candidates.find((mime) => MediaRecorder.isTypeSupported(mime));
+  };
+
   const stopRecordingAndUpload = () => {
     if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== "recording") return;
     mediaRecorderRef.current.stop();
@@ -385,7 +399,8 @@ export default function CustomerSupport() {
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
 
-      const recorder = new MediaRecorder(stream);
+      const selectedMime = getSupportedAudioMimeType();
+      const recorder = selectedMime ? new MediaRecorder(stream, { mimeType: selectedMime }) : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (evt) => {
@@ -393,29 +408,55 @@ export default function CustomerSupport() {
       };
 
       recorder.onstop = async () => {
-        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        const mimeType = recorder.mimeType || selectedMime || "audio/webm";
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
         stream.getTracks().forEach((track) => track.stop());
         mediaStreamRef.current = null;
         setIsRecording(false);
-        setRecordingStartedAt(null);
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
+        setRecordingDurationSec(0);
 
-        const file = new File([blob], `voice-note-${Date.now()}.webm`, {
-          type: blob.type || "audio/webm",
+        const extension =
+          mimeType.includes("ogg") ? "ogg" :
+          mimeType.includes("mp4") ? "m4a" :
+          mimeType.includes("mpeg") ? "mp3" :
+          "webm";
+        const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
+          type: blob.type || mimeType,
         });
         await uploadAttachment(file);
       };
 
       recorder.start();
       setIsRecording(true);
-      setRecordingStartedAt(Date.now());
+      setRecordingDurationSec(0);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDurationSec((prev) => prev + 1);
+      }, 1000);
     } catch (error: any) {
       setRecordingError(error?.message || "Could not start voice recording");
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
       toast({
         title: "Recording failed",
         description: "Please allow microphone access and try again.",
         variant: "destructive",
       });
     }
+  };
+
+  const toggleVoiceRecording = () => {
+    if (isRecording) {
+      stopRecordingAndUpload();
+      return;
+    }
+    startVoiceRecording();
   };
 
   const handleCreateTicket = () => {
@@ -448,6 +489,19 @@ export default function CustomerSupport() {
   );
   const batchPresence = useBatchPresence(presenceUserIds);
   const peerPresence = usePresence(peerUserId || undefined);
+  const peerProfileImage = selectedConv
+    ? (isSupportStaff ? selectedConv.customerProfileImage : selectedConv.agentProfileImage)
+    : null;
+  const peerDisplayName = selectedConv
+    ? (isSupportStaff ? (selectedConv.customerName || "Customer") : (selectedConv.agentName || "Support Team"))
+    : "Support";
+  const peerStatusText = isPeerTyping
+    ? "typing..."
+    : peerPresence.isOnline
+    ? "Online"
+    : peerPresence.isAway
+    ? "Away"
+    : `Last seen ${formatLastSeen(peerPresence.presence?.lastSeen || null)}`;
   const getConversationPresence = (conv: SupportConversation) => {
     const id = isSupportStaff ? conv.customerId : conv.agentId;
     if (!id) return { status: "offline" as const, lastSeen: null as string | null };
@@ -462,6 +516,7 @@ export default function CustomerSupport() {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       if (localTypingStopTimeoutRef.current) clearTimeout(localTypingStopTimeoutRef.current);
     };
@@ -692,18 +747,37 @@ export default function CustomerSupport() {
               {selectedConv ? (
                 <div className="flex flex-col h-full min-h-0">
                   <div className="p-4 border-b flex items-start justify-between gap-3 flex-shrink-0">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex items-start gap-3">
+                      <div className="relative mt-0.5">
+                        {peerProfileImage ? (
+                          <img
+                            src={peerProfileImage}
+                            alt={peerDisplayName}
+                            className="h-10 w-10 rounded-full object-cover border"
+                          />
+                        ) : (
+                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+                            <User className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                        )}
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border border-background ${
+                            peerPresence.isOnline ? "bg-[#25D366]" : peerPresence.isAway ? "bg-yellow-500" : "bg-gray-400"
+                          }`}
+                        />
+                      </div>
+                      <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <h2 className="font-semibold truncate">{selectedConv.subject}</h2>
                         <Badge className={`${getStatusColor(selectedConv.status)} text-white`}>{selectedConv.status}</Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground truncate">
+                      <p className={`text-sm truncate ${peerPresence.isOnline ? "text-[#25D366] font-medium" : "text-muted-foreground"}`}>
                         {isPeerTyping
                           ? "typing..."
                           : isSupportStaff
-                            ? `Customer: ${selectedConv.customerName || "Unknown"} (${peerPresence.isOnline ? "Online" : peerPresence.isAway ? "Away" : `Last seen ${formatLastSeen(peerPresence.presence?.lastSeen || null)}`})`
+                            ? `Customer: ${peerDisplayName} (${peerStatusText})`
                             : selectedConv.agentName
-                              ? `Agent: ${selectedConv.agentName} (${peerPresence.isOnline ? "Online" : peerPresence.isAway ? "Away" : `Last seen ${formatLastSeen(peerPresence.presence?.lastSeen || null)}`})`
+                              ? `Agent: ${peerDisplayName} (${peerStatusText})`
                               : "Waiting for agent assignment"}
                       </p>
                       {isPeerTyping && (
@@ -714,6 +788,7 @@ export default function CustomerSupport() {
                           <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#25D366] animate-bounce" />
                         </div>
                       )}
+                    </div>
                     </div>
                     {isSupportStaff && (
                       <div className="flex items-center gap-2">
@@ -758,15 +833,15 @@ export default function CustomerSupport() {
                           return (
                             <div
                               key={msg.id}
-                              className={`flex ${isMe ? "justify-end" : "justify-start"}`}
+                              className={`flex ${isMe ? "justify-start" : "justify-end"}`}
                               data-testid={`message-${msg.id}`}
                             >
-                              {!isMe && (
+                              {isMe && (
                                 <div className="mr-2 mt-1">
-                                  {msg.senderProfileImage ? (
+                                  {msg.senderProfileImage || user?.profileImage ? (
                                     <img
-                                      src={msg.senderProfileImage}
-                                      alt={msg.senderName || "User"}
+                                      src={msg.senderProfileImage || user?.profileImage || ""}
+                                      alt={msg.senderName || user?.name || "You"}
                                       className="h-8 w-8 rounded-full object-cover border"
                                     />
                                   ) : (
@@ -821,12 +896,12 @@ export default function CustomerSupport() {
                                   {isMe && <Check className="h-3 w-3" />}
                                 </div>
                               </div>
-                              {isMe && (
+                              {!isMe && (
                                 <div className="ml-2 mt-1">
-                                  {user?.profileImage ? (
+                                  {msg.senderProfileImage ? (
                                     <img
-                                      src={user.profileImage}
-                                      alt={user.name || "You"}
+                                      src={msg.senderProfileImage}
+                                      alt={msg.senderName || "User"}
                                       className="h-8 w-8 rounded-full object-cover border"
                                     />
                                   ) : (
@@ -915,22 +990,16 @@ export default function CustomerSupport() {
                           type="button"
                           variant={isRecording ? "destructive" : "default"}
                           size="icon"
-                          onMouseDown={startVoiceRecording}
-                          onMouseUp={stopRecordingAndUpload}
-                          onMouseLeave={() => {
-                            if (isRecording) stopRecordingAndUpload();
-                          }}
-                          onTouchStart={startVoiceRecording}
-                          onTouchEnd={stopRecordingAndUpload}
+                          onClick={toggleVoiceRecording}
                           disabled={uploadingAttachment || sendMessageMutation.isPending}
-                          title={isRecording ? "Recording... release to send" : "Hold to record voice note"}
+                          title={isRecording ? "Stop and send voice note" : "Start voice recording"}
                         >
                           {isRecording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                         </Button>
                       )}
                       {isRecording && (
                         <span className="text-xs text-red-500 whitespace-nowrap">
-                          Recording{recordingStartedAt ? ` ${Math.max(1, Math.floor((Date.now() - recordingStartedAt) / 1000))}s` : "..."}
+                          Recording {recordingDurationSec}s
                         </span>
                       )}
                       {uploadingAttachment && (
@@ -942,7 +1011,7 @@ export default function CustomerSupport() {
                         </Button>
                       )}
                       {!message.trim() && !isRecording && (
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">Hold mic to record</span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">Tap mic to record</span>
                       )}
                     </div>
                   )}

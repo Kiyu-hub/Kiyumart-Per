@@ -9,11 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, MessageSquare, Send, ArrowLeft, User } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { useSocket } from "@/contexts/NotificationContext";
+import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
 
 interface UserData {
   id: string;
@@ -22,6 +24,7 @@ interface UserData {
   email: string;
   role: string;
   phone: string | null;
+  profileImage?: string | null;
   isActive: boolean;
 }
 
@@ -47,6 +50,9 @@ export default function SellerMessages() {
   const { toast } = useToast();
   const socket = useSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isPeerTyping, setIsPeerTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = useRef(false);
 
   // Get userId from URL search params
   const urlParams = new URLSearchParams(window.location.search);
@@ -97,9 +103,44 @@ export default function SellerMessages() {
     };
   }, [socket, selectedUserId, user?.id]);
 
+  useEffect(() => {
+    if (!socket || !selectedUserId) return;
+
+    const resolveUserId = (payload: any) => (typeof payload === "string" ? payload : payload?.userId);
+
+    const handleUserTyping = (payload: any) => {
+      if (resolveUserId(payload) === selectedUserId) {
+        setIsPeerTyping(true);
+      }
+    };
+
+    const handleUserStopTyping = (payload: any) => {
+      if (resolveUserId(payload) === selectedUserId) {
+        setIsPeerTyping(false);
+      }
+    };
+
+    socket.on("user_typing", handleUserTyping);
+    socket.on("user_stop_typing", handleUserStopTyping);
+
+    return () => {
+      socket.off("user_typing", handleUserTyping);
+      socket.off("user_stop_typing", handleUserStopTyping);
+    };
+  }, [socket, selectedUserId]);
+
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedUserId]);
+
+  useEffect(() => {
+    setIsPeerTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    isTypingRef.current = false;
   }, [selectedUserId]);
 
   // Fetch contacts (admins, buyers who have messaged)
@@ -183,6 +224,10 @@ export default function SellerMessages() {
 
   const handleSendMessage = () => {
     if (message.trim() && selectedUserId) {
+      if (isTypingRef.current) {
+        socket?.emit("stop_typing", { receiverId: selectedUserId });
+        isTypingRef.current = false;
+      }
       sendMessageMutation.mutate({
         receiverId: selectedUserId,
         message: message.trim(),
@@ -196,6 +241,38 @@ export default function SellerMessages() {
   );
 
   const selectedUser = users.find(u => u.id === selectedUserId);
+  const selectedUserPresence = usePresence(selectedUserId || undefined);
+  const userIds = filteredUsers.map((u) => u.id);
+  const batchPresence = useBatchPresence(userIds);
+
+  const handleTypingChange = (value: string) => {
+    setMessage(value);
+    if (!socket || !selectedUserId) return;
+    if (value.trim().length > 0 && !isTypingRef.current) {
+      socket.emit("typing", { receiverId: selectedUserId });
+      isTypingRef.current = true;
+    }
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      if (isTypingRef.current) {
+        socket.emit("stop_typing", { receiverId: selectedUserId });
+        isTypingRef.current = false;
+      }
+    }, 1200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (socket && selectedUserId && isTypingRef.current) {
+        socket.emit("stop_typing", { receiverId: selectedUserId });
+      }
+    };
+  }, [socket, selectedUserId]);
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
@@ -267,16 +344,24 @@ export default function SellerMessages() {
                         onClick={() => setSelectedUserId(userData.id)}
                         className="p-3 rounded-lg cursor-pointer hover:bg-accent/50 flex items-center gap-3"
                       >
-                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                          <span className="text-sm font-semibold text-primary">
-                            {(userData.name || 'U').charAt(0).toUpperCase()}
-                          </span>
-                        </div>
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={userData.profileImage || undefined} alt={userData.name || userData.email} />
+                          <AvatarFallback>
+                            {(userData.name || "U").charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
-                          <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
-                            {userData.role}
-                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
+                              {userData.role}
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground">
+                              {batchPresence.getPresence(userData.id).status === "online"
+                                ? "Online"
+                                : formatLastSeen(batchPresence.getPresence(userData.id).lastSeen)}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -292,9 +377,15 @@ export default function SellerMessages() {
                 </Button>
                 <div className="flex-1">
                   <h3 className="font-semibold text-sm">{selectedUser?.name || 'Support'}</h3>
-                  <Badge className={`${getRoleBadgeColor(selectedUser?.role || '')} text-[10px]`}>
-                    {selectedUser?.role || 'Unknown'}
-                  </Badge>
+                  <p className={`text-xs ${selectedUserPresence.isOnline ? "text-green-600" : "text-muted-foreground"}`}>
+                    {isPeerTyping
+                      ? "typing..."
+                      : selectedUserPresence.isOnline
+                      ? "Online"
+                      : selectedUserPresence.presence?.lastSeen
+                      ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}`
+                      : selectedUser?.role || "Unknown"}
+                  </p>
                 </div>
               </div>
 
@@ -348,7 +439,7 @@ export default function SellerMessages() {
                 <Input
                   placeholder="Type a message..."
                   value={message}
-                  onChange={(e) => setMessage(e.target.value)}
+                  onChange={(e) => handleTypingChange(e.target.value)}
                   onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
                   disabled={sendMessageMutation.isPending}
                   className="flex-1"
@@ -408,16 +499,24 @@ export default function SellerMessages() {
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                            <span className="text-sm font-semibold text-primary">
-                              {(userData.name || 'U').charAt(0).toUpperCase()}
-                            </span>
-                          </div>
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage src={userData.profileImage || undefined} alt={userData.name || userData.email} />
+                            <AvatarFallback>
+                              {(userData.name || "U").charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
-                            <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
-                              {userData.role}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
+                                {userData.role}
+                              </Badge>
+                              <span className="text-[10px] text-muted-foreground">
+                                {batchPresence.getPresence(userData.id).status === "online"
+                                  ? "Online"
+                                  : formatLastSeen(batchPresence.getPresence(userData.id).lastSeen)}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -431,16 +530,23 @@ export default function SellerMessages() {
               {selectedUser || selectedUserId ? (
                 <>
                   <div className="flex items-center gap-3 pb-4 border-b mb-4">
-                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                      <span className="text-lg font-semibold text-primary">
-                        {(selectedUser?.name || 'S').charAt(0).toUpperCase()}
-                      </span>
-                    </div>
+                    <Avatar className="h-12 w-12">
+                      <AvatarImage src={selectedUser?.profileImage || undefined} alt={selectedUser?.name || "Support"} />
+                      <AvatarFallback>
+                        {(selectedUser?.name || "S").charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
                     <div>
                       <h3 className="font-semibold text-lg">{selectedUser?.name || 'Support'}</h3>
-                      <Badge className={getRoleBadgeColor(selectedUser?.role || 'admin')}>
-                        {selectedUser?.role || 'Support'}
-                      </Badge>
+                      <p className={`text-xs ${selectedUserPresence.isOnline ? "text-green-600" : "text-muted-foreground"}`}>
+                        {isPeerTyping
+                          ? "typing..."
+                          : selectedUserPresence.isOnline
+                          ? "Online"
+                          : selectedUserPresence.presence?.lastSeen
+                          ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}`
+                          : selectedUser?.role || "Support"}
+                      </p>
                     </div>
                   </div>
 
@@ -499,7 +605,7 @@ export default function SellerMessages() {
                     <Input
                       placeholder="Type a message..."
                       value={message}
-                      onChange={(e) => setMessage(e.target.value)}
+                      onChange={(e) => handleTypingChange(e.target.value)}
                       onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
                       disabled={sendMessageMutation.isPending}
                       className="flex-1"

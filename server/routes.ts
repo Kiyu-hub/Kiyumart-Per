@@ -4498,7 +4498,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "audio/mp4",
         "audio/aac",
       ];
-      if (!allowedMimeTypes.includes(req.file.mimetype)) {
+      const normalizedMime = (req.file.mimetype || "").toLowerCase().split(";")[0].trim();
+      if (!allowedMimeTypes.includes(normalizedMime)) {
         return res.status(400).json({ error: "Invalid file type. Only common audio formats are allowed" });
       }
 
@@ -4541,7 +4542,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "audio/aac",
       ];
 
-      if (!allowedMimeTypes.includes(req.file.mimetype)) {
+      const normalizedMime = (req.file.mimetype || "").toLowerCase().split(";")[0].trim();
+      if (!allowedMimeTypes.includes(normalizedMime)) {
         return res.status(400).json({ error: "Unsupported file type for support media" });
       }
 
@@ -4616,6 +4618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: u.email,
         role: u.role,
         phone: u.phone,
+        profileImage: u.profileImage,
         isActive: u.isActive,
       }));
       
@@ -4669,6 +4672,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: u.email,
         role: u.role,
         phone: u.phone,
+        profileImage: u.profileImage,
         isActive: u.isActive,
       }));
       

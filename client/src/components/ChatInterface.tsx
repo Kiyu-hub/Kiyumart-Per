@@ -2,7 +2,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Phone, MoreVertical, Paperclip } from "lucide-react";
 import { useState } from "react";
 import { MessageStatusTicks } from "./MessageStatusTicks";
@@ -21,15 +21,23 @@ interface Message {
 interface ChatInterfaceProps {
   contactName: string;
   contactStatus?: "online" | "offline";
+  contactStatusText?: string;
+  contactAvatarUrl?: string;
+  isContactTyping?: boolean;
   messages: Message[];
   onSendMessage?: (message: string) => void;
+  onTypingChange?: (value: string) => void;
 }
 
 export default function ChatInterface({
   contactName,
   contactStatus = "offline",
+  contactStatusText,
+  contactAvatarUrl,
+  isContactTyping = false,
   messages,
   onSendMessage,
+  onTypingChange,
 }: ChatInterfaceProps) {
   const [newMessage, setNewMessage] = useState("");
 
@@ -40,12 +48,18 @@ export default function ChatInterface({
     }
   };
 
+  const handleInputChange = (value: string) => {
+    setNewMessage(value);
+    onTypingChange?.(value);
+  };
+
   return (
     <Card className="flex flex-col h-[600px] overflow-hidden">
       <div className="flex items-center justify-between gap-4 p-4 border-b">
         <div className="flex items-center gap-3">
           <div className="relative">
             <Avatar>
+              <AvatarImage src={contactAvatarUrl} alt={contactName} />
               <AvatarFallback>{contactName.charAt(0)}</AvatarFallback>
             </Avatar>
             <div
@@ -59,7 +73,7 @@ export default function ChatInterface({
               {contactName}
             </p>
             <p className="text-xs text-muted-foreground capitalize">
-              {contactStatus}
+              {isContactTyping ? "typing..." : contactStatusText || contactStatus}
             </p>
           </div>
         </div>
@@ -123,7 +137,7 @@ export default function ChatInterface({
           <Input
             placeholder="Type a message..."
             value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
             onKeyPress={(e) => e.key === "Enter" && handleSend()}
             data-testid="input-message"
           />

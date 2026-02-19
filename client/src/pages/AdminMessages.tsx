@@ -22,7 +22,6 @@ import { GroupCallDialog } from "@/components/GroupCallDialog";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
 import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
-import { PresenceIndicator, AvatarWithPresence } from "@/components/PresenceIndicator";
 
 interface UserData {
   id: string;
@@ -52,6 +51,9 @@ export default function AdminMessages() {
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [isPeerTyping, setIsPeerTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = useRef(false);
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
@@ -307,14 +309,82 @@ export default function AdminMessages() {
     }
   }, [socket, selectedUserId, messages, markConversationReadMutation.isPending]);
 
+  useEffect(() => {
+    if (!socket || !selectedUserId) return;
+
+    const resolveUserId = (payload: any) => (typeof payload === "string" ? payload : payload?.userId);
+
+    const handleUserTyping = (payload: any) => {
+      if (resolveUserId(payload) === selectedUserId) {
+        setIsPeerTyping(true);
+      }
+    };
+
+    const handleUserStopTyping = (payload: any) => {
+      if (resolveUserId(payload) === selectedUserId) {
+        setIsPeerTyping(false);
+      }
+    };
+
+    socket.on("user_typing", handleUserTyping);
+    socket.on("user_stop_typing", handleUserStopTyping);
+
+    return () => {
+      socket.off("user_typing", handleUserTyping);
+      socket.off("user_stop_typing", handleUserStopTyping);
+    };
+  }, [socket, selectedUserId]);
+
+  useEffect(() => {
+    setIsPeerTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    isTypingRef.current = false;
+  }, [selectedUserId]);
+
   const handleSendMessage = () => {
     if (message.trim() && selectedUserId) {
+      if (isTypingRef.current) {
+        socket?.emit("stop_typing", { receiverId: selectedUserId });
+        isTypingRef.current = false;
+      }
       sendMessageMutation.mutate({
         receiverId: selectedUserId,
         message: message.trim(),
       });
     }
   };
+
+  const handleTypingChange = (value: string) => {
+    setMessage(value);
+    if (!socket || !selectedUserId) return;
+    if (value.trim().length > 0 && !isTypingRef.current) {
+      socket.emit("typing", { receiverId: selectedUserId });
+      isTypingRef.current = true;
+    }
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      if (isTypingRef.current) {
+        socket.emit("stop_typing", { receiverId: selectedUserId });
+        isTypingRef.current = false;
+      }
+    }, 1200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (socket && selectedUserId && isTypingRef.current) {
+        socket.emit("stop_typing", { receiverId: selectedUserId });
+      }
+    };
+  }, [socket, selectedUserId]);
 
   // WebRTC Helper Functions
   const initPeerConnection = (targetUserId: string) => {
@@ -709,7 +779,8 @@ export default function AdminMessages() {
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-sm truncate">{selectedUser.name || selectedUser.username}</h3>
                   <p className={`text-xs ${selectedUserPresence.isOnline ? 'text-green-600' : 'text-muted-foreground'}`}>
-                    {selectedUserPresence.isOnline ? 'Online' : 
+                    {isPeerTyping ? 'typing...' :
+                     selectedUserPresence.isOnline ? 'Online' : 
                      selectedUserPresence.isAway ? 'Away' :
                      selectedUserPresence.presence?.lastSeen ? formatLastSeen(selectedUserPresence.presence.lastSeen) : selectedUser.role}
                   </p>
@@ -796,7 +867,7 @@ export default function AdminMessages() {
                 <Input
                   placeholder="Type a message..."
                   value={message}
-                  onChange={(e) => setMessage(e.target.value)}
+                  onChange={(e) => handleTypingChange(e.target.value)}
                   onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
                   disabled={sendMessageMutation.isPending}
                   className="flex-1"
@@ -945,7 +1016,8 @@ export default function AdminMessages() {
                         <span className={`text-sm ${
                           selectedUserPresence.isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'
                         }`}>
-                          {selectedUserPresence.isOnline ? 'Online now' : 
+                          {isPeerTyping ? 'typing...' :
+                           selectedUserPresence.isOnline ? 'Online now' : 
                            selectedUserPresence.isAway ? 'Away' :
                            selectedUserPresence.presence?.lastSeen ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}` : 'Offline'}
                         </span>
@@ -1058,7 +1130,7 @@ export default function AdminMessages() {
                   <Input
                     placeholder="Type a message..."
                     value={message}
-                    onChange={(e) => setMessage(e.target.value)}
+                    onChange={(e) => handleTypingChange(e.target.value)}
                     onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
                     disabled={sendMessageMutation.isPending}
                     className="flex-1"
