@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Heart, ShoppingCart, Star, ArrowLeft, Minus, Plus, X, ChevronLeft, ChevronRight, Play, Check, Truck, Shield, RotateCcw } from "lucide-react";
+import { FaWhatsapp } from "react-icons/fa";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -324,6 +325,14 @@ export default function ProductDetails() {
         behavior: "smooth",
       });
     }
+  };
+
+  const handleShareOnWhatsApp = () => {
+    if (!product) return;
+    const productUrl = typeof window !== "undefined" ? window.location.href : `/product/${product.id}`;
+    const shareText = `Check this out on KiyuMart: ${product.name} - ${formatPrice(parseFloat(product.price))}`;
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareText}\n${productUrl}`)}`;
+    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
   };
 
   // ─── Loading State ──────────────────────────────────────
@@ -777,6 +786,19 @@ export default function ProductDetails() {
                     data-testid="button-wishlist"
                   >
                     <Heart className={`h-6 w-6 transition-all ${isWishlisted ? 'fill-current scale-110' : ''}`} />
+                    </Button>
+
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={handleShareOnWhatsApp}
+                    className="h-14 w-14 rounded-xl transition-all duration-300 hover:scale-110 active:scale-95 shadow-lg hover:shadow-xl border-2 text-[#25D366] hover:border-[#25D366]"
+                    style={{ boxSizing: 'border-box' }}
+                    data-testid="button-share-whatsapp"
+                    aria-label="Share product on WhatsApp"
+                    title="Share on WhatsApp"
+                  >
+                    <FaWhatsapp className="h-6 w-6" />
                   </Button>
                 </div>
 

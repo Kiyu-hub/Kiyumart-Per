@@ -10,6 +10,7 @@
     "test:e2e": "playwright test",
     "test:unit": "node scripts/run-tsx-test-suite.mjs",
     "test:integration": "node scripts/run-tsx-test-suite.mjs server/__tests__/paystack-integration.test.ts",
+    "qa:messaging": "node scripts/qa-messaging-checklist.mjs",
     "typecheck": "tsc --noEmit",
     "test:finance": "tsx scripts/verify-platform-earnings.ts"
   },
