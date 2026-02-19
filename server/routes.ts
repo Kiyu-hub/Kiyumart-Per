@@ -4481,6 +4481,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Audio upload endpoint (voice notes/support) - max 5MB
+  app.post("/api/upload/audio", requireAuth, upload.single("file"), async (req: AuthRequest, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No audio file provided" });
+      }
+
+      const allowedMimeTypes = [
+        "audio/mpeg",
+        "audio/mp3",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/webm",
+        "audio/ogg",
+        "audio/mp4",
+        "audio/aac",
+      ];
+      if (!allowedMimeTypes.includes(req.file.mimetype)) {
+        return res.status(400).json({ error: "Invalid file type. Only common audio formats are allowed" });
+      }
+
+      const maxSize = 5 * 1024 * 1024; // 5MB
+      if (req.file.size > maxSize) {
+        return res.status(400).json({ error: "File too large. Maximum size is 5MB" });
+      }
+
+      const result = await uploadWithMetadata(req.file.buffer, "kiyumart/audio");
+      res.json({ url: result.url, duration: result.duration, format: result.format });
+    } catch (error: any) {
+      console.error("Audio upload error:", error);
+      res.status(500).json({ error: error.message || "Failed to upload audio" });
+    }
+  });
+
+  // Support media upload endpoint - strict 5MB cap for image/video/audio
+  app.post("/api/upload/support-media", requireAuth, upload.single("file"), async (req: AuthRequest, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file provided" });
+      }
+
+      const allowedMimeTypes = [
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+        "audio/mpeg",
+        "audio/mp3",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/webm",
+        "audio/ogg",
+        "audio/mp4",
+        "audio/aac",
+      ];
+
+      if (!allowedMimeTypes.includes(req.file.mimetype)) {
+        return res.status(400).json({ error: "Unsupported file type for support media" });
+      }
+
+      const maxSize = 5 * 1024 * 1024; // 5MB
+      if (req.file.size > maxSize) {
+        return res.status(400).json({ error: "File too large. Maximum size is 5MB" });
+      }
+
+      const result = await uploadWithMetadata(req.file.buffer, "kiyumart/support");
+      res.json({
+        url: result.url,
+        resourceType: result.resource_type || "raw",
+        format: result.format,
+        duration: result.duration,
+      });
+    } catch (error: any) {
+      console.error("Support media upload error:", error);
+      res.status(500).json({ error: error.message || "Failed to upload support media" });
+    }
+  });
+
   app.get("/api/messages/unread-count", requireAuth, async (req: AuthRequest, res) => {
     try {
       const count = await storage.getUnreadMessageCount(req.user!.id);
@@ -7398,6 +7480,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: supportMessages.id,
           senderId: supportMessages.senderId,
           senderName: users.name,
+          senderProfileImage: users.profileImage,
           message: supportMessages.message,
           createdAt: supportMessages.createdAt,
         })
