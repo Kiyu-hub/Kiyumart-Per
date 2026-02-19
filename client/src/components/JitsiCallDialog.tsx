@@ -321,8 +321,8 @@ export function JitsiCallDialog({
           <div className="relative flex-1 min-h-0 bg-black">
             <div ref={jitsiContainerRef} className="w-full h-full min-h-[320px]" />
             {!conferenceJoined && !mountError && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/70 text-white">
-                <div className="text-center">
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-white">
+                <div className="rounded-xl border border-white/20 bg-black/55 px-4 py-3 text-center backdrop-blur-sm">
                   <Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin" />
                   <p className="text-sm">Connecting call...</p>
                 </div>

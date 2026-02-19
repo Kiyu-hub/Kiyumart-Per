@@ -13,10 +13,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useSocket } from "@/contexts/NotificationContext";
 import { formatLastSeen, useBatchPresence, usePresence } from "@/hooks/usePresence";
-import { AlertCircle, CheckCircle2, Clock, Loader2, MessageCircle, Paperclip, Send, User } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Loader2, MessageCircle, Paperclip, Phone, Send, User, Video } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
+import { useJitsiCall } from "@/hooks/useJitsiCall";
+import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 
 interface SupportConversation {
   id: string;
@@ -82,6 +84,7 @@ export default function CustomerSupport() {
   const [staffTicketFilter, setStaffTicketFilter] = useState<"open" | "assigned" | "resolved" | "all">("all");
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
+  const jitsiCall = useJitsiCall(user?.id || "");
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localTypingStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -151,6 +154,20 @@ export default function CustomerSupport() {
     const exists = conversations.some((conv) => conv.id === conversationId);
     if (exists) setSelectedConversation(conversationId);
   }, [conversations]);
+
+  useEffect(() => {
+    const incomingCallerId = jitsiCall.incomingCall?.callerId;
+    if (!incomingCallerId || conversations.length === 0) return;
+
+    const matchingConversation = conversations.find((conv) => {
+      if (isSupportStaff) return conv.customerId === incomingCallerId;
+      return conv.agentId === incomingCallerId;
+    });
+
+    if (matchingConversation && selectedConversation !== matchingConversation.id) {
+      setSelectedConversation(matchingConversation.id);
+    }
+  }, [conversations, isSupportStaff, jitsiCall.incomingCall?.callerId, selectedConversation]);
 
   const createTicketMutation = useMutation({
     mutationFn: async (data: { subject: string; message: string }) => {
@@ -235,6 +252,26 @@ export default function CustomerSupport() {
       socket.emit("support_stop_typing", { conversationId: selectedConversation });
     }
     sendMessageMutation.mutate({ conversationId: selectedConversation, message: message.trim() });
+  };
+
+  const handleStartSupportCall = async (callType: "voice" | "video") => {
+    if (!peerUserId) {
+      toast({
+        title: "No recipient",
+        description: "Select a support conversation first.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      await jitsiCall.startCall(peerUserId, callType);
+    } catch (error: any) {
+      toast({
+        title: "Call failed",
+        description: error?.message || "Unable to start call",
+        variant: "destructive",
+      });
+    }
   };
 
   const sendAttachmentMessage = (attachment: SupportAttachment) => {
@@ -784,6 +821,26 @@ export default function CustomerSupport() {
                     </div>
                     {isSupportStaff && (
                       <div className="flex items-center gap-2">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={() => handleStartSupportCall("voice")}
+                          disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
+                          data-testid="button-support-voice-call"
+                          title="Start voice call"
+                        >
+                          <Phone className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={() => handleStartSupportCall("video")}
+                          disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
+                          data-testid="button-support-video-call"
+                          title="Start video call"
+                        >
+                          <Video className="h-4 w-4" />
+                        </Button>
                         {selectedConv.status === "open" && (
                           <Button
                             size="sm"
@@ -1004,6 +1061,25 @@ export default function CustomerSupport() {
           </div>
         </div>
       </div>
+
+      <JitsiCallDialog
+        isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
+        roomUrl={jitsiCall.getJitsiUrl()}
+        roomName={jitsiCall.currentRoom?.roomName || null}
+        jitsiConfig={jitsiCall.jitsiConfig}
+        callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || "video"}
+        participants={jitsiCall.currentRoom?.participants?.map((id) => ({ id, name: "Participant" })) || []}
+        isHost={jitsiCall.currentRoom?.createdBy === user?.id}
+        incomingCall={jitsiCall.incomingCall ? {
+          callerName: jitsiCall.incomingCall.callerName,
+          callType: jitsiCall.incomingCall.callType,
+        } : null}
+        onAccept={() => jitsiCall.acceptIncomingCall()}
+        onReject={() => jitsiCall.rejectIncomingCall()}
+        onLeave={() => jitsiCall.leaveCall()}
+        onEnd={() => jitsiCall.endCall()}
+        isJoining={jitsiCall.isJoining}
+      />
     </DashboardLayout>
   );
 }
