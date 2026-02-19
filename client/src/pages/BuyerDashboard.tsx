@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Package, MapPin, Loader2, ShoppingBag, Wallet, Clock3, TrendingUp } from "lucide-react";
+import { Package, MapPin, Loader2, ShoppingBag, Wallet, TrendingUp, ArrowRight, Receipt } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,27 +64,59 @@ export default function BuyerDashboard() {
   };
 
   const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
+  const activeDeliveries = orders.filter((o) => trackStatuses.has(normalize(o.status))).length;
+  const recentOrders = [...orders]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 6);
   const buyerButtonClass = "!hover:bg-muted !hover:text-foreground";
 
   return (
     <DashboardLayout role="buyer">
       <div className="p-6 space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Buyer Dashboard</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Manage orders, payments, and delivery progress from one place.
-            </p>
-          </div>
-          <div className="inline-flex items-center rounded-lg border p-1 bg-card">
-            <Button size="sm" variant="default" disabled data-testid="button-mode-dashboard">
-              Dashboard Mode
-            </Button>
-            <Button size="sm" variant="ghost" className={buyerButtonClass} onClick={() => navigate("/")} data-testid="button-mode-shop">
-              Shop Mode
-            </Button>
-          </div>
-        </div>
+        <Card className="overflow-hidden border-0 bg-gradient-to-r from-emerald-600 via-emerald-500 to-cyan-500 text-white">
+          <CardContent className="p-6 md:p-8">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+              <div>
+                <p className="text-white/80 text-sm">Welcome back</p>
+                <h1 className="text-2xl md:text-3xl font-bold mt-1">
+                  {user?.name ? `${user.name.split(" ")[0]}'s Buyer Dashboard` : "Buyer Dashboard"}
+                </h1>
+                <p className="text-sm text-white/90 mt-2 max-w-xl">
+                  Track deliveries, resolve pending payments, and manage recent orders from one clean workspace.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <Badge className="bg-white/20 text-white border-white/30 hover:bg-white/20">
+                    {activeDeliveries} active delivery{activeDeliveries === 1 ? "" : "ies"}
+                  </Badge>
+                  <Badge className="bg-white/20 text-white border-white/30 hover:bg-white/20">
+                    {stats.pendingPayments} payment pending
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="bg-white text-emerald-700 hover:bg-white/90 hover:text-emerald-700"
+                  onClick={() => navigate(stats.pendingPayments > 0 ? "/orders" : "/orders")}
+                  data-testid="button-primary-dashboard-action"
+                >
+                  {stats.pendingPayments > 0 ? "Continue Payment" : "View Orders"}
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-white/50 text-white hover:bg-white/15 hover:text-white"
+                  onClick={() => navigate("/")}
+                  data-testid="button-go-shop"
+                >
+                  Go to Shop
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card data-testid="card-total-orders" className="border-l-4 border-l-primary">
@@ -136,149 +168,95 @@ export default function BuyerDashboard() {
           </Card>
         </div>
 
-        <Card>
-          <CardContent className="pt-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Clock3 className="h-4 w-4 text-muted-foreground" />
-              <span>Payment Priority</span>
-              <Badge variant={stats.pendingPayments > 0 ? "destructive" : "secondary"}>
-                {stats.pendingPayments > 0 ? `${stats.pendingPayments} pending` : "No pending payments"}
-              </Badge>
-            </div>
-            {stats.pendingPayments > 0 ? (
-              <Button size="sm" variant="outline" className={buyerButtonClass} onClick={() => navigate("/orders")} data-testid="button-resume-pending-payments">
-                Continue Pending Payment
-              </Button>
-            ) : (
-              <Button size="sm" variant="outline" className={buyerButtonClass} onClick={() => navigate("/orders")} data-testid="button-view-all-orders">
-                View All Orders
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Recent Orders</h2>
+            <p className="text-sm text-muted-foreground">Latest activity from your purchase history</p>
+          </div>
+          <Button size="sm" variant="outline" className={buyerButtonClass} onClick={() => navigate("/orders")} data-testid="button-view-orders-list">
+            <Receipt className="h-4 w-4 mr-2" />
+            View All Orders
+          </Button>
+        </div>
 
         {isLoading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : orders.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Orders</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {orders.slice(0, 6).map((order) => {
-                  const s = normalize(order.status);
-                  const paymentStatus = normalizePaymentStatus(order.paymentStatus);
-                  const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
-                  const requiresPaymentAction = s === "pending" || isUnpaid;
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {recentOrders.map((order) => {
+              const s = normalize(order.status);
+              const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+              const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
+              const requiresPaymentAction = s === "pending" || isUnpaid;
 
-                  const handleClick = () => {
-                    if (s === "pending") {
-                      navigate(`/payment/${order.id}`);
-                      return;
-                    }
-                    if (paymentStatus === "processing") {
-                      navigate(`/track?orderId=${order.id}`);
-                      return;
-                    }
-                    if (isUnpaid) {
-                      navigate(`/payment/${order.id}`);
-                    } else if (trackStatuses.has(s)) {
-                      navigate(`/track?orderId=${order.id}`);
-                    } else {
-                      navigate(`/track?orderId=${order.id}`);
-                    }
-                  };
+              const action = requiresPaymentAction
+                ? { label: "Continue Payment", path: `/payment/${order.id}`, variant: "outline" as const }
+                : (trackStatuses.has(s) || paymentStatus === "paid" || paymentStatus === "processing")
+                  ? { label: "Track Order", path: `/track?orderId=${order.id}`, variant: "outline" as const }
+                  : { label: "View Order", path: "/orders", variant: "ghost" as const };
 
-                  return (
-                    <div 
-                      key={order.id} 
-                      className="p-4 border rounded-lg hover:bg-muted/40 cursor-pointer transition-colors flex flex-col"
-                      onClick={handleClick}
-                      data-testid={`order-${order.id}`}
-                    >
-                      <div className="mb-3">
-                        <p className="font-semibold text-sm">{order.orderNumber}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(order.createdAt).toLocaleDateString()}
-                        </p>
-                      </div>
-
-                      <div className="space-y-2 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge variant="secondary" className="capitalize">
-                            {order.status}
-                          </Badge>
-                          <Badge variant={paymentStatus === "paid" ? "default" : "outline"}>
-                            {paymentStatus}
-                          </Badge>
-                        </div>
-
-                        <div className="text-xs space-y-1">
-                          <div className="flex justify-between gap-2">
-                            <span className="text-muted-foreground">Total</span>
-                            <span className="font-semibold">{formatPrice(Number(order.total) || 0)}</span>
-                          </div>
-                        </div>
-
-                        {requiresPaymentAction && (
-                          <p className="text-xs text-destructive font-medium">Payment required</p>
-                        )}
-                      </div>
-
-                      <div className="mt-3">
-                        {requiresPaymentAction ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className={buyerButtonClass}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/payment/${order.id}`);
-                            }}
-                          >
-                            Continue Payment
-                          </Button>
-                        ) : trackStatuses.has(s) ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className={buyerButtonClass}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/track?orderId=${order.id}`);
-                            }}
-                          >
-                            Track Order
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className={buyerButtonClass}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/track?orderId=${order.id}`);
-                            }}
-                          >
-                            View
-                          </Button>
-                        )}
-                      </div>
+              return (
+                <Card
+                  key={order.id}
+                  className="border shadow-sm hover:shadow-md transition-shadow flex flex-col"
+                  data-testid={`order-${order.id}`}
+                >
+                  <CardContent className="p-4 flex-1 flex flex-col">
+                    <div className="mb-3">
+                      <p className="font-semibold text-sm">{order.orderNumber}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(order.createdAt).toLocaleDateString()}
+                      </p>
                     </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
+
+                    <div className="space-y-2 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="secondary" className="capitalize">
+                          {order.status}
+                        </Badge>
+                        <Badge variant={paymentStatus === "paid" ? "default" : "outline"}>
+                          {paymentStatus}
+                        </Badge>
+                      </div>
+
+                      <div className="text-xs space-y-1">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">Total</span>
+                          <span className="font-semibold">{formatPrice(Number(order.total) || 0)}</span>
+                        </div>
+                      </div>
+
+                      {requiresPaymentAction && (
+                        <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">Payment required</p>
+                      )}
+                    </div>
+
+                    <div className="mt-4">
+                      <Button
+                        size="sm"
+                        variant={action.variant}
+                        className={buyerButtonClass}
+                        onClick={() => navigate(action.path)}
+                      >
+                        {action.label}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         ) : (
           <Card>
             <CardContent className="py-12 text-center">
               <ShoppingBag className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">No orders yet</h3>
-              <p className="text-muted-foreground">Switch to Shop Mode above to start placing orders.</p>
+              <p className="text-muted-foreground">Go to Shop to place your first order.</p>
+              <Button className="mt-4" onClick={() => navigate("/")} data-testid="button-empty-go-shop">
+                Start Shopping
+              </Button>
             </CardContent>
           </Card>
         )}
