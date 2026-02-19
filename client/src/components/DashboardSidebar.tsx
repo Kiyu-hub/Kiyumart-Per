@@ -222,9 +222,9 @@ export default function DashboardSidebar({
               >
                 <Icon className="h-5 w-5" />
                 <span className="flex-1 text-left">{item.label}</span>
-                {item.badge && (
+                {item.badge && (item.badge !== "dynamic" || notificationCount > 0) && (
                   <span className="bg-destructive text-destructive-foreground text-xs rounded-full px-2 py-0.5">
-                    {item.badge === "dynamic" ? (notificationCount > 0 ? (notificationCount > 9 ? "9+" : notificationCount) : null) : item.badge}
+                    {item.badge === "dynamic" ? (notificationCount > 9 ? "9+" : notificationCount) : item.badge}
                   </span>
                 )}
               </button>

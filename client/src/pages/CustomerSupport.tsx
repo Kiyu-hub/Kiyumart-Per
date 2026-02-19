@@ -79,6 +79,7 @@ export default function CustomerSupport() {
   const [newSupportSubject, setNewSupportSubject] = useState("");
   const [newSupportMessage, setNewSupportMessage] = useState("");
   const [showNewTicketForm, setShowNewTicketForm] = useState(false);
+  const [staffTicketFilter, setStaffTicketFilter] = useState<"open" | "assigned" | "resolved" | "all">("all");
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -394,6 +395,10 @@ export default function CustomerSupport() {
   const selectedConv = conversations.find(c => c.id === selectedConversation);
   const activeTicketCount = conversations.filter((c) => c.status === "open" || c.status === "assigned").length;
   const resolvedTicketCount = conversations.filter((c) => c.status === "resolved").length;
+  const visibleConversations =
+    isSupportStaff && staffTicketFilter !== "all"
+      ? conversations.filter((conv) => conv.status === staffTicketFilter)
+      : conversations;
   const peerUserId = selectedConv
     ? (isSupportStaff ? selectedConv.customerId : selectedConv.agentId)
     : null;
@@ -584,18 +589,60 @@ export default function CustomerSupport() {
                   <Badge variant="secondary">{conversations.length}</Badge>
                 )}
               </div>
+              {isSupportStaff && (
+                <div className="px-4 py-2 border-b flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={staffTicketFilter === "open" ? "default" : "outline"}
+                    onClick={() => setStaffTicketFilter("open")}
+                    className="h-7 px-2 text-xs"
+                    data-testid="filter-ticket-open"
+                  >
+                    Open
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={staffTicketFilter === "assigned" ? "default" : "outline"}
+                    onClick={() => setStaffTicketFilter("assigned")}
+                    className="h-7 px-2 text-xs"
+                    data-testid="filter-ticket-assigned"
+                  >
+                    Assigned
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={staffTicketFilter === "resolved" ? "default" : "outline"}
+                    onClick={() => setStaffTicketFilter("resolved")}
+                    className="h-7 px-2 text-xs"
+                    data-testid="filter-ticket-resolved"
+                  >
+                    Resolved
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={staffTicketFilter === "all" ? "default" : "outline"}
+                    onClick={() => setStaffTicketFilter("all")}
+                    className="h-7 px-2 text-xs ml-auto"
+                    data-testid="filter-ticket-all"
+                  >
+                    All
+                  </Button>
+                </div>
+              )}
               <ScrollArea className="flex-1 min-h-0">
                 {conversationsLoading ? (
                   <div className="p-4 text-center text-muted-foreground">
                     <Loader2 className="h-5 w-5 mx-auto mb-2 animate-spin" />
                     Loading conversations...
                   </div>
-                ) : conversations.length === 0 ? (
+                ) : visibleConversations.length === 0 ? (
                   <div className="p-6 text-center text-muted-foreground">
-                    {isSupportStaff ? "No support tickets yet" : "No support tickets. Create one to get help."}
+                    {isSupportStaff
+                      ? "No tickets match this filter"
+                      : "No support tickets. Create one to get help."}
                   </div>
                 ) : (
-                  conversations.map((conv) => (
+                  visibleConversations.map((conv) => (
                     <button
                       key={conv.id}
                       type="button"
@@ -664,7 +711,7 @@ export default function CustomerSupport() {
                     </button>
                   ))
                 )}
-                {isSupportStaff && conversations.length > 0 && (
+                {isSupportStaff && visibleConversations.length > 0 && (
                   <div className="px-4 py-2 border-t text-[11px] text-muted-foreground">
                     {resolvedTicketCount} resolved ticket{resolvedTicketCount === 1 ? "" : "s"} included in total
                   </div>

@@ -4409,18 +4409,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const receiver = await storage.getUser(receiverId);
       const sender = await storage.getUser(senderId);
       
-      // Notify admins about new messages to admin, agent, or super_admin
-      if (receiver && (receiver.role === "admin" || receiver.role === "super_admin" || receiver.role === "agent")) {
-        await notifyAdmins(
-          "message",
-          "New message received",
-          `You have a new message from ${sender?.name || sender?.email || 'a user'}`,
-          { messageId: message.id, senderId }
-        );
-      }
-      
-      // Create notification for non-admin receivers (riders, sellers, customers)
-      if (receiver && !["admin", "super_admin", "agent"].includes(receiver.role || "")) {
+      // Create notification for the receiver only (never notify sender for own outgoing message)
+      if (receiver && receiver.id !== senderId) {
         const rawMessage = (message.message || "").trim();
         const messagePreview = rawMessage.startsWith("__CHAT_ATTACHMENT__:")
           ? "Sent an attachment"
@@ -8419,6 +8409,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!notification) {
         return res.status(404).json({ error: "Notification not found" });
       }
+
+      // If this is a message notification, mark corresponding conversation as read
+      // so sender receives WhatsApp-style blue ticks when recipient opens notification.
+      const notificationRecord: any = notification;
+      const metadata = typeof notificationRecord.metadata === "string"
+        ? (() => {
+            try {
+              return JSON.parse(notificationRecord.metadata);
+            } catch {
+              return {};
+            }
+          })()
+        : (notificationRecord.metadata || {});
+      const senderId = metadata?.senderId ? String(metadata.senderId) : null;
+
+      if (notificationRecord.type === "message" && senderId && senderId !== String(req.user!.id)) {
+        const updatedMessages = await storage.markMessagesAsRead(senderId, req.user!.id);
+        for (const msg of updatedMessages) {
+          const payload = {
+            messageId: msg.id,
+            status: "read",
+            readAt: msg.readAt?.toISOString?.() || new Date().toISOString(),
+            deliveredAt: msg.deliveredAt?.toISOString?.() || new Date().toISOString(),
+          };
+          io.to(msg.senderId).emit("message_status_updated", payload);
+          io.to(req.user!.id).emit("message_status_updated", payload);
+        }
+      }
+
       res.json(notification);
     } catch (error: any) {
       res.status(400).json({ error: error.message });

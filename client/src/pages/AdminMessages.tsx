@@ -52,6 +52,7 @@ interface Message {
 export default function AdminMessages() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRole, setSelectedRole] = useState<string>("all");
+  const [showOnlineOnly, setShowOnlineOnly] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [uploadingAudio, setUploadingAudio] = useState(false);
@@ -663,14 +664,17 @@ export default function AdminMessages() {
 
   // Filter out the current admin user from the list
   const otherUsers = users.filter(u => u.id !== user?.id);
-  const filteredUsers = filterUsersBySearch(
+  const roleAndSearchFilteredUsers = filterUsersBySearch(
     filterUsersByRole(otherUsers, selectedRole),
     searchQuery
   );
 
   // Get batch presence for all visible users (WhatsApp-style online indicators)
-  const userIds = filteredUsers.map(u => u.id);
+  const userIds = roleAndSearchFilteredUsers.map(u => u.id);
   const batchPresence = useBatchPresence(userIds);
+  const filteredUsers = showOnlineOnly
+    ? roleAndSearchFilteredUsers.filter((u) => batchPresence.getPresence(u.id).status === "online")
+    : roleAndSearchFilteredUsers;
 
   const rolesCounts = {
     all: otherUsers.length,
@@ -733,6 +737,17 @@ export default function AdminMessages() {
                     className="pl-10"
                     data-testid="input-search-messages-mobile"
                   />
+                </div>
+                <div className="mt-2 flex justify-end">
+                  <Button
+                    size="sm"
+                    variant={showOnlineOnly ? "default" : "outline"}
+                    className="h-7 text-xs"
+                    onClick={() => setShowOnlineOnly((prev) => !prev)}
+                    data-testid="toggle-online-only-mobile"
+                  >
+                    {showOnlineOnly ? "Active only" : "All users"}
+                  </Button>
                 </div>
               </div>
               
@@ -945,8 +960,8 @@ export default function AdminMessages() {
 
         {/* Desktop: Side-by-side layout */}
         <div className="hidden md:flex md:flex-col flex-1 min-h-0 p-4 md:p-6 pt-4">
-          <div className="mb-4 flex-shrink-0">
-            <div className="relative max-w-md">
+          <div className="mb-4 flex-shrink-0 flex items-center gap-2">
+            <div className="relative max-w-md flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search users..."
@@ -956,6 +971,15 @@ export default function AdminMessages() {
                 data-testid="input-search-messages"
               />
             </div>
+            <Button
+              size="sm"
+              variant={showOnlineOnly ? "default" : "outline"}
+              className="h-9"
+              onClick={() => setShowOnlineOnly((prev) => !prev)}
+              data-testid="toggle-online-only-desktop"
+            >
+              {showOnlineOnly ? "Active only" : "All users"}
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0 overflow-hidden">

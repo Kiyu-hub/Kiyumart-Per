@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -24,6 +24,36 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+
+  const playNotificationSound = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    try {
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      const tone = (startAt: number, frequency: number, gainValue: number, duration: number) => {
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = "square";
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.0001, startAt);
+        gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start(startAt);
+        oscillator.stop(startAt + duration);
+      };
+      tone(now, 940, 0.32, 0.16);
+      tone(now + 0.18, 1280, 0.38, 0.2);
+      setTimeout(() => {
+        ctx.close().catch(() => {});
+      }, 650);
+    } catch {
+      // Ignore sound errors from browser/device restrictions
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -184,6 +214,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         variant: data.type === "error" ? "destructive" : "default",
         duration: 5000,
       });
+      playNotificationSound();
     });
 
     // Promotional/Marketing Messages
@@ -217,6 +248,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // Invalidate messages queries to refresh chat UI
       queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/messages", data.senderId] });
+
+      // Do not notify sender about their own outgoing message
+      if (data.senderId === user.id) {
+        return;
+      }
       
       // Show toast notification for new message
       toast({
@@ -226,6 +262,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           : data.message,
         duration: 4000,
       });
+      playNotificationSound();
     });
 
     // Seller Application Approved (for real-time store updates)
@@ -264,7 +301,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setSocket(null);
       setIsConnected(false);
     };
-  }, [user?.id, user?.role, toast]);
+  }, [user?.id, user?.role, toast, playNotificationSound]);
 
   return (
     <NotificationContext.Provider value={{ socket, isConnected }}>
