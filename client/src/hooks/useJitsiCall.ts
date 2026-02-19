@@ -243,10 +243,11 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
           description: 'Missed call recorded.',
         });
       }
+      stopOutgoingRingback();
       clearOutgoingUnanswered();
     }, 30000);
     outgoingUnansweredRef.current = state;
-  }, [clearOutgoingUnanswered, recordOutgoingMissedCall, toast]);
+  }, [clearOutgoingUnanswered, recordOutgoingMissedCall, stopOutgoingRingback, toast]);
 
   // Start 1-on-1 call
   const startCallMutation = useMutation({
@@ -570,6 +571,13 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       stopRingtone();
     }
   }, [incomingCall, stopRingtone]);
+
+  useEffect(() => {
+    if (!currentRoom && !incomingCall) {
+      stopRingtone();
+      stopOutgoingRingback();
+    }
+  }, [currentRoom, incomingCall, stopOutgoingRingback, stopRingtone]);
 
   useEffect(() => {
     const unlockRingtone = async () => {

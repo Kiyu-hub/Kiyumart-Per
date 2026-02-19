@@ -21,6 +21,13 @@ import {
   Phone,
   PhoneOff,
   Video,
+  VideoOff,
+  Mic,
+  MicOff,
+  MessageSquare,
+  Users,
+  Settings,
+  LayoutGrid,
   X,
   Loader2,
 } from 'lucide-react';
@@ -78,6 +85,8 @@ export function JitsiCallDialog({
   const apiRef = useRef<any>(null);
   const [participantCount, setParticipantCount] = useState(1);
   const [conferenceJoined, setConferenceJoined] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isVideoMuted, setIsVideoMuted] = useState(callType === "voice");
   const [mountError, setMountError] = useState<string | null>(null);
 
   const fullToolbarButtons = useMemo(
@@ -110,6 +119,8 @@ export function JitsiCallDialog({
     setMountError(null);
     setConferenceJoined(false);
     setParticipantCount(1);
+    setIsAudioMuted(false);
+    setIsVideoMuted(callType === "voice");
 
     const parsed = (() => {
       try {
@@ -213,6 +224,12 @@ export function JitsiCallDialog({
         api.addListener("participantLeft", () => {
           setParticipantCount((prev) => Math.max(1, prev - 1));
         });
+        api.addListener("audioMuteStatusChanged", (payload: { muted: boolean }) => {
+          setIsAudioMuted(!!payload?.muted);
+        });
+        api.addListener("videoMuteStatusChanged", (payload: { muted: boolean }) => {
+          setIsVideoMuted(!!payload?.muted);
+        });
       } catch (error) {
         console.error("Jitsi mount failed:", error);
         setMountError("Unable to initialize call interface.");
@@ -235,6 +252,22 @@ export function JitsiCallDialog({
     }
     if (!open && incomingCall) {
       onReject?.();
+    }
+  };
+
+  const runCommand = (...commands: Array<string | [string, ...any[]]>) => {
+    for (const cmd of commands) {
+      try {
+        if (Array.isArray(cmd)) {
+          const [name, ...args] = cmd;
+          apiRef.current?.executeCommand?.(name, ...args);
+        } else {
+          apiRef.current?.executeCommand?.(cmd);
+        }
+        return;
+      } catch {
+        // try next fallback
+      }
     }
   };
 
@@ -348,7 +381,70 @@ export function JitsiCallDialog({
             )}
           </div>
 
-          <div className="absolute right-4 bottom-4 z-20 flex items-center gap-2">
+          <div className="absolute inset-x-0 bottom-4 z-20 flex flex-wrap items-center justify-center gap-2 px-4">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleAudio")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title={isAudioMuted ? "Unmute microphone" : "Mute microphone"}
+            >
+              {isAudioMuted ? <MicOff className="h-4.5 w-4.5" /> : <Mic className="h-4.5 w-4.5" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleVideo")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title={isVideoMuted ? "Turn camera on" : "Turn camera off"}
+            >
+              {isVideoMuted ? <VideoOff className="h-4.5 w-4.5" /> : <Video className="h-4.5 w-4.5" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleChat")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title="Chat"
+            >
+              <MessageSquare className="h-4.5 w-4.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleParticipantsPane")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title="Participants"
+            >
+              <Users className="h-4.5 w-4.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleTileView", ["setTileView", true])}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title="Tile view"
+            >
+              <LayoutGrid className="h-4.5 w-4.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleVirtualBackgroundDialog", "showVideoBackgroundDialog")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title="Background effects"
+            >
+              <span className="text-[10px] font-semibold">BG</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => runCommand("toggleSettings")}
+              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title="Settings"
+            >
+              <Settings className="h-4.5 w-4.5" />
+            </Button>
             <Button
               variant="outline"
               size="icon"
