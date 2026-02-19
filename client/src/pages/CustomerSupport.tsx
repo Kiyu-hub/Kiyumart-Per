@@ -246,15 +246,19 @@ export default function CustomerSupport() {
       return;
     }
 
-    const endpoint = "/api/upload/support-media";
+    const primaryEndpoint = "/api/upload/support-media";
     let kind: SupportAttachment["kind"] = "file";
+    let legacyEndpoint = "";
 
     if (file.type.startsWith("image/")) {
       kind = "image";
+      legacyEndpoint = "/api/upload/image";
     } else if (file.type.startsWith("video/")) {
       kind = "video";
+      legacyEndpoint = "/api/upload/video";
     } else if (file.type.startsWith("audio/")) {
       kind = "audio";
+      legacyEndpoint = "/api/upload/audio";
     } else {
       toast({
         title: "Unsupported file",
@@ -270,24 +274,49 @@ export default function CustomerSupport() {
     try {
       setUploadingAttachment(true);
       const envBase = (import.meta.env as any).VITE_API_URL || "";
-      const candidates: string[] = [];
-      if (envBase) candidates.push(`${envBase}${endpoint}`);
-      // Fallback to same-origin proxy
-      candidates.push(endpoint);
-      // Local dev fallback when frontend is on 5173 and backend is on 5000
-      if (!envBase && typeof window !== "undefined" && window.location.hostname === "localhost" && window.location.port !== "5000") {
-        candidates.push(`http://localhost:5000${endpoint}`);
+      const candidatesRaw: string[] = [];
+      const add = (url?: string) => {
+        if (url && !candidatesRaw.includes(url)) candidatesRaw.push(url);
+      };
+
+      if (envBase) {
+        add(`${envBase}${primaryEndpoint}`);
+        if (legacyEndpoint) add(`${envBase}${legacyEndpoint}`);
       }
+
+      // Same-origin proxy candidates
+      add(primaryEndpoint);
+      if (legacyEndpoint) add(legacyEndpoint);
+
+      // Explicit backend port fallbacks (works when proxy is misconfigured)
+      if (typeof window !== "undefined") {
+        const host = window.location.hostname;
+        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+        add(`${protocol}//${host}:5000${primaryEndpoint}`);
+        if (legacyEndpoint) add(`${protocol}//${host}:5000${legacyEndpoint}`);
+      }
+      add(`http://localhost:5000${primaryEndpoint}`);
+      if (legacyEndpoint) add(`http://localhost:5000${legacyEndpoint}`);
+      add(`http://127.0.0.1:5000${primaryEndpoint}`);
+      if (legacyEndpoint) add(`http://127.0.0.1:5000${legacyEndpoint}`);
+
+      const candidates = candidatesRaw;
 
       let payload: any = null;
       let lastError = "Upload failed";
 
       for (const url of candidates) {
-        const res = await fetch(url, {
-          method: "POST",
-          body: formData,
-          credentials: "include",
-        });
+        let res: Response;
+        try {
+          res = await fetch(url, {
+            method: "POST",
+            body: formData,
+            credentials: "include",
+          });
+        } catch (networkErr: any) {
+          lastError = networkErr?.message || "Network error";
+          continue;
+        }
 
         const contentType = res.headers.get("content-type") || "";
         const raw = await res.text();
