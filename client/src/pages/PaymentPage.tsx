@@ -14,6 +14,7 @@ interface Order {
   orderNumber: string;
   total: string;
   currency: string;
+  status: string;
   paymentStatus: string;
   buyerId: string;
 }
@@ -32,6 +33,7 @@ export default function PaymentPage() {
     if (s === "completed" || s === "paid") return "paid";
     return s || "pending";
   };
+  const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();
 
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
@@ -124,7 +126,10 @@ export default function PaymentPage() {
     );
   }
 
-  if (normalizePaymentStatus(order.paymentStatus) === "paid") {
+  const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+  const orderStatus = normalizeOrderStatus(order.status);
+
+  if (paymentStatus === "paid") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
@@ -135,7 +140,7 @@ export default function PaymentPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Button onClick={() => navigate("/track")} className="w-full" data-testid="button-track">
+            <Button onClick={() => navigate(`/track?orderId=${order.id}`)} className="w-full" data-testid="button-track">
               Track Order
             </Button>
             <Button onClick={() => navigate("/")} variant="outline" className="w-full" data-testid="button-home">
@@ -147,7 +152,7 @@ export default function PaymentPage() {
     );
   }
 
-  if (normalizePaymentStatus(order.paymentStatus) === "processing") {
+  if (paymentStatus === "processing" && orderStatus !== "pending") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
