@@ -19,7 +19,6 @@ import SellerDashboard from "@/pages/SellerDashboardConnected";
 import RiderDashboard from "@/pages/RiderDashboard";
 import BuyerDashboard from "@/pages/BuyerDashboard";
 import AgentDashboard from "@/pages/AgentDashboard";
-import AgentTickets from "@/pages/AgentTickets";
 import AgentCustomers from "@/pages/AgentCustomers";
 import AgentNotifications from "@/pages/AgentNotifications";
 import ChatPage from "@/pages/ChatPageConnected";
@@ -58,7 +57,6 @@ import AdminMessages from "@/pages/AdminMessages";
 import AdminAnalytics from "@/pages/AdminAnalytics";
 import AdminMediaLibrary from "@/pages/AdminMediaLibrary";
 import AdminNotifications from "@/pages/AdminNotifications";
-import AdminLiveSupportDashboard from "@/pages/AdminLiveSupportDashboard";
 import SellerMediaLibrary from "@/pages/SellerMediaLibrary";
 import SellerProducts from "@/pages/SellerProducts";
 import SellerOrders from "@/pages/SellerOrders";
@@ -163,7 +161,7 @@ function Router() {
       <Route path="/admin/applications" component={AdminApplications} />
       <Route path="/admin/permissions" component={SuperAdminPermissions} />
       <Route path="/admin/messages" component={AdminMessages} />
-      <Route path="/admin/live-support" component={AdminLiveSupportDashboard} />
+      <Route path="/admin/live-support" component={CustomerSupport} />
       <Route path="/admin/analytics" component={AdminAnalytics} />
       <Route path="/admin/notifications" component={AdminNotifications} />
       <Route path="/seller/products" component={SellerProducts} />
@@ -186,7 +184,7 @@ function Router() {
       <Route path="/rider/settings" component={RiderSettings} />
       <Route path="/buyer" component={BuyerDashboard} />
       <Route path="/agent" component={AgentDashboard} />
-      <Route path="/agent/tickets" component={AgentTickets} />
+      <Route path="/agent/tickets" component={CustomerSupport} />
       <Route path="/agent/customers" component={AgentCustomers} />
       <Route path="/agent/notifications" component={AgentNotifications} />
       <Route path="/chat" component={ChatPage} />

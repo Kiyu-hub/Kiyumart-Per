@@ -11,7 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { AlertCircle, CheckCircle2, Clock, Loader2, MessageCircle, Send, User } from "lucide-react";
+import { useSocket } from "@/contexts/NotificationContext";
+import { AlertCircle, Check, CheckCircle2, Clock, Loader2, MessageCircle, Send, User } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 interface SupportConversation {
@@ -40,6 +41,7 @@ export default function CustomerSupport() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const socket = useSocket();
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [newSupportSubject, setNewSupportSubject] = useState("");
@@ -78,6 +80,24 @@ export default function CustomerSupport() {
     enabled: !!selectedConversation,
     refetchInterval: selectedConversation ? 3000 : false,
   });
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleSupportUpdate = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
+      if (selectedConversation) {
+        queryClient.invalidateQueries({
+          queryKey: ["/api/support/conversations", selectedConversation, "/messages"],
+        });
+      }
+    };
+
+    socket.on("support_conversation_updated", handleSupportUpdate);
+    return () => {
+      socket.off("support_conversation_updated", handleSupportUpdate);
+    };
+  }, [socket, selectedConversation]);
 
   useEffect(() => {
     if (!selectedConversation && conversations.length > 0) {
@@ -379,9 +399,10 @@ export default function CustomerSupport() {
                                   <span className="text-xs font-medium">{msg.senderName || "Unknown"}</span>
                                 </div>
                                 <p className="text-sm whitespace-pre-wrap">{msg.message}</p>
-                                <p className="text-xs mt-1 opacity-70">
-                                  {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
-                                </p>
+                                <div className="text-xs mt-1 opacity-70 flex items-center gap-1 justify-end">
+                                  <span>{formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}</span>
+                                  {isMe && <Check className="h-3 w-3" />}
+                                </div>
                               </div>
                             </div>
                           );

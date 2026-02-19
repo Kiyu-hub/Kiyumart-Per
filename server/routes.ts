@@ -4394,6 +4394,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         receiverId,
         message: req.body.message,
         messageType: req.body.messageType || "text",
+        status: "sent" as const,
+        isRead: false,
       };
 
       const message = await storage.createMessage(messageData);
@@ -7327,6 +7329,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message,
       });
 
+      // Notify support staff instantly (admins, super admins, agents)
+      try {
+        const senderProfile = await storage.getUser(user.id);
+        const senderLabel = senderProfile?.name || user.email || "A customer";
+        const admins = await storage.getUsersByRole("admin");
+        const superAdmins = await storage.getUsersByRole("super_admin");
+        const agents = await storage.getUsersByRole("agent");
+        const supportStaff = [...admins, ...superAdmins, ...agents]
+          .filter((staff, idx, arr) => staff.id !== user.id && arr.findIndex((x) => x.id === staff.id) === idx);
+
+        for (const staff of supportStaff) {
+          await storage.createNotification({
+            userId: staff.id,
+            type: "message",
+            title: "New Support Ticket",
+            message: `${senderLabel} created a support ticket: ${subject}`,
+            metadata: { conversationId: conversation.id, customerId: user.id } as any,
+          });
+
+          io.to(staff.id).emit("notification", {
+            type: "message",
+            title: "New Support Ticket",
+            message: `${senderLabel} created a support ticket: ${subject}`,
+            data: { conversationId: conversation.id, customerId: user.id },
+          });
+          io.to(staff.id).emit("support_conversation_updated", {
+            conversationId: conversation.id,
+            event: "created",
+          });
+        }
+      } catch (notifyError) {
+        console.error("Failed to notify support staff about new ticket:", notifyError);
+      }
+
       res.json(conversation);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -7416,6 +7452,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .update(supportConversations)
         .set({ lastMessage: message, updatedAt: new Date() })
         .where(eq(supportConversations.id, id));
+
+      // Notify relevant participants instantly
+      try {
+        const senderProfile = await storage.getUser(user.id);
+        const senderName = senderProfile?.name || req.user?.email || "Support";
+        const isSupportStaffSender = ["admin", "super_admin", "agent"].includes(user.role || "");
+
+        if (isSupportStaffSender) {
+          await storage.createNotification({
+            userId: conversation.customerId,
+            type: "message",
+            title: "Support Reply",
+            message: `You have a new reply from support on "${conversation.subject}"`,
+            metadata: { conversationId: id, senderId: user.id } as any,
+          });
+
+          io.to(conversation.customerId).emit("notification", {
+            type: "message",
+            title: "Support Reply",
+            message: `You have a new reply from support on "${conversation.subject}"`,
+            data: { conversationId: id, senderId: user.id },
+          });
+          io.to(conversation.customerId).emit("support_conversation_updated", {
+            conversationId: id,
+            event: "message",
+          });
+        } else {
+          const admins = await storage.getUsersByRole("admin");
+          const superAdmins = await storage.getUsersByRole("super_admin");
+          const agents = await storage.getUsersByRole("agent");
+          const supportStaff = [...admins, ...superAdmins, ...agents]
+            .filter((staff, idx, arr) => staff.id !== user.id && arr.findIndex((x) => x.id === staff.id) === idx);
+
+          for (const staff of supportStaff) {
+            await storage.createNotification({
+              userId: staff.id,
+              type: "message",
+              title: "New Support Message",
+              message: `${senderName} sent a message on "${conversation.subject}"`,
+              metadata: { conversationId: id, customerId: user.id } as any,
+            });
+
+            io.to(staff.id).emit("notification", {
+              type: "message",
+              title: "New Support Message",
+              message: `${senderName} sent a message on "${conversation.subject}"`,
+              data: { conversationId: id, customerId: user.id },
+            });
+            io.to(staff.id).emit("support_conversation_updated", {
+              conversationId: id,
+              event: "message",
+            });
+          }
+        }
+      } catch (notifyError) {
+        console.error("Failed to notify support participants:", notifyError);
+      }
+
+      // Push live refresh event to likely participants
+      io.to(conversation.customerId).emit("support_conversation_updated", {
+        conversationId: id,
+        event: "message",
+      });
+      if (conversation.agentId) {
+        io.to(conversation.agentId).emit("support_conversation_updated", {
+          conversationId: id,
+          event: "message",
+        });
+      }
 
       res.json(newMessage);
     } catch (error: any) {

@@ -143,6 +143,8 @@ export default function DashboardLayout({
     } else if (id === "my-wishlist") {
       // All non-buyer roles access their wishlist at /wishlist
       setLocation("/wishlist");
+    } else if (id === "support") {
+      setLocation("/support");
     } else if (normalizedRole === "buyer" && (id === "orders" || id === "wishlist" || id === "support" || id === "notifications" || id === "settings")) {
       // Buyer uses global routes for these pages
       setLocation(`/${id}`);
