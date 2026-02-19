@@ -8,8 +8,8 @@
     "build:frontend": "vite build",
     "dev:frontend": "vite --host",
     "test:e2e": "playwright test",
-    "test:unit": "bash scripts/run-unit-tests.sh",
-    "test:integration": "SESSION_SECRET=testsecret tsx server/__tests__/paystack-integration.test.ts",
+    "test:unit": "node scripts/run-tsx-test-suite.mjs",
+    "test:integration": "node scripts/run-tsx-test-suite.mjs server/__tests__/paystack-integration.test.ts",
     "typecheck": "tsc --noEmit",
     "test:finance": "tsx scripts/verify-platform-earnings.ts"
   },

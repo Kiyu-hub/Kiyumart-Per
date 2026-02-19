@@ -460,6 +460,23 @@ export default function ChatPageConnected() {
     setMessages(chatMessages);
   }, [chatMessages]);
 
+  // WhatsApp-style delivery/read receipts for incoming messages in active conversation
+  useEffect(() => {
+    if (!socketRef.current || !selectedContact || messages.length === 0 || !user?.id) return;
+
+    const incoming = messages.filter((m) => m.senderId === selectedContact.id);
+    const undelivered = incoming.filter((m) => !m.deliveredAt && m.status === "sent");
+    const unread = incoming.filter((m) => !m.readAt && !m.isRead);
+
+    undelivered.forEach((m) => socketRef.current?.emit("message_delivered", { messageId: m.id }));
+
+    if (unread.length > 0) {
+      apiRequest("PATCH", `/api/messages/${selectedContact.id}/read`).catch((error) => {
+        console.error("Failed to mark chat as read:", error);
+      });
+    }
+  }, [messages, selectedContact, user?.id]);
+
   const sendMessageMutation = useMutation({
     mutationFn: async (message: string) => {
       const res = await apiRequest("POST", "/api/messages", {

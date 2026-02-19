@@ -101,9 +101,9 @@ export default function Notifications() {
           break;
         case "order":
           if (isBuyer) {
-            // Buyers use the public orders page
+            // Buyers track specific orders through the public tracking route
             if (metadata.orderId) {
-              navigate(`/orders/${metadata.orderId}`);
+              navigate(`/track?orderId=${metadata.orderId}`);
             } else {
               navigate("/orders");
             }

@@ -1017,7 +1017,7 @@ export default function AdminMessages() {
                           selectedUserPresence.isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'
                         }`}>
                           {isPeerTyping ? 'typing...' :
-                           selectedUserPresence.isOnline ? 'Online now' : 
+                           selectedUserPresence.isOnline ? 'Online' : 
                            selectedUserPresence.isAway ? 'Away' :
                            selectedUserPresence.presence?.lastSeen ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}` : 'Offline'}
                         </span>

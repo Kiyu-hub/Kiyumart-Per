@@ -4421,20 +4421,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Create notification for non-admin receivers (riders, sellers, customers)
       if (receiver && !["admin", "super_admin", "agent"].includes(receiver.role || "")) {
+        const messagePreview = (message.message || "").trim();
+        const notificationBody = messagePreview || `You have a new message from ${sender?.name || sender?.email || 'Support'}`;
         await storage.createNotification({
           userId: receiver.id,
           type: "message",
-          title: "New message",
-          message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
-          metadata: { messageId: message.id, senderId } as any,
+          title: `New message from ${sender?.name || sender?.email || 'Support'}`,
+          message: notificationBody,
+          metadata: { messageId: message.id, senderId, preview: messagePreview } as any,
         });
         
         // Also emit a notification event to the receiver's socket room
         io.to(receiverId).emit("notification", {
           type: "message",
-          title: "New message",
-          message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
-          data: { messageId: message.id, senderId },
+          title: `New message from ${sender?.name || sender?.email || 'Support'}`,
+          message: notificationBody,
+          data: { messageId: message.id, senderId, preview: messagePreview },
         });
       }
       

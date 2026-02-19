@@ -35,7 +35,7 @@ export function MessageStatusTicks({
   // Variant-aware colors (primary for light text on colored backgrounds)
   const getSentColor = () => variant === "primary" ? "text-primary-foreground/70" : "text-muted-foreground";
   const getDeliveredColor = () => variant === "primary" ? "text-primary-foreground/70" : "text-muted-foreground";
-  const getReadColor = () => variant === "primary" ? "text-blue-300" : "text-blue-500";
+  const getReadColor = () => variant === "primary" ? "text-sky-300" : "text-sky-500";
 
   // Sent: single gray check
   if (derivedStatus === "sent") {
