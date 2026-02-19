@@ -1429,6 +1429,7 @@ export default function AdminMessages() {
         isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
         roomUrl={jitsiCall.getJitsiUrl()}
         roomName={jitsiCall.currentRoom?.roomName || null}
+        jitsiConfig={jitsiCall.jitsiConfig}
         callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || 'video'}
         participants={jitsiCall.currentRoom?.participants?.map(id => ({ id, name: 'Participant' })) || []}
         isHost={jitsiCall.currentRoom?.createdBy === user?.id}

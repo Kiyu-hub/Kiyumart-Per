@@ -250,6 +250,7 @@ export default function RiderActiveRoute() {
         isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
         roomUrl={jitsiCall.getJitsiUrl()}
         roomName={jitsiCall.currentRoom?.roomName || null}
+        jitsiConfig={jitsiCall.jitsiConfig}
         callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || 'voice'}
         participants={[]}
         isHost={true}

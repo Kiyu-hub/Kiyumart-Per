@@ -36,6 +36,13 @@ interface JitsiCallDialogProps {
   isOpen: boolean;
   roomUrl: string | null;
   roomName: string | null;
+  jitsiConfig?: {
+    domain: string;
+    roomName: string;
+    userInfo?: { displayName?: string; email?: string };
+    configOverwrite?: Record<string, any>;
+    interfaceConfigOverwrite?: Record<string, any>;
+  } | null;
   callType: 'voice' | 'video';
   participants?: { id: string; name: string }[];
   isHost: boolean;
@@ -60,6 +67,7 @@ export function JitsiCallDialog({
   isOpen,
   roomUrl,
   roomName,
+  jitsiConfig,
   callType,
   participants = [],
   isHost,
@@ -70,7 +78,110 @@ export function JitsiCallDialog({
   onEnd,
   isJoining,
 }: JitsiCallDialogProps) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const jitsiContainerRef = useRef<HTMLDivElement>(null);
+  const apiRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!isOpen || !roomUrl || !jitsiContainerRef.current) return;
+
+    const parsed = (() => {
+      try {
+        const noHash = roomUrl.split("#")[0];
+        const url = new URL(noHash);
+        const parsedRoom = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+        return {
+          domain: jitsiConfig?.domain || url.hostname,
+          room: jitsiConfig?.roomName || roomName || parsedRoom,
+        };
+      } catch {
+        return {
+          domain: jitsiConfig?.domain || "meet.jit.si",
+          room: jitsiConfig?.roomName || roomName || "",
+        };
+      }
+    })();
+
+    if (!parsed.room) return;
+
+    const ensureScript = (): Promise<void> => {
+      if ((window as any).JitsiMeetExternalAPI) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const existing = document.querySelector<HTMLScriptElement>(`script[data-jitsi-domain="${parsed.domain}"]`);
+        if (existing) {
+          existing.addEventListener("load", () => resolve(), { once: true });
+          existing.addEventListener("error", () => reject(new Error("Failed to load Jitsi script")), { once: true });
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = `https://${parsed.domain}/external_api.js`;
+        script.async = true;
+        script.dataset.jitsiDomain = parsed.domain;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Failed to load Jitsi script"));
+        document.body.appendChild(script);
+      });
+    };
+
+    const mount = async () => {
+      try {
+        await ensureScript();
+        if (!jitsiContainerRef.current || !(window as any).JitsiMeetExternalAPI) return;
+
+        apiRef.current?.dispose?.();
+        jitsiContainerRef.current.innerHTML = "";
+
+        const api = new (window as any).JitsiMeetExternalAPI(parsed.domain, {
+          roomName: parsed.room,
+          parentNode: jitsiContainerRef.current,
+          width: "100%",
+          height: "100%",
+          userInfo: jitsiConfig?.userInfo || { displayName: "User" },
+          configOverwrite: {
+            prejoinPageEnabled: false,
+            prejoinConfig: { enabled: false, hideDisplayName: true },
+            requireDisplayName: false,
+            disableDeepLinking: true,
+            enableWelcomePage: false,
+            startWithAudioMuted: false,
+            startWithVideoMuted: callType === "voice",
+            disableInviteFunctions: true,
+            hideLobbyButton: true,
+            ...(jitsiConfig?.configOverwrite || {}),
+          },
+          interfaceConfigOverwrite: {
+            SHOW_JITSI_WATERMARK: false,
+            SHOW_WATERMARK_FOR_GUESTS: false,
+            SHOW_BRAND_WATERMARK: false,
+            SHOW_POWERED_BY: false,
+            MOBILE_APP_PROMO: false,
+            DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+            ...(jitsiConfig?.interfaceConfigOverwrite || {}),
+          },
+        });
+
+        apiRef.current = api;
+
+        if (callType === "voice") {
+          api.addListener("videoConferenceJoined", () => {
+            try {
+              api.executeCommand("toggleVideo");
+            } catch {
+              // no-op
+            }
+          });
+        }
+      } catch (error) {
+        console.error("Jitsi mount failed:", error);
+      }
+    };
+
+    mount();
+
+    return () => {
+      apiRef.current?.dispose?.();
+      apiRef.current = null;
+    };
+  }, [isOpen, roomUrl, roomName, jitsiConfig, callType]);
 
   // Handle closing - don't close if in active call
   const handleOpenChange = (open: boolean) => {
@@ -164,13 +275,7 @@ export function JitsiCallDialog({
           </div>
 
           <div className="flex-1 bg-black">
-            <iframe
-              ref={iframeRef}
-              src={roomUrl}
-              className="w-full h-full border-0"
-              allow="camera; microphone; fullscreen; display-capture; autoplay"
-              allowFullScreen
-            />
+            <div ref={jitsiContainerRef} className="w-full h-full" />
           </div>
 
           <div className="absolute inset-x-0 bottom-4 z-20 flex items-center justify-center gap-3">
