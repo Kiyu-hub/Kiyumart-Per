@@ -185,8 +185,10 @@ function Router() {
       <Route path="/buyer" component={BuyerDashboard} />
       <Route path="/agent" component={AgentDashboard} />
       <Route path="/agent/tickets" component={CustomerSupport} />
+      <Route path="/agent/messages" component={CustomerSupport} />
       <Route path="/agent/customers" component={AgentCustomers} />
       <Route path="/agent/notifications" component={AgentNotifications} />
+      <Route path="/agent/settings" component={Settings} />
       <Route path="/chat" component={ChatPage} />
       <Route path="/track" component={OrderTracking} />
       <Route path="/live-tracking" component={LiveTracking} />

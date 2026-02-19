@@ -948,6 +948,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const allowedFields = ['name', 'email', 'phone', 'role', 'isActive', 'isApproved', 'vehicleInfo', 'storeType', 'storeName', 'storeDescription', 'storeBanner'];
       const updateData: Record<string, any> = {};
+      const roleLabels: Record<string, string> = {
+        buyer: "Buyer",
+        seller: "Seller",
+        rider: "Rider",
+        agent: "Agent",
+        admin: "Admin",
+        super_admin: "Super Admin",
+      };
       
       for (const field of allowedFields) {
         if (req.body[field] !== undefined) {
@@ -975,6 +983,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const currentUser = await storage.getUser(req.params.id);
       if (!currentUser) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      const normalizedCurrentRole = currentUser.role;
+      const normalizedRequestedRole = typeof updateData.role === "string"
+        ? (updateData.role === "superadmin" ? "super_admin" : updateData.role)
+        : normalizedCurrentRole;
+      const roleChanged = typeof updateData.role === "string" && normalizedRequestedRole !== normalizedCurrentRole;
+
+      if (typeof updateData.role === "string") {
+        updateData.role = normalizedRequestedRole;
       }
       
       // ENFORCE: Sellers cannot lose storeType if approved
@@ -1008,6 +1026,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.updateUser(req.params.id, updateData);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      if (roleChanged) {
+        try {
+          const newRoleDashboard = normalizedRequestedRole === "super_admin"
+            ? "/admin"
+            : `/${normalizedRequestedRole}`;
+          const title = normalizedRequestedRole === "agent"
+            ? "Promotion: Agent Access Granted"
+            : "Role Updated";
+          const message = `Your account role has been updated from ${roleLabels[normalizedCurrentRole] || normalizedCurrentRole} to ${roleLabels[normalizedRequestedRole] || normalizedRequestedRole}.`;
+
+          await storage.createNotification({
+            userId: user.id,
+            type: "system",
+            title,
+            message,
+            metadata: {
+              previousRole: normalizedCurrentRole,
+              newRole: normalizedRequestedRole,
+              link: newRoleDashboard,
+            } as any,
+          });
+
+          io.to(user.id).emit("notification", {
+            type: "system",
+            title,
+            message,
+            data: {
+              previousRole: normalizedCurrentRole,
+              newRole: normalizedRequestedRole,
+              link: newRoleDashboard,
+            },
+          });
+        } catch (notificationError) {
+          console.error("Failed to create role update notification:", notificationError);
+        }
       }
 
       const { password, ...userWithoutPassword } = user;
