@@ -71,6 +71,55 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
   const [jitsiConfig, setJitsiConfig] = useState<JitsiConfig | null>(null);
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const inCallRef = useRef(false);
+  const ringtoneRef = useRef<{ audioContext: AudioContext | null; intervalId: number | null }>({
+    audioContext: null,
+    intervalId: null,
+  });
+
+  const stopRingtone = useCallback(() => {
+    if (ringtoneRef.current.intervalId !== null) {
+      window.clearInterval(ringtoneRef.current.intervalId);
+      ringtoneRef.current.intervalId = null;
+    }
+    if (ringtoneRef.current.audioContext) {
+      void ringtoneRef.current.audioContext.close();
+      ringtoneRef.current.audioContext = null;
+    }
+  }, []);
+
+  const playRingBurst = useCallback((audioContext: AudioContext) => {
+    const now = audioContext.currentTime;
+    const envelope = 0.22;
+    [880, 660].forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, now + index * envelope);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + index * envelope + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * envelope + envelope);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(now + index * envelope);
+      oscillator.stop(now + index * envelope + envelope);
+    });
+  }, []);
+
+  const startRingtone = useCallback(() => {
+    if (ringtoneRef.current.intervalId !== null) return;
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    try {
+      const ctx = new AudioContextCtor();
+      ringtoneRef.current.audioContext = ctx;
+      playRingBurst(ctx);
+      ringtoneRef.current.intervalId = window.setInterval(() => {
+        playRingBurst(ctx);
+      }, 1400);
+    } catch {
+      // Ignore ringtone init failures
+    }
+  }, [playRingBurst]);
 
   // Start 1-on-1 call
   const startCallMutation = useMutation({
@@ -87,6 +136,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       return res.json();
     },
     onSuccess: (data) => {
+      stopRingtone();
       setCurrentRoom(data.room);
       setJitsiConfig(data.config);
       inCallRef.current = true;
@@ -117,6 +167,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       return res.json();
     },
     onSuccess: (data) => {
+      stopRingtone();
       setCurrentRoom(data.room);
       setJitsiConfig(data.config);
       inCallRef.current = true;
@@ -141,6 +192,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       return res.json();
     },
     onSuccess: (data) => {
+      stopRingtone();
       setCurrentRoom(data.room);
       setJitsiConfig(data.config);
       setIncomingCall(null);
@@ -167,6 +219,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       return res.json();
     },
     onSuccess: () => {
+      stopRingtone();
       setCurrentRoom(null);
       setJitsiConfig(null);
       inCallRef.current = false;
@@ -192,6 +245,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       return res.json();
     },
     onSuccess: () => {
+      stopRingtone();
       setCurrentRoom(null);
       setJitsiConfig(null);
       inCallRef.current = false;
@@ -217,6 +271,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     const handleIncomingCall = (data: IncomingCall) => {
       if (!inCallRef.current) {
         setIncomingCall(data);
+        startRingtone();
         toast({
           title: `Incoming ${data.callType} call`,
           description: `${data.callerName} is calling you`,
@@ -234,6 +289,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
           callerName: data.hostName,
           callType: data.callType,
         });
+        startRingtone();
         toast({
           title: `Group ${data.callType} call`,
           description: `${data.hostName} invited you to a group call`,
@@ -244,6 +300,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     // Call ended by host
     const handleCallEnded = (data: { roomName: string; endedBy: string }) => {
       if (currentRoom?.roomName === data.roomName) {
+        stopRingtone();
         setCurrentRoom(null);
         setJitsiConfig(null);
         inCallRef.current = false;
@@ -287,7 +344,7 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
       socket.off('jitsi_participant_joined', handleParticipantJoined);
       socket.off('jitsi_participant_left', handleParticipantLeft);
     };
-  }, [socket, currentRoom, toast]);
+  }, [socket, currentRoom, startRingtone, stopRingtone, toast]);
 
   // Actions
   const startCall = useCallback(async (
@@ -327,12 +384,13 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
         console.error('Failed to record missed call:', error);
       }
     }
+    stopRingtone();
     setIncomingCall(null);
     toast({
       title: 'Call rejected',
       description: 'You declined the incoming call',
     });
-  }, [incomingCall, toast]);
+  }, [incomingCall, stopRingtone, toast]);
 
   const leaveCall = useCallback(async () => {
     await leaveCallMutation.mutateAsync();
@@ -361,6 +419,18 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
     });
     return `${urlWithoutHash}#${forceParams.toString()}`;
   }, [jitsiConfig, currentRoom]);
+
+  useEffect(() => {
+    if (!incomingCall) {
+      stopRingtone();
+    }
+  }, [incomingCall, stopRingtone]);
+
+  useEffect(() => {
+    return () => {
+      stopRingtone();
+    };
+  }, [stopRingtone]);
 
   return {
     inCall: !!currentRoom,

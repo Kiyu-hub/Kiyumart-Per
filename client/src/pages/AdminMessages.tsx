@@ -1109,15 +1109,23 @@ export default function AdminMessages() {
                   <div className="flex items-center gap-2">
                     <ParticipantSelectorDialog
                       currentUserId={user?.id || ''}
-                      onStartCall={(participantIds, callType) => {
-                        groupCall.startGroupCall(participantIds, callType, user?.role);
+                      onStartCall={async (participantIds, callType) => {
+                        try {
+                          await jitsiCall.startGroupCall(participantIds, callType);
+                        } catch (error) {
+                          toast({
+                            title: "Group call failed",
+                            description: error instanceof Error ? error.message : "Could not start group call",
+                            variant: "destructive",
+                          });
+                        }
                       }}
                     />
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => startCall('voice')}
-                      disabled={!selectedUserId || !!ongoingCall || !!incomingCall || groupCall.state.isActive}
+                      disabled={!selectedUserId || !!ongoingCall || !!incomingCall || jitsiCall.inCall}
                       data-testid="button-voice-call"
                     >
                       <Phone className="h-5 w-5" />
@@ -1126,7 +1134,7 @@ export default function AdminMessages() {
                       variant="ghost"
                       size="icon"
                       onClick={() => startCall('video')}
-                      disabled={!selectedUserId || !!ongoingCall || !!incomingCall || groupCall.state.isActive}
+                      disabled={!selectedUserId || !!ongoingCall || !!incomingCall || jitsiCall.inCall}
                       data-testid="button-video-call"
                     >
                       <Video className="h-5 w-5" />

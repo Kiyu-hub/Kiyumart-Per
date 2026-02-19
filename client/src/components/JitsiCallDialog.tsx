@@ -264,7 +264,7 @@ export function JitsiCallDialog({
   if (roomUrl) {
     return (
       <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-[95vw] w-full h-[90vh] max-h-[90vh] p-0 gap-0 overflow-hidden bg-[#0b1014] border border-white/10">
+        <DialogContent className="max-w-[95vw] w-full h-[90vh] max-h-[90vh] p-0 gap-0 overflow-hidden bg-[#0b1014] border border-white/10 flex flex-col">
           <div className="absolute left-4 top-4 z-20 rounded-full bg-black/55 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
             <span className="inline-flex items-center gap-1.5">
               {callType === "video" ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
@@ -274,8 +274,8 @@ export function JitsiCallDialog({
             </span>
           </div>
 
-          <div className="flex-1 bg-black">
-            <div ref={jitsiContainerRef} className="w-full h-full" />
+          <div className="relative flex-1 min-h-0 bg-black">
+            <div ref={jitsiContainerRef} className="w-full h-full min-h-[320px]" />
           </div>
 
           <div className="absolute inset-x-0 bottom-4 z-20 flex items-center justify-center gap-3">
