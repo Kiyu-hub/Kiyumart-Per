@@ -58,8 +58,9 @@ export default function BuyerDashboard() {
     totalSpend: orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0),
     pendingPayments: orders.filter((o) => {
       const paymentStatus = normalizePaymentStatus(o.paymentStatus);
+      const isPaid = paymentStatus === "paid";
       const status = normalize(o.status);
-      return status === "pending" || paymentStatus === "pending" || paymentStatus === "failed";
+      return !isPaid && (status === "pending" || paymentStatus === "pending" || paymentStatus === "failed");
     }).length,
   };
 
@@ -188,8 +189,9 @@ export default function BuyerDashboard() {
             {recentOrders.map((order) => {
               const s = normalize(order.status);
               const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+              const isPaid = paymentStatus === "paid";
               const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
-              const requiresPaymentAction = s === "pending" || isUnpaid;
+              const requiresPaymentAction = !isPaid && (s === "pending" || isUnpaid);
 
               const action = requiresPaymentAction
                 ? { label: "Continue Payment", path: `/payment/${order.id}`, variant: "outline" as const }

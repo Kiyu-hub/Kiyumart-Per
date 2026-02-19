@@ -121,16 +121,6 @@ export default function Orders() {
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const orderStatus = normalize(order.status);
 
-    if (orderStatus === "pending") {
-      return {
-        label: "Continue Payment",
-        variant: "default" as const,
-        disabled: false,
-        onClick: () => navigate(`/payment/${order.id}`),
-        title: "Resume payment for this pending order",
-      };
-    }
-
     if (paymentStatus === "paid") {
       return {
         label: "Track Order",
@@ -151,6 +141,16 @@ export default function Orders() {
       };
     }
 
+    if (orderStatus === "pending") {
+      return {
+        label: "Continue Payment",
+        variant: "default" as const,
+        disabled: false,
+        onClick: () => navigate(`/payment/${order.id}`),
+        title: "Resume payment for this pending order",
+      };
+    }
+
     // Default to showing payment CTA for unpaid/failed states
     return {
       label: "Continue Payment",
@@ -166,12 +166,12 @@ export default function Orders() {
     const orderStatus = normalize(order.status) || "pending";
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const handleCardClick = () => {
-      if (orderStatus === "pending") {
-        navigate(`/payment/${order.id}`);
-        return;
-      }
       if (paymentStatus === "processing" || paymentStatus === "paid") {
         navigate(`/track?orderId=${order.id}`);
+        return;
+      }
+      if (orderStatus === "pending") {
+        navigate(`/payment/${order.id}`);
         return;
       }
       navigate(`/payment/${order.id}`);
