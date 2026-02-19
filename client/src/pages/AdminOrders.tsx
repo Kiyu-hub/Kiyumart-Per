@@ -655,6 +655,7 @@ export default function AdminOrders() {
                 getStatusColor={getStatusColor}
                 getStatusIcon={getStatusIcon}
                 onViewOrder={handleOpenDialog}
+                isMyOrders
                 emptyMessage="You haven't made any personal orders yet"
               />
             </TabsContent>
@@ -684,6 +685,7 @@ function OrdersList({
   getStatusColor,
   getStatusIcon,
   onViewOrder,
+  isMyOrders = false,
   emptyMessage = "No orders found",
 }: {
   orders: Order[];
@@ -692,6 +694,7 @@ function OrdersList({
   getStatusColor: (status: string) => string;
   getStatusIcon: (status: string) => React.ReactNode;
   onViewOrder: (id: string) => void;
+  isMyOrders?: boolean;
   emptyMessage?: string;
 }) {
   const [, navigate] = useLocation();
@@ -748,6 +751,22 @@ function OrdersList({
                 <p className="font-medium truncate">{order.buyer.name}</p>
               </div>
             )}
+            <div className="text-xs space-y-1">
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Email</span>
+                <span className="font-medium truncate">{order.buyer?.email || "N/A"}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Phone</span>
+                <span className="font-medium">{order.deliveryPhone || "N/A"}</span>
+              </div>
+              {order.deliveryAddress && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Address</span>
+                  <span className="font-medium truncate">{order.deliveryAddress}</span>
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Badge className={getStatusColor(order.status)} data-testid={`badge-status-${order.id}`} variant="secondary">
                 {order.status.replace(/_/g, " ")}
@@ -779,7 +798,25 @@ function OrdersList({
           
           {(() => {
             const s = (order.status || "").toLowerCase().trim();
+            const paymentStatus = getPaymentLabel(order.paymentStatus);
+            const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
             const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
+            if (isMyOrders && (s === "pending" || isUnpaid)) {
+              return (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="w-full mt-3 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/payment/${order.id}`);
+                  }}
+                  data-testid={`button-continue-payment-${order.id}`}
+                >
+                  Continue Payment
+                </Button>
+              );
+            }
             if (trackStatuses.has(s)) {
               return (
                 <Button

@@ -19,6 +19,12 @@ interface Order {
   status: string;
   paymentStatus: string;
   createdAt: string;
+  deliveryPhone?: string;
+  deliveryAddress?: string;
+  buyer?: {
+    name?: string;
+    email?: string;
+  };
 }
 
 type OrderContext = "seller" | "buyer";
@@ -122,7 +128,13 @@ export default function SellerOrders() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredOrders.map((order) => (
+            {filteredOrders.map((order) => {
+              const paymentStatusLabel = normalizePaymentStatus(order.paymentStatus);
+              const isUnpaid = paymentStatusLabel === "pending" || paymentStatusLabel === "failed";
+              const contactEmail = order.buyer?.email || user?.email || "N/A";
+              const contactPhone = order.deliveryPhone || "N/A";
+
+              return (
               <Card key={order.id} className="p-4 flex flex-col" data-testid={`card-order-${order.id}`}>
                 <div className="flex items-start gap-3 mb-3">
                   <div className="flex-1">
@@ -136,24 +148,37 @@ export default function SellerOrders() {
                   <Badge className={`${getStatusColor(order.status)} text-white text-xs`}>
                     {order.status}
                   </Badge>
-                  {(() => {
-                    const paymentStatusLabel = normalizePaymentStatus(order.paymentStatus);
-                    return (
-                      <Badge variant={paymentStatusLabel === "paid" ? "default" : "outline"} className="text-xs">
-                        {paymentStatusLabel}
-                      </Badge>
-                    );
-                  })()}
+                  <Badge variant={paymentStatusLabel === "paid" ? "default" : "outline"} className="text-xs">
+                    {paymentStatusLabel}
+                  </Badge>
                 </div>
-                <div className="flex-1 mb-3">
+                <div className="flex-1 mb-3 space-y-2">
                   <p className="text-lg font-bold">{formatPrice(Number(order.total) || 0)}</p>
+                  <div className="text-xs space-y-1">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Email</span>
+                      <span className="font-medium truncate">{contactEmail}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Phone</span>
+                      <span className="font-medium">{contactPhone}</span>
+                    </div>
+                    {order.deliveryAddress && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Address</span>
+                        <span className="font-medium truncate">{order.deliveryAddress}</span>
+                      </div>
+                    )}
+                  </div>
+                  {isUnpaid && orderContext === "buyer" && (
+                    <p className="text-xs text-destructive font-medium">Payment required</p>
+                  )}
                 </div>
                 {(() => {
                   const s = normalize(order.status);
                   const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
 
                   if (orderContext === "buyer") {
-                    const paymentStatus = normalizePaymentStatus((order as any).paymentStatus);
                     if (s === "pending") {
                       return (
                         <Button
@@ -166,7 +191,7 @@ export default function SellerOrders() {
                         </Button>
                       );
                     }
-                    if (paymentStatus === "paid") {
+                    if (paymentStatusLabel === "paid") {
                       return (
                         <Button
                           variant="outline"
@@ -179,7 +204,7 @@ export default function SellerOrders() {
                         </Button>
                       );
                     }
-                    if (paymentStatus === "processing") {
+                    if (paymentStatusLabel === "processing") {
                       return (
                         <Button
                           variant="outline"
@@ -228,7 +253,7 @@ export default function SellerOrders() {
                   );
                 })()}
               </Card>
-            ))}
+            )})}
           </div>
         )}
       </div>
