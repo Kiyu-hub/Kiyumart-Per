@@ -51,15 +51,17 @@ class JitsiMeetService {
    * Generate a unique room name based on participants and context
    */
   generateRoomName(userId1: string, userId2: string, orderId?: string): string {
-    // Create a deterministic room name so both users get the same room
+    // Use unique room names per call to avoid stale room-level moderation/lobby state
+    // being reused across future calls between the same participants.
     const participants = [userId1, userId2].sort().join('-');
     const contextHash = crypto
       .createHash('sha256')
       .update(orderId ? `${participants}-${orderId}` : participants)
       .digest('hex')
-      .substring(0, 12);
+      .substring(0, 8);
+    const nonce = crypto.randomUUID().replace(/-/g, '').substring(0, 8);
     
-    return `${JITSI_CONFIG.roomPrefix}-${contextHash}`;
+    return `${JITSI_CONFIG.roomPrefix}-${contextHash}-${nonce}`;
   }
 
   /**
@@ -283,8 +285,8 @@ class JitsiMeetService {
           enabled: false,
           autoKnock: false,
         },
-        // Moderator settings
-        moderator: isModerator,
+        // Enable conference start for all invitees to prevent "no moderator has arrived" gating.
+        moderator: true,
         // Keep a WhatsApp-like lightweight experience but preserve core in-call controls
         toolbarButtons: [
           'microphone',
