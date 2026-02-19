@@ -21,9 +21,13 @@ interface Order {
   currency: string;
   status: string;
   deliveryAddress: string;
-  deliveryPhone: string;
-  deliveryEmail: string;
+  deliveryPhone?: string;
+  deliveryEmail?: string;
   createdAt: string;
+  customerInfo?: {
+    phone?: string;
+    email?: string;
+  };
 }
 
 export default function PaymentSuccess() {
@@ -147,6 +151,18 @@ export default function PaymentSuccess() {
     );
   }
 
+  const displayPhone =
+    (order.deliveryPhone || "").trim() ||
+    (order.customerInfo?.phone || "").trim() ||
+    (user?.phone || "").trim() ||
+    "Not provided";
+
+  const displayEmail =
+    (order.deliveryEmail || "").trim() ||
+    (order.customerInfo?.email || "").trim() ||
+    (user?.email || "").trim() ||
+    "Not provided";
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
@@ -228,14 +244,14 @@ export default function PaymentSuccess() {
                     <Phone className="h-4 w-4 text-muted-foreground mt-0.5" />
                     <div>
                       <p className="text-muted-foreground">Phone</p>
-                      <p data-testid="text-phone">{order.deliveryPhone}</p>
+                      <p data-testid="text-phone">{displayPhone}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2">
                     <Mail className="h-4 w-4 text-muted-foreground mt-0.5" />
                     <div>
                       <p className="text-muted-foreground">Email</p>
-                      <p data-testid="text-email">{order.deliveryEmail}</p>
+                      <p data-testid="text-email">{displayEmail}</p>
                     </div>
                   </div>
                 </div>
