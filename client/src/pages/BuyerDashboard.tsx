@@ -3,22 +3,25 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Package, Heart, MapPin, CreditCard, User, Loader2 } from "lucide-react";
+import { Package, MapPin, CreditCard, Loader2, ShoppingBag, Wallet, Clock3, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import ThemeToggle from "@/components/ThemeToggle";
+import { Badge } from "@/components/ui/badge";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface Order {
   id: string;
   orderNumber: string;
   total: string;
   status: string;
+  paymentStatus?: string;
   createdAt: string;
 }
 
 export default function BuyerDashboard() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { formatPrice } = useLanguage();
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== "buyer")) {
@@ -52,52 +55,113 @@ export default function BuyerDashboard() {
     totalOrders: orders.length,
     pendingOrders: orders.filter(o => normalize(o.status) === "pending").length,
     completedOrders: orders.filter(o => normalize(o.status) === "delivered").length,
+    totalSpend: orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0),
+    pendingPayments: orders.filter((o) => {
+      const paymentStatus = normalizePaymentStatus(o.paymentStatus);
+      const status = normalize(o.status);
+      return status === "pending" || paymentStatus === "pending" || paymentStatus === "failed";
+    }).length,
   };
+
+  const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
 
   return (
     <DashboardLayout role="buyer">
-      <div className="p-6">
-        <div className="grid gap-6 md:grid-cols-3 mb-8">
-          <Card data-testid="card-total-orders">
+      <div className="p-6 space-y-6">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold">Buyer Dashboard</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Manage orders, payments, and delivery progress from one place.
+            </p>
+          </div>
+          <div className="inline-flex items-center rounded-lg border p-1 bg-card">
+            <Button size="sm" variant="default" disabled data-testid="button-mode-dashboard">
+              Dashboard Mode
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => navigate("/")} data-testid="button-mode-shop">
+              Shop Mode
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Card data-testid="card-total-orders" className="border-l-4 border-l-primary">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
               <Package className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.totalOrders}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
+              <p className="text-xs text-muted-foreground">Lifetime purchases</p>
             </CardContent>
           </Card>
 
-          <Card data-testid="card-pending-orders">
+          <Card data-testid="card-pending-orders" className="border-l-4 border-l-orange-500">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Pending Orders</CardTitle>
+              <CardTitle className="text-sm font-medium">Open Deliveries</CardTitle>
               <MapPin className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.pendingOrders}</div>
-              <p className="text-xs text-muted-foreground">In progress</p>
+              <div className="text-2xl font-bold">
+                {orders.filter((o) => trackStatuses.has(normalize(o.status)) || normalize(o.status) === "pending").length}
+              </div>
+              <p className="text-xs text-muted-foreground">Pending + in transit</p>
             </CardContent>
           </Card>
 
-          <Card data-testid="card-completed-orders">
+          <Card data-testid="card-completed-orders" className="border-l-4 border-l-green-500">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Completed</CardTitle>
-              <CreditCard className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Completed Orders</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.completedOrders}</div>
               <p className="text-xs text-muted-foreground">Delivered</p>
             </CardContent>
           </Card>
+
+          <Card data-testid="card-total-spend" className="border-l-4 border-l-blue-500">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Total Spend</CardTitle>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatPrice(stats.totalSpend)}</div>
+              <p className="text-xs text-muted-foreground">
+                {stats.pendingPayments} order(s) need payment
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
+        <Card>
+          <CardContent className="pt-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <Clock3 className="h-4 w-4 text-muted-foreground" />
+              <span>Payment Priority</span>
+              <Badge variant={stats.pendingPayments > 0 ? "destructive" : "secondary"}>
+                {stats.pendingPayments > 0 ? `${stats.pendingPayments} pending` : "No pending payments"}
+              </Badge>
+            </div>
+            {stats.pendingPayments > 0 ? (
+              <Button size="sm" onClick={() => navigate("/orders")} data-testid="button-resume-pending-payments">
+                Continue Pending Payment
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => navigate("/orders")} data-testid="button-view-all-orders">
+                View All Orders
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
         {isLoading ? (
-          <div className="mt-8 flex justify-center">
+          <div className="flex justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : orders.length > 0 ? (
-          <Card className="mt-8">
+          <Card>
             <CardHeader>
               <CardTitle>Recent Orders</CardTitle>
             </CardHeader>
@@ -105,9 +169,8 @@ export default function BuyerDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {orders.slice(0, 6).map((order) => {
                   const s = normalize(order.status);
-                  const paymentStatus = normalizePaymentStatus((order as any).paymentStatus);
+                  const paymentStatus = normalizePaymentStatus(order.paymentStatus);
                   const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
-                  const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
 
                   const handleClick = () => {
                     if (s === "pending") {
@@ -141,11 +204,11 @@ export default function BuyerDashboard() {
                         </p>
                       </div>
                       <div className="flex-1">
-                        <p className="text-lg font-semibold mb-2">GHS {order.total}</p>
+                        <p className="text-lg font-semibold mb-2">{formatPrice(Number(order.total) || 0)}</p>
                         <div className="flex items-center justify-between">
                           <p className="text-sm text-muted-foreground capitalize">{order.status}</p>
                           {isUnpaid && (
-                            <p className="text-xs text-destructive font-medium">Click to pay</p>
+                            <p className="text-xs text-destructive font-medium">Payment required</p>
                           )}
                         </div>
                       </div>
@@ -193,14 +256,11 @@ export default function BuyerDashboard() {
             </CardContent>
           </Card>
         ) : (
-          <Card className="mt-8">
+          <Card>
             <CardContent className="py-12 text-center">
-              <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <ShoppingBag className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">No orders yet</h3>
-              <p className="text-muted-foreground mb-4">Start shopping to see your orders here</p>
-              <Button onClick={() => navigate("/")} data-testid="button-start-shopping">
-                Start Shopping
-              </Button>
+              <p className="text-muted-foreground">Switch to Shop Mode above to start placing orders.</p>
             </CardContent>
           </Card>
         )}
