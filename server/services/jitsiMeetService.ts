@@ -31,7 +31,8 @@ const activeRooms = new Map<string, JitsiRoom>();
 // Configuration
 const JITSI_CONFIG = {
   // Public Jitsi Meet instance (free, no setup required)
-  domain: process.env.JITSI_DOMAIN || 'meet.jit.si',
+  // Forced to meet.jit.si to avoid third-party JaaS branding/login prompts.
+  domain: 'meet.jit.si',
   // For self-hosted, use your domain
   // domain: 'jitsi.yourdomain.com',
   
@@ -231,13 +232,18 @@ class JitsiMeetService {
     // Build URL with hash parameters to skip pre-join and set user info
     const hashParams = new URLSearchParams({
       'config.prejoinPageEnabled': 'false',
+      'config.requireDisplayName': 'false',
       'config.startWithAudioMuted': 'false',
       'config.startWithVideoMuted': 'false',
+      'config.defaultLocalDisplayName': userDisplayName,
       'config.disableDeepLinking': 'true',
       'config.enableWelcomePage': 'false',
+      'config.enableLobbyChat': 'false',
+      'config.disableLobbyPassword': 'true',
+      'config.lobby.enable': 'false',
       'config.disableInviteFunctions': 'true',
       'config.disableProfile': 'true',
-      'config.disableShortcuts': 'false',
+      'config.disableShortcuts': 'true',
       'config.hideLobbyButton': 'true',
       'interfaceConfig.SHOW_JITSI_WATERMARK': 'false',
       'interfaceConfig.SHOW_WATERMARK_FOR_GUESTS': 'false',
@@ -265,11 +271,18 @@ class JitsiMeetService {
         prejoinPageEnabled: false,
         prejoinConfig: {
           enabled: false,
+          hideDisplayName: true,
         },
         disableDeepLinking: true,
         enableWelcomePage: false,
         enableClosePage: false,
         requireDisplayName: false,
+        defaultLocalDisplayName: userDisplayName,
+        disableLobbyPassword: true,
+        lobby: {
+          enabled: false,
+          autoKnock: false,
+        },
         // Moderator settings
         moderator: isModerator,
         // Disable some features for simpler UI

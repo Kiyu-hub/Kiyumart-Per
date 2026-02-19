@@ -4783,8 +4783,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get current user info for Jitsi config
       const currentUser = await storage.getUser(req.user!.id);
-      // Admins and super_admins are automatically moderators
-      const isModerator = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+      // Super admin is the only moderator role
+      const isModerator = currentUser?.role === 'super_admin';
       const config = jitsiMeetService.getJitsiConfig(
         room.roomName,
         currentUser?.name || 'User',
@@ -4827,8 +4827,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get current user info
       const currentUser = await storage.getUser(req.user!.id);
-      // Admins and super_admins are automatically moderators
-      const isModerator = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+      // Super admin is the only moderator role
+      const isModerator = currentUser?.role === 'super_admin';
       const config = jitsiMeetService.getJitsiConfig(
         room.roomName,
         currentUser?.name || 'User',
@@ -4867,8 +4867,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const currentUser = await storage.getUser(req.user!.id);
-      // Admins joining become moderators, or the call creator is also moderator
-      const isModerator = currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || room.createdBy === req.user!.id;
+      // Super admin is the only moderator role
+      const isModerator = currentUser?.role === 'super_admin';
       const config = jitsiMeetService.getJitsiConfig(
         room.roomName,
         currentUser?.name || 'User',

@@ -343,8 +343,23 @@ export function useJitsiCall(userId: string): UseJitsiCallReturn {
   }, [endCallMutation]);
 
   const getJitsiUrl = useCallback(() => {
-    // Prefer config roomUrl which has pre-join skip parameters
-    return jitsiConfig?.roomUrl || currentRoom?.roomUrl || null;
+    const baseUrl = jitsiConfig?.roomUrl || currentRoom?.roomUrl || null;
+    if (!baseUrl) return null;
+    const [urlWithoutHash] = baseUrl.split("#");
+    const forceParams = new URLSearchParams({
+      "config.prejoinPageEnabled": "false",
+      "config.requireDisplayName": "false",
+      "config.disableDeepLinking": "true",
+      "config.enableWelcomePage": "false",
+      "config.disableInviteFunctions": "true",
+      "config.hideLobbyButton": "true",
+      "interfaceConfig.SHOW_JITSI_WATERMARK": "false",
+      "interfaceConfig.SHOW_WATERMARK_FOR_GUESTS": "false",
+      "interfaceConfig.SHOW_BRAND_WATERMARK": "false",
+      "interfaceConfig.SHOW_POWERED_BY": "false",
+      "interfaceConfig.MOBILE_APP_PROMO": "false",
+    });
+    return `${urlWithoutHash}#${forceParams.toString()}`;
   }, [jitsiConfig, currentRoom]);
 
   return {

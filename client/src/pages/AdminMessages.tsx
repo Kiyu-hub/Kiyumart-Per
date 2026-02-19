@@ -1029,8 +1029,8 @@ export default function AdminMessages() {
                         onClick={() => setSelectedUserId(userData.id)}
                         className={`p-3 rounded-lg cursor-pointer transition-all ${
                           selectedUserId === userData.id
-                            ? "bg-primary/10 border-l-4 border-l-primary"
-                            : "hover:bg-accent/50"
+                            ? "bg-green-900/40 border-l-4 border-l-green-500"
+                            : "hover:bg-green-900/20"
                         }`}
                         data-testid={`user-${userData.id}`}
                       >
