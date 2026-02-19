@@ -32,6 +32,15 @@ export default function Orders() {
   const { user } = useAuth();
   const { currencySymbol, formatPrice } = useLanguage();
 
+  const normalize = (value?: string) => (value || "").toLowerCase().trim();
+  const normalizePaymentStatus = (value?: string) => {
+    const s = normalize(value);
+    if (s === "payment_pending") return "pending";
+    if (s === "payment_failed") return "failed";
+    if (s === "completed" || s === "paid") return "paid";
+    return s || "pending";
+  };
+
   // Always fetch orders where the user is the buyer (their purchases)
   const { data: orders = [], isLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders?context=buyer"],
@@ -55,12 +64,12 @@ export default function Orders() {
   };
 
   const getPaymentStatusColor = (paymentStatus: string) => {
-    switch (paymentStatus.toLowerCase()) {
+    switch (normalizePaymentStatus(paymentStatus)) {
       case "pending":
         return "bg-yellow-100 text-yellow-800";
       case "processing":
         return "bg-blue-100 text-blue-800";
-      case "completed":
+      case "paid":
         return "bg-green-100 text-green-800";
       case "failed":
         return "bg-red-100 text-red-800";
@@ -89,12 +98,12 @@ export default function Orders() {
   };
 
   const getPaymentStatusIcon = (paymentStatus: string) => {
-    switch (paymentStatus.toLowerCase()) {
+    switch (normalizePaymentStatus(paymentStatus)) {
       case "pending":
         return <AlertCircle className="h-3 w-3" />;
       case "processing":
         return <Loader2 className="h-3 w-3 animate-spin" />;
-      case "completed":
+      case "paid":
         return <CheckCircle className="h-3 w-3" />;
       case "failed":
         return <XCircle className="h-3 w-3" />;
@@ -120,9 +129,9 @@ export default function Orders() {
       };
     }
 
-    const paymentStatus = (order.paymentStatus || "").toLowerCase().trim();
+    const paymentStatus = normalizePaymentStatus(order.paymentStatus);
 
-    if (paymentStatus === "completed" || paymentStatus === "paid") {
+    if (paymentStatus === "paid") {
       return {
         label: "Track Order",
         variant: "outline" as const,
@@ -154,13 +163,21 @@ export default function Orders() {
 
   const OrderCard = ({ order }: { order: Order }) => {
     const paymentButtonConfig = getPaymentButtonConfig(order);
-    const orderStatus = order.status?.toLowerCase() || "pending";
-    const paymentStatus = order.paymentStatus?.toLowerCase() || "pending";
+    const orderStatus = normalize(order.status) || "pending";
+    const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+    const handleCardClick = () => {
+      if (paymentStatus === "processing") return;
+      if (paymentStatus === "paid") {
+        navigate(`/track?orderId=${order.id}`);
+        return;
+      }
+      navigate(`/payment/${order.id}`);
+    };
 
     return (
       <Card
         className="cursor-pointer hover-elevate active-elevate-2 transition-all"
-        onClick={() => navigate(`/track?orderId=${order.id}`)}
+        onClick={handleCardClick}
         data-testid={`order-card-${order.id}`}
       >
         <CardHeader>
@@ -201,7 +218,7 @@ export default function Orders() {
                 data-testid={`badge-payment-status-${order.id}`}
               >
                 {getPaymentStatusIcon(paymentStatus)}
-                {paymentStatus === "completed"
+                {paymentStatus === "paid"
                   ? "Paid"
                   : paymentStatus === "processing"
                   ? "Processing..."

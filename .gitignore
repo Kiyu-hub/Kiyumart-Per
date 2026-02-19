@@ -6,3 +6,4 @@ vite.config.ts.*
 *.tar.gz
 # Local development logs
 vite.log
+cloudflared.exe

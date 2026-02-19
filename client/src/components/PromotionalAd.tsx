@@ -7,7 +7,9 @@ export default function PromotionalAd({ sidebar = false }: { sidebar?: boolean }
     queryKey: ['/api/homepage/promotional'],
     queryFn: async () => {
       const res = await fetch('/api/homepage/promotional');
-      return res.json();
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
     refetchInterval: 5000,
   });
@@ -20,10 +22,12 @@ export default function PromotionalAd({ sidebar = false }: { sidebar?: boolean }
   }, []);
 
   if (isLoading) return null;
-  if (!promos || promos.length === 0) return null;
+  const safePromos = Array.isArray(promos) ? promos : [];
+  if (safePromos.length === 0) return null;
 
   // For now render the first active promo prominently
-  const promo = promos[0];
+  const promo = safePromos[0];
+  if (!promo) return null;
   const target = promo.product || promo.store || null;
 
   const endAt = promo.endAt ? new Date(promo.endAt) : null;

@@ -33,6 +33,13 @@ export default function AdminDashboard() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
   const [activeItem, setActiveItem] = useState("dashboard");
+  const normalizePaymentStatus = (value?: string) => {
+    const s = (value || "").toLowerCase().trim();
+    if (s === "payment_pending") return "pending";
+    if (s === "payment_failed") return "failed";
+    if (s === "completed" || s === "paid") return "paid";
+    return s || "pending";
+  };
 
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
@@ -308,13 +315,18 @@ export default function AdminDashboard() {
                               </div>
                               <div className="flex-1">
                                 <p className="text-xs text-muted-foreground uppercase font-semibold mb-1">Payment</p>
-                                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                                  order.paymentStatus === 'completed' ? 'bg-green-100 text-green-800' :
-                                  order.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                                  'bg-red-100 text-red-800'
-                                }`}>
-                                  {order.paymentStatus ? order.paymentStatus.charAt(0).toUpperCase() + order.paymentStatus.slice(1) : 'N/A'}
-                                </span>
+                                {(() => {
+                                  const paymentStatusLabel = normalizePaymentStatus(order.paymentStatus);
+                                  return (
+                                    <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
+                                      paymentStatusLabel === 'paid' ? 'bg-green-100 text-green-800' :
+                                      paymentStatusLabel === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-red-100 text-red-800'
+                                    }`}>
+                                      {paymentStatusLabel ? paymentStatusLabel.charAt(0).toUpperCase() + paymentStatusLabel.slice(1) : 'N/A'}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>

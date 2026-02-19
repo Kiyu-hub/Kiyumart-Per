@@ -106,7 +106,7 @@ export default function DashboardLayout({
   useSellerProfileGuard(role === "seller" ? location : undefined);
 
   // Normalize role variants (some tokens may use `superadmin` without underscore)
-  const normalizedRole = role === "superadmin" ? "super_admin" : role;
+  const normalizedRole = (role as string) === "superadmin" ? "super_admin" : role;
 
   const activeItem = useMemo(() => {
     // Handle shopping routes for all roles

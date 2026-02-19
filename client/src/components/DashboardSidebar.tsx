@@ -156,7 +156,7 @@ export default function DashboardSidebar({
   userProfileImage,
 }: DashboardSidebarProps) {
   // Normalize incoming role variants (some tokens may be "superadmin")
-  const normalizedRole = role === "superadmin" ? "super_admin" : role;
+  const normalizedRole = (role as string) === "superadmin" ? "super_admin" : role;
   const items = menuItems[normalizedRole];
 
   // Fetch real notification count

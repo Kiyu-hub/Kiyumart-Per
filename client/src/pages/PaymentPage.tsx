@@ -25,6 +25,13 @@ export default function PaymentPage() {
   const { toast } = useToast();
   const { formatPrice } = useLanguage();
   const [isInitializing, setIsInitializing] = useState(false);
+  const normalizePaymentStatus = (value?: string) => {
+    const s = (value || "").toLowerCase().trim();
+    if (s === "payment_pending") return "pending";
+    if (s === "payment_failed") return "failed";
+    if (s === "completed" || s === "paid") return "paid";
+    return s || "pending";
+  };
 
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
@@ -117,7 +124,7 @@ export default function PaymentPage() {
     );
   }
 
-  if (order.paymentStatus === "completed") {
+  if (normalizePaymentStatus(order.paymentStatus) === "paid") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full">

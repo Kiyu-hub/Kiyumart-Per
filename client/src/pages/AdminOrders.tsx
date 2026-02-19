@@ -61,6 +61,14 @@ interface AvailableRider {
   activeOrderCount: number;
 }
 
+const normalizePaymentStatus = (value?: string) => {
+  const s = (value || "").toLowerCase().trim();
+  if (s === "payment_pending") return "pending";
+  if (s === "payment_failed") return "failed";
+  if (s === "completed" || s === "paid") return "paid";
+  return s || "pending";
+};
+
 function ViewOrderDialog({ 
   orderId, 
   open, 
@@ -177,9 +185,14 @@ function ViewOrderDialog({
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Payment Status</p>
-                <Badge className={orderDetails.paymentStatus === "completed" ? "bg-green-500" : "bg-yellow-500"}>
-                  {orderDetails.paymentStatus}
-                </Badge>
+                {(() => {
+                  const paymentStatusLabel = normalizePaymentStatus(orderDetails.paymentStatus);
+                  return (
+                    <Badge className={paymentStatusLabel === "paid" ? "bg-green-500" : "bg-yellow-500"}>
+                      {paymentStatusLabel}
+                    </Badge>
+                  );
+                })()}
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Delivery Method</p>
@@ -354,7 +367,7 @@ export default function AdminOrders() {
       delivered: allOrders.filter(o => normalize(o.status) === "delivered").length,
       cancelled: allOrders.filter(o => normalize(o.status) === "cancelled").length,
       totalRevenue: allOrders
-        .filter(o => o.paymentStatus === "completed")
+        .filter(o => normalizePaymentStatus(o.paymentStatus) === "paid")
         .reduce((sum, o) => sum + parseFloat(o.total || "0"), 0),
       todayOrders: allOrders.filter(o => new Date(o.createdAt) >= today).length,
     };
@@ -681,6 +694,9 @@ function OrdersList({
   onViewOrder: (id: string) => void;
   emptyMessage?: string;
 }) {
+  const [, navigate] = useLocation();
+  const getPaymentLabel = (value?: string) => normalizePaymentStatus(value);
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -736,12 +752,17 @@ function OrdersList({
               <Badge className={getStatusColor(order.status)} data-testid={`badge-status-${order.id}`} variant="secondary">
                 {order.status.replace(/_/g, " ")}
               </Badge>
-              <Badge 
-                variant={order.paymentStatus === "completed" ? "default" : "outline"}
-                className={order.paymentStatus === "completed" ? "bg-green-600 text-white" : ""}
-              >
-                {order.paymentStatus}
-              </Badge>
+              {(() => {
+                const paymentStatusLabel = getPaymentLabel(order.paymentStatus);
+                return (
+                  <Badge
+                    variant={paymentStatusLabel === "paid" ? "default" : "outline"}
+                    className={paymentStatusLabel === "paid" ? "bg-green-600 text-white" : ""}
+                  >
+                    {paymentStatusLabel}
+                  </Badge>
+                );
+              })()}
             </div>
           </div>
           
@@ -768,7 +789,7 @@ function OrdersList({
                   onClick={(e) => {
                     e.stopPropagation();
                     // Navigate to tracking page with order id
-                    window.location.href = `/track?orderId=${order.id}`;
+                    navigate(`/track?orderId=${order.id}`);
                   }}
                   data-testid={`button-track-${order.id}`}
                 >

@@ -40,6 +40,13 @@ export default function BuyerDashboard() {
   }
 
   const normalize = (s?: string) => (s || "").toLowerCase().trim();
+  const normalizePaymentStatus = (value?: string) => {
+    const s = normalize(value);
+    if (s === "payment_pending") return "pending";
+    if (s === "payment_failed") return "failed";
+    if (s === "completed" || s === "paid") return "paid";
+    return s || "pending";
+  };
 
   const stats = {
     totalOrders: orders.length,
@@ -98,11 +105,14 @@ export default function BuyerDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {orders.slice(0, 6).map((order) => {
                   const s = normalize(order.status);
-                  const paymentStatus = (order as any).paymentStatus?.toLowerCase()?.trim() || "";
-                  const isUnpaid = paymentStatus === "pending" || paymentStatus === "payment_pending" || paymentStatus === "payment_failed" || s === "pending";
+                  const paymentStatus = normalizePaymentStatus((order as any).paymentStatus);
+                  const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed" || s === "pending";
                   const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
 
                   const handleClick = () => {
+                    if (paymentStatus === "processing") {
+                      return;
+                    }
                     if (isUnpaid) {
                       navigate(`/payment/${order.id}`);
                     } else if (trackStatuses.has(s)) {
@@ -116,9 +126,10 @@ export default function BuyerDashboard() {
                     <div 
                       key={order.id} 
                       className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors flex flex-col"
+                      onClick={handleClick}
                       data-testid={`order-${order.id}`}
                     >
-                      <div className="mb-2" onClick={handleClick}>
+                      <div className="mb-2">
                         <p className="font-medium text-sm">{order.orderNumber}</p>
                         <p className="text-xs text-muted-foreground">
                           {new Date(order.createdAt).toLocaleDateString()}
@@ -136,15 +147,36 @@ export default function BuyerDashboard() {
 
                       <div className="mt-3">
                         {isUnpaid ? (
-                          <Button size="sm" variant="outline" onClick={() => navigate(`/payment/${order.id}`)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/payment/${order.id}`);
+                            }}
+                          >
                             Pay Now
                           </Button>
                         ) : trackStatuses.has(s) ? (
-                          <Button size="sm" variant="outline" onClick={() => navigate(`/track?orderId=${order.id}`)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/track?orderId=${order.id}`);
+                            }}
+                          >
                             Track Order
                           </Button>
                         ) : (
-                          <Button size="sm" variant="ghost" onClick={() => navigate(`/track?orderId=${order.id}`)}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/track?orderId=${order.id}`);
+                            }}
+                          >
                             View
                           </Button>
                         )}

@@ -276,7 +276,9 @@ export default function HomeConnected() {
     queryKey: ["/api/categories"],
     queryFn: async () => {
       const res = await fetch("/api/categories?isActive=true");
-      return res.json();
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
   });
 
@@ -293,14 +295,15 @@ export default function HomeConnected() {
   });
 
   // Filter categories by store type in single-vendor mode
+  const safeCategories = Array.isArray(dbCategories) ? dbCategories : [];
   const filteredCategories = !platformSettings?.isMultiVendor 
-    ? (dbCategories || []).filter(cat => {
+    ? safeCategories.filter(cat => {
         // Default to "clothing" for Islamic fashion platform if no primary store configured
         const storeType = primaryStore?.storeType || "clothing";
         // Show global categories (null or empty storeTypes) OR categories for the store's type
         return !cat.storeTypes || cat.storeTypes.length === 0 || cat.storeTypes.includes(storeType);
       })
-    : (dbCategories || []);
+    : safeCategories;
 
   // Use database categories only
   const categories = filteredCategories.map(cat => ({

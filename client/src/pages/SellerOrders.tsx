@@ -26,8 +26,18 @@ type OrderContext = "seller" | "buyer";
 export default function SellerOrders() {
   const { user } = useAuth();
   const { formatPrice, t } = useLanguage();
+  const [, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [orderContext, setOrderContext] = useState<OrderContext>("seller");
+
+  const normalize = (value?: string) => (value || "").toLowerCase().trim();
+  const normalizePaymentStatus = (value?: string) => {
+    const s = normalize(value);
+    if (s === "payment_pending") return "pending";
+    if (s === "payment_failed") return "failed";
+    if (s === "completed" || s === "paid") return "paid";
+    return s || "pending";
+  };
 
   const { data: orders = [], isLoading } = useQuery<Order[]>({
     queryKey: [`/api/orders?context=${orderContext}`],
@@ -126,22 +136,32 @@ export default function SellerOrders() {
                   <Badge className={`${getStatusColor(order.status)} text-white text-xs`}>
                     {order.status}
                   </Badge>
-                  <Badge variant={order.paymentStatus === "paid" ? "default" : "outline"} className="text-xs">
-                    {order.paymentStatus}
-                  </Badge>
+                  {(() => {
+                    const paymentStatusLabel = normalizePaymentStatus(order.paymentStatus);
+                    return (
+                      <Badge variant={paymentStatusLabel === "paid" ? "default" : "outline"} className="text-xs">
+                        {paymentStatusLabel}
+                      </Badge>
+                    );
+                  })()}
                 </div>
                 <div className="flex-1 mb-3">
                   <p className="text-lg font-bold">{formatPrice(Number(order.total) || 0)}</p>
                 </div>
                 {(() => {
-                  const s = (order.status || "").toLowerCase().trim();
+                  const s = normalize(order.status);
                   const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
 
                   if (orderContext === "buyer") {
-                    const paymentStatus = (order as any).paymentStatus?.toLowerCase()?.trim() || "";
-                    if (paymentStatus === "completed" || paymentStatus === "paid") {
+                    const paymentStatus = normalizePaymentStatus((order as any).paymentStatus);
+                    if (paymentStatus === "paid") {
                       return (
-                        <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => { window.location.href = `/track?orderId=${order.id}`; }}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full text-xs"
+                          onClick={() => navigate(`/track?orderId=${order.id}`)}
+                        >
                           <Package className="h-3 w-3 mr-2" />
                           Track Order
                         </Button>
@@ -156,7 +176,12 @@ export default function SellerOrders() {
                     }
 
                     return (
-                      <Button variant="default" size="sm" className="w-full text-xs" onClick={() => { window.location.href = `/payment/${order.id}`; }}>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="w-full text-xs"
+                        onClick={() => navigate(`/payment/${order.id}`)}
+                      >
                         Continue Payment
                       </Button>
                     );
@@ -168,7 +193,7 @@ export default function SellerOrders() {
                         variant="outline"
                         size="sm"
                         className="w-full text-xs"
-                        onClick={() => { window.location.href = `/track?orderId=${order.id}`; }}
+                        onClick={() => navigate(`/track?orderId=${order.id}`)}
                         data-testid={`button-track-${order.id}`}
                       >
                         <Package className="h-3 w-3 mr-2" />
