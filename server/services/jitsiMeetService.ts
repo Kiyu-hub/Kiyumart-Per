@@ -285,8 +285,6 @@ class JitsiMeetService {
           enabled: false,
           autoKnock: false,
         },
-        // Enable conference start for all invitees to prevent "no moderator has arrived" gating.
-        moderator: true,
         // Keep a WhatsApp-like lightweight experience but preserve core in-call controls
         toolbarButtons: [
           'microphone',

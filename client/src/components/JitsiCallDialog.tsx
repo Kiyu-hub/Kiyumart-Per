@@ -154,19 +154,38 @@ export function JitsiCallDialog({
     if (!parsed.room) return;
 
     const ensureScript = (): Promise<void> => {
-      if ((window as any).JitsiMeetExternalAPI) return Promise.resolve();
       return new Promise((resolve, reject) => {
-        const existing = document.querySelector<HTMLScriptElement>(`script[data-jitsi-domain="${parsed.domain}"]`);
-        if (existing) {
-          existing.addEventListener("load", () => resolve(), { once: true });
-          existing.addEventListener("error", () => reject(new Error("Failed to load Jitsi script")), { once: true });
+        const matchingScript = document.querySelector<HTMLScriptElement>(`script[data-jitsi-domain="${parsed.domain}"]`);
+        if (matchingScript && (window as any).JitsiMeetExternalAPI) {
+          if (matchingScript.dataset.jitsiReady === "true") {
+            resolve();
+            return;
+          }
+          matchingScript.addEventListener("load", () => resolve(), { once: true });
+          matchingScript.addEventListener("error", () => reject(new Error("Failed to load Jitsi script")), { once: true });
           return;
         }
+
+        const staleScripts = document.querySelectorAll<HTMLScriptElement>("script[data-jitsi-domain]");
+        staleScripts.forEach((staleScript) => {
+          if (staleScript.dataset.jitsiDomain !== parsed.domain) {
+            staleScript.remove();
+          }
+        });
+        try {
+          delete (window as any).JitsiMeetExternalAPI;
+        } catch {
+          (window as any).JitsiMeetExternalAPI = undefined;
+        }
+
         const script = document.createElement("script");
-        script.src = `https://${parsed.domain}/external_api.js`;
+        script.src = `https://${parsed.domain}/external_api.js?v=kiyumart-call-flow-v2`;
         script.async = true;
         script.dataset.jitsiDomain = parsed.domain;
-        script.onload = () => resolve();
+        script.onload = () => {
+          script.dataset.jitsiReady = "true";
+          resolve();
+        };
         script.onerror = () => reject(new Error("Failed to load Jitsi script"));
         document.body.appendChild(script);
       });
