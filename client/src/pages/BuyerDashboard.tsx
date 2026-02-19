@@ -73,22 +73,21 @@ export default function BuyerDashboard() {
     <DashboardLayout role="buyer">
       <div className="p-6 space-y-6">
         <Card className="overflow-hidden border-0 bg-gradient-to-r from-emerald-600 via-emerald-500 to-cyan-500 text-white">
-          <CardContent className="p-6 md:p-8">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+          <CardContent className="p-4 md:p-5">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
                 <p className="text-white/80 text-sm">Welcome back</p>
-                <p className="text-xs font-semibold uppercase tracking-wide text-white/90">New Buyer Workspace</p>
-                <h1 className="text-2xl md:text-3xl font-bold mt-1">
+                <h1 className="text-xl md:text-2xl font-bold mt-1">
                   {user?.name ? `${user.name.split(" ")[0]}'s Buyer Dashboard` : "Buyer Dashboard"}
                 </h1>
-                <p className="text-sm text-white/90 mt-2 max-w-xl">
+                <p className="text-sm text-white/90 mt-1 max-w-xl">
                   Track deliveries, resolve pending payments, and manage recent orders from one clean workspace.
                 </p>
-                <div className="flex flex-wrap gap-2 mt-4">
-                  <Badge className="bg-white/20 text-white border-white/30 hover:bg-white/20">
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <Badge className="bg-white/20 text-white border-white/30 hover:bg-white/20 text-xs">
                     {activeDeliveries} active delivery{activeDeliveries === 1 ? "" : "ies"}
                   </Badge>
-                  <Badge className="bg-white/20 text-white border-white/30 hover:bg-white/20">
+                  <Badge className="bg-white/20 text-white border-white/30 hover:bg-white/20 text-xs">
                     {stats.pendingPayments} payment pending
                   </Badge>
                 </div>

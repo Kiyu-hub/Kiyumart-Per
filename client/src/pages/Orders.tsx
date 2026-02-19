@@ -40,6 +40,14 @@ export default function Orders() {
     if (s === "completed" || s === "paid") return "paid";
     return s || "pending";
   };
+  const getEffectiveOrderStatus = (order: Order) => {
+    const orderStatus = normalize(order.status) || "pending";
+    const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+    if (orderStatus === "pending" && (paymentStatus === "paid" || paymentStatus === "processing")) {
+      return "processing";
+    }
+    return orderStatus;
+  };
 
   // Always fetch orders where the user is the buyer (their purchases)
   const { data: orders = [], isLoading } = useQuery<Order[]>({
@@ -114,12 +122,12 @@ export default function Orders() {
 
   const filterOrdersByStatus = (status: string) => {
     if (status === "all") return orders;
-    return orders.filter((order) => order.status.toLowerCase() === status.toLowerCase());
+    return orders.filter((order) => getEffectiveOrderStatus(order) === status.toLowerCase());
   };
 
   const getPaymentButtonConfig = (order: Order) => {
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
-    const orderStatus = normalize(order.status);
+    const orderStatus = getEffectiveOrderStatus(order);
 
     if (paymentStatus === "paid") {
       return {
@@ -163,7 +171,7 @@ export default function Orders() {
 
   const OrderCard = ({ order }: { order: Order }) => {
     const paymentButtonConfig = getPaymentButtonConfig(order);
-    const orderStatus = normalize(order.status) || "pending";
+    const orderStatus = getEffectiveOrderStatus(order);
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const handleCardClick = () => {
       if (paymentStatus === "processing" || paymentStatus === "paid") {
