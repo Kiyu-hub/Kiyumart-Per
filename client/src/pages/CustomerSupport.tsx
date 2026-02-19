@@ -392,6 +392,8 @@ export default function CustomerSupport() {
   };
 
   const selectedConv = conversations.find(c => c.id === selectedConversation);
+  const activeTicketCount = conversations.filter((c) => c.status === "open" || c.status === "assigned").length;
+  const resolvedTicketCount = conversations.filter((c) => c.status === "resolved").length;
   const peerUserId = selectedConv
     ? (isSupportStaff ? selectedConv.customerId : selectedConv.agentId)
     : null;
@@ -571,7 +573,16 @@ export default function CustomerSupport() {
                   <MessageCircle className="h-4 w-4" />
                   {isSupportStaff ? "All Tickets" : "My Tickets"}
                 </span>
-                <Badge variant="secondary">{conversations.length}</Badge>
+                {isSupportStaff ? (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="default" className="bg-blue-600 hover:bg-blue-600">
+                      {activeTicketCount} active
+                    </Badge>
+                    <Badge variant="secondary">{conversations.length} total</Badge>
+                  </div>
+                ) : (
+                  <Badge variant="secondary">{conversations.length}</Badge>
+                )}
               </div>
               <ScrollArea className="flex-1 min-h-0">
                 {conversationsLoading ? (
@@ -652,6 +663,11 @@ export default function CustomerSupport() {
                       </p>
                     </button>
                   ))
+                )}
+                {isSupportStaff && conversations.length > 0 && (
+                  <div className="px-4 py-2 border-t text-[11px] text-muted-foreground">
+                    {resolvedTicketCount} resolved ticket{resolvedTicketCount === 1 ? "" : "s"} included in total
+                  </div>
                 )}
               </ScrollArea>
             </Card>
