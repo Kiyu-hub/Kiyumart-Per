@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { CheckCircle, Package, MapPin, Clock, Phone, Mail, Star, MessageSquare } from "lucide-react";
+import { CheckCircle, Package, MapPin, Clock, Star, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,6 @@ import Footer from "@/components/Footer";
 import QRCodeDisplay from "@/components/QRCodeDisplay";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
 
 interface Order {
   id: string;
@@ -21,20 +20,13 @@ interface Order {
   currency: string;
   status: string;
   deliveryAddress: string;
-  deliveryPhone?: string;
-  deliveryEmail?: string;
   createdAt: string;
-  customerInfo?: {
-    phone?: string;
-    email?: string;
-  };
 }
 
 export default function PaymentSuccess() {
   const [, navigate] = useLocation();
   const { formatPrice } = useLanguage();
   const { toast } = useToast();
-  const { user } = useAuth();
   const searchParams = new URLSearchParams(window.location.search);
   const orderId = searchParams.get("orderId");
 
@@ -151,18 +143,6 @@ export default function PaymentSuccess() {
     );
   }
 
-  const displayPhone =
-    (order.deliveryPhone || "").trim() ||
-    (order.customerInfo?.phone || "").trim() ||
-    (user?.phone || "").trim() ||
-    "Not provided";
-
-  const displayEmail =
-    (order.deliveryEmail || "").trim() ||
-    (order.customerInfo?.email || "").trim() ||
-    (user?.email || "").trim() ||
-    "Not provided";
-
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
@@ -238,20 +218,6 @@ export default function PaymentSuccess() {
                     <div>
                       <p className="text-muted-foreground">Address</p>
                       <p data-testid="text-address">{order.deliveryAddress}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Phone className="h-4 w-4 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-muted-foreground">Phone</p>
-                      <p data-testid="text-phone">{displayPhone}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Mail className="h-4 w-4 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-muted-foreground">Email</p>
-                      <p data-testid="text-email">{displayEmail}</p>
                     </div>
                   </div>
                 </div>

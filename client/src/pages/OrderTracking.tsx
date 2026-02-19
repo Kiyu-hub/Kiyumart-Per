@@ -350,9 +350,6 @@ export default function OrderTracking() {
                               {order.deliveryAddress}
                             </p>
                             <p className="text-sm">{order.deliveryCity}</p>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              Phone: {order.deliveryPhone}
-                            </p>
                           </div>
 
                           <div className="grid grid-cols-2 gap-4">

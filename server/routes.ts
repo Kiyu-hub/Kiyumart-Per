@@ -3335,6 +3335,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isMultiVendor = platformIsMultiVendor && hasMultipleSellers;
       let createdOrders: any[] = [];
       let sessionId: string | undefined;
+      const buyerProfile = await storage.getUser(req.user!.id);
+      const resolvedDeliveryPhone =
+        (typeof orderData.deliveryPhone === "string" && orderData.deliveryPhone.trim()) ||
+        (buyerProfile?.phone || null);
+      const resolvedDeliveryAddress =
+        (typeof orderData.deliveryAddress === "string" && orderData.deliveryAddress.trim()) ||
+        (buyerProfile?.businessAddress || null);
       
       if (isMultiVendor) {
         // Multi-vendor: create separate order per seller with proportional delivery fee
@@ -3389,9 +3396,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: orderData.status || 'pending',
           deliveryMethod: orderData.deliveryMethod,
           deliveryZoneId: orderData.deliveryZoneId || null,
-          deliveryAddress: orderData.deliveryAddress || null,
+          deliveryAddress: resolvedDeliveryAddress,
           deliveryCity: orderData.deliveryCity || null,
-          deliveryPhone: orderData.deliveryPhone || null,
+          deliveryPhone: resolvedDeliveryPhone,
           deliveryLatitude: orderData.deliveryLatitude || null,
           deliveryLongitude: orderData.deliveryLongitude || null,
           currency: orderData.currency || 'GHS',
@@ -3427,6 +3434,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const orderInput = {
           ...orderData,
           buyerId: req.user!.id,
+          deliveryAddress: resolvedDeliveryAddress,
+          deliveryPhone: resolvedDeliveryPhone,
           subtotal: serverSubtotal.toFixed(2),
           couponDiscount: singleVendorCouponDiscount > 0 ? singleVendorCouponDiscount.toFixed(2) : null,
           processingFee: finalProcessingFee.toFixed(2),
