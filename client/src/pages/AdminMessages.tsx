@@ -58,6 +58,7 @@ export default function AdminMessages() {
   const [isPeerTyping, setIsPeerTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
@@ -347,6 +348,10 @@ export default function AdminMessages() {
     }
     isTypingRef.current = false;
   }, [selectedUserId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedUserId, messages.length]);
 
   const handleSendMessage = () => {
     if (message.trim() && selectedUserId) {
@@ -899,6 +904,7 @@ export default function AdminMessages() {
                         )}
                       </div>
                     ))}
+                    <div ref={messagesEndRef} />
                   </div>
                 )}
               </ScrollArea>
@@ -909,7 +915,7 @@ export default function AdminMessages() {
                   placeholder="Type a message..."
                   value={message}
                   onChange={(e) => handleTypingChange(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
+                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
                   disabled={sendMessageMutation.isPending}
                   className="flex-1"
                 />
@@ -1172,6 +1178,7 @@ export default function AdminMessages() {
                         </div>
                         )
                       ))}
+                      <div ref={messagesEndRef} />
                     </div>
                   )}
                 </ScrollArea>
@@ -1181,7 +1188,7 @@ export default function AdminMessages() {
                     placeholder="Type a message..."
                     value={message}
                     onChange={(e) => handleTypingChange(e.target.value)}
-                    onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
+                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
                     disabled={sendMessageMutation.isPending}
                     className="flex-1"
                     data-testid="input-message"

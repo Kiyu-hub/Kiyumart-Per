@@ -133,11 +133,6 @@ export default function RiderMessages() {
     };
   }, [socket, selectedUserId]);
 
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [selectedUserId]);
-
   useEffect(() => {
     setIsPeerTyping(false);
     if (typingTimeoutRef.current) {
@@ -181,6 +176,11 @@ export default function RiderMessages() {
     },
     enabled: !!selectedUserId,
   });
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedUserId, messages.length]);
 
   const sendMessageMutation = useMutation({
     mutationFn: async (data: { receiverId: string; message: string }) => {
@@ -481,7 +481,7 @@ export default function RiderMessages() {
                   placeholder="Type a message..."
                   value={message}
                   onChange={(e) => handleTypingChange(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                  onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                   disabled={sendMessageMutation.isPending}
                   className="flex-1"
                 />
@@ -654,7 +654,7 @@ export default function RiderMessages() {
                       placeholder="Type a message..."
                       value={message}
                       onChange={(e) => handleTypingChange(e.target.value)}
-                      onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                      onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                       disabled={sendMessageMutation.isPending}
                       className="flex-1"
                     />

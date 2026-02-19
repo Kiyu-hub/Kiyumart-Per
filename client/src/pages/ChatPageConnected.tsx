@@ -37,7 +37,7 @@ interface User {
 }
 
 export default function ChatPageConnected() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [selectedContact, setSelectedContact] = useState<User | null>(null);
@@ -57,6 +57,7 @@ export default function ChatPageConnected() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
+  const userIdFilter = new URLSearchParams(location.split("?")[1] || "").get("userId");
   const [incomingCallData, setIncomingCallData] = useState<{ callerId: string; callerName: string; callType: "audio" | "video"; offer: any } | null>(null);
   const [remotePeerId, setRemotePeerId] = useState<string | null>(null); // Track remote peer for ICE candidates
   
@@ -443,6 +444,24 @@ export default function ChatPageConnected() {
       setSelectedContact(contacts[0]);
     }
   }, [contacts, selectedContact, user?.role]);
+
+  // Open specific contact when arriving via /chat?userId=...
+  useEffect(() => {
+    if (!userIdFilter || selectedContact?.id === userIdFilter) return;
+    const target = contacts.find((c) => c.id === userIdFilter);
+    if (target) {
+      setSelectedContact(target);
+      return;
+    }
+    // Fallback for rider/buyer assignment links when user isn't in preloaded contacts
+    setSelectedContact({
+      id: userIdFilter,
+      name: "User",
+      email: "",
+      role: "user",
+      profileImage: null,
+    });
+  }, [userIdFilter, contacts, selectedContact?.id]);
 
   const { data: chatMessages = [] } = useQuery<ChatMessage[]>({
     queryKey: ["/api/messages", selectedContact?.id],
