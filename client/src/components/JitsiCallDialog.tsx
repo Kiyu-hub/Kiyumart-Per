@@ -114,6 +114,17 @@ export function JitsiCallDialog({
     [jitsiConfig?.isModerator]
   );
 
+  const sanitizeRoomName = (value?: string | null) => {
+    const normalized = (value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\/\\]+/g, "-")
+      .replace(/[^a-z0-9-_]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+    return normalized || `kiyumart-call-${Date.now()}`;
+  };
+
   useEffect(() => {
     if (!isOpen || !roomUrl || !jitsiContainerRef.current) return;
     setMountError(null);
@@ -130,12 +141,12 @@ export function JitsiCallDialog({
         const parsedRoom = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
         return {
           domain: enforcedDomain,
-          room: jitsiConfig?.roomName || roomName || parsedRoom,
+          room: sanitizeRoomName(roomName || parsedRoom || jitsiConfig?.roomName),
         };
       } catch {
         return {
           domain: enforcedDomain,
-          room: jitsiConfig?.roomName || roomName || "",
+          room: sanitizeRoomName(roomName || jitsiConfig?.roomName || ""),
         };
       }
     })();

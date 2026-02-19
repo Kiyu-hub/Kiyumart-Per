@@ -258,10 +258,6 @@ class JitsiMeetService {
       'userInfo.displayName': userDisplayName,
     });
     
-    if (userEmail) {
-      hashParams.set('userInfo.email', userEmail);
-    }
-    
     const roomUrl = `https://${JITSI_CONFIG.domain}/${roomName}#${hashParams.toString()}`;
     
     return {
@@ -342,7 +338,7 @@ class JitsiMeetService {
       },
       userInfo: {
         displayName: userDisplayName,
-        email: userEmail || '',
+        email: '',
       },
     };
   }
