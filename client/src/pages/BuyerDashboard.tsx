@@ -106,7 +106,7 @@ export default function BuyerDashboard() {
                 {orders.slice(0, 6).map((order) => {
                   const s = normalize(order.status);
                   const paymentStatus = normalizePaymentStatus((order as any).paymentStatus);
-                  const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed" || s === "pending";
+                  const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
                   const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
 
                   const handleClick = () => {
@@ -156,7 +156,7 @@ export default function BuyerDashboard() {
                               navigate(`/payment/${order.id}`);
                             }}
                           >
-                            Pay Now
+                            Continue Payment
                           </Button>
                         ) : trackStatuses.has(s) ? (
                           <Button

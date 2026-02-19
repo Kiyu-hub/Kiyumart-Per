@@ -365,6 +365,14 @@ app.use(cookieParser());
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
   const host = process.env.HOST || '0.0.0.0';
+  server.on("error", (err: any) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[BOOT] Port ${port} is already in use. Stop the existing server process or use a different PORT.`);
+    } else {
+      console.error("[BOOT] Server failed to start:", err?.message || err);
+    }
+    process.exit(1);
+  });
   server.listen(port, host, () => {
     log(`serving on ${host}:${port}`);
   });

@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "dev:backend": "tsx server/index.ts",
     "build:frontend": "vite build",
     "dev:frontend": "vite --host",
     "test:e2e": "playwright test",
