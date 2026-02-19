@@ -62,7 +62,13 @@ export interface IStorage {
   createMessage(message: InsertChatMessage & { senderId: string }): Promise<ChatMessage>;
   getMessages(userId1: string, userId2: string): Promise<ChatMessage[]>;
   markMessageDelivered(messageId: string): Promise<void>;
-  markMessagesAsRead(senderId: string, receiverId: string): Promise<void>;
+  markMessagesAsRead(senderId: string, receiverId: string): Promise<Array<{
+    id: string;
+    senderId: string;
+    receiverId: string;
+    readAt: Date | null;
+    deliveredAt: Date | null;
+  }>>;
   getUnreadMessageCount(userId: string): Promise<number>;
   
   // Transaction operations
@@ -692,12 +698,19 @@ export class DbStorage implements IStorage {
       .where(eq(chatMessages.id, messageId));
   }
 
-  async markMessagesAsRead(senderId: string, receiverId: string): Promise<void> {
-    await db.update(chatMessages)
+  async markMessagesAsRead(senderId: string, receiverId: string): Promise<Array<{
+    id: string;
+    senderId: string;
+    receiverId: string;
+    readAt: Date | null;
+    deliveredAt: Date | null;
+  }>> {
+    return db.update(chatMessages)
       .set({ 
         status: 'read',
         isRead: true,
-        readAt: new Date()
+        readAt: new Date(),
+        deliveredAt: sql`COALESCE(delivered_at, NOW())`
       })
       .where(
         and(
@@ -705,7 +718,14 @@ export class DbStorage implements IStorage {
           eq(chatMessages.receiverId, receiverId),
           eq(chatMessages.isRead, false)
         )
-      );
+      )
+      .returning({
+        id: chatMessages.id,
+        senderId: chatMessages.senderId,
+        receiverId: chatMessages.receiverId,
+        readAt: chatMessages.readAt,
+        deliveredAt: chatMessages.deliveredAt,
+      });
   }
 
   async getUnreadMessageCount(userId: string): Promise<number> {

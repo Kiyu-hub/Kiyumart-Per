@@ -63,16 +63,39 @@ export default function RiderMessages() {
     if (!socket || !selectedUserId) return;
 
     const handleNewMessage = (msg: Message) => {
+      // Receiver acknowledges delivery so sender gets double gray ticks
+      if (msg.receiverId === user?.id) {
+        socket.emit("message_delivered", { messageId: msg.id });
+      }
       if (msg.senderId === selectedUserId || msg.receiverId === selectedUserId) {
         queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedUserId] });
       }
     };
 
+    const handleMessageStatusUpdated = (data: { messageId: string; status: "sent" | "delivered" | "read"; deliveredAt?: string; readAt?: string }) => {
+      queryClient.setQueryData<Message[]>(["/api/messages", selectedUserId], (old) => {
+        if (!old) return old;
+        return old.map((m) =>
+          m.id === data.messageId
+            ? {
+                ...m,
+                status: data.status,
+                deliveredAt: data.deliveredAt ?? m.deliveredAt ?? null,
+                readAt: data.readAt ?? m.readAt ?? null,
+                isRead: data.status === "read" ? true : m.isRead,
+              }
+            : m
+        );
+      });
+    };
+
     socket.on("new_message", handleNewMessage);
+    socket.on("message_status_updated", handleMessageStatusUpdated);
     return () => {
       socket.off("new_message", handleNewMessage);
+      socket.off("message_status_updated", handleMessageStatusUpdated);
     };
-  }, [socket, selectedUserId]);
+  }, [socket, selectedUserId, user?.id]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -133,6 +156,30 @@ export default function RiderMessages() {
       });
     },
   });
+
+  const markConversationReadMutation = useMutation({
+    mutationFn: async (peerUserId: string) => {
+      return apiRequest("PATCH", `/api/messages/${peerUserId}/read`);
+    },
+  });
+
+  useEffect(() => {
+    if (!socket || !selectedUserId || messages.length === 0) return;
+
+    const incoming = messages.filter((m) => m.senderId === selectedUserId);
+    const undelivered = incoming.filter((m) => !m.deliveredAt && m.status === "sent");
+    const unread = incoming.filter((m) => !m.readAt && !m.isRead);
+
+    undelivered.forEach((m) => socket.emit("message_delivered", { messageId: m.id }));
+
+    if (unread.length > 0 && !markConversationReadMutation.isPending) {
+      markConversationReadMutation.mutate(selectedUserId, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedUserId] });
+        },
+      });
+    }
+  }, [socket, selectedUserId, messages, markConversationReadMutation.isPending]);
 
   const handleSendMessage = () => {
     if (message.trim() && selectedUserId) {
@@ -283,7 +330,12 @@ export default function RiderMessages() {
                               {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
                             </span>
                             {msg.senderId === user?.id && (
-                              <MessageStatusTicks status={msg.status || "sent"} />
+                              <MessageStatusTicks
+                                status={msg.status || "sent"}
+                                deliveredAt={msg.deliveredAt}
+                                readAt={msg.readAt}
+                                isRead={msg.isRead}
+                              />
                             )}
                           </div>
                         </div>
@@ -428,7 +480,12 @@ export default function RiderMessages() {
                                     {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
                                   </span>
                                   {msg.senderId === user?.id && (
-                                    <MessageStatusTicks status={msg.status || "sent"} />
+                                    <MessageStatusTicks
+                                      status={msg.status || "sent"}
+                                      deliveredAt={msg.deliveredAt}
+                                      readAt={msg.readAt}
+                                      isRead={msg.isRead}
+                                    />
                                   )}
                                 </div>
                               </div>

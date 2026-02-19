@@ -4453,8 +4453,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/messages/:userId/read", requireAuth, async (req: AuthRequest, res) => {
     try {
-      await storage.markMessagesAsRead(req.params.userId, req.user!.id);
-      res.json({ success: true });
+      const updatedMessages = await storage.markMessagesAsRead(req.params.userId, req.user!.id);
+
+      // Emit WhatsApp-style read status updates back to original senders
+      for (const msg of updatedMessages) {
+        io.to(msg.senderId).emit("message_status_updated", {
+          messageId: msg.id,
+          status: "read",
+          readAt: msg.readAt?.toISOString?.() || new Date().toISOString(),
+          deliveredAt: msg.deliveredAt?.toISOString?.() || new Date().toISOString(),
+        });
+      }
+
+      // Backward-compat event for any legacy listeners
+      if (updatedMessages.length > 0) {
+        io.to(req.params.userId).emit("message_read", {
+          messageIds: updatedMessages.map((m) => m.id),
+          readAt: new Date().toISOString(),
+        });
+      }
+
+      res.json({ success: true, updated: updatedMessages.length });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
