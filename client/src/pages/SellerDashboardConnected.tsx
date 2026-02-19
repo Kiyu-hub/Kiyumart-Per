@@ -80,6 +80,23 @@ const couponFormSchema = z.object({
 
 type CouponFormData = z.infer<typeof couponFormSchema>;
 
+const SELLER_NAV_ROUTES: Record<string, string> = {
+  "media-library": "/seller/media-library",
+  products: "/seller/products",
+  orders: "/seller/orders",
+  deliveries: "/seller/deliveries",
+  "payment-setup": "/seller/payment-setup",
+  messages: "/seller/messages",
+  analytics: "/seller/analytics",
+  settings: "/seller/settings",
+  notifications: "/seller/notifications",
+  support: "/support",
+  "my-cart": "/cart",
+  "my-purchases": "/orders",
+  "my-wishlist": "/wishlist",
+  "platform-earnings": "/seller/analytics",
+};
+
 export default function SellerDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
   const [location, navigate] = useLocation();
@@ -114,6 +131,16 @@ export default function SellerDashboardConnected() {
       setActiveItem("analytics");
     } else if (path.includes("/seller/settings")) {
       setActiveItem("settings");
+    } else if (path.includes("/seller/notifications")) {
+      setActiveItem("notifications");
+    } else if (path === "/cart") {
+      setActiveItem("my-cart");
+    } else if (path === "/orders") {
+      setActiveItem("my-purchases");
+    } else if (path === "/wishlist") {
+      setActiveItem("my-wishlist");
+    } else if (path === "/support") {
+      setActiveItem("support");
     } else if (path.includes("/notifications")) {
       setActiveItem("notifications");
     }
@@ -152,6 +179,33 @@ export default function SellerDashboardConnected() {
       case "settings":
         navigate("/seller/settings");
         break;
+      case "notifications":
+        navigate("/seller/notifications");
+        break;
+      case "support":
+        navigate("/support");
+        break;
+      case "my-cart":
+        navigate("/cart");
+        break;
+      case "my-purchases":
+        navigate("/orders");
+        break;
+      case "my-wishlist":
+        navigate("/wishlist");
+        break;
+      case "platform-earnings":
+        navigate("/seller/analytics");
+        break;
+      default: {
+        const targetRoute = SELLER_NAV_ROUTES[activeItem];
+        if (targetRoute) {
+          navigate(targetRoute);
+        } else {
+          setActiveItem("dashboard");
+        }
+        break;
+      }
     }
   }, [activeItem, navigate]);
 
@@ -168,8 +222,9 @@ export default function SellerDashboardConnected() {
   const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["/api/products", user?.id],
     queryFn: async () => {
-      const res = await fetch(`/api/products?sellerId=${user?.id}`);
-      return res.json();
+      const res = await apiRequest("GET", `/api/products?sellerId=${user?.id}`);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
     enabled: isAuthenticated && user?.role === "seller" && !!user?.id,
   });
@@ -345,12 +400,16 @@ export default function SellerDashboardConnected() {
     );
   }
 
-  const pendingOrders = orders.filter(o => 
-    o.sellerId === user.id && 
-    (o.status === "pending" || o.status === "processing")
+  const safeProducts = Array.isArray(products) ? products : [];
+  const safeOrders = Array.isArray(orders) ? orders : [];
+  const safeCoupons = Array.isArray(coupons) ? coupons : [];
+
+  const pendingOrders = safeOrders.filter((o) =>
+    o?.sellerId === user.id &&
+    (o?.status === "pending" || o?.status === "processing")
   ).length;
 
-  const activeProducts = products.filter(p => p.isActive).length;
+  const activeProducts = safeProducts.filter((p) => !!p?.isActive).length;
 
   return (
     <div className="flex h-screen bg-background">
@@ -480,15 +539,15 @@ export default function SellerDashboardConnected() {
                     <div className="flex justify-center p-8">
                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     </div>
-                  ) : products.length > 0 ? (
+                  ) : safeProducts.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                      {products.map((product) => (
+                      {safeProducts.map((product) => (
                         <ProductCard
                           key={product.id}
                           id={product.id}
                           name={product.name}
-                          price={parseFloat(product.price)}
-                          image={product.images[0] || ""}
+                          price={Number(product.price) || 0}
+                          image={(Array.isArray(product.images) ? product.images[0] : "") || ""}
                           discount={product.discount || undefined}
                           rating={4.5}
                           reviewCount={0}
@@ -517,7 +576,16 @@ export default function SellerDashboardConnected() {
                       <Tag className="h-5 w-5 text-primary" />
                       <CardTitle>Manage Coupons</CardTitle>
                     </div>
-                    <Dialog open={isDialogOpen} onOpenChange={handleDialogClose}>
+                    <Dialog
+                      open={isDialogOpen}
+                      onOpenChange={(open) => {
+                        if (open) {
+                          setIsDialogOpen(true);
+                          return;
+                        }
+                        handleDialogClose();
+                      }}
+                    >
                       <DialogTrigger asChild>
                         <Button data-testid="button-create-coupon">
                           <Plus className="h-4 w-4 mr-2" />
@@ -703,7 +771,7 @@ export default function SellerDashboardConnected() {
                     <div className="flex justify-center p-8">
                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     </div>
-                  ) : coupons.length > 0 ? (
+                  ) : safeCoupons.length > 0 ? (
                     <div className="rounded-md border">
                       <Table>
                         <TableHeader>
@@ -718,7 +786,7 @@ export default function SellerDashboardConnected() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {coupons.map((coupon) => (
+                          {safeCoupons.map((coupon) => (
                             <TableRow key={coupon.id} data-testid={`row-coupon-${coupon.id}`}>
                               <TableCell className="font-mono font-semibold" data-testid={`text-code-${coupon.id}`}>
                                 {coupon.code}
