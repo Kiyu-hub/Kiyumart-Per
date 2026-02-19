@@ -143,11 +143,11 @@ export default function Orders() {
 
     if (paymentStatus === "processing") {
       return {
-        label: "Completing Payment...",
-        variant: "secondary" as const,
-        disabled: true,
-        onClick: () => {},
-        title: "Your payment is being processed. Do not refresh the page.",
+        label: "Track Order",
+        variant: "outline" as const,
+        disabled: false,
+        onClick: () => navigate(`/track?orderId=${order.id}`),
+        title: "Payment is processing. Track order updates.",
       };
     }
 
@@ -166,8 +166,7 @@ export default function Orders() {
     const orderStatus = normalize(order.status) || "pending";
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const handleCardClick = () => {
-      if (paymentStatus === "processing") return;
-      if (paymentStatus === "paid") {
+      if (paymentStatus === "processing" || paymentStatus === "paid") {
         navigate(`/track?orderId=${order.id}`);
         return;
       }

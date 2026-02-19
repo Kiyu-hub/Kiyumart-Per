@@ -147,6 +147,29 @@ export default function PaymentPage() {
     );
   }
 
+  if (normalizePaymentStatus(order.paymentStatus) === "processing") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <CardTitle>Payment Processing</CardTitle>
+            <CardDescription>
+              Payment for order #{order.orderNumber} is currently processing
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button onClick={() => navigate(`/track?orderId=${order.id}`)} className="w-full" data-testid="button-track">
+              Track Order
+            </Button>
+            <Button onClick={() => navigate("/")} variant="outline" className="w-full" data-testid="button-home">
+              Continue Shopping
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="max-w-md w-full">

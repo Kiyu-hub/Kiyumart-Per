@@ -169,8 +169,14 @@ export default function SellerOrders() {
                     }
                     if (paymentStatus === "processing") {
                       return (
-                        <Button variant="secondary" size="sm" className="w-full text-xs" disabled>
-                          Completing Payment...
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full text-xs"
+                          onClick={() => navigate(`/track?orderId=${order.id}`)}
+                        >
+                          <Package className="h-3 w-3 mr-2" />
+                          Track Order
                         </Button>
                       );
                     }

@@ -111,6 +111,7 @@ export default function BuyerDashboard() {
 
                   const handleClick = () => {
                     if (paymentStatus === "processing") {
+                      navigate(`/track?orderId=${order.id}`);
                       return;
                     }
                     if (isUnpaid) {
