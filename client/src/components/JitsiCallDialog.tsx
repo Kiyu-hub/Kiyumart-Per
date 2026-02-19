@@ -153,42 +153,16 @@ export function JitsiCallDialog({
   if (roomUrl) {
     return (
       <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-[95vw] w-full h-[90vh] max-h-[90vh] p-0 gap-0 overflow-hidden">
-          <DialogHeader className="p-4 border-b flex-row items-center justify-between space-y-0">
-            <div className="flex items-center gap-3">
-              <Badge variant={callType === 'video' ? 'default' : 'secondary'}>
-                {callType === 'video' ? <Video className="h-3 w-3 mr-1" /> : <Phone className="h-3 w-3 mr-1" />}
-                {callType === 'video' ? 'Video Call' : 'Voice Call'}
-              </Badge>
-              {participants.length > 0 && (
-                <span className="text-sm text-muted-foreground flex items-center gap-1">
-                  <Users className="h-4 w-4" />
-                  {participants.length} participant{participants.length !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onLeave}
-              >
-                Leave Call
-              </Button>
-              {isHost && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={onEnd}
-                >
-                  End for All
-                </Button>
-              )}
-            </div>
-          </DialogHeader>
-          
-          {/* Jitsi Meet iframe */}
+        <DialogContent className="max-w-[95vw] w-full h-[90vh] max-h-[90vh] p-0 gap-0 overflow-hidden bg-[#0b1014] border border-white/10">
+          <div className="absolute left-4 top-4 z-20 rounded-full bg-black/55 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
+            <span className="inline-flex items-center gap-1.5">
+              {callType === "video" ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
+              {participants.length > 0
+                ? `${participants.length} participant${participants.length !== 1 ? "s" : ""}`
+                : "In call"}
+            </span>
+          </div>
+
           <div className="flex-1 bg-black">
             <iframe
               ref={iframeRef}
@@ -197,6 +171,29 @@ export function JitsiCallDialog({
               allow="camera; microphone; fullscreen; display-capture; autoplay"
               allowFullScreen
             />
+          </div>
+
+          <div className="absolute inset-x-0 bottom-4 z-20 flex items-center justify-center gap-3">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onLeave}
+              className="h-12 w-12 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+              title="Leave call"
+            >
+              <PhoneOff className="h-5 w-5" />
+            </Button>
+            {isHost && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={onEnd}
+                className="h-12 w-12 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
+                title="End call for all"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -301,7 +298,7 @@ export function InlineCallInvite({
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
+            className="h-9 w-9 text-foreground hover:text-white hover:bg-green-600"
             onClick={onReject}
           >
             <X className="h-4 w-4" />
