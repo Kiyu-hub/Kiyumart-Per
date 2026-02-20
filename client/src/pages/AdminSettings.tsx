@@ -382,13 +382,23 @@ export default function AdminSettings() {
     queryKey: ["/api/admin/frontend-url-status"],
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/admin/frontend-url-status");
-      return response as unknown as FrontendUrlStatus;
+      return (await response.json()) as FrontendUrlStatus;
     },
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
     refetchInterval: 60000, // Refetch every 60 seconds
     staleTime: 30000, // Consider data stale after 30 seconds
     retry: 1, // Retry once on failure
     throwOnError: false, // Don't throw errors, handle them gracefully
+  });
+
+  const refreshFrontendUrlMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("GET", "/api/admin/frontend-url-status?refresh=true");
+      return (await response.json()) as FrontendUrlStatus;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["/api/admin/frontend-url-status"], data);
+    },
   });
 
   // Filter banners by store mode
@@ -2172,10 +2182,10 @@ export default function AdminSettings() {
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => frontendUrlQuery.refetch()}
-                        disabled={frontendUrlQuery.isLoading || frontendUrlQuery.isPending}
+                        onClick={() => refreshFrontendUrlMutation.mutate()}
+                        disabled={frontendUrlQuery.isLoading || frontendUrlQuery.isPending || refreshFrontendUrlMutation.isPending}
                       >
-                        {frontendUrlQuery.isLoading || frontendUrlQuery.isPending ? (
+                        {frontendUrlQuery.isLoading || frontendUrlQuery.isPending || refreshFrontendUrlMutation.isPending ? (
                           <>
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                             Checking...
@@ -2190,7 +2200,7 @@ export default function AdminSettings() {
                     </div>
 
                     {/* Loading state */}
-                    {(frontendUrlQuery.isLoading || frontendUrlQuery.isPending) && (
+                    {(frontendUrlQuery.isLoading || frontendUrlQuery.isPending || refreshFrontendUrlMutation.isPending) && (
                       <div className="p-4 rounded-lg bg-muted/50 border flex items-center gap-3">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         <p className="text-sm text-muted-foreground">Checking Frontend URL status...</p>

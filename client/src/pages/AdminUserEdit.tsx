@@ -23,13 +23,8 @@ interface User {
   email: string;
   phone: string | null;
   role: string;
-  ghanaCardFront?: string | null;
-  ghanaCardBack?: string | null;
   nationalIdCard?: string | null;
   businessAddress?: string | null;
-  storeName?: string | null;
-  storeDescription?: string | null;
-  storeBanner?: string | null;
   storeType?: string | null;
   vehicleInfo?: {
     type: string;
@@ -45,13 +40,8 @@ const editUserSchema = z
     email: z.string().email("Invalid email address"),
     phone: z.string().optional(),
     role: z.enum(["buyer", "seller", "rider", "agent", "admin", "super_admin"]),
-    ghanaCardFront: z.string().optional(),
-    ghanaCardBack: z.string().optional(),
     nationalIdCard: z.string().optional(),
     businessAddress: z.string().optional(),
-    storeName: z.string().optional(),
-    storeDescription: z.string().optional(),
-    storeBanner: z.string().optional(),
     storeType: z.string().optional(),
     vehicleType: z.string().optional(),
     vehiclePlateNumber: z.string().optional(),
@@ -60,19 +50,12 @@ const editUserSchema = z
   })
   .superRefine((data, ctx) => {
     const requiredForSeller: Array<{ key: keyof typeof data; label: string }> = [
-      { key: "ghanaCardFront", label: "Ghana Card Front Image" },
-      { key: "ghanaCardBack", label: "Ghana Card Back Image" },
       { key: "nationalIdCard", label: "Ghana Card Number" },
       { key: "businessAddress", label: "Business Address" },
-      { key: "storeName", label: "Store Name" },
-      { key: "storeDescription", label: "Store Description" },
-      { key: "storeBanner", label: "Store Banner Image" },
       { key: "storeType", label: "Store Type" },
     ];
 
     const requiredForRider: Array<{ key: keyof typeof data; label: string }> = [
-      { key: "ghanaCardFront", label: "Ghana Card Front Image" },
-      { key: "ghanaCardBack", label: "Ghana Card Back Image" },
       { key: "nationalIdCard", label: "Ghana Card Number" },
       { key: "businessAddress", label: "Address / Location" },
       { key: "vehicleType", label: "Vehicle Type" },
@@ -189,13 +172,8 @@ export default function AdminUserEdit() {
       email: "",
       phone: "",
       role: "buyer",
-      ghanaCardFront: "",
-      ghanaCardBack: "",
       nationalIdCard: "",
       businessAddress: "",
-      storeName: "",
-      storeDescription: "",
-      storeBanner: "",
       storeType: "",
       vehicleType: "",
       vehiclePlateNumber: "",
@@ -214,13 +192,8 @@ export default function AdminUserEdit() {
         email: userData.email,
         phone: userData.phone || "",
         role: userData.role as any,
-        ghanaCardFront: userData.ghanaCardFront || "",
-        ghanaCardBack: userData.ghanaCardBack || "",
         nationalIdCard: userData.nationalIdCard || "",
         businessAddress: userData.businessAddress || "",
-        storeName: userData.storeName || "",
-        storeDescription: userData.storeDescription || "",
-        storeBanner: userData.storeBanner || "",
         storeType: userData.storeType || "",
         vehicleType: userData.vehicleInfo?.type || "",
         vehiclePlateNumber: userData.vehicleInfo?.plateNumber || "",
@@ -237,16 +210,11 @@ export default function AdminUserEdit() {
         email: data.email.trim(),
         phone: trimOrUndefined(data.phone),
         role: data.role,
-        ghanaCardFront: trimOrUndefined(data.ghanaCardFront),
-        ghanaCardBack: trimOrUndefined(data.ghanaCardBack),
         nationalIdCard: trimOrUndefined(data.nationalIdCard),
         businessAddress: trimOrUndefined(data.businessAddress),
       };
 
       if (data.role === "seller") {
-        payload.storeName = trimOrUndefined(data.storeName);
-        payload.storeDescription = trimOrUndefined(data.storeDescription);
-        payload.storeBanner = trimOrUndefined(data.storeBanner);
         payload.storeType = trimOrUndefined(data.storeType);
       }
 
@@ -419,34 +387,6 @@ export default function AdminUserEdit() {
 
                     <FormField
                       control={form.control}
-                      name="ghanaCardFront"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Ghana Card Front Image URL</FormLabel>
-                          <FormControl>
-                            <Input placeholder="https://..." {...field} data-testid="input-ghana-card-front" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="ghanaCardBack"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Ghana Card Back Image URL</FormLabel>
-                          <FormControl>
-                            <Input placeholder="https://..." {...field} data-testid="input-ghana-card-back" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
                       name="businessAddress"
                       render={({ field }) => (
                         <FormItem>
@@ -494,53 +434,6 @@ export default function AdminUserEdit() {
                               ))}
                             </SelectContent>
                           </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="storeName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Store Name</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Store name" {...field} data-testid="input-store-name" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="storeDescription"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Store Description</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              rows={3}
-                              placeholder="Store description"
-                              {...field}
-                              data-testid="input-store-description"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="storeBanner"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Store Banner Image URL</FormLabel>
-                          <FormControl>
-                            <Input placeholder="https://..." {...field} data-testid="input-store-banner" />
-                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}

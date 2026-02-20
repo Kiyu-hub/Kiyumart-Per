@@ -1012,7 +1012,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/users", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
     try {
       // Capture additional data before schema parsing
-      const { storeName, storeDescription, storeBanner, storeType, vehicleType, vehicleColor, vehiclePlateNumber } = req.body;
+      const { storeType, vehicleType, vehicleColor, vehiclePlateNumber, vehicleLicense } = req.body;
       
       const validatedData = insertUserSchema.parse(req.body);
       const existingUser = await storage.getUserByEmail(validatedData.email);
@@ -1033,6 +1033,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle rider-specific fields - validate and coerce into vehicleInfo JSONB
       if (validatedData.role === "rider") {
+        if (!validatedData.nationalIdCard) {
+          return res.status(400).json({
+            error: "Ghana card number is required for rider accounts"
+          });
+        }
+
+        if (!validatedData.businessAddress) {
+          return res.status(400).json({
+            error: "Address is required for rider accounts"
+          });
+        }
+
         if (!vehicleType) {
           return res.status(400).json({ 
             error: "Vehicle type is required for rider accounts" 
@@ -1043,6 +1055,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: vehicleType,
           color: vehicleColor,
           plateNumber: vehiclePlateNumber,
+          license: vehicleLicense,
         };
         
         const parsedVehicle = vehicleInfoSchema.safeParse(vehiclePayload);
@@ -1058,6 +1071,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle seller-specific fields - ENFORCE storeType requirement
       if (validatedData.role === "seller") {
+        if (!validatedData.nationalIdCard) {
+          return res.status(400).json({
+            error: "Ghana card number is required for seller accounts"
+          });
+        }
+
+        if (!validatedData.businessAddress) {
+          return res.status(400).json({
+            error: "Business address is required for seller accounts"
+          });
+        }
+
         if (!storeType) {
           return res.status(400).json({ 
             error: "Store type is required for seller accounts. Please select a store type to continue." 
@@ -1069,9 +1094,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         userData.storeType = storeType;
-        userData.storeName = storeName;
-        userData.storeDescription = storeDescription;
-        userData.storeBanner = storeBanner;
+        // Admin setup should not define seller storefront profile fields.
+        // Seller must complete these in their own profile flow.
+        userData.storeName = null;
+        userData.storeDescription = null;
+        userData.storeBanner = null;
       }
       
       const user = await storage.createUser(userData);
@@ -1083,10 +1110,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!existingStore) {
             const storeData = {
               primarySellerId: user.id,
-              name: storeName || user.storeName || user.name + "'s Store",
-              description: storeDescription || user.storeDescription || "",
-              logo: storeBanner || user.storeBanner || "",
-              banner: storeBanner || user.storeBanner || "",
+              name: user.name + "'s Store",
+              description: "",
+              logo: "",
+              banner: "",
               storeType: storeType || user.storeType,
               storeTypeMetadata: {},
               isActive: true,
@@ -1156,11 +1183,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "isApproved",
         "vehicleInfo",
         "storeType",
-        "storeName",
-        "storeDescription",
-        "storeBanner",
-        "ghanaCardFront",
-        "ghanaCardBack",
         "nationalIdCard",
         "businessAddress",
       ];
@@ -1234,12 +1256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (normalizedRequestedRole === "seller") {
           const requiredSellerFields: Array<{ key: string; label: string }> = [
             { key: "nationalIdCard", label: "Ghana Card Number" },
-            { key: "ghanaCardFront", label: "Ghana Card Front Image" },
-            { key: "ghanaCardBack", label: "Ghana Card Back Image" },
             { key: "businessAddress", label: "Business Address" },
-            { key: "storeName", label: "Store Name" },
-            { key: "storeDescription", label: "Store Description" },
-            { key: "storeBanner", label: "Store Banner Image" },
             { key: "storeType", label: "Store Type" },
           ];
 
@@ -1263,13 +1280,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
               details: `Valid store types: ${STORE_TYPES.join(", ")}`,
             });
           }
+
+          // Admin role setup must not prefill storefront profile fields.
+          // Force seller to complete these in their own profile flow.
+          updateData.storeName = null;
+          updateData.storeDescription = null;
+          updateData.storeBanner = null;
         }
 
         if (normalizedRequestedRole === "rider") {
           const requiredRiderFields: Array<{ key: string; label: string }> = [
             { key: "nationalIdCard", label: "Ghana Card Number" },
-            { key: "ghanaCardFront", label: "Ghana Card Front Image" },
-            { key: "ghanaCardBack", label: "Ghana Card Back Image" },
             { key: "businessAddress", label: "Address / Location" },
           ];
 

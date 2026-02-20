@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
@@ -14,8 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
-import { ArrowLeft, Loader2, Upload } from "lucide-react";
-import MediaUploadInput from "@/components/MediaUploadInput";
+import { ArrowLeft, Loader2 } from "lucide-react";
 
 const STORE_TYPES = [
   { value: "clothing", label: "Clothing & Fashion" },
@@ -36,30 +35,30 @@ const createUserSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
   phone: z.string().optional(),
   role: z.enum(["buyer", "seller", "rider", "agent", "admin"]),
+  // Shared KYC fields for seller/rider admin setup
+  nationalIdCard: z.string().optional(),
+  businessAddress: z.string().optional(),
   // Seller-specific fields
-  storeName: z.string().optional(),
-  storeDescription: z.string().optional(),
   storeType: z.enum(["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness"]).optional(),
-  storeBanner: z.string().optional(),
   // Rider-specific fields
   vehicleType: z.string().optional(),
   vehicleColor: z.string().optional(),
   vehiclePlateNumber: z.string().optional(),
 }).refine((data) => {
   if (data.role === "seller") {
-    return data.storeName && data.storeType && data.storeName.length >= 2;
+    return data.nationalIdCard?.trim() && data.businessAddress?.trim() && data.storeType;
   }
   return true;
 }, {
-  message: "Store name and store type are required for sellers",
-  path: ["storeName"],
+  message: "Ghana card number, business address, and store type are required for sellers",
+  path: ["nationalIdCard"],
 }).refine((data) => {
   if (data.role === "rider") {
-    return data.vehicleType && data.vehicleColor;
+    return data.nationalIdCard?.trim() && data.businessAddress?.trim() && data.vehicleType && data.vehicleColor;
   }
   return true;
 }, {
-  message: "Vehicle type and color are required for riders",
+  message: "Ghana card number, address, vehicle type and color are required for riders",
   path: ["vehicleType"],
 });
 
@@ -79,8 +78,6 @@ export default function AdminUserCreate() {
     }
   }, [isAuthenticated, authLoading, user, navigate]);
 
-  const [storeBannerUrl, setStoreBannerUrl] = useState<string>("");
-
   const form = useForm<CreateUserFormData>({
     resolver: zodResolver(createUserSchema),
     defaultValues: {
@@ -89,10 +86,9 @@ export default function AdminUserCreate() {
       password: "",
       phone: "",
       role: defaultRole,
-      storeName: "",
-      storeDescription: "",
+      nationalIdCard: "",
+      businessAddress: "",
       storeType: undefined,
-      storeBanner: "",
       vehicleType: "",
       vehicleColor: "",
       vehiclePlateNumber: "",
@@ -243,6 +239,46 @@ export default function AdminUserCreate() {
                   )}
                 />
 
+                {(selectedRole === "seller" || selectedRole === "rider") && (
+                  <>
+                    <div className="pt-2 border-t" />
+                    <h3 className="text-base font-semibold">Required KYC Information</h3>
+
+                    <FormField
+                      control={form.control}
+                      name="nationalIdCard"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Ghana Card Number <span className="text-destructive">*</span></FormLabel>
+                          <FormControl>
+                            <Input placeholder="GHA-XXXXXXXXX-X" {...field} data-testid="input-national-id-card" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="businessAddress"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Business Address / Location <span className="text-destructive">*</span></FormLabel>
+                          <FormControl>
+                            <Textarea
+                              rows={2}
+                              placeholder="Applicant address/location"
+                              {...field}
+                              data-testid="input-business-address"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+
                 {/* Seller-specific fields */}
                 {selectedRole === "seller" && (
                   <>
@@ -273,62 +309,9 @@ export default function AdminUserCreate() {
                         </FormItem>
                       )}
                     />
-
-                    <FormField
-                      control={form.control}
-                      name="storeName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Store Name <span className="text-destructive">*</span></FormLabel>
-                          <FormControl>
-                            <Input placeholder="My Store" {...field} data-testid="input-store-name" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="storeDescription"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Store Description</FormLabel>
-                          <FormControl>
-                            <Textarea 
-                              placeholder="Describe your store..." 
-                              {...field} 
-                              rows={3}
-                              data-testid="input-store-description" 
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="storeBanner"
-                      render={({ field }) => (
-                        <FormItem>
-                          <MediaUploadInput
-                            id="storeBanner"
-                            label="Store Banner Image"
-                            value={field.value || ""}
-                            onChange={(url) => {
-                              field.onChange(url);
-                              setStoreBannerUrl(url);
-                            }}
-                            accept="image"
-                            description="Upload a banner image for the store (min 800×200px)"
-                            skip4KValidation
-                            minDimensions={{ width: 800, height: 200 }}
-                          />
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <p className="text-sm text-muted-foreground">
+                      Store name, description, and banner are completed by the seller on their profile before full access.
+                    </p>
                   </>
                 )}
 
@@ -423,3 +406,4 @@ export default function AdminUserCreate() {
     </DashboardLayout>
   );
 }
+
