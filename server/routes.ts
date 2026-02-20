@@ -2793,6 +2793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: s.id,
           name: s.name,
           email: s.email,
+          phone: s.phone,
           isApproved: s.isApproved,
           totalPaid: (totals[0]?.totalPaid as any) || '0.00',
           pendingAmount: (totals[0]?.pending as any) || '0.00',

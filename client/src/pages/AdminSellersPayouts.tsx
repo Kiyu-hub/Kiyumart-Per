@@ -19,7 +19,8 @@ import {
   Loader2,
   RefreshCw,
   Search,
-  Filter
+  Filter,
+  Phone
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,7 @@ interface Seller {
   id: string;
   name: string;
   email: string;
+  phone?: string | null;
   isApproved: boolean;
   totalPaid: number | string;
   pendingAmount: number | string;
@@ -200,7 +202,10 @@ export default function AdminSellersPayouts() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        s => s.name?.toLowerCase().includes(query) || s.email?.toLowerCase().includes(query)
+        s =>
+          s.name?.toLowerCase().includes(query) ||
+          s.email?.toLowerCase().includes(query) ||
+          s.phone?.toLowerCase().includes(query)
       );
     }
 
@@ -289,6 +294,10 @@ export default function AdminSellersPayouts() {
                     <CardDescription className="flex items-center gap-2 mt-1">
                       <Mail className="h-4 w-4" />
                       {selectedSeller.email}
+                    </CardDescription>
+                    <CardDescription className="flex items-center gap-2 mt-1">
+                      <Phone className="h-4 w-4" />
+                      {selectedSeller.phone || "No phone number"}
                     </CardDescription>
                   </div>
                 </div>
@@ -643,6 +652,7 @@ export default function AdminSellersPayouts() {
                           <div>
                             <p className="font-medium">{seller.name}</p>
                             <p className="text-sm text-muted-foreground">{seller.email}</p>
+                            <p className="text-sm text-muted-foreground">{seller.phone || "No phone number"}</p>
                           </div>
                         </div>
                       </TableCell>
