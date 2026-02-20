@@ -1960,7 +1960,8 @@ export class DbStorage implements IStorage {
   async getAnalytics(userId?: string, role?: string): Promise<any> {
     // Basic analytics - can be expanded
     const result: any = {};
-    const paidStatusFilter = sql`lower(${orders.paymentStatus}) in ('completed', 'paid', 'success')`;
+    // payment_status can be enum/text depending on DB state, so cast to text before lower()
+    const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
     
     if (role === "admin" || role === "super_admin" || !userId) {
       // Keep order counts aligned with DB totals and calculate revenue from paid states only.
