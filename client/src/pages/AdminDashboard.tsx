@@ -74,12 +74,20 @@ export default function AdminDashboard() {
       setActiveItem("notifications");
     } else if (path.includes("/admin/messages")) {
       setActiveItem("messages");
+    } else if (path.includes("/admin/live-support")) {
+      setActiveItem("live-support");
     } else if (path.includes("/admin/analytics")) {
       setActiveItem("analytics");
     } else if (path.includes("/admin/promotions")) {
       setActiveItem("promotions");
     } else if (path.includes("/admin/platform-earnings")) {
       setActiveItem("platform-earnings");
+    } else if (path.includes("/admin/sellers-payouts")) {
+      setActiveItem("sellers-payouts");
+    } else if (path.includes("/admin/riders-payouts")) {
+      setActiveItem("riders-payouts");
+    } else if (path.includes("/admin/manual-rider-assignment")) {
+      setActiveItem("manual-rider-assignment");
     }
   }, [location]);
 
@@ -97,9 +105,13 @@ export default function AdminDashboard() {
       id === "my-wishlist" ? "/wishlist" :
       id === "notifications" ? "/admin/notifications" :
       id === "messages" ? "/admin/messages" :
+      id === "live-support" ? "/admin/live-support" :
       id === "analytics" ? "/admin/analytics" :
       id === "promotions" ? "/admin/promotions" :
       id === "platform-earnings" ? "/admin/platform-earnings" :
+      id === "sellers-payouts" ? "/admin/sellers-payouts" :
+      id === "riders-payouts" ? "/admin/riders-payouts" :
+      id === "manual-rider-assignment" ? "/admin/manual-rider-assignment" :
       "/admin"
     );
   };
