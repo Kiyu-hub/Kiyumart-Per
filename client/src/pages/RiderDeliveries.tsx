@@ -15,10 +15,11 @@ interface Delivery {
   id: string;
   orderNumber: string;
   status: string;
-  pickupAddress: string;
-  deliveryAddress: string;
-  customerName: string;
-  customerPhone: string;
+  deliveryAddress?: string;
+  buyer?: {
+    name?: string;
+    phone?: string;
+  };
   createdAt: string;
 }
 
@@ -28,21 +29,31 @@ export default function RiderDeliveries() {
   const [statusFilter, setStatusFilter] = useState("all");
 
   const { data: deliveries = [], isLoading } = useQuery<Delivery[]>({
-    queryKey: ["/api/deliveries", "rider"],
+    queryKey: ["/api/orders?context=rider"],
     queryFn: async () => {
-      const res = await fetch("/api/deliveries?role=rider");
+      const res = await fetch("/api/orders?context=rider", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch deliveries");
       return res.json();
     },
   });
 
+  const normalizeStatus = (value?: string) => {
+    const s = (value || "").toLowerCase().trim();
+    if (s === "ready_for_pickup") return "assigned";
+    if (s === "assigned_to_rider") return "assigned";
+    if (s === "out_for_delivery" || s === "in_transit") return "en_route";
+    return s || "pending";
+  };
+
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      return apiRequest("PATCH", `/api/deliveries/${id}/status`, { status });
+      const mappedStatus = status === "in_transit" ? "en_route" : status;
+      return apiRequest("PATCH", `/api/orders/${id}/status`, { status: mappedStatus });
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Delivery status updated" });
-      queryClient.invalidateQueries({ queryKey: ["/api/deliveries", "rider"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders?context=rider"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -51,14 +62,14 @@ export default function RiderDeliveries() {
 
   const filteredDeliveries = statusFilter === "all" 
     ? deliveries 
-    : deliveries.filter(d => d.status === statusFilter);
+    : deliveries.filter(d => normalizeStatus(d.status) === statusFilter);
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    switch (normalizeStatus(status)) {
       case "pending": return "bg-yellow-500";
       case "assigned": return "bg-blue-500";
       case "picked_up": return "bg-purple-500";
-      case "in_transit": return "bg-orange-500";
+      case "en_route": return "bg-orange-500";
       case "delivered": return "bg-green-500";
       default: return "bg-gray-500";
     }
@@ -80,7 +91,7 @@ export default function RiderDeliveries() {
               <SelectItem value="all">All Deliveries</SelectItem>
               <SelectItem value="assigned">Assigned</SelectItem>
               <SelectItem value="picked_up">Picked Up</SelectItem>
-              <SelectItem value="in_transit">In Transit</SelectItem>
+              <SelectItem value="en_route">In Transit</SelectItem>
               <SelectItem value="delivered">Delivered</SelectItem>
             </SelectContent>
           </Select>
@@ -110,33 +121,26 @@ export default function RiderDeliveries() {
                       <Package className="h-5 w-5 text-muted-foreground" />
                       <div>
                         <p className="font-semibold">Order #{delivery.orderNumber}</p>
-                        <p className="text-sm text-muted-foreground">{delivery.customerName}</p>
+                        <p className="text-sm text-muted-foreground">{delivery.buyer?.name || "Customer"}</p>
                       </div>
                     </div>
                     <Badge className={`${getStatusColor(delivery.status)} text-white`}>
-                      {delivery.status.replace("_", " ")}
+                      {normalizeStatus(delivery.status).replace("_", " ")}
                     </Badge>
                   </div>
 
                   <div className="space-y-2 text-sm">
                     <div className="flex items-start gap-2">
-                      <MapPin className="h-4 w-4 mt-0.5 text-green-500" />
-                      <div>
-                        <p className="font-medium">Pickup</p>
-                        <p className="text-muted-foreground">{delivery.pickupAddress}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-2">
                       <MapPin className="h-4 w-4 mt-0.5 text-red-500" />
                       <div>
                         <p className="font-medium">Delivery</p>
-                        <p className="text-muted-foreground">{delivery.deliveryAddress}</p>
+                        <p className="text-muted-foreground">{delivery.deliveryAddress || "N/A"}</p>
                       </div>
                     </div>
                   </div>
 
                   <div className="flex gap-2">
-                    {delivery.status === "assigned" && (
+                    {normalizeStatus(delivery.status) === "assigned" && (
                       <Button
                         size="sm"
                         onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "picked_up" })}
@@ -146,7 +150,7 @@ export default function RiderDeliveries() {
                         Mark as Picked Up
                       </Button>
                     )}
-                    {delivery.status === "picked_up" && (
+                    {normalizeStatus(delivery.status) === "picked_up" && (
                       <Button
                         size="sm"
                         onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "in_transit" })}
@@ -156,7 +160,7 @@ export default function RiderDeliveries() {
                         Mark as In Transit
                       </Button>
                     )}
-                    {delivery.status === "in_transit" && (
+                    {normalizeStatus(delivery.status) === "en_route" && (
                       <Button
                         size="sm"
                         onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "delivered" })}

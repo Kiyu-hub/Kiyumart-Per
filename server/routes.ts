@@ -4078,13 +4078,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/orders/:id/status", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { status, reason } = req.body;
+      const rawStatus = String(status || "").toLowerCase().trim();
+      const normalizedStatus =
+        rawStatus === "ready_for_pickup" ? "ready" :
+        rawStatus === "assigned_to_rider" ? "assigned" :
+        rawStatus === "in_transit" || rawStatus === "out_for_delivery" ? "en_route" :
+        rawStatus;
       const orderId = req.params.id;
       
       // CRITICAL: All validation, side effects, and audit trail happen INSIDE the transaction
       // in applyOrderStatusTransition() to prevent TOCTOU race conditions
       const updatedOrder = await storage.applyOrderStatusTransition(
         orderId,
-        status,
+        normalizedStatus,
         req.user!.id,
         req.user!.role,
         reason
@@ -4100,8 +4106,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userId: updatedOrder.buyerId,
           type: "order",
           title: "Order Status Updated",
-          message: `Your order #${updatedOrder.orderNumber} status has been updated to ${status}`,
-          metadata: { orderId: updatedOrder.id, orderNumber: updatedOrder.orderNumber, status } as any
+          message: `Your order #${updatedOrder.orderNumber} status has been updated to ${normalizedStatus}`,
+          metadata: { orderId: updatedOrder.id, orderNumber: updatedOrder.orderNumber, status: normalizedStatus } as any
         });
         
         // Emit real-time order status update to buyer
@@ -4170,7 +4176,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Verify the order is in a valid state for completion
-      if (!["delivering", "en_route", "picked_up"].includes(order.status)) {
+      const completionEligibleStatuses = ["delivering", "en_route", "picked_up", "in_transit", "out_for_delivery"];
+      if (!completionEligibleStatuses.includes((order.status || "").toLowerCase().trim())) {
         return res.status(400).json({ 
           error: "Order cannot be completed",
           details: `Order is currently in "${order.status}" status. Only orders in delivery can be completed.`
@@ -4317,10 +4324,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(orders.riderId, riderId),
-            or(
-              eq(orders.status, "processing"),
-              eq(orders.status, "delivering")
-            )
+            sql`lower(cast(${orders.status} as text)) in ('processing','ready','confirmed','assigned','picked_up','en_route','in_transit','out_for_delivery','delivering')`
           )
         )
         .orderBy(desc(orders.createdAt))
@@ -4428,7 +4432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get all orders and filter for processing or delivering status with assigned riders
       const allOrders = await storage.getAllOrders();
       const activeOrders = allOrders.filter(order => 
-        (order.status === "delivering" || order.status === "processing") && order.riderId
+        ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route", "delivering"].includes((order.status || "").toLowerCase().trim()) && order.riderId
       );
       
       const riderLocations = await Promise.all(
@@ -4475,7 +4479,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pendingOrders = allOrders
         .filter(order => 
           order.deliveryMethod === "rider" &&
-          ["processing", "ready", "confirmed"].includes(order.status) &&
+          ["processing", "ready", "confirmed"].includes((order.status || "").toLowerCase().trim()) &&
           !order.riderId
         )
         .map(order => ({
@@ -4530,7 +4534,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allOrders = await storage.getAllOrders();
       const ridersOnDelivery = new Set(
         allOrders
-          .filter(o => ["delivering", "picked_up", "en_route"].includes(o.status) && o.riderId)
+          .filter(o => ["assigned", "delivering", "picked_up", "en_route", "in_transit", "out_for_delivery"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
           .map(o => o.riderId)
       );
       
@@ -4642,7 +4646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const overdueOrders = allOrders.filter(order => {
         if (order.deliveryMethod !== "rider") return false;
         if (order.riderId) return false; // Already assigned
-        if (!["processing", "ready", "confirmed"].includes(order.status)) return false;
+        if (!["processing", "ready", "confirmed"].includes((order.status || "").toLowerCase().trim())) return false;
         
         const orderAge = now.getTime() - new Date(order.createdAt!).getTime();
         return orderAge >= ONE_HOUR;
@@ -4658,7 +4662,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const ridersOnDelivery = new Set(
         allOrders
-          .filter(o => ["delivering", "picked_up", "en_route"].includes(o.status) && o.riderId)
+          .filter(o => ["assigned", "delivering", "picked_up", "en_route", "in_transit", "out_for_delivery"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
           .map(o => o.riderId)
       );
       

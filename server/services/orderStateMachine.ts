@@ -1,6 +1,17 @@
 import type { Order } from "@shared/schema";
 
-export type OrderStatus = "pending" | "processing" | "delivering" | "delivered" | "cancelled" | "disputed";
+export type OrderStatus =
+  | "pending"
+  | "confirmed"
+  | "ready"
+  | "processing"
+  | "assigned"
+  | "picked_up"
+  | "en_route"
+  | "delivering"
+  | "delivered"
+  | "cancelled"
+  | "disputed";
 export type PaymentStatus = "pending" | "processing" | "completed" | "failed" | "refunded";
 export type UserRole = "super_admin" | "admin" | "seller" | "buyer" | "rider" | "agent";
 
@@ -24,53 +35,159 @@ export interface TransitionError {
   details?: Record<string, any>;
 }
 
-// Define the state machine: current status → allowed transitions
+function normalizeOrderStatus(status?: string | null): OrderStatus {
+  const s = (status || "").toLowerCase().trim();
+  if (s === "ready_for_pickup") return "ready";
+  if (s === "assigned_to_rider") return "assigned";
+  if (s === "out_for_delivery" || s === "in_transit") return "en_route";
+  if (!s) return "pending";
+  return s as OrderStatus;
+}
+
 const TRANSITION_RULES: Record<OrderStatus, Partial<Record<OrderStatus, TransitionRule>>> = {
   pending: {
+    confirmed: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [],
+    },
     processing: {
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [
         (ctx) => ({
           valid: ctx.order.paymentStatus === "completed",
-          error: "Payment must be completed before processing order"
-        })
+          error: "Payment must be completed before processing order",
+        }),
       ],
-      sideEffects: []
+      sideEffects: [],
     },
     cancelled: {
       allowedRoles: ["buyer", "seller", "admin", "super_admin"],
       preconditions: [],
-      sideEffects: []
-    }
+      sideEffects: [],
+    },
+  },
+
+  confirmed: {
+    ready: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [],
+    },
+    processing: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [],
+    },
+    cancelled: {
+      allowedRoles: ["buyer", "seller", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [],
+    },
+  },
+
+  ready: {
+    processing: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [],
+    },
+    cancelled: {
+      allowedRoles: ["buyer", "seller", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [],
+    },
   },
 
   processing: {
+    assigned: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: !!ctx.order.riderId,
+          error: "Rider must be assigned before moving order to assigned status",
+        }),
+      ],
+      sideEffects: [],
+    },
     delivering: {
       allowedRoles: ["admin", "super_admin"],
       preconditions: [
         (ctx) => ({
           valid: !!ctx.order.riderId,
-          error: "Rider must be assigned before delivery can begin"
+          error: "Rider must be assigned before delivery can begin",
         }),
         (ctx) => ({
           valid: ctx.order.paymentStatus === "completed",
-          error: "Payment must be completed before delivery"
-        })
+          error: "Payment must be completed before delivery",
+        }),
       ],
-      sideEffects: []
+      sideEffects: [],
     },
     cancelled: {
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [],
-      sideEffects: [
-        (order) => ({ riderId: null }) // Clear rider assignment
-      ]
+      sideEffects: [(order) => ({ riderId: null })],
     },
     disputed: {
       allowedRoles: ["buyer", "admin", "super_admin"],
       preconditions: [],
-      sideEffects: []
-    }
+      sideEffects: [],
+    },
+  },
+
+  assigned: {
+    picked_up: {
+      allowedRoles: ["rider", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => {
+          if (ctx.actorRole === "rider") {
+            return {
+              valid: ctx.order.riderId === ctx.actorId,
+              error: "Only the assigned rider can mark as picked up",
+            };
+          }
+          return { valid: true };
+        },
+      ],
+      sideEffects: [],
+    },
+    cancelled: {
+      allowedRoles: ["admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ riderId: null })],
+    },
+  },
+
+  picked_up: {
+    en_route: {
+      allowedRoles: ["rider", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => {
+          if (ctx.actorRole === "rider") {
+            return {
+              valid: ctx.order.riderId === ctx.actorId,
+              error: "Only the assigned rider can mark order en route",
+            };
+          }
+          return { valid: true };
+        },
+      ],
+      sideEffects: [],
+    },
+    delivered: {
+      allowedRoles: ["rider", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ deliveredAt: new Date() })],
+    },
+  },
+
+  en_route: {
+    delivered: {
+      allowedRoles: ["rider", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ deliveredAt: new Date() })],
+    },
   },
 
   delivering: {
@@ -78,45 +195,38 @@ const TRANSITION_RULES: Record<OrderStatus, Partial<Record<OrderStatus, Transiti
       allowedRoles: ["rider", "admin", "super_admin"],
       preconditions: [
         (ctx) => {
-          // If actor is a rider, must be the assigned rider
           if (ctx.actorRole === "rider") {
             return {
               valid: ctx.order.riderId === ctx.actorId,
-              error: "Only the assigned rider can mark this order as delivered"
+              error: "Only the assigned rider can mark this order as delivered",
             };
           }
           return { valid: true };
-        }
+        },
       ],
-      sideEffects: [
-        (order) => ({ deliveredAt: new Date() })
-      ]
+      sideEffects: [(order) => ({ deliveredAt: new Date() })],
     },
     cancelled: {
       allowedRoles: ["admin", "super_admin"],
       preconditions: [],
-      sideEffects: [
-        (order) => ({ riderId: null })
-      ]
+      sideEffects: [(order) => ({ riderId: null })],
     },
     disputed: {
       allowedRoles: ["buyer", "admin", "super_admin"],
       preconditions: [],
-      sideEffects: []
-    }
+      sideEffects: [],
+    },
   },
 
   delivered: {
     disputed: {
       allowedRoles: ["buyer", "admin", "super_admin"],
       preconditions: [],
-      sideEffects: []
-    }
+      sideEffects: [],
+    },
   },
 
-  cancelled: {
-    // Cancelled orders cannot transition to other states
-  },
+  cancelled: {},
 
   disputed: {
     delivered: {
@@ -124,75 +234,69 @@ const TRANSITION_RULES: Record<OrderStatus, Partial<Record<OrderStatus, Transiti
       preconditions: [
         (ctx) => ({
           valid: !!ctx.reason,
-          error: "Reason required to resolve dispute and mark as delivered"
-        })
+          error: "Reason required to resolve dispute and mark as delivered",
+        }),
       ],
-      sideEffects: []
+      sideEffects: [],
     },
     cancelled: {
       allowedRoles: ["admin", "super_admin"],
       preconditions: [
         (ctx) => ({
           valid: !!ctx.reason,
-          error: "Reason required to resolve dispute and cancel order"
-        })
+          error: "Reason required to resolve dispute and cancel order",
+        }),
       ],
-      sideEffects: []
-    }
-  }
+      sideEffects: [],
+    },
+  },
 };
 
-/**
- * Get all allowed target statuses for an order given the actor's role
- */
 export function getAllowedTransitions(order: Order, actorRole: UserRole): OrderStatus[] {
-  const currentStatus = order.status as OrderStatus;
+  const currentStatus = normalizeOrderStatus(order.status);
   const transitions = TRANSITION_RULES[currentStatus] || {};
-  
+
   return Object.entries(transitions)
     .filter(([_, rule]) => rule.allowedRoles.includes(actorRole))
     .map(([status]) => status as OrderStatus);
 }
 
-/**
- * Validate if a transition is allowed and return error details if not
- */
-export function assertCanTransition(ctx: TransitionContext): { valid: true } | { valid: false; error: TransitionError } {
-  const currentStatus = ctx.order.status as OrderStatus;
-  
-  // Check if transition exists in state machine
+export function assertCanTransition(
+  ctx: TransitionContext
+): { valid: true } | { valid: false; error: TransitionError } {
+  const currentStatus = normalizeOrderStatus(ctx.order.status);
+  const normalizedTarget = normalizeOrderStatus(ctx.targetStatus);
+
   const transitions = TRANSITION_RULES[currentStatus];
-  if (!transitions || !transitions[ctx.targetStatus]) {
+  if (!transitions || !transitions[normalizedTarget]) {
     return {
       valid: false,
       error: {
         code: "invalid_transition",
-        message: `Cannot transition from ${currentStatus} to ${ctx.targetStatus}`,
-        details: { currentStatus, targetStatus: ctx.targetStatus }
-      }
+        message: `Cannot transition from ${currentStatus} to ${normalizedTarget}`,
+        details: { currentStatus, targetStatus: normalizedTarget },
+      },
     };
   }
-  
-  const rule = transitions[ctx.targetStatus]!;
-  
-  // Check role permission
+
+  const rule = transitions[normalizedTarget]!;
+
   if (!rule.allowedRoles.includes(ctx.actorRole)) {
     return {
       valid: false,
       error: {
         code: "role_violation",
-        message: `Role ${ctx.actorRole} is not permitted to transition order from ${currentStatus} to ${ctx.targetStatus}`,
+        message: `Role ${ctx.actorRole} is not permitted to transition order from ${currentStatus} to ${normalizedTarget}`,
         details: {
           currentStatus,
-          targetStatus: ctx.targetStatus,
+          targetStatus: normalizedTarget,
           actorRole: ctx.actorRole,
-          allowedRoles: rule.allowedRoles
-        }
-      }
+          allowedRoles: rule.allowedRoles,
+        },
+      },
     };
   }
-  
-  // Check all preconditions
+
   for (const precondition of rule.preconditions) {
     const result = precondition(ctx);
     if (!result.valid) {
@@ -201,32 +305,32 @@ export function assertCanTransition(ctx: TransitionContext): { valid: true } | {
         error: {
           code: "precondition_failed",
           message: result.error || "Precondition not met",
-          details: { currentStatus, targetStatus: ctx.targetStatus }
-        }
+          details: { currentStatus, targetStatus: normalizedTarget },
+        },
       };
     }
   }
-  
+
   return { valid: true };
 }
 
-/**
- * Apply side effects for a transition
- */
 export function getTransitionSideEffects(order: Order, targetStatus: OrderStatus): Partial<Order> {
-  const currentStatus = order.status as OrderStatus;
+  const currentStatus = normalizeOrderStatus(order.status);
+  const normalizedTarget = normalizeOrderStatus(targetStatus);
   const transitions = TRANSITION_RULES[currentStatus];
-  
-  if (!transitions || !transitions[targetStatus]) {
+
+  if (!transitions || !transitions[normalizedTarget]) {
     return {};
   }
-  
-  const rule = transitions[targetStatus]!;
+
+  const rule = transitions[normalizedTarget]!;
   const sideEffects = rule.sideEffects || [];
-  
-  // Merge all side effects
-  return sideEffects.reduce((acc, effect) => ({
-    ...acc,
-    ...effect(order)
-  }), {});
+
+  return sideEffects.reduce(
+    (acc, effect) => ({
+      ...acc,
+      ...effect(order),
+    }),
+    {}
+  );
 }
