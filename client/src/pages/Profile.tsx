@@ -13,9 +13,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { User, MapPin, CreditCard, Package, LogOut, Settings, Camera, Loader2, Truck, Store } from "lucide-react";
 import MediaUploadInput from "@/components/MediaUploadInput";
 import { useLocation } from "wouter";
+import { STORE_TYPES, STORE_TYPE_CONFIG } from "@shared/storeTypes";
 
 interface UserProfile {
   id: string;
@@ -27,6 +29,7 @@ interface UserProfile {
   storeName?: string;
   storeDescription?: string;
   storeBanner?: string;
+  storeType?: string;
   vehicleInfo?: {
     type: string;
     plateNumber: string;
@@ -89,6 +92,7 @@ export default function Profile() {
         storeName: profile.storeName || "",
         storeDescription: profile.storeDescription || "",
         storeBanner: profile.storeBanner || "",
+        storeType: profile.storeType || "",
         vehicleInfo: profile.vehicleInfo || { type: "", plateNumber: "", license: "" },
       });
     }
@@ -355,6 +359,32 @@ export default function Profile() {
                           Store Information
                         </h3>
                         <div className="space-y-4">
+                          <div>
+                            <Label htmlFor="storeType">Store Type</Label>
+                            {isEditing ? (
+                              <Select
+                                value={formData.storeType || undefined}
+                                onValueChange={(value) => handleInputChange("storeType", value)}
+                              >
+                                <SelectTrigger id="storeType" data-testid="select-store-type-profile">
+                                  <SelectValue placeholder="Select store type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {STORE_TYPES.map((type) => (
+                                    <SelectItem key={type} value={type}>
+                                      {STORE_TYPE_CONFIG[type].label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {profile?.storeType
+                                  ? STORE_TYPE_CONFIG[profile.storeType as keyof typeof STORE_TYPE_CONFIG]?.label || profile.storeType
+                                  : "Not set"}
+                              </p>
+                            )}
+                          </div>
                           <div>
                             <Label htmlFor="storeName">Store Name</Label>
                             <Input

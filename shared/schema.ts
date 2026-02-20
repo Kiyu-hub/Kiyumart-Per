@@ -16,7 +16,7 @@ export const deliveryAssignmentStatusEnum = pgEnum("delivery_assignment_status",
 export const mediaCategoryEnum = pgEnum("media_category", ["banner", "category", "logo", "product", "general"]);
 export const storeTypeEnum = pgEnum("store_type", ["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness"]);
 export const promoTypeEnum = pgEnum("promo_type", ["store", "product"]);
-export const applicationStatusEnum = pgEnum("application_status", ["pending", "approved", "rejected"]);
+export const applicationStatusEnum = pgEnum("application_status", ["pending", "interview_scheduled", "approved", "rejected"]);
 
 // Promotional Ads table for time-limited promoted stores/products
 export const promotionalAds = pgTable("promotional_ads", {
@@ -68,6 +68,8 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").default(true),
   isApproved: boolean("is_approved").default(false),
   applicationStatus: applicationStatusEnum("application_status").default("pending"),
+  interviewScheduledAt: timestamp("interview_scheduled_at"),
+  interviewScheduledBy: text("interview_scheduled_by"),
   rejectionReason: text("rejection_reason"),
   profileImage: text("profile_image"),
   ghanaCardFront: text("ghana_card_front"),

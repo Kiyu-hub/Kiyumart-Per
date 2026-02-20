@@ -87,6 +87,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const ROLE_LABELS: Record<string, string> = {
+    buyer: "Buyer",
+    seller: "Seller",
+    rider: "Rider",
+    agent: "Agent",
+    admin: "Admin",
+    super_admin: "Super Admin",
+  };
+
+  const ROLE_CAPABILITIES: Record<string, string[]> = {
+    seller: [
+      "Access the seller dashboard and seller tools",
+      "Create and manage product listings",
+      "View and process incoming orders",
+    ],
+    rider: [
+      "Access the rider dashboard and delivery tools",
+      "Receive and manage delivery assignments",
+      "Track active delivery jobs and payout status",
+    ],
+    agent: [
+      "Access support-agent workspace",
+      "Handle customer support tickets and conversations",
+    ],
+    admin: [
+      "Access admin management dashboard",
+      "Manage users, products, and platform content",
+    ],
+    super_admin: [
+      "Access super-admin controls and moderation tools",
+      "Manage administrative roles and platform-wide settings",
+    ],
+    buyer: [
+      "Continue purchasing products and managing orders",
+    ],
+  };
+
+  const formatFormalNotification = (
+    heading: string,
+    sections: Array<{ label: string; value: string }>,
+  ) => {
+    const lines = [heading, "", ...sections.map((section) => `${section.label}: ${section.value}`)];
+    return lines.join("\n");
+  };
+
   // ============ Authentication Routes ============
   app.post("/api/auth/signup", async (req, res) => {
     try {
@@ -642,18 +687,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const approvedUser = await storage.updateUser(req.params.id, { 
         isApproved: true,
         applicationStatus: "approved" as any,
+        interviewScheduledAt: null,
+        interviewScheduledBy: null,
         rejectionReason: null // Clear any previous rejection reason
       });
       if (!approvedUser) {
         return res.status(404).json({ error: "User not found" });
       }
       
+      const approvedRoleLabel = ROLE_LABELS[user.role] || user.role;
+      const approvalMessage = formatFormalNotification(
+        `Dear ${approvedUser.name || "Applicant"},`,
+        [
+          {
+            label: "Decision",
+            value: `Approved - Your ${approvedRoleLabel} application was successful.`,
+          },
+          {
+            label: "Reason for Decision",
+            value: "Your submitted profile and verification details met our onboarding requirements.",
+          },
+          {
+            label: "Next Steps",
+            value: user.role === "seller"
+              ? "Open your seller dashboard, complete any remaining store setup items, and begin listing products."
+              : "Open your rider dashboard, confirm your vehicle details, and begin accepting delivery assignments.",
+          },
+        ],
+      );
+
       // Send approval notification
       await storage.createNotification({
         userId: approvedUser.id,
         type: "system",
-        title: `${user.role === "seller" ? "Seller" : "Rider"} Application Approved`,
-        message: `Congratulations! Your ${user.role} application has been approved. You can now access your dashboard and start ${user.role === "seller" ? "selling products" : "accepting deliveries"}.`
+        title: `${approvedRoleLabel} Application Approved`,
+        message: approvalMessage,
+        metadata: {
+          role: user.role,
+          status: "approved",
+          link: user.role === "seller" ? "/seller" : "/rider",
+        } as any,
       });
       
       // Emit Socket.IO event for real-time seller dashboard update
@@ -668,6 +741,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password, ...userWithoutPassword } = approvedUser;
       res.json(userWithoutPassword);
     } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/users/:id/interview", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { scheduledAt } = req.body as { scheduledAt?: string };
+      if (!scheduledAt) {
+        return res.status(400).json({ error: "Interview date and time are required" });
+      }
+
+      const interviewDate = new Date(scheduledAt);
+      if (Number.isNaN(interviewDate.getTime())) {
+        return res.status(400).json({ error: "Invalid interview date and time" });
+      }
+
+      const user = await storage.getUser(req.params.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.role !== "seller" && user.role !== "rider") {
+        return res.status(400).json({ error: "Interview scheduling is only available for seller and rider applications" });
+      }
+
+      if (user.isApproved || user.applicationStatus === "approved") {
+        return res.status(400).json({ error: "Cannot schedule interview for an approved application" });
+      }
+
+      if (user.applicationStatus === "rejected") {
+        return res.status(400).json({ error: "Cannot schedule interview for a rejected application" });
+      }
+
+      const updatedUser = await storage.updateUser(req.params.id, {
+        applicationStatus: "interview_scheduled" as any,
+        interviewScheduledAt: interviewDate,
+        interviewScheduledBy: req.user!.id,
+        rejectionReason: null,
+      });
+
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const roleLabel = ROLE_LABELS[user.role] || user.role;
+      const formattedDate = interviewDate.toLocaleString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+
+      const message = formatFormalNotification(
+        `Dear ${updatedUser.name || "Applicant"},`,
+        [
+          {
+            label: "Status Update",
+            value: `Your ${roleLabel} application has moved to Interview Scheduled.`,
+          },
+          {
+            label: "Interview Date & Time",
+            value: formattedDate,
+          },
+          {
+            label: "Next Steps",
+            value: "Please be available at the scheduled time and keep your contact channels active for interview communication.",
+          },
+        ],
+      );
+
+      await storage.createNotification({
+        userId: updatedUser.id,
+        type: "system",
+        title: `${roleLabel} Interview Scheduled`,
+        message,
+        metadata: {
+          role: user.role,
+          status: "interview_scheduled",
+          interviewScheduledAt: interviewDate.toISOString(),
+          link: "/notifications",
+        } as any,
+      });
+
+      io.to(updatedUser.id).emit("notification", {
+        type: "system",
+        title: `${roleLabel} Interview Scheduled`,
+        message,
+        data: {
+          role: user.role,
+          status: "interview_scheduled",
+          interviewScheduledAt: interviewDate.toISOString(),
+          link: "/notifications",
+        },
+      });
+
+      const { password, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+    } catch (error: any) {
+      console.error("Error scheduling interview:", error);
       res.status(400).json({ error: error.message });
     }
   });
@@ -696,6 +870,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role,
         isApproved: false,
         applicationStatus: 'pending' as any,
+        interviewScheduledAt: null,
+        interviewScheduledBy: null,
         rejectionReason: null,
       });
 
@@ -744,6 +920,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isApproved: false,
         isActive: true, // Explicitly keep account active
         applicationStatus: "rejected" as any,
+        interviewScheduledAt: null,
+        interviewScheduledBy: null,
         rejectionReason: reason || null
       });
       
@@ -751,14 +929,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
       
+      const rejectedRoleLabel = ROLE_LABELS[user.role] || user.role;
+      const rejectionMessage = formatFormalNotification(
+        `Dear ${rejectedUser.name || "Applicant"},`,
+        [
+          {
+            label: "Decision",
+            value: `Rejected - Your ${rejectedRoleLabel} application was not approved at this time.`,
+          },
+          {
+            label: "Reason for Decision",
+            value: reason?.trim() || "No detailed reason was provided. Please contact support for clarification.",
+          },
+          {
+            label: "Next Steps",
+            value: "Review the decision reason, update your profile/application details, and re-apply when ready.",
+          },
+        ],
+      );
+
       // Send rejection notification
       await storage.createNotification({
         userId: rejectedUser.id,
         type: "system",
-        title: `${user.role === "seller" ? "Seller" : "Rider"} Application Rejected`,
-        message: reason 
-          ? `Unfortunately, your ${user.role} application has been rejected. Reason: ${reason}` 
-          : `Unfortunately, your ${user.role} application has been rejected. Please contact support for more information.`
+        title: `${rejectedRoleLabel} Application Rejected`,
+        message: rejectionMessage,
+        metadata: {
+          role: user.role,
+          status: "rejected",
+          reason: reason?.trim() || null,
+          link: "/support",
+        } as any,
       });
       
       console.log(`User ${user.id} (${user.role}) pending application rejected by admin`);
@@ -946,17 +1147,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/users/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
-      const allowedFields = ['name', 'email', 'phone', 'role', 'isActive', 'isApproved', 'vehicleInfo', 'storeType', 'storeName', 'storeDescription', 'storeBanner'];
+      const allowedFields = [
+        "name",
+        "email",
+        "phone",
+        "role",
+        "isActive",
+        "isApproved",
+        "vehicleInfo",
+        "storeType",
+        "storeName",
+        "storeDescription",
+        "storeBanner",
+        "ghanaCardFront",
+        "ghanaCardBack",
+        "nationalIdCard",
+        "businessAddress",
+      ];
       const updateData: Record<string, any> = {};
-      const roleLabels: Record<string, string> = {
-        buyer: "Buyer",
-        seller: "Seller",
-        rider: "Rider",
-        agent: "Agent",
-        admin: "Admin",
-        super_admin: "Super Admin",
-      };
-      
+
       for (const field of allowedFields) {
         if (req.body[field] !== undefined) {
           updateData[field] = req.body[field];
@@ -978,8 +1187,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "Email already exists" });
         }
       }
-      
-      // CRITICAL: Get user to validate role-specific requirements
+
       const currentUser = await storage.getUser(req.params.id);
       if (!currentUser) {
         return res.status(404).json({ error: "User not found" });
@@ -994,35 +1202,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (typeof updateData.role === "string") {
         updateData.role = normalizedRequestedRole;
       }
-      
+
+      if (updateData.storeType && !STORE_TYPES.includes(updateData.storeType)) {
+        return res.status(400).json({
+          error: "Invalid store type",
+          details: `Valid types: ${STORE_TYPES.join(", ")}`,
+        });
+      }
+
+      if ("vehicleInfo" in updateData && updateData.vehicleInfo) {
+        const parsedVehicle = vehicleInfoSchema.safeParse(updateData.vehicleInfo);
+        if (!parsedVehicle.success) {
+          return res.status(400).json({
+            error: "Invalid vehicle information",
+            details: parsedVehicle.error.issues,
+          });
+        }
+        updateData.vehicleInfo = parsedVehicle.data;
+      }
+
+      const mergedUser = {
+        ...currentUser,
+        ...updateData,
+        role: normalizedRequestedRole,
+      } as any;
+
+      const manualUpgradeToApplicationRole =
+        roleChanged && (normalizedRequestedRole === "seller" || normalizedRequestedRole === "rider");
+
+      if (manualUpgradeToApplicationRole) {
+        if (normalizedRequestedRole === "seller") {
+          const requiredSellerFields: Array<{ key: string; label: string }> = [
+            { key: "nationalIdCard", label: "Ghana Card Number" },
+            { key: "ghanaCardFront", label: "Ghana Card Front Image" },
+            { key: "ghanaCardBack", label: "Ghana Card Back Image" },
+            { key: "businessAddress", label: "Business Address" },
+            { key: "storeName", label: "Store Name" },
+            { key: "storeDescription", label: "Store Description" },
+            { key: "storeBanner", label: "Store Banner Image" },
+            { key: "storeType", label: "Store Type" },
+          ];
+
+          const missingSellerFields = requiredSellerFields
+            .filter(({ key }) => {
+              const value = (mergedUser as Record<string, any>)[key];
+              return value === null || value === undefined || value === "";
+            })
+            .map(({ label }) => label);
+
+          if (missingSellerFields.length > 0) {
+            return res.status(400).json({
+              error: "Cannot upgrade user to Seller: required application/KYC fields are missing",
+              details: missingSellerFields,
+            });
+          }
+
+          if (!STORE_TYPES.includes(mergedUser.storeType)) {
+            return res.status(400).json({
+              error: "Cannot upgrade user to Seller: invalid store type",
+              details: `Valid store types: ${STORE_TYPES.join(", ")}`,
+            });
+          }
+        }
+
+        if (normalizedRequestedRole === "rider") {
+          const requiredRiderFields: Array<{ key: string; label: string }> = [
+            { key: "nationalIdCard", label: "Ghana Card Number" },
+            { key: "ghanaCardFront", label: "Ghana Card Front Image" },
+            { key: "ghanaCardBack", label: "Ghana Card Back Image" },
+            { key: "businessAddress", label: "Address / Location" },
+          ];
+
+          const missingRiderFields = requiredRiderFields
+            .filter(({ key }) => {
+              const value = (mergedUser as Record<string, any>)[key];
+              return value === null || value === undefined || value === "";
+            })
+            .map(({ label }) => label);
+
+          if (!mergedUser.vehicleInfo?.type) {
+            missingRiderFields.push("Vehicle Type");
+          }
+
+          if (mergedUser.vehicleInfo?.type === "car") {
+            if (!mergedUser.vehicleInfo?.plateNumber) missingRiderFields.push("Vehicle Plate Number");
+            if (!mergedUser.vehicleInfo?.license) missingRiderFields.push("Driver's License Number");
+            if (!mergedUser.vehicleInfo?.color) missingRiderFields.push("Vehicle Color");
+          }
+
+          if (mergedUser.vehicleInfo?.type === "motorcycle") {
+            if (!mergedUser.vehicleInfo?.plateNumber) missingRiderFields.push("Vehicle Plate Number");
+            if (!mergedUser.vehicleInfo?.license) missingRiderFields.push("Driver's License Number");
+          }
+
+          if (missingRiderFields.length > 0) {
+            return res.status(400).json({
+              error: "Cannot upgrade user to Rider: required application/KYC fields are missing",
+              details: missingRiderFields,
+            });
+          }
+        }
+      }
+
       // ENFORCE: Sellers cannot lose storeType if approved
       if (currentUser.role === "seller" && currentUser.isApproved) {
-        if ('storeType' in updateData && !updateData.storeType) {
-          return res.status(400).json({ 
+        if ("storeType" in updateData && !updateData.storeType) {
+          return res.status(400).json({
             error: "Cannot remove store type from approved seller",
-            details: "Approved sellers must maintain a valid store type. To change it, provide a new valid type."
-          });
-        }
-        
-        // Validate storeType if being updated
-        if (updateData.storeType && !STORE_TYPES.includes(updateData.storeType)) {
-          return res.status(400).json({ 
-            error: "Invalid store type",
-            details: `Valid types: ${STORE_TYPES.join(", ")}`
+            details: "Approved sellers must maintain a valid store type. To change it, provide a new valid type.",
           });
         }
       }
-      
+
       // ENFORCE: Riders cannot lose vehicleInfo if approved
       if (currentUser.role === "rider" && currentUser.isApproved) {
-        if ('vehicleInfo' in updateData && (!updateData.vehicleInfo || !updateData.vehicleInfo.type)) {
-          return res.status(400).json({ 
+        if ("vehicleInfo" in updateData && (!updateData.vehicleInfo || !updateData.vehicleInfo.type)) {
+          return res.status(400).json({
             error: "Cannot remove vehicle information from approved rider",
-            details: "Approved riders must maintain valid vehicle information."
+            details: "Approved riders must maintain valid vehicle information.",
           });
         }
       }
-      
+
+      // Keep application state coherent when assigning seller/rider roles manually
+      if (
+        (normalizedRequestedRole === "seller" || normalizedRequestedRole === "rider") &&
+        (roleChanged || "isApproved" in updateData)
+      ) {
+        const willBeApproved = ("isApproved" in updateData) ? !!updateData.isApproved : !!currentUser.isApproved;
+        updateData.applicationStatus = willBeApproved ? "approved" : "pending";
+        if (willBeApproved) {
+          updateData.interviewScheduledAt = null;
+          updateData.interviewScheduledBy = null;
+          updateData.rejectionReason = null;
+        }
+      }
+
       const user = await storage.updateUser(req.params.id, updateData);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -1033,16 +1348,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const newRoleDashboard = normalizedRequestedRole === "super_admin"
             ? "/admin"
             : `/${normalizedRequestedRole}`;
+          const newRoleLabel = ROLE_LABELS[normalizedRequestedRole] || normalizedRequestedRole;
+          const previousRoleLabel = ROLE_LABELS[normalizedCurrentRole] || normalizedCurrentRole;
+          const enabledCapabilities = (ROLE_CAPABILITIES[normalizedRequestedRole] || ["Access your updated workspace"])
+            .join("; ");
+          const roleUpdateMessage = formatFormalNotification(
+            `Dear ${user.name || "User"},`,
+            [
+              {
+                label: "Role Update",
+                value: `Your account role has been updated from ${previousRoleLabel} to ${newRoleLabel}.`,
+              },
+              {
+                label: "Effective Date",
+                value: new Date().toLocaleString("en-US"),
+              },
+              {
+                label: "New Capabilities",
+                value: enabledCapabilities,
+              },
+              {
+                label: "Next Steps",
+                value: `Sign in and open ${newRoleDashboard} to begin using your new permissions.`,
+              },
+            ],
+          );
           const title = normalizedRequestedRole === "agent"
             ? "Promotion: Agent Access Granted"
-            : "Role Updated";
-          const message = `Your account role has been updated from ${roleLabels[normalizedCurrentRole] || normalizedCurrentRole} to ${roleLabels[normalizedRequestedRole] || normalizedRequestedRole}.`;
+            : "Account Role Updated";
 
           await storage.createNotification({
             userId: user.id,
             type: "system",
             title,
-            message,
+            message: roleUpdateMessage,
             metadata: {
               previousRole: normalizedCurrentRole,
               newRole: normalizedRequestedRole,
@@ -1053,7 +1392,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           io.to(user.id).emit("notification", {
             type: "system",
             title,
-            message,
+            message: roleUpdateMessage,
             data: {
               previousRole: normalizedCurrentRole,
               newRole: normalizedRequestedRole,

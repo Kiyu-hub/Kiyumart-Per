@@ -45,6 +45,14 @@ interface Order {
   sellerId: string;
 }
 
+interface SellerProfileSummary {
+  storeType?: string | null;
+  storeName?: string | null;
+  storeDescription?: string | null;
+  storeBanner?: string | null;
+  businessAddress?: string | null;
+}
+
 interface Coupon {
   id: string;
   code: string;
@@ -218,6 +226,41 @@ export default function SellerDashboardConnected() {
     queryKey: ["/api/stores/my-store"],
     enabled: isAuthenticated && user?.role === "seller",
   });
+
+  const { data: sellerProfile } = useQuery<SellerProfileSummary>({
+    queryKey: ["/api/auth/me", "seller-completeness", user?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/auth/me");
+      return res.json();
+    },
+    enabled: isAuthenticated && user?.role === "seller",
+  });
+
+  const missingStoreFields = [
+    { key: "storeType", label: "Store type" },
+    { key: "storeName", label: "Store name" },
+    { key: "storeDescription", label: "Store description" },
+    { key: "storeBanner", label: "Store banner image" },
+    { key: "businessAddress", label: "Business address" },
+  ].filter(({ key }) => {
+    const value = (sellerProfile as Record<string, any> | undefined)?.[key];
+    return value === null || value === undefined || value === "";
+  });
+
+  useEffect(() => {
+    if (!sellerProfile || missingStoreFields.length === 0) {
+      return;
+    }
+    if (location.startsWith("/profile")) {
+      return;
+    }
+
+    toast({
+      title: "Complete Store Information",
+      description: `Missing required fields: ${missingStoreFields.map((field) => field.label).join(", ")}. Please complete your profile.`,
+    });
+    navigate("/profile");
+  }, [sellerProfile, missingStoreFields, location, navigate, toast]);
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery<Partial<Analytics>>({
     queryKey: ["/api/analytics", user?.id, user?.role],
