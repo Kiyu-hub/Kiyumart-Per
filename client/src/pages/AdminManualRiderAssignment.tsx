@@ -33,10 +33,12 @@ interface Order {
   updatedAt?: string;
   shippingAddress?: string;
   deliveryAddress?: string;
+  deliveryPhone?: string;
   deliveryLatitude?: string;
   deliveryLongitude?: string;
   deliveryZoneId?: string;
-  buyer?: { id: string; name: string; phone?: string };
+  paymentStatus?: string;
+  buyer?: { id: string; name: string; email?: string; phone?: string };
   seller?: { id: string; name: string; storeName?: string };
 }
 
@@ -440,7 +442,7 @@ export default function AdminManualRiderAssignment() {
     return orders.filter(order => 
       !order.riderId && 
       order.deliveryMethod !== "pickup" &&
-      ["pending", "paid", "confirmed", "processing", "ready"].includes(order.status)
+      ["pending", "confirmed", "processing", "ready"].includes(normalizeOrderStatus(order.status))
     );
   }, [orders]);
 
@@ -470,7 +472,10 @@ export default function AdminManualRiderAssignment() {
       filtered = filtered.filter(o =>
         o.orderNumber?.toLowerCase().includes(query) ||
         o.deliveryAddress?.toLowerCase().includes(query) ||
-        o.shippingAddress?.toLowerCase().includes(query)
+        o.shippingAddress?.toLowerCase().includes(query) ||
+        o.buyer?.name?.toLowerCase().includes(query) ||
+        o.buyer?.email?.toLowerCase().includes(query) ||
+        o.buyer?.phone?.toLowerCase().includes(query)
       );
     }
     
@@ -763,6 +768,18 @@ export default function AdminManualRiderAssignment() {
                                 {order.buyer.name}
                               </span>
                             )}
+                            {order.buyer?.email && (
+                              <span className="flex items-center gap-1">
+                                <Mail className="h-3 w-3" />
+                                {order.buyer.email}
+                              </span>
+                            )}
+                            {(order.deliveryPhone || order.buyer?.phone) && (
+                              <span className="flex items-center gap-1">
+                                <Phone className="h-3 w-3" />
+                                {order.deliveryPhone || order.buyer?.phone}
+                              </span>
+                            )}
                           </div>
 
                           {/* Wait time progress bar */}
@@ -931,3 +948,4 @@ export default function AdminManualRiderAssignment() {
     </DashboardLayout>
   );
 }
+  const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();

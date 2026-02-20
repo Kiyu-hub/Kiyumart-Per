@@ -25,6 +25,7 @@ interface Order {
   total: string;
   status: string;
   createdAt: string;
+  deliveredAt?: string | null;
 }
 
 export default function RiderDashboard() {
@@ -52,14 +53,14 @@ export default function RiderDashboard() {
   }
 
   const myDeliveries = orders.filter(o => o.riderId === user.id);
-  const activeDeliveries = myDeliveries.filter(o => 
-    o.status === "processing" || o.status === "delivering"
+  const activeDeliveries = myDeliveries.filter((o) =>
+    ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route", "delivering"].includes(normalizeOrderStatus(o.status))
   );
-  const completedDeliveries = myDeliveries.filter(o => o.status === "delivered");
+  const completedDeliveries = myDeliveries.filter((o) => normalizeOrderStatus(o.status) === "delivered");
   
   const todayEarnings = completedDeliveries
     .filter(o => {
-      const orderDate = new Date(o.createdAt);
+      const orderDate = new Date(o.deliveredAt || o.createdAt);
       const today = new Date();
       return orderDate.toDateString() === today.toDateString();
     })
@@ -161,3 +162,4 @@ export default function RiderDashboard() {
     </DashboardLayout>
   );
 }
+  const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();

@@ -242,7 +242,7 @@ export default function AdminDashboardConnected() {
 
   const buyerMap = new Map(Array.isArray(buyers) ? buyers.map(b => [b.id, b]) : []);
 
-  const deliveredCount = orders.filter(o => o.status === "delivered").length;
+  const deliveredCount = orders.filter(o => normalizeOrderStatus(o.status) === "delivered").length;
 
   return (
     <div className="flex h-screen bg-background">
@@ -587,3 +587,4 @@ export default function AdminDashboardConnected() {
     </div>
   );
 }
+  const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();

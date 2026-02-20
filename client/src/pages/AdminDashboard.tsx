@@ -33,6 +33,7 @@ export default function AdminDashboard() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
   const [activeItem, setActiveItem] = useState("dashboard");
+  const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();
   const normalizePaymentStatus = (value?: string) => {
     const s = (value || "").toLowerCase().trim();
     if (s === "payment_pending") return "pending";
@@ -126,7 +127,10 @@ export default function AdminDashboard() {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 6);
 
-  const deliveredCount = orders.filter(o => o.status === "delivered").length;
+  const deliveredCount = orders.filter(o => normalizeOrderStatus(o.status) === "delivered").length;
+  const processingCount = orders.filter(o =>
+    ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route", "delivering"].includes(normalizeOrderStatus(o.status))
+  ).length;
 
   return (
     <div className="flex h-screen bg-background">
@@ -257,7 +261,7 @@ export default function AdminDashboard() {
                     <div className="text-sm">
                       <p className="font-medium">Processing Orders</p>
                       <p className="text-muted-foreground">
-                        {orders.filter(o => o.status === "processing").length} processing
+                        {processingCount} processing
                       </p>
                     </div>
                   </div>
@@ -305,12 +309,12 @@ export default function AdminDashboard() {
                               <div className="flex-1">
                                 <p className="text-xs text-muted-foreground uppercase font-semibold mb-1">Status</p>
                                 <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                                  order.status === 'delivered' ? 'bg-green-100 text-green-800' :
-                                  order.status === 'processing' ? 'bg-blue-100 text-blue-800' :
-                                  order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                                  normalizeOrderStatus(order.status) === 'delivered' ? 'bg-green-100 text-green-800' :
+                                  ['processing', 'ready', 'confirmed', 'assigned', 'picked_up', 'en_route', 'delivering'].includes(normalizeOrderStatus(order.status)) ? 'bg-blue-100 text-blue-800' :
+                                  normalizeOrderStatus(order.status) === 'cancelled' ? 'bg-red-100 text-red-800' :
                                   'bg-yellow-100 text-yellow-800'
                                 }`}>
-                                  {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                                  {normalizeOrderStatus(order.status) === "en_route" ? "En Route" : (order.status || "unknown").replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())}
                                 </span>
                               </div>
                               <div className="flex-1">

@@ -463,7 +463,7 @@ export default function SellerDashboardConnected() {
 
   const pendingOrders = safeOrders.filter((o) =>
     o?.sellerId === user.id &&
-    (o?.status === "pending" || o?.status === "processing")
+    ["pending", "processing", "ready", "confirmed", "assigned"].includes(normalizeOrderStatus(o?.status))
   ).length;
 
   const activeProducts = safeProducts.filter((p) => !!p?.isActive).length;
@@ -921,3 +921,4 @@ export default function SellerDashboardConnected() {
     </div>
   );
 }
+  const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();

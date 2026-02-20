@@ -1960,42 +1960,49 @@ export class DbStorage implements IStorage {
   async getAnalytics(userId?: string, role?: string): Promise<any> {
     // Basic analytics - can be expanded
     const result: any = {};
+    const paidStatusFilter = sql`lower(${orders.paymentStatus}) in ('completed', 'paid', 'success')`;
     
     if (role === "admin" || role === "super_admin" || !userId) {
-      // Only count paid/completed orders (critical production fix)
+      // Keep order counts aligned with DB totals and calculate revenue from paid states only.
+      const totalOrders = await db.select({ count: sql<number>`count(*)` })
+        .from(orders);
+
       const paidOrders = await db.select({ count: sql<number>`count(*)` })
         .from(orders)
-        .where(eq(orders.paymentStatus, "completed"));
+        .where(paidStatusFilter);
       
       const totalRevenue = await db.select({ sum: sql<number>`sum(${orders.total})` })
         .from(orders)
-        .where(eq(orders.paymentStatus, "completed"));
+        .where(paidStatusFilter);
       
       const totalUsers = await db.select({ count: sql<number>`count(*)` }).from(users);
       const totalProducts = await db.select({ count: sql<number>`count(*)` }).from(products);
       
-      result.totalOrders = Number(paidOrders[0]?.count ?? 0);
+      result.totalOrders = Number(totalOrders[0]?.count ?? 0);
       result.paidOrders = Number(paidOrders[0]?.count ?? 0);
       result.totalRevenue = Number(totalRevenue[0]?.sum ?? 0);
       result.totalUsers = Number(totalUsers[0]?.count ?? 0);
       result.totalProducts = Number(totalProducts[0]?.count ?? 0);
     } else if (role === "seller") {
-      // Only count paid orders for sellers (critical production fix)
+      const totalSellerOrders = await db.select({ count: sql<number>`count(*)` })
+        .from(orders)
+        .where(eq(orders.sellerId, userId));
+
       const paidSellerOrders = await db.select({ count: sql<number>`count(*)` })
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
-          eq(orders.paymentStatus, "completed")
+          paidStatusFilter
         ));
       
       const sellerRevenue = await db.select({ sum: sql<number>`sum(${orders.total})` })
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
-          eq(orders.paymentStatus, "completed")
+          paidStatusFilter
         ));
       
-      result.totalOrders = Number(paidSellerOrders[0]?.count ?? 0);
+      result.totalOrders = Number(totalSellerOrders[0]?.count ?? 0);
       result.paidOrders = Number(paidSellerOrders[0]?.count ?? 0);
       result.totalRevenue = Number(sellerRevenue[0]?.sum ?? 0);
     }

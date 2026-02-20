@@ -3936,6 +3936,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/orders", requireAuth, async (req: AuthRequest, res) => {
     try {
+      const normalizePaymentStatus = (value?: string | null) => (value || "").toLowerCase().trim();
+      const isPaidPaymentStatus = (value?: string | null) =>
+        ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+
       const userRole = req.user!.role as "admin" | "super_admin" | "buyer" | "seller" | "rider" | "agent";
       // Allow context override: buyers can shop, sellers/riders/agents can view purchases vs their work orders
       const context = (req.query.context as string) || userRole;
@@ -3953,7 +3957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Payment state normalization: paid orders must not remain pending.
       // Self-heal stale records and normalize response immediately.
-      const stalePaidPending = orders.filter((o: any) => o.paymentStatus === "completed" && o.status === "pending");
+      const stalePaidPending = orders.filter((o: any) => isPaidPaymentStatus(o.paymentStatus) && (o.status || "").toLowerCase().trim() === "pending");
       if (stalePaidPending.length > 0) {
         await Promise.allSettled(
           stalePaidPending.map((o: any) =>
@@ -3961,7 +3965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           )
         );
         orders = orders.map((o: any) =>
-          o.paymentStatus === "completed" && o.status === "pending"
+          isPaidPaymentStatus(o.paymentStatus) && (o.status || "").toLowerCase().trim() === "pending"
             ? { ...o, status: "processing" }
             : o
         );
@@ -4006,13 +4010,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/orders/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
+      const normalizePaymentStatus = (value?: string | null) => (value || "").toLowerCase().trim();
+      const isPaidPaymentStatus = (value?: string | null) =>
+        ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+
       let order = await storage.getOrder(req.params.id);
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
       }
 
       // Payment state normalization for single-order reads as well.
-      if (order.paymentStatus === "completed" && order.status === "pending") {
+      if (isPaidPaymentStatus(order.paymentStatus) && (order.status || "").toLowerCase().trim() === "pending") {
         const healed = await storage.updateOrder(order.id, { status: "processing" as any });
         if (healed) order = healed as any;
       }
@@ -4474,6 +4482,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: order.id,
           orderNumber: order.orderNumber,
           buyerName: "Buyer", // Will be populated below
+          buyerEmail: null as string | null,
+          buyerPhone: null as string | null,
           deliveryAddress: order.deliveryAddress,
           deliveryPhone: order.deliveryPhone,
           deliveryLatitude: order.deliveryLatitude,
@@ -4489,7 +4499,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const fullOrder = allOrders.find(o => o.id === order.id);
           if (fullOrder?.buyerId) {
             const buyer = await storage.getUser(fullOrder.buyerId);
-            return { ...order, buyerName: buyer?.name || "Unknown" };
+            return {
+              ...order,
+              buyerName: buyer?.name || "Unknown",
+              buyerEmail: buyer?.email || null,
+              buyerPhone: order.deliveryPhone || buyer?.phone || null,
+            };
           }
           return order;
         })
@@ -4758,6 +4773,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/sellers/:sellerId/sales", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
     try {
       const { sellerId } = req.params;
+      const normalizePaymentStatus = (value?: string | null) => (value || "").toLowerCase().trim();
+      const isPaidPaymentStatus = (value?: string | null) =>
+        ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
       
       const sales = await storage.getOrdersByUser(sellerId, "seller");
       
@@ -4766,7 +4784,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return sum + parseFloat(order.total || "0");
       }, 0);
       
-      const paidOrders = sales.filter(order => order.paymentStatus === "completed");
+      const paidOrders = sales.filter(order => isPaidPaymentStatus(order.paymentStatus));
       const totalPaid = paidOrders.reduce((sum, order) => {
         return sum + parseFloat(order.total || "0");
       }, 0);
