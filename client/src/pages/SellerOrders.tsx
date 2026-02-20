@@ -24,6 +24,7 @@ interface Order {
   buyer?: {
     name?: string;
     email?: string;
+    phone?: string;
   };
 }
 
@@ -132,7 +133,7 @@ export default function SellerOrders() {
               const paymentStatusLabel = normalizePaymentStatus(order.paymentStatus);
               const isUnpaid = paymentStatusLabel === "pending" || paymentStatusLabel === "failed";
               const contactEmail = order.buyer?.email || user?.email || "N/A";
-              const contactPhone = order.deliveryPhone || "N/A";
+              const contactPhone = order.deliveryPhone || order.buyer?.phone || "N/A";
 
               return (
               <Card key={order.id} className="p-4 flex flex-col" data-testid={`card-order-${order.id}`}>

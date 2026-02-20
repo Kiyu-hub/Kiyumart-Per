@@ -3967,14 +3967,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
       
+      // Enrich orders with buyer contact fields for list/detail UIs.
+      const buyerIds = Array.from(new Set(orders.map((o) => o.buyerId).filter(Boolean)));
+      const buyersById = new Map<string, any>();
+      await Promise.all(
+        buyerIds.map(async (buyerId) => {
+          const buyer = await storage.getUser(buyerId);
+          if (buyer) buyersById.set(buyerId, buyer);
+        })
+      );
+
       // Fetch order items with product names for each order
       const ordersWithItems = await Promise.all(
         orders.map(async (order) => {
           const items = await storage.getOrderItems(order.id);
+          const buyer = buyersById.get(order.buyerId);
           return {
             ...order,
             totalAmount: order.total,
             items,
+            buyer: buyer
+              ? {
+                  id: buyer.id,
+                  name: buyer.name,
+                  email: buyer.email,
+                  phone: buyer.phone,
+                }
+              : undefined,
           };
         })
       );

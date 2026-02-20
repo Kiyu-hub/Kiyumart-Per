@@ -36,7 +36,8 @@ interface Order {
   deliveryMethod: string;
   deliveryAddress?: string;
   deliveryPhone?: string;
-  buyer?: { id: string; name: string; email: string };
+  buyer?: { id: string; name: string; email?: string; phone?: string };
+  customerInfo?: { name?: string; email?: string; phone?: string; address?: string | null };
   seller?: { id: string; name: string };
   rider?: { id: string; name: string };
 }
@@ -235,12 +236,19 @@ function ViewOrderDialog({
               </div>
             )}
 
-            {orderDetails.deliveryAddress && (
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Delivery Address</p>
-                <p className="font-semibold">{orderDetails.deliveryAddress}</p>
-                {orderDetails.deliveryPhone && (
-                  <p className="text-sm text-muted-foreground">{orderDetails.deliveryPhone}</p>
+            {(orderDetails.deliveryAddress || orderDetails.customerInfo?.email || orderDetails.customerInfo?.phone || orderDetails.deliveryPhone) && (
+              <div className="space-y-1">
+                {orderDetails.deliveryAddress && (
+                  <>
+                    <p className="text-sm font-medium text-muted-foreground">Delivery Address</p>
+                    <p className="font-semibold">{orderDetails.deliveryAddress}</p>
+                  </>
+                )}
+                {orderDetails.customerInfo?.email && (
+                  <p className="text-sm text-muted-foreground">Email: {orderDetails.customerInfo.email}</p>
+                )}
+                {(orderDetails.customerInfo?.phone || orderDetails.deliveryPhone) && (
+                  <p className="text-sm text-muted-foreground">Phone: {orderDetails.customerInfo?.phone || orderDetails.deliveryPhone}</p>
                 )}
               </div>
             )}
@@ -400,8 +408,11 @@ export default function AdminOrders() {
       orders = orders.filter(o => 
         o.orderNumber?.toLowerCase().includes(query) ||
         o.buyer?.name?.toLowerCase().includes(query) ||
+        o.buyer?.email?.toLowerCase().includes(query) ||
+        o.buyer?.phone?.toLowerCase().includes(query) ||
         o.seller?.name?.toLowerCase().includes(query) ||
         o.status?.toLowerCase().includes(query) ||
+        o.deliveryPhone?.toLowerCase().includes(query) ||
         o.deliveryAddress?.toLowerCase().includes(query)
       );
     }
@@ -758,7 +769,7 @@ function OrdersList({
               </div>
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Phone</span>
-                <span className="font-medium">{order.deliveryPhone || "N/A"}</span>
+                <span className="font-medium">{order.deliveryPhone || order.buyer?.phone || "N/A"}</span>
               </div>
               {order.deliveryAddress && (
                 <div className="flex justify-between gap-2">

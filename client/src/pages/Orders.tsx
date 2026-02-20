@@ -19,6 +19,7 @@ interface Order {
   totalAmount: string;
   createdAt: string;
   deliveryAddress: string;
+  deliveryPhone?: string;
   items: Array<{
     productId: string;
     productName: string;
@@ -243,6 +244,10 @@ export default function Orders() {
               <span className="font-medium truncate max-w-[200px]">
                 {order.deliveryAddress || "N/A"}
               </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Phone:</span>
+              <span className="font-medium">{order.deliveryPhone || user?.phone || "N/A"}</span>
             </div>
           </div>
           <Button
