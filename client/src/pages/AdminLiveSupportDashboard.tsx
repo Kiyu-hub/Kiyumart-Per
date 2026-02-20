@@ -124,7 +124,7 @@ export default function AdminLiveSupportDashboard() {
   const [conversationFilter, setConversationFilter] = useState<'active' | 'all'>('active');
 
   // Fetch live support data
-  const { data: supportData, isLoading, refetch } = useQuery<{
+  const { data: supportData, isLoading, refetch: refetchSupport } = useQuery<{
     conversations: Conversation[];
     activeConversations: Conversation[];
     stats: { totalConversations: number; activeConversations: number; onlineUsers: number; activeCalls: number };
@@ -134,13 +134,13 @@ export default function AdminLiveSupportDashboard() {
   });
 
   // Fetch messaging stats
-  const { data: messagingStats } = useQuery<MessagingStats>({
+  const { data: messagingStats, refetch: refetchMessagingStats } = useQuery<MessagingStats>({
     queryKey: ['/api/admin/messaging-stats'],
     refetchInterval: 15000,
   });
 
   // Fetch conversation details when selected
-  const { data: conversationDetails, isLoading: isLoadingDetails } = useQuery<ConversationDetails>({
+  const { data: conversationDetails, isLoading: isLoadingDetails, refetch: refetchConversationDetails } = useQuery<ConversationDetails>({
     queryKey: ['/api/admin/live-support', selectedConversation?.user1Id, selectedConversation?.user2Id],
     queryFn: async () => {
       if (!selectedConversation) return null;
@@ -235,7 +235,16 @@ export default function AdminLiveSupportDashboard() {
               Monitor and join active conversations in real-time
             </p>
           </div>
-          <Button variant="outline" onClick={() => refetch()}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              refetchSupport();
+              refetchMessagingStats();
+              if (selectedConversation) {
+                refetchConversationDetails();
+              }
+            }}
+          >
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>

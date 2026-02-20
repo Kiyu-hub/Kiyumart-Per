@@ -174,19 +174,19 @@ export default function RealTimeRiderMap() {
   const { toast } = useToast();
 
   // Fetch initial active riders
-  const { data: initialRiders = [], isLoading, refetch } = useQuery<RiderLocation[]>({
+  const { data: initialRiders = [], isLoading, refetch: refetchActiveRiders } = useQuery<RiderLocation[]>({
     queryKey: ["/api/admin/active-riders"],
     refetchInterval: 30000,
   });
 
   // Fetch pending orders that need assignment
-  const { data: pendingOrdersData = [] } = useQuery<PendingOrder[]>({
+  const { data: pendingOrdersData = [], refetch: refetchPendingOrders } = useQuery<PendingOrder[]>({
     queryKey: ["/api/admin/pending-orders"],
     refetchInterval: 60000,
   });
 
   // Fetch available riders for dispatch
-  const { data: availableRidersData = [] } = useQuery<AvailableRider[]>({
+  const { data: availableRidersData = [], refetch: refetchAvailableRiders } = useQuery<AvailableRider[]>({
     queryKey: ["/api/admin/available-riders"],
     enabled: showDispatchPanel,
   });
@@ -369,7 +369,13 @@ export default function RealTimeRiderMap() {
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => refetch()}
+                onClick={() => {
+                  refetchActiveRiders();
+                  refetchPendingOrders();
+                  if (showDispatchPanel) {
+                    refetchAvailableRiders();
+                  }
+                }}
                 data-testid="button-refresh"
               >
                 <RefreshCcw className="h-4 w-4" />

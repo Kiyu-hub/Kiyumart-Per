@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
 import DashboardLayout from "@/components/DashboardLayout";
 import { 
   DollarSign, 
@@ -52,20 +53,20 @@ import {
 import { useToast } from "@/hooks/use-toast";
 
 interface Seller {
-  id: number;
+  id: string;
   name: string;
   email: string;
   isApproved: boolean;
-  totalPaid: number;
-  pendingAmount: number;
+  totalPaid: number | string;
+  pendingAmount: number | string;
   payoutCount: number;
   lastPayoutAt: string | null;
 }
 
 interface Payout {
-  id: number;
-  sellerId: number;
-  amount: number;
+  id: string;
+  sellerId: string;
+  amount: number | string;
   status: "pending" | "processing" | "completed" | "failed";
   paymentMethod: string;
   paymentDetails: string;
@@ -103,26 +104,45 @@ export default function AdminSellersPayouts() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const toNumber = (value: unknown): number => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    if (typeof value === "string") {
+      const n = Number.parseFloat(value);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  };
+
   // Fetch sellers with real-time updates
-  const { data: sellers = [], isLoading: sellersLoading, refetch: refetchSellers } = useQuery<Seller[]>({
+  const { data: sellers = [], isLoading: sellersLoading, isError: sellersError, refetch: refetchSellers } = useQuery<Seller[]>({
     queryKey: ["/api/admin/sellers"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/sellers");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
     refetchInterval: 15000,
   });
 
   // Fetch pending payouts for counts
-  const { data: pendingPayouts = [] } = useQuery<Payout[]>({
+  const { data: pendingPayouts = [], refetch: refetchPendingPayouts } = useQuery<Payout[]>({
     queryKey: ["/api/admin/payouts/pending"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/payouts/pending");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
     refetchInterval: 15000,
   });
 
   // Fetch selected seller's payouts
-  const { data: sellerPayouts = [], isLoading: payoutsLoading } = useQuery<Payout[]>({
+  const { data: sellerPayouts = [], isLoading: payoutsLoading, refetch: refetchSellerPayouts } = useQuery<Payout[]>({
     queryKey: ["/api/admin/sellers", selectedSeller?.id, "payouts"],
     queryFn: async () => {
       if (!selectedSeller) return [];
-      const res = await fetch(`/api/admin/sellers/${selectedSeller.id}/payouts`);
-      if (!res.ok) throw new Error("Failed to fetch payouts");
-      return res.json();
+      const res = await apiRequest("GET", `/api/admin/sellers/${selectedSeller.id}/payouts`);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
     enabled: !!selectedSeller,
     refetchInterval: 15000,
@@ -130,17 +150,12 @@ export default function AdminSellersPayouts() {
 
   // Process payout mutation
   const processPayoutMutation = useMutation({
-    mutationFn: async (data: { sellerId: number; amount: number; method: string; notes: string }) => {
-      const res = await fetch(`/api/admin/sellers/${data.sellerId}/payouts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: data.amount,
-          paymentMethod: data.method,
-          notes: data.notes,
-        }),
+    mutationFn: async (data: { sellerId: string; amount: number; method: string; notes: string }) => {
+      const res = await apiRequest("POST", `/api/admin/sellers/${data.sellerId}/payouts`, {
+        amount: data.amount,
+        paymentMethod: data.method,
+        notes: data.notes,
       });
-      if (!res.ok) throw new Error("Failed to process payout");
       return res.json();
     },
     onSuccess: () => {
@@ -168,8 +183,8 @@ export default function AdminSellersPayouts() {
 
   // Calculate stats
   const stats = useMemo(() => {
-    const totalPaid = sellers.reduce((sum, s) => sum + (s.totalPaid || 0), 0);
-    const totalPending = sellers.reduce((sum, s) => sum + (s.pendingAmount || 0), 0);
+    const totalPaid = sellers.reduce((sum, s) => sum + toNumber(s.totalPaid), 0);
+    const totalPending = sellers.reduce((sum, s) => sum + toNumber(s.pendingAmount), 0);
     const activeSellers = sellers.filter(s => s.isApproved).length;
     const totalPayouts = sellers.reduce((sum, s) => sum + (s.payoutCount || 0), 0);
     const avgPayout = totalPayouts > 0 ? totalPaid / totalPayouts : 0;
@@ -191,9 +206,9 @@ export default function AdminSellersPayouts() {
 
     // Tab filter
     if (activeTab === "pending") {
-      filtered = filtered.filter(s => s.pendingAmount > 0);
+      filtered = filtered.filter(s => toNumber(s.pendingAmount) > 0);
     } else if (activeTab === "completed") {
-      filtered = filtered.filter(s => s.totalPaid > 0);
+      filtered = filtered.filter(s => toNumber(s.totalPaid) > 0);
     }
 
     return filtered;
@@ -202,9 +217,9 @@ export default function AdminSellersPayouts() {
   // Tab counts
   const tabCounts = useMemo(() => ({
     all: sellers.length,
-    pending: sellers.filter(s => s.pendingAmount > 0).length,
+    pending: sellers.filter(s => toNumber(s.pendingAmount) > 0).length,
     processing: pendingPayouts.filter(p => p.status === "processing").length,
-    completed: sellers.filter(s => s.totalPaid > 0).length,
+    completed: sellers.filter(s => toNumber(s.totalPaid) > 0).length,
   }), [sellers, pendingPayouts]);
 
   // Filter payouts by status
@@ -213,11 +228,12 @@ export default function AdminSellersPayouts() {
     return sellerPayouts.filter(p => p.status === activeTab);
   }, [sellerPayouts, activeTab]);
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number | string) => {
+    const normalized = toNumber(amount);
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
-    }).format(amount);
+    }).format(normalized);
   };
 
   const formatDate = (dateString: string | null) => {
@@ -280,7 +296,7 @@ export default function AdminSellersPayouts() {
                   <DialogTrigger asChild>
                     <Button 
                       className="gap-2"
-                      disabled={selectedSeller.pendingAmount <= 0}
+                      disabled={toNumber(selectedSeller.pendingAmount) <= 0}
                     >
                       <CreditCard className="h-4 w-4" />
                       Process Payout
@@ -301,7 +317,7 @@ export default function AdminSellersPayouts() {
                           placeholder="Enter amount"
                           value={payoutAmount}
                           onChange={(e) => setPayoutAmount(e.target.value)}
-                          max={selectedSeller.pendingAmount}
+                          max={toNumber(selectedSeller.pendingAmount)}
                         />
                       </div>
                       <div className="space-y-2">
@@ -466,7 +482,13 @@ export default function AdminSellersPayouts() {
           <Button 
             variant="outline" 
             size="sm" 
-            onClick={() => refetchSellers()}
+            onClick={() => {
+              refetchSellers();
+              refetchPendingPayouts();
+              if (selectedSeller) {
+                refetchSellerPayouts();
+              }
+            }}
             className="gap-2"
           >
             <RefreshCw className="h-4 w-4" />
@@ -589,6 +611,14 @@ export default function AdminSellersPayouts() {
                 <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>No sellers found</p>
               </div>
+            ) : sellersError ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <XCircle className="h-12 w-12 mx-auto mb-4 text-destructive" />
+                <p className="mb-3">Failed to load seller payouts data</p>
+                <Button onClick={() => refetchSellers()} variant="outline" size="sm">
+                  Retry
+                </Button>
+              </div>
             ) : (
               <Table>
                 <TableHeader>
@@ -631,7 +661,7 @@ export default function AdminSellersPayouts() {
                         {formatCurrency(seller.totalPaid)}
                       </TableCell>
                       <TableCell className="text-right">
-                        {seller.pendingAmount > 0 ? (
+                        {toNumber(seller.pendingAmount) > 0 ? (
                           <span className="font-semibold text-amber-600">
                             {formatCurrency(seller.pendingAmount)}
                           </span>
@@ -664,7 +694,7 @@ export default function AdminSellersPayouts() {
                               setSelectedSeller(seller);
                               setProcessDialogOpen(true);
                             }}
-                            disabled={seller.pendingAmount <= 0}
+                            disabled={toNumber(seller.pendingAmount) <= 0}
                             className="gap-1"
                           >
                             <CreditCard className="h-4 w-4" />
