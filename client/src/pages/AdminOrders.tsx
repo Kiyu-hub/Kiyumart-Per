@@ -46,7 +46,7 @@ interface OrderStats {
   total: number;
   pending: number;
   processing: number;
-  delivering: number;
+  enRoute: number;
   delivered: number;
   cancelled: number;
   totalRevenue: number;
@@ -178,7 +178,7 @@ function ViewOrderDialog({
                   <SelectContent>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="processing">Processing</SelectItem>
-                    <SelectItem value="delivering">Out for Delivery</SelectItem>
+                    <SelectItem value="en_route">Out for Delivery</SelectItem>
                     <SelectItem value="delivered">Delivered</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
@@ -371,7 +371,7 @@ export default function AdminOrders() {
       total: allOrders.length,
       pending: allOrders.filter(o => normalize(o.status) === "pending").length,
       processing: allOrders.filter(o => normalize(o.status) === "processing").length,
-      delivering: allOrders.filter(o => ["delivering", "en_route", "picked_up"].includes(normalize(o.status))).length,
+      enRoute: allOrders.filter(o => ["en_route", "picked_up"].includes(normalize(o.status))).length,
       delivered: allOrders.filter(o => normalize(o.status) === "delivered").length,
       cancelled: allOrders.filter(o => normalize(o.status) === "cancelled").length,
       totalRevenue: allOrders
@@ -457,8 +457,7 @@ export default function AdminOrders() {
       case "ready": return "bg-indigo-500";
       case "assigned": return "bg-violet-500";
       case "picked_up": return "bg-purple-500";
-      case "en_route": 
-      case "delivering": return "bg-orange-500";
+      case "en_route": return "bg-orange-500";
       case "delivered": return "bg-green-500";
       case "cancelled": return "bg-red-500";
       case "refunded": return "bg-gray-500";
@@ -470,7 +469,6 @@ export default function AdminOrders() {
     switch(status.toLowerCase()) {
       case "pending": return <Clock className="h-4 w-4" />;
       case "processing": return <Package className="h-4 w-4" />;
-      case "delivering":
       case "en_route": return <Truck className="h-4 w-4" />;
       case "delivered": return <CheckCircle className="h-4 w-4" />;
       case "cancelled": return <XCircle className="h-4 w-4" />;
@@ -544,8 +542,8 @@ export default function AdminOrders() {
             <div className="flex items-center gap-2">
               <Truck className="h-5 w-5 text-orange-500" />
               <div>
-                <p className="text-xs text-muted-foreground">Delivering</p>
-                <p className="text-xl font-bold">{stats.delivering}</p>
+                <p className="text-xs text-muted-foreground">En Route</p>
+                <p className="text-xl font-bold">{stats.enRoute}</p>
               </div>
             </div>
           </Card>
@@ -613,7 +611,7 @@ export default function AdminOrders() {
                   <SelectItem value="all">All Statuses</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="processing">Processing</SelectItem>
-                  <SelectItem value="delivering">Delivering</SelectItem>
+                  <SelectItem value="en_route">Out for Delivery</SelectItem>
                   <SelectItem value="delivered">Delivered</SelectItem>
                   <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
@@ -811,7 +809,7 @@ function OrdersList({
             const s = (order.status || "").toLowerCase().trim();
             const paymentStatus = getPaymentLabel(order.paymentStatus);
             const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
-            const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
+            const trackStatuses = new Set(["processing", "en_route", "picked_up", "assigned"]);
             if (isMyOrders && (s === "pending" || isUnpaid)) {
               return (
                 <Button

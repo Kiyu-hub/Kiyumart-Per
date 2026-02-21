@@ -58,7 +58,7 @@ export default function SellerOrders() {
     switch (status.toLowerCase()) {
       case "pending": return "bg-yellow-500";
       case "processing": return "bg-blue-500";
-      case "delivering": return "bg-purple-500";
+      case "en_route": return "bg-purple-500";
       case "delivered": return "bg-green-500";
       case "cancelled": return "bg-red-500";
       default: return "bg-gray-500";
@@ -177,7 +177,7 @@ export default function SellerOrders() {
                 </div>
                 {(() => {
                   const s = normalize(order.status);
-                  const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
+                  const trackStatuses = new Set(["processing", "en_route", "picked_up", "assigned"]);
 
                   if (orderContext === "buyer") {
                     if (s === "pending") {

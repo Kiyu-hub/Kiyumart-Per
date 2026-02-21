@@ -4288,8 +4288,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Verify the order is in a valid state for completion
-      const completionEligibleStatuses = ["delivering", "en_route", "picked_up", "in_transit", "out_for_delivery"];
-      if (!completionEligibleStatuses.includes((order.status || "").toLowerCase().trim())) {
+      const normalizedOrderStatus = (order.status || "").toLowerCase().trim();
+      const completionEligibleStatuses = ["en_route", "picked_up"];
+      const completionStatus =
+        normalizedOrderStatus === "delivering" || normalizedOrderStatus === "in_transit" || normalizedOrderStatus === "out_for_delivery"
+          ? "en_route"
+          : normalizedOrderStatus;
+      if (!completionEligibleStatuses.includes(completionStatus)) {
         return res.status(400).json({ 
           error: "Order cannot be completed",
           details: `Order is currently in "${order.status}" status. Only orders in delivery can be completed.`
@@ -4439,7 +4444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(orders.riderId, riderId),
-            sql`lower(cast(${orders.status} as text)) in ('processing','ready','confirmed','assigned','picked_up','en_route','in_transit','out_for_delivery','delivering')`
+            sql`lower(cast(${orders.status} as text)) in ('processing','ready','confirmed','assigned','picked_up','en_route')`
           )
         )
         .orderBy(desc(orders.createdAt))
@@ -4581,10 +4586,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all active riders with their current locations (for admin tracking)
   app.get("/api/admin/active-riders", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
     try {
-      // Get all orders and filter for processing or delivering status with assigned riders
+      // Get all orders and filter for active delivery statuses with assigned riders
       const allOrders = await storage.getAllOrders();
       const activeOrders = allOrders.filter(order => 
-        ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route", "delivering"].includes((order.status || "").toLowerCase().trim()) && order.riderId
+        ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route"].includes((order.status || "").toLowerCase().trim()) && order.riderId
       );
       
       const riderLocations = await Promise.all(
@@ -4686,7 +4691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allOrders = await storage.getAllOrders();
       const ridersOnDelivery = new Set(
         allOrders
-          .filter(o => ["assigned", "delivering", "picked_up", "en_route", "in_transit", "out_for_delivery"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
+          .filter(o => ["assigned", "picked_up", "en_route"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
           .map(o => o.riderId)
       );
       
@@ -4763,7 +4768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const ridersOnDelivery = new Set(
         allOrders
-          .filter(o => ["assigned", "delivering", "picked_up", "en_route", "in_transit", "out_for_delivery"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
+          .filter(o => ["assigned", "picked_up", "en_route"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
           .map(o => o.riderId)
       );
       
@@ -7493,11 +7498,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all pending payouts (admin only)
   app.get("/api/admin/payouts/pending", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
-      const user = req.user;
-      if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
-        return res.status(403).json({ error: "Admin access required" });
-      }
-
       const payouts = await storage.getAllPendingPayouts();
       res.json(payouts);
     } catch (error) {
@@ -7509,11 +7509,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Process payout (admin only)
   app.patch("/api/admin/payouts/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req: AuthRequest, res) => {
     try {
-      const user = req.user;
-      if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
-        return res.status(403).json({ error: "Admin access required" });
-      }
-
       const { id } = req.params;
       const { status, notes } = req.body;
 
@@ -7521,13 +7516,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid status. Must be processing, completed, or failed" });
       }
 
-      const updated = await storage.updatePayoutStatus(id, status, user.id);
+      const updated = await storage.updatePayoutStatus(id, status, req.user!.id);
       
       if (!updated) {
         return res.status(404).json({ error: "Payout not found" });
       }
 
-      console.log(`[ADMIN-PAYOUT] ✅ Admin ${user.email} updated payout ${id} to ${status}`);
+      console.log(`[ADMIN-PAYOUT] Admin ${req.user!.email} updated payout ${id} to ${status}`);
       
       res.json(updated);
     } catch (error) {
@@ -7608,7 +7603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
          (o.buyerId === userId2 && (o.sellerId === userId1 || o.riderId === userId1)) ||
          (o.sellerId === userId1 && o.riderId === userId2) ||
          (o.sellerId === userId2 && o.riderId === userId1)) &&
-        ['pending', 'confirmed', 'processing', 'ready_for_pickup', 'assigned_to_rider', 'picked_up', 'in_transit', 'out_for_delivery'].includes(o.status)
+        ['pending', 'confirmed', 'processing', 'ready', 'assigned', 'picked_up', 'en_route'].includes(o.status)
       ) || null;
     },
   });
@@ -9438,4 +9433,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   return httpServer;
 }
+
 

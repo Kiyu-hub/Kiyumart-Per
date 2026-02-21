@@ -12,18 +12,18 @@ interface OrderStatusTimelineProps {
 const normalizeStatus = (status?: string) => {
   const s = (status || "").toLowerCase().trim();
   if (s === "ready" || s === "confirmed" || s === "assigned") return "processing";
-  if (s === "picked_up" || s === "en_route") return "delivering";
+  if (s === "picked_up" || s === "en_route") return "en_route";
   return s || "pending";
 };
 
 const statusSteps = [
   { key: "pending", label: "Order Placed", icon: Clock },
   { key: "processing", label: "Processing", icon: Package },
-  { key: "delivering", label: "Delivering", icon: Truck },
+  { key: "en_route", label: "Out for Delivery", icon: Truck },
   { key: "delivered", label: "Delivered", icon: CheckCircle2 },
 ];
 
-const statusOrder = ["pending", "processing", "delivering", "delivered"];
+const statusOrder = ["pending", "processing", "en_route", "delivered"];
 
 export default function OrderStatusTimeline({ 
   currentStatus, 

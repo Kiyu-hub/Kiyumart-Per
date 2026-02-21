@@ -54,7 +54,7 @@ export default function RiderDashboard() {
 
   const myDeliveries = orders.filter(o => o.riderId === user.id);
   const activeDeliveries = myDeliveries.filter((o) =>
-    ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route", "delivering"].includes(normalizeOrderStatus(o.status))
+    ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route"].includes(normalizeOrderStatus(o.status))
   );
   const completedDeliveries = myDeliveries.filter((o) => normalizeOrderStatus(o.status) === "delivered");
   

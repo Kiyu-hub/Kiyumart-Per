@@ -98,7 +98,7 @@ export default function RiderDetailsPage() {
     switch (status) {
       case "delivered":
         return "bg-green-500";
-      case "delivering":
+      case "en_route":
         return "bg-blue-500";
       case "processing":
         return "bg-yellow-500";

@@ -10,7 +10,7 @@ interface OrderStatusBadgeProps {
 const normalizeStatus = (status?: string) => {
   const s = (status || "").toLowerCase().trim();
   if (s === "ready" || s === "confirmed") return "processing";
-  if (s === "assigned" || s === "picked_up" || s === "en_route") return "delivering";
+  if (s === "assigned" || s === "picked_up" || s === "en_route") return "en_route";
   return s || "pending";
 };
 
@@ -27,8 +27,8 @@ const statusConfig = {
     variant: "secondary" as const,
     className: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   },
-  delivering: {
-    label: "Delivering",
+  en_route: {
+    label: "Out for Delivery",
     icon: Truck,
     variant: "secondary" as const,
     className: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",

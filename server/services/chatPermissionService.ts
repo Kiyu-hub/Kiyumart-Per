@@ -48,15 +48,9 @@ const ACTIVE_ORDER_STATUSES = [
   'confirmed', 
   'processing',
   'ready',
-  'ready_for_pickup',
   'assigned',
-  'assigned_to_rider',
   'picked_up',
   'en_route',
-  'in_transit',
-  'delivering',
-  'out_for_delivery',
-  'arriving_soon',
 ];
 
 function normalizeRole(role: User["role"]): "buyer" | "seller" | "rider" | "agent" | "admin" | "super_admin" {

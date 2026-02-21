@@ -52,7 +52,7 @@ export default function SellerDeliveries() {
         return "bg-blue-500";
       case "picked_up":
         return "bg-purple-500";
-      case "in_transit":
+      case "en_route":
         return "bg-orange-500";
       case "delivered":
         return "bg-green-500";

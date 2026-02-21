@@ -61,7 +61,7 @@ export default function Orders() {
         return "bg-yellow-500 text-white";
       case "processing":
         return "bg-blue-500 text-white";
-      case "delivering":
+      case "en_route":
         return "bg-purple-500 text-white";
       case "delivered":
         return "bg-green-500 text-white";
@@ -95,7 +95,7 @@ export default function Orders() {
         return <Clock className="h-4 w-4" />;
       case "processing":
         return <Package className="h-4 w-4" />;
-      case "delivering":
+      case "en_route":
         return <Truck className="h-4 w-4" />;
       case "delivered":
         return <CheckCircle className="h-4 w-4" />;
@@ -315,8 +315,8 @@ export default function Orders() {
               <TabsTrigger value="processing" data-testid="tab-processing">
                 Processing ({filterOrdersByStatus("processing").length})
               </TabsTrigger>
-              <TabsTrigger value="delivering" data-testid="tab-delivering">
-                Out for Delivery ({filterOrdersByStatus("delivering").length})
+              <TabsTrigger value="en_route" data-testid="tab-delivering">
+                Out for Delivery ({filterOrdersByStatus("en_route").length})
               </TabsTrigger>
               <TabsTrigger value="delivered" data-testid="tab-delivered">
                 Delivered ({filterOrdersByStatus("delivered").length})
@@ -326,7 +326,7 @@ export default function Orders() {
               </TabsTrigger>
             </TabsList>
 
-            {["all", "pending", "processing", "delivering", "delivered", "cancelled"].map((status) => (
+            {["all", "pending", "processing", "en_route", "delivered", "cancelled"].map((status) => (
               <TabsContent key={status} value={status} className="mt-6">
                 {filterOrdersByStatus(status).length === 0 ? (
                   <div className="text-center py-12">

@@ -20,6 +20,7 @@
 - **Order Audit Log Integrity:** QR delivery completion route now transitions through the state machine, guaranteeing `order_status_history` writes
 - **Revenue KPI Normalization:** Seller sales analytics now counts revenue from delivered + paid orders only
 - **Admin Payout RBAC Hardening:** `/api/admin/payouts/pending` and `/api/admin/payouts/:id` now enforce permission middleware
+- **Delivery Status Cleanup:** Operational backend/frontend status handling is now canonicalized to `en_route` (legacy aliases remain input-compatible only)
 - **Ops Alerts:** Admin messaging stats now include queue/backlog warning flags using configurable thresholds
 - **Phase 2 Documentation:** Added `docs/core-data-logic-normalization-phase2.md` (status spec, revenue spec, permission matrix, compatibility audit)
 - **Config Externalization (in progress):**

@@ -47,8 +47,7 @@ export default function RiderDeliveries() {
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const mappedStatus = status === "in_transit" ? "en_route" : status;
-      return apiRequest("PATCH", `/api/orders/${id}/status`, { status: mappedStatus });
+      return apiRequest("PATCH", `/api/orders/${id}/status`, { status });
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Delivery status updated" });
@@ -153,11 +152,11 @@ export default function RiderDeliveries() {
                     {normalizeStatus(delivery.status) === "picked_up" && (
                       <Button
                         size="sm"
-                        onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "in_transit" })}
+                        onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "en_route" })}
                         disabled={updateStatusMutation.isPending}
                         data-testid={`button-intransit-${delivery.id}`}
                       >
-                        Mark as In Transit
+                        Mark as En Route
                       </Button>
                     )}
                     {normalizeStatus(delivery.status) === "en_route" && (

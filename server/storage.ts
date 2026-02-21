@@ -563,7 +563,7 @@ export class DbStorage implements IStorage {
               eq(orders.riderId, rider.id),
               or(
                 eq(orders.status, 'processing'),
-                eq(orders.status, 'delivering')
+                eq(orders.status, 'en_route')
               )
             )
           );

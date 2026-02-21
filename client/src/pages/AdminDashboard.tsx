@@ -141,7 +141,7 @@ export default function AdminDashboard() {
 
   const deliveredCount = orders.filter(o => normalizeOrderStatus(o.status) === "delivered").length;
   const processingCount = orders.filter(o =>
-    ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route", "delivering"].includes(normalizeOrderStatus(o.status))
+    ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route"].includes(normalizeOrderStatus(o.status))
   ).length;
 
   return (
@@ -322,7 +322,7 @@ export default function AdminDashboard() {
                                 <p className="text-xs text-muted-foreground uppercase font-semibold mb-1">Status</p>
                                 <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
                                   normalizeOrderStatus(order.status) === 'delivered' ? 'bg-green-100 text-green-800' :
-                                  ['processing', 'ready', 'confirmed', 'assigned', 'picked_up', 'en_route', 'delivering'].includes(normalizeOrderStatus(order.status)) ? 'bg-blue-100 text-blue-800' :
+                                  ['processing', 'ready', 'confirmed', 'assigned', 'picked_up', 'en_route'].includes(normalizeOrderStatus(order.status)) ? 'bg-blue-100 text-blue-800' :
                                   normalizeOrderStatus(order.status) === 'cancelled' ? 'bg-red-100 text-red-800' :
                                   'bg-yellow-100 text-yellow-800'
                                 }`}>

@@ -166,8 +166,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    // Order Out for Delivery
-    newSocket.on("order_delivering", (data: {
+    // Order Out for Delivery (canonical + legacy event names)
+    const handleOrderEnRoute = (data: {
       orderId: string;
       orderNumber: string;
       trackingNumber?: string;
@@ -181,7 +181,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         description: `Order #${data.orderNumber} is out for delivery`,
         duration: 6000,
       });
-    });
+    };
+    newSocket.on("order_en_route", handleOrderEnRoute);
+    newSocket.on("order_delivering", handleOrderEnRoute);
 
     // New Product Available (for wishlist items)
     newSocket.on("product_back_in_stock", (data: {

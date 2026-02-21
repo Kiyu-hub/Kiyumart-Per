@@ -62,7 +62,7 @@ export default function BuyerDashboard() {
     }).length,
   };
 
-  const trackStatuses = new Set(["processing", "delivering", "en_route", "picked_up", "assigned"]);
+  const trackStatuses = new Set(["processing", "en_route", "picked_up", "assigned"]);
   const activeDeliveries = orders.filter((o) => trackStatuses.has(normalize(o.status))).length;
   const recentOrders = [...orders]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
