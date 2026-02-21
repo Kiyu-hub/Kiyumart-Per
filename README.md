@@ -56,6 +56,7 @@ To be the leading online marketplace platform for local businesses, connecting q
   - `support_conversations.first_response_at`
   - `support_conversations.resolved_at`
 - Added support analytics endpoint: `GET /api/support/analytics`
+- Seller/Rider dashboard chat menu now respects role features (`messages.view`) so Super Admin can hide chat from Permissions.
 - Full diagrams/spec: [docs/messaging-communication-phase2.md](./docs/messaging-communication-phase2.md)
 
 ---

@@ -47,6 +47,13 @@ interface DashboardSidebarProps {
   userProfileImage?: string;
 }
 
+interface CurrentUserPayload {
+  id?: string;
+  name?: string;
+  profileImage?: string;
+  roleFeatures?: Record<string, boolean>;
+}
+
 const menuItems: Record<string, MenuItem[]> = {
   super_admin: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
@@ -170,7 +177,7 @@ export default function DashboardSidebar({
   const notificationCount = notificationData?.count || 0;
 
   // Ensure we have the current user available for the avatar even if parent hasn't passed it yet
-  const { data: currentUser } = useQuery<any>({
+  const { data: currentUser } = useQuery<CurrentUserPayload>({
     queryKey: ["/api/auth/me"],
     queryFn: async () => {
       const res = await fetch("/api/auth/me", { credentials: "include" });
@@ -181,6 +188,17 @@ export default function DashboardSidebar({
     initialData: () => queryClient.getQueryData(["/api/auth/me"]),
     staleTime: 5 * 60 * 1000,
   });
+
+  const visibleItems = (() => {
+    // Seller/Rider chat visibility is controlled by super admin role features.
+    if (normalizedRole !== "seller" && normalizedRole !== "rider") return items;
+    const roleFeatures = currentUser?.roleFeatures || {};
+    const canViewMessages = roleFeatures["messages.view"] === true;
+    return items.filter((item) => {
+      if (item.id === "messages") return canViewMessages;
+      return true;
+    });
+  })();
 
   return (
     <div className="flex flex-col h-full w-64 bg-card border-r">
@@ -201,7 +219,7 @@ export default function DashboardSidebar({
       </div>
 
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        {items.map((item, index) => {
+        {visibleItems.map((item, index) => {
           const Icon = item.icon;
           const isActive = activeItem === item.id;
 

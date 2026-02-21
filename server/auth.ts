@@ -241,7 +241,7 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
   },
 };
 
-async function resolveRoleFeatures(role: string): Promise<Record<string, boolean>> {
+export async function resolveRoleFeatures(role: string): Promise<Record<string, boolean>> {
   const defaults = ROLE_FEATURE_DEFAULTS[role] || {};
   try {
     const { db } = await import("../db");

@@ -17,6 +17,7 @@ import {
   requirePermissionIfAdmin,
   requireRoleFeature,
   requireRoleFeatureIfRole,
+  resolveRoleFeatures,
   type AuthRequest 
 } from "./auth";
 import { uploadToCloudinary, uploadWithMetadata, uploadWith4KEnhancement } from "./cloudinary";
@@ -292,7 +293,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
+      const roleFeatures = await resolveRoleFeatures(user.role);
+      res.json({
+        ...userWithoutPassword,
+        roleFeatures,
+      });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

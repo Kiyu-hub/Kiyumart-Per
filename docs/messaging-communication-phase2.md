@@ -107,6 +107,7 @@ Managed by Super Admin role-feature controls:
 - `messages.send`
 - `support.view`
 - `support.manage`
+- Seller/Rider chat menu visibility is bound to `messages.view` in dashboard navigation.
 
 Default baseline now includes support access for all primary non-super roles:
 
