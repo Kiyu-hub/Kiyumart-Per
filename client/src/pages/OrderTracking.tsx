@@ -138,10 +138,8 @@ export default function OrderTracking() {
     if (!orders || orders.length === 0) return;
 
     const fetchRiderLocations = async () => {
-      const enRouteOrders = orders.filter(order => {
-        const status = normalizeStatus(order.status);
-        return status === "en_route";
-      });
+      const liveTrackingStatuses = new Set(["rider_arrived", "picked_up", "in_transit", "en_route"]);
+      const enRouteOrders = orders.filter(order => liveTrackingStatuses.has(normalizeStatus(order.status)));
       
       for (const order of enRouteOrders) {
         try {

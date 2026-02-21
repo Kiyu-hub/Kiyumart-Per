@@ -24,6 +24,7 @@
 - [Phase 2 Rider Assignment & Delivery Update (February 21, 2026)](#phase-2-rider-assignment--delivery-update-february-21-2026)
 - [Phase 2 Zone Soft-Matching Update (February 21, 2026)](#phase-2-zone-soft-matching-update-february-21-2026)
 - [Rider Onboarding & Assignment Data Integrity Update (February 21, 2026)](#rider-onboarding--assignment-data-integrity-update-february-21-2026)
+- [Order Purchase to Live Tracking Audit Update (February 21, 2026)](#order-purchase-to-live-tracking-audit-update-february-21-2026)
 - [Features](#features)
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
@@ -144,6 +145,23 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Admin user edit includes optional preferred `deliveryZoneId`.
 - Result:
   - Rider assignment pipeline now receives consistent rider metadata across all creation/edit paths.
+
+## Order Purchase to Live Tracking Audit Update (February 21, 2026)
+
+- Completed a full flow audit from checkout to payment verification, rider assignment, delivery status transitions, and live tracking.
+- Hardened order detail security:
+  - `GET /api/orders/:id` now enforces stakeholder-only access (buyer/seller/assigned rider) or admin/super admin.
+- Extended order details with safe rider metadata:
+  - `riderInfo` is now returned by `/api/orders/:id` for authorized consumers.
+- Fixed live tracking integration mismatch:
+  - `LiveTracking` now reads rider info from order payload instead of admin-only user endpoint.
+- Removed remaining rider dashboard hard-coded flow elements:
+  - Dynamic route steps now derive from canonical order status.
+  - Track navigation now uses real `order.id` (not display order number).
+- Expanded tracking status coverage:
+  - Initial rider location hydration now handles `rider_arrived`, `picked_up`, `in_transit`, and `en_route`.
+- Full technical report:
+  - [docs/order-purchase-assignment-live-tracking-report.md](./docs/order-purchase-assignment-live-tracking-report.md)
 
 ---
 

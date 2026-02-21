@@ -67,6 +67,10 @@ This project has comprehensive documentation for every aspect of the platform. C
   - Soft-zone (city/region) matching upgrade with distance-first ranking
   - Dynamic radius expansion (`3km -> 5km -> 8km`) and same-zone preference
   - Rider city/region onboarding and non-breaking schema additions
+- [docs/order-purchase-assignment-live-tracking-report.md](./docs/order-purchase-assignment-live-tracking-report.md)
+  - Complete checkout -> payment -> assignment -> live tracking flow audit
+  - Stakeholder access enforcement and real-time tracking behavior
+  - Final fixes and validation outcomes
 
 **Code Organization:**
 - [README.md](./README.md) - Project overview

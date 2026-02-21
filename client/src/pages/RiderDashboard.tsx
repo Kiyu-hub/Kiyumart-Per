@@ -26,6 +26,45 @@ interface Order {
   status: string;
   createdAt: string;
   deliveredAt?: string | null;
+  updatedAt?: string | null;
+}
+
+interface DeliveryStep {
+  label: string;
+  time?: string;
+  completed: boolean;
+}
+
+const ACTIVE_DELIVERY_STATUSES = new Set([
+  "assigned",
+  "rider_arrived",
+  "picked_up",
+  "in_transit",
+  "en_route",
+]);
+
+function buildDeliverySteps(order?: Order): DeliveryStep[] {
+  const status = normalizeOrderStatus(order?.status);
+  const formatTimestamp = (value?: string | null) =>
+    value ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : undefined;
+  const baseTime = formatTimestamp(order?.updatedAt || order?.createdAt);
+
+  const completed = (target: string) => {
+    const orderState = ["assigned", "rider_arrived", "picked_up", "in_transit", "en_route", "delivered", "completed"];
+    return orderState.indexOf(status) >= orderState.indexOf(target);
+  };
+
+  return [
+    { label: "Rider Assigned", time: completed("assigned") ? baseTime : undefined, completed: completed("assigned") },
+    { label: "Rider Arrived", time: completed("rider_arrived") ? baseTime : undefined, completed: completed("rider_arrived") },
+    { label: "Picked Up", time: completed("picked_up") ? baseTime : undefined, completed: completed("picked_up") },
+    {
+      label: "In Transit",
+      time: completed("in_transit") || completed("en_route") ? baseTime : undefined,
+      completed: completed("in_transit") || completed("en_route"),
+    },
+    { label: "Delivered", time: completed("delivered") ? baseTime : undefined, completed: completed("delivered") || completed("completed") },
+  ];
 }
 
 export default function RiderDashboard() {
@@ -53,9 +92,7 @@ export default function RiderDashboard() {
   }
 
   const myDeliveries = orders.filter(o => o.riderId === user.id);
-  const activeDeliveries = myDeliveries.filter((o) =>
-    ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route"].includes(normalizeOrderStatus(o.status))
-  );
+  const activeDeliveries = myDeliveries.filter((o) => ACTIVE_DELIVERY_STATUSES.has(normalizeOrderStatus(o.status)));
   const completedDeliveries = myDeliveries.filter((o) => normalizeOrderStatus(o.status) === "delivered");
   
   const todayEarnings = completedDeliveries
@@ -66,12 +103,8 @@ export default function RiderDashboard() {
     })
     .reduce((sum, o) => sum + parseFloat(o.total) * 0.1, 0);
 
-  const trackingSteps = [
-    { label: 'Order Picked Up', time: 'Today, 2:00 PM', completed: true },
-    { label: 'En Route', time: 'Today, 2:30 PM', completed: true },
-    { label: 'Nearby', completed: false },
-    { label: 'Delivered', completed: false },
-  ];
+  const currentOrder = activeDeliveries[0];
+  const trackingSteps = buildDeliverySteps(currentOrder);
 
   return (
     <DashboardLayout role="rider">
@@ -100,7 +133,7 @@ export default function RiderDashboard() {
                   />
                   <MetricCard
                     title="Rating"
-                    value="0.0"
+                    value={String((user as any)?.ratings || "0.0")}
                     icon={Star}
                   />
                 </div>
@@ -130,7 +163,7 @@ export default function RiderDashboard() {
                           status={order.status as any}
                           deliveryMethod={order.deliveryMethod as any}
                           date={new Date(order.createdAt).toLocaleDateString()}
-                          onViewDetails={(id) => navigate(`/track?orderId=${id}`)}
+                          onViewDetails={() => navigate(`/track?orderId=${order.id}`)}
                         />
                       ))
                     ) : (
@@ -144,10 +177,10 @@ export default function RiderDashboard() {
                     <h2 className="text-xl font-bold mb-4">Current Route</h2>
                     {activeDeliveries.length > 0 ? (
                       <DeliveryTracker
-                        orderId={activeDeliveries[0].orderNumber}
+                        orderId={currentOrder.orderNumber}
                         riderName={user.name}
                         steps={trackingSteps}
-                        estimatedArrival="3:15 PM"
+                        estimatedArrival={currentOrder?.updatedAt ? new Date(currentOrder.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : undefined}
                       />
                     ) : (
                       <p className="text-muted-foreground text-center py-8">

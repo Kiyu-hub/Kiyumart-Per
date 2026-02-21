@@ -4545,10 +4545,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: canonicalizeOrderStatus((order as any).status),
       };
       
-      // Only include customer PII for admin/super_admin or the buyer themselves
+      // Enforce stakeholder access for order detail reads.
       const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
       const isBuyer = req.user!.id === finalOrder.buyerId;
+      const isSeller = req.user!.id === finalOrder.sellerId;
+      const isRider = !!finalOrder.riderId && req.user!.id === finalOrder.riderId;
+      const isStakeholder = isBuyer || isSeller || isRider;
+
+      if (!isAdmin && !isStakeholder) {
+        return res.status(403).json({ error: "Unauthorized to view this order" });
+      }
+
+      let riderInfo: any = null;
+      if (finalOrder.riderId) {
+        const rider = await storage.getUser(finalOrder.riderId);
+        if (rider?.role === "rider") {
+          riderInfo = {
+            id: rider.id,
+            name: rider.name,
+            phone: rider.phone || null,
+            vehicleType: rider.vehicleInfo?.type || null,
+            vehiclePlateNumber: rider.vehicleInfo?.plateNumber || null,
+            rating: rider.ratings ?? null,
+          };
+        }
+      }
       
+      // Only include customer PII for admin/super_admin or the buyer themselves
       if (isAdmin || isBuyer) {
         // Fetch customer/buyer information to display in order details
         const buyer = await storage.getUser(finalOrder.buyerId);
@@ -4556,6 +4579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Return order with complete customer info (authorized)
         res.json({
           ...finalOrder,
+          riderInfo,
           customerInfo: buyer ? {
             name: buyer.name,
             email: buyer.email,
@@ -4564,8 +4588,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } : null
         });
       } else {
-        // Return order without PII for unauthorized roles
-        res.json(finalOrder);
+        // Return order with rider metadata but without customer PII.
+        res.json({
+          ...finalOrder,
+          riderInfo,
+        });
       }
     } catch (error: any) {
       res.status(400).json({ error: error.message });

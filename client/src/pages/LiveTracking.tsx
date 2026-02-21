@@ -15,18 +15,14 @@ interface Order {
   deliveryLatitude?: string;
   deliveryLongitude?: string;
   riderId?: string;
-}
-
-interface Rider {
-  id: string;
-  name: string;
-  profileImage?: string;
-  email: string;
-  phone?: string;
-  vehicleInfo?: {
-    type?: string;
-    plateNumber?: string;
-  };
+  riderInfo?: {
+    id: string;
+    name: string;
+    phone?: string | null;
+    vehicleType?: string | null;
+    vehiclePlateNumber?: string | null;
+    rating?: string | null;
+  } | null;
 }
 
 interface RiderLocation {
@@ -65,19 +61,6 @@ export default function LiveTracking() {
       return res.json();
     },
     enabled: !!orderId && isAuthenticated,
-  });
-
-  // Fetch rider details if riderId is available
-  const { data: rider } = useQuery<Rider>({
-    queryKey: ["/api/users", order?.riderId],
-    queryFn: async () => {
-      const res = await fetch(`/api/users/${order?.riderId}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch rider");
-      return res.json();
-    },
-    enabled: !!order?.riderId,
   });
 
   // Fetch rider's average rating from actual reviews
@@ -211,11 +194,10 @@ export default function LiveTracking() {
   };
 
   // Use actual rider rating from reviews (data-driven from real customer feedback)
-  const riderInfo = rider ? {
-    name: rider.name,
-    profileImage: rider.profileImage,
-    rating: riderRating?.averageRating || undefined, // Real review data, undefined if no reviews yet
-    vehicleType: rider.vehicleInfo?.type || "Motorcycle",
+  const riderInfo = order?.riderInfo ? {
+    name: order.riderInfo.name,
+    rating: riderRating?.averageRating || (order.riderInfo.rating ? Number(order.riderInfo.rating) : undefined),
+    vehicleType: order.riderInfo.vehicleType || "Motorcycle",
   } : undefined;
 
   return (
