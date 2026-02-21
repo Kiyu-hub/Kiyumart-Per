@@ -235,10 +235,10 @@ export default function AdminSellersPayouts() {
 
   const formatCurrency = (amount: number | string) => {
     const normalized = toNumber(amount);
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(normalized);
+    return `GH₵${new Intl.NumberFormat("en-GH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(normalized)}`;
   };
 
   const formatDate = (dateString: string | null) => {
