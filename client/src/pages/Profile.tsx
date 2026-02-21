@@ -38,6 +38,8 @@ interface UserProfile {
 }
 
 export default function Profile() {
+  const maxProfileImageMb = Number((import.meta.env as any).VITE_PROFILE_IMAGE_MAX_MB || 5);
+  const maxProfileImageBytes = maxProfileImageMb * 1024 * 1024;
   const { user, logout } = useAuth();
   const { t } = useLanguage();
   const { toast } = useToast();
@@ -131,11 +133,11 @@ export default function Profile() {
       return;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
+    // Validate file size (configurable, default 5MB)
+    if (file.size > maxProfileImageBytes) {
       toast({
         title: "File too large",
-        description: "Please upload an image smaller than 5MB",
+        description: `Please upload an image smaller than ${maxProfileImageMb}MB`,
         variant: "destructive",
       });
       return;

@@ -53,7 +53,8 @@ interface SupportAttachment {
 }
 
 const SUPPORT_ATTACHMENT_PREFIX = "__SUPPORT_ATTACHMENT__:";
-const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_ATTACHMENT_MB = Number((import.meta.env as any).VITE_SUPPORT_ATTACHMENT_MAX_MB || 5);
+const MAX_ATTACHMENT_SIZE = MAX_ATTACHMENT_MB * 1024 * 1024;
 
 function buildAttachmentMessage(attachment: SupportAttachment): string {
   return `${SUPPORT_ATTACHMENT_PREFIX}${encodeURIComponent(JSON.stringify(attachment))}`;
@@ -286,7 +287,7 @@ export default function CustomerSupport() {
     if (file.size > MAX_ATTACHMENT_SIZE) {
       toast({
         title: "File too large",
-        description: "Maximum supported size is 5MB.",
+        description: `Maximum supported size is ${MAX_ATTACHMENT_MB}MB.`,
         variant: "destructive",
       });
       return;

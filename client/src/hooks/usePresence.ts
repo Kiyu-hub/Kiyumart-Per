@@ -21,7 +21,7 @@ interface PresenceChangeEvent {
   lastSeen: string;
 }
 
-const HEARTBEAT_INTERVAL = 8000; // 8 seconds
+const HEARTBEAT_INTERVAL = Number((import.meta.env as any).VITE_PRESENCE_HEARTBEAT_INTERVAL_MS || 8000);
 
 export function usePresence(userId?: string) {
   const socket = useSocket();

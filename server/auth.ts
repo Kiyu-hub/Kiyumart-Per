@@ -155,3 +155,138 @@ export function requirePermission(...permissions: string[]) {
     }
   };
 }
+
+/**
+ * Apply permission checks only when the authenticated user is admin/super_admin.
+ * Useful for mixed-role routes (e.g., admin + seller) so non-admin roles are not blocked.
+ */
+export function requirePermissionIfAdmin(...permissions: string[]) {
+  const adminPermissionMiddleware = requirePermission(...permissions);
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (req.user.role === "admin" || req.user.role === "super_admin") {
+      return adminPermissionMiddleware(req, res, next);
+    }
+    return next();
+  };
+}
+
+const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
+  super_admin: {},
+  admin: {
+    "products.viewAll": true,
+    "orders.view": true,
+    "orders.manage": true,
+    "users.view": true,
+    "users.approve": true,
+    "settings.view": true,
+    "settings.edit": true,
+    "analytics.view": true,
+    "promotions.manage": true,
+    "reviews.manage": true,
+    "messages.view": true,
+    "messages.send": true,
+    "support.manage": true,
+    "support.view": true,
+    "profile.manage": true,
+  },
+  seller: {
+    "products.create": true,
+    "products.edit": true,
+    "products.delete": true,
+    "orders.view": true,
+    "orders.manage": true,
+    "messages.view": true,
+    "messages.send": true,
+    "store.manage": true,
+    "payouts.request": true,
+    "promotions.manage": true,
+    "reviews.manage": true,
+    "analytics.view": true,
+  },
+  rider: {
+    "orders.view": true,
+    "deliveries.view": true,
+    "deliveries.manage": true,
+    "tracking.update": true,
+    "messages.view": true,
+    "messages.send": true,
+    "earnings.view": true,
+    "profile.manage": true,
+  },
+  agent: {
+    "orders.view": true,
+    "support.view": true,
+    "support.manage": true,
+    "messages.view": true,
+    "messages.send": true,
+    "users.view": true,
+    "profile.manage": true,
+  },
+  buyer: {
+    "orders.create": true,
+    "orders.view": true,
+    "messages.view": true,
+    "messages.send": true,
+    "support.view": true,
+    "support.manage": true,
+    "wishlist.manage": true,
+    "profile.manage": true,
+  },
+};
+
+async function resolveRoleFeatures(role: string): Promise<Record<string, boolean>> {
+  const defaults = ROLE_FEATURE_DEFAULTS[role] || {};
+  try {
+    const { db } = await import("../db");
+    const { roleFeatures } = await import("@shared/schema");
+    const { eq } = await import("drizzle-orm");
+    const [configured] = await db
+      .select({ features: roleFeatures.features })
+      .from(roleFeatures)
+      .where(eq(roleFeatures.role, role as any))
+      .limit(1);
+    return { ...defaults, ...(configured?.features || {}) };
+  } catch {
+    return defaults;
+  }
+}
+
+export function requireRoleFeature(...features: string[]) {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    if (req.user.role === "super_admin") {
+      return next();
+    }
+
+    const resolved = await resolveRoleFeatures(req.user.role);
+    const missing = features.filter((f) => resolved[f] !== true);
+    if (missing.length > 0) {
+      console.warn(`[RBAC] Role feature denied user=${req.user.id} role=${req.user.role} missing=${missing.join(",")}`);
+      return res.status(403).json({
+        error: "Feature access denied",
+        missingFeatures: missing,
+      });
+    }
+
+    return next();
+  };
+}
+
+export function requireRoleFeatureIfRole(roles: string[], ...features: string[]) {
+  const featureMiddleware = requireRoleFeature(...features);
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (!roles.includes(req.user.role)) {
+      return next();
+    }
+    return featureMiddleware(req, res, next);
+  };
+}

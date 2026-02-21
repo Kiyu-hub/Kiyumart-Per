@@ -4,7 +4,7 @@ import { Server as SocketIOServer } from "socket.io";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { db } from "../db";
-import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable } from "@shared/schema";
+import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable, adminPermissions } from "@shared/schema";
 import { eq, or, isNotNull, and, desc, sql } from "drizzle-orm";
 import { 
   hashPassword, 
@@ -13,6 +13,10 @@ import {
   verifyToken,
   requireAuth, 
   requireRole,
+  requirePermission,
+  requirePermissionIfAdmin,
+  requireRoleFeature,
+  requireRoleFeatureIfRole,
   type AuthRequest 
 } from "./auth";
 import { uploadToCloudinary, uploadWithMetadata, uploadWith4KEnhancement } from "./cloudinary";
@@ -22,6 +26,7 @@ import { insertUserSchema, insertProductSchema, insertDeliveryZoneSchema, insert
 import { getStoreTypeSchema, type StoreType, STORE_TYPES } from "@shared/storeTypes";
 import buildPaystackInitializePayload from './paystackUtils';
 import { getValidFrontendUrl, getFrontendUrlSync, clearFrontendUrlCache } from './frontendUrlResolver';
+import { runtimeConfig } from "./config/runtimeConfig";
 // WhatsApp-style messaging services
 import { presenceService } from "./services/presenceService";
 import { messageDeliveryService } from "./services/messageDeliveryService";
@@ -29,6 +34,10 @@ import { chatPermissionService } from "./services/chatPermissionService";
 import { jitsiMeetService } from "./services/jitsiMeetService";
 
 const upload = multer({ storage: multer.memoryStorage() });
+const PROFILE_IMAGE_MAX_BYTES = runtimeConfig.upload.profileImageMaxBytes;
+const AUDIO_UPLOAD_MAX_BYTES = runtimeConfig.upload.audioMaxBytes;
+const SUPPORT_MEDIA_MAX_BYTES = runtimeConfig.upload.supportMediaMaxBytes;
+const AUTO_DISPATCH_MINUTES = runtimeConfig.dispatch.autoDispatchMinutes;
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -344,7 +353,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/profile", requireAuth, async (req: AuthRequest, res) => {
+  app.patch("/api/profile", requireAuth, requireRoleFeature("profile.manage"), async (req: AuthRequest, res) => {
     try {
       // CRITICAL FIX: Added storeType and storeTypeMetadata to allow existing sellers to complete their profiles
       const allowedFields = ['name', 'username', 'phone', 'address', 'city', 'country', 'email', 'storeName', 'storeDescription', 'storeBanner', 'vehicleInfo', 'storeType', 'storeTypeMetadata'];
@@ -458,10 +467,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid file type. Only JPEG, PNG, WEBP, and GIF images are allowed" });
       }
 
-      // Validate file size (max 5MB)
-      const maxSize = 5 * 1024 * 1024; // 5MB in bytes
-      if (req.file.size > maxSize) {
-        return res.status(400).json({ error: "File too large. Maximum size is 5MB" });
+      // Validate file size (configurable, defaults to 5MB)
+      if (req.file.size > PROFILE_IMAGE_MAX_BYTES) {
+        const maxMb = (PROFILE_IMAGE_MAX_BYTES / (1024 * 1024)).toFixed(0);
+        return res.status(400).json({ error: `File too large. Maximum size is ${maxMb}MB` });
       }
 
       const imageUrl = await uploadToCloudinary(req.file.buffer, "kiyumart/profiles");
@@ -588,7 +597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ User Management (Admin only) ============
-  app.get("/api/users", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/users", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       const { role, isApproved, applicationStatus } = req.query;
       let users;
@@ -622,7 +631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/users/:id", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/users/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       const user = await storage.getUser(req.params.id);
       if (!user) {
@@ -635,7 +644,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/approve", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.patch("/api/users/:id/approve", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       // First, get the user without approving yet
       const user = await storage.getUser(req.params.id);
@@ -745,7 +754,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/interview", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.patch("/api/users/:id/interview", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req: AuthRequest, res) => {
     try {
       const { scheduledAt } = req.body as { scheduledAt?: string };
       if (!scheduledAt) {
@@ -900,7 +909,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/reject", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.patch("/api/users/:id/reject", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       const { reason } = req.body;
       const user = await storage.getUser(req.params.id);
@@ -971,7 +980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/status", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.patch("/api/users/:id/status", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       const { isActive } = req.body;
       const user = await storage.getUser(req.params.id);
@@ -1009,7 +1018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/users", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.post("/api/users", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       // Capture additional data before schema parsing
       const { storeType, vehicleType, vehicleColor, vehiclePlateNumber, vehicleLicense } = req.body;
@@ -1172,7 +1181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.patch("/api/users/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req: AuthRequest, res) => {
     try {
       const allowedFields = [
         "name",
@@ -1434,7 +1443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   
 
-  app.delete("/api/users/:id", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.delete("/api/users/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       const user = await storage.getUser(req.params.id);
       if (!user) {
@@ -1627,7 +1636,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Product Routes ============
   // Only sellers may create products via this endpoint. Admins should not create products directly.
-  app.post("/api/products", requireAuth, requireRole("seller"), upload.fields([
+  app.post("/api/products", requireAuth, requireRole("seller"), requireRoleFeature("products.create"), upload.fields([
     { name: "images", maxCount: 5 },
     { name: "video", maxCount: 1 }
   ]), async (req: AuthRequest, res) => {
@@ -1736,7 +1745,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: create product on behalf of a seller
-  app.post("/api/admin/products", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/products", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_products"), async (req: AuthRequest, res) => {
     try {
       const sellerId = req.body.sellerId;
       if (!sellerId) {
@@ -1826,7 +1835,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/products/:id", requireAuth, requireRole("admin", "seller"), async (req: AuthRequest, res) => {
+  app.patch("/api/products/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.edit"), async (req: AuthRequest, res) => {
     try {
       const product = await storage.getProduct(req.params.id);
       if (!product) {
@@ -1844,7 +1853,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/products/:id/status", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.patch("/api/products/:id/status", requireAuth, requireRole("admin"), requirePermission("manage_products"), async (req: AuthRequest, res) => {
     try {
       const product = await storage.getProduct(req.params.id);
       if (!product) {
@@ -1858,7 +1867,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/products/:id", requireAuth, requireRole("admin", "seller"), async (req: AuthRequest, res) => {
+  app.delete("/api/products/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.delete"), async (req: AuthRequest, res) => {
     try {
       const product = await storage.getProduct(req.params.id);
       if (!product) {
@@ -1877,7 +1886,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Delivery Zone Routes ============
-  app.post("/api/delivery-zones", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.post("/api/delivery-zones", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       // Storage layer handles all validation
       const zone = await storage.createDeliveryZone(req.body);
@@ -1909,7 +1918,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/delivery-zones/:id", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.patch("/api/delivery-zones/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       // Storage layer handles all validation
       const zone = await storage.updateDeliveryZone(req.params.id, req.body);
@@ -1937,7 +1946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/delivery-zones/:id", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.delete("/api/delivery-zones/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       await storage.deleteDeliveryZone(req.params.id);
       res.json({ success: true });
@@ -1947,7 +1956,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Coupon Routes ============
-  app.post("/api/coupons", requireAuth, requireRole("admin", "seller"), async (req: AuthRequest, res) => {
+  app.post("/api/coupons", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
       const { code, discountType, discountValue, minimumPurchase, usageLimit, expiryDate, isActive } = req.body;
       
@@ -1979,7 +1988,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/coupons", requireAuth, requireRole("admin", "seller"), async (req: AuthRequest, res) => {
+  app.get("/api/coupons", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
       const coupons = await storage.getCouponsBySeller(req.user!.id);
       res.json(coupons);
@@ -1988,7 +1997,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), async (req: AuthRequest, res) => {
+  app.get("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), async (req: AuthRequest, res) => {
     try {
       const coupon = await storage.getCoupon(req.params.id);
       if (!coupon) {
@@ -2005,7 +2014,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), async (req: AuthRequest, res) => {
+  app.patch("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
       const coupon = await storage.getCoupon(req.params.id);
       if (!coupon) {
@@ -2029,7 +2038,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), async (req: AuthRequest, res) => {
+  app.delete("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
       const coupon = await storage.getCoupon(req.params.id);
       if (!coupon) {
@@ -2119,7 +2128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Wishlist Routes ============
-  app.post("/api/wishlist", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/wishlist", requireAuth, requireRoleFeature("wishlist.manage"), async (req: AuthRequest, res) => {
     try {
       const validatedData = insertWishlistSchema.parse(req.body);
       const wishlistItem = await storage.addToWishlist(req.user!.id, validatedData.productId);
@@ -2129,7 +2138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/wishlist", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/wishlist", requireAuth, requireRoleFeature("wishlist.manage"), async (req: AuthRequest, res) => {
     try {
       const wishlist = await storage.getWishlist(req.user!.id);
       res.json(wishlist);
@@ -2138,7 +2147,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/wishlist/:productId", requireAuth, async (req: AuthRequest, res) => {
+  app.delete("/api/wishlist/:productId", requireAuth, requireRoleFeature("wishlist.manage"), async (req: AuthRequest, res) => {
     try {
       await storage.removeFromWishlist(req.user!.id, req.params.productId);
       res.json({ success: true });
@@ -2245,7 +2254,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create product variant
-  app.post("/api/products/:productId/variants", requireAuth, requireRole("seller", "admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.post("/api/products/:productId/variants", requireAuth, requireRole("seller", "admin", "super_admin"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.edit"), async (req: AuthRequest, res) => {
     try {
       const { productId } = req.params;
       const { color, size, sku, image, stock, priceAdjustment } = req.body;
@@ -2277,7 +2286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update product variant
-  app.put("/api/products/:productId/variants/:variantId", requireAuth, requireRole("seller", "admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.put("/api/products/:productId/variants/:variantId", requireAuth, requireRole("seller", "admin", "super_admin"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.edit"), async (req: AuthRequest, res) => {
     try {
       const { productId, variantId } = req.params;
       const { color, size, sku, image, stock, priceAdjustment } = req.body;
@@ -2308,7 +2317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete product variant
-  app.delete("/api/products/:productId/variants/:variantId", requireAuth, requireRole("seller", "admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.delete("/api/products/:productId/variants/:variantId", requireAuth, requireRole("seller", "admin", "super_admin"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.edit"), async (req: AuthRequest, res) => {
     try {
       const { productId, variantId } = req.params;
 
@@ -2341,7 +2350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Hero Banner Admin Management ============
   // Get all banners (including inactive) for admin
-  app.get("/api/admin/hero-banners", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/hero-banners", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
     try {
       const banners = await storage.getAllHeroBanners();
       res.json(banners);
@@ -2351,7 +2360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Get single banner
-  app.get("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
     try {
       const banner = await storage.getHeroBanner(req.params.id);
       if (!banner) {
@@ -2364,7 +2373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Create banner with storeMode selection
-  app.post("/api/admin/hero-banners", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/hero-banners", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
     try {
       const { title, subtitle, image, ctaText, ctaLink, storeMode, isActive, displayOrder } = req.body;
       
@@ -2393,7 +2402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Update banner
-  app.patch("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
     try {
       const banner = await storage.getHeroBanner(req.params.id);
       if (!banner) {
@@ -2422,7 +2431,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Delete banner
-  app.delete("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.delete("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
     try {
       const banner = await storage.getHeroBanner(req.params.id);
       if (!banner) {
@@ -2438,7 +2447,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Multi-Vendor Banner Management ============
   // Banner Collections (Admin only)
-  app.post("/api/admin/banner-collections", requireAuth, requireRole("admin"), async (req, res) => {
+  app.post("/api/admin/banner-collections", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const validatedData = insertBannerCollectionSchema.parse(req.body);
       const collection = await storage.createBannerCollection(validatedData);
@@ -2448,7 +2457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/banner-collections", requireAuth, requireRole("admin"), async (req, res) => {
+  app.get("/api/admin/banner-collections", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const collections = await storage.getBannerCollections();
       res.json(collections);
@@ -2457,7 +2466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/banner-collections/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  app.get("/api/admin/banner-collections/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const collection = await storage.getBannerCollection(req.params.id);
       if (!collection) {
@@ -2469,7 +2478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/banner-collections/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  app.patch("/api/admin/banner-collections/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const updated = await storage.updateBannerCollection(req.params.id, req.body);
       if (!updated) {
@@ -2481,7 +2490,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/banner-collections/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  app.delete("/api/admin/banner-collections/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       await storage.deleteBannerCollection(req.params.id);
       res.json({ success: true });
@@ -2491,7 +2500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Marketplace Banners (Admin only)
-  app.post("/api/admin/marketplace-banners", requireAuth, requireRole("admin"), upload.single("image"), async (req, res) => {
+  app.post("/api/admin/marketplace-banners", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), upload.single("image"), async (req, res) => {
     try {
       let imageUrl = req.body.imageUrl;
       
@@ -2527,7 +2536,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/marketplace-banners", requireAuth, requireRole("admin"), async (req, res) => {
+  app.get("/api/admin/marketplace-banners", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const { collectionId } = req.query;
       const banners = await storage.getMarketplaceBanners(collectionId as string);
@@ -2537,7 +2546,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  app.get("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const banner = await storage.getMarketplaceBanner(req.params.id);
       if (!banner) {
@@ -2549,7 +2558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin"), upload.single("image"), async (req, res) => {
+  app.patch("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), upload.single("image"), async (req, res) => {
     try {
       const updateData: any = { ...req.body };
       
@@ -2577,7 +2586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  app.delete("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       await storage.deleteMarketplaceBanner(req.params.id);
       res.json({ success: true });
@@ -2586,7 +2595,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/marketplace-banners/reorder", requireAuth, requireRole("admin"), async (req, res) => {
+  app.post("/api/admin/marketplace-banners/reorder", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const { bannerIds } = req.body;
       if (!Array.isArray(bannerIds)) {
@@ -2651,7 +2660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/footer-pages", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/admin/footer-pages", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       const pages = await storage.getAllFooterPages();
       res.json(pages);
@@ -2661,7 +2670,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: Platform earnings list
-  app.get('/api/admin/platform-earnings', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  app.get('/api/admin/platform-earnings', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const limit = parseInt((req.query.limit as string) || '50');
       const offset = parseInt((req.query.offset as string) || '0');
@@ -2760,7 +2769,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/finance-summary', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  app.get('/api/admin/finance-summary', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const summary = await storage.getPlatformEarningsSummary();
       res.json(summary);
@@ -2770,7 +2779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: Sellers list with payout summary
-  app.get('/api/admin/sellers', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  app.get('/api/admin/sellers', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const sellers = await storage.getUsersByRole('seller');
       const results: any[] = [];
@@ -2808,7 +2817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: Get payouts for a seller
-  app.get('/api/admin/sellers/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  app.get('/api/admin/sellers/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const sellerId = req.params.id;
       const payouts = await storage.getSellerPayouts(sellerId);
@@ -2821,7 +2830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== Rider Payout Routes =====
   
   // Admin: Get all riders with payout summary
-  app.get('/api/admin/riders-payouts', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  app.get('/api/admin/riders-payouts', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const riders = await storage.getUsersByRole('rider');
       const { riderPayouts } = await import("@shared/schema");
@@ -2858,7 +2867,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: Get payouts for a specific rider
-  app.get('/api/admin/riders/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  app.get('/api/admin/riders/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const riderId = req.params.id;
       const payouts = await storage.getRiderPayouts(riderId);
@@ -2869,7 +2878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: Get all pending rider payouts awaiting approval
-  app.get('/api/admin/rider-payouts/pending', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  app.get('/api/admin/rider-payouts/pending', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const pending = await storage.getAllPendingRiderPayouts();
       res.json(pending);
@@ -2998,7 +3007,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: recent transactions and logs
-  app.get('/api/admin/transactions', requireAuth, requireRole('admin', 'super_admin'), async (req: AuthRequest, res) => {
+  app.get('/api/admin/transactions', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const limit = parseInt((req.query.limit as string) || '50');
       const offset = parseInt((req.query.offset as string) || '0');
@@ -3009,7 +3018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/footer-pages", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.post("/api/admin/footer-pages", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       const data = insertFooterPageSchema.parse(req.body);
       const page = await storage.createFooterPage(data);
@@ -3019,7 +3028,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/footer-pages/:id", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.patch("/api/admin/footer-pages/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       const { id } = req.params;
       const data = insertFooterPageSchema.partial().parse(req.body);
@@ -3033,7 +3042,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/footer-pages/:id", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.delete("/api/admin/footer-pages/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       const { id } = req.params;
       await storage.deleteFooterPage(id);
@@ -3616,7 +3625,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Order Routes ============
-  app.post("/api/orders", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/orders", requireAuth, requireRoleFeature("orders.create"), async (req: AuthRequest, res) => {
     try {
       const { items, ...orderData } = req.body;
       
@@ -3627,6 +3636,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get platform settings to check if multi-vendor mode is enabled
       const platformSettings = await storage.getPlatformSettings();
       const platformIsMultiVendor = platformSettings?.isMultiVendor ?? false;
+      const processingFeePercent = Number(platformSettings?.processingFeePercent ?? "1.95");
+      const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
       
       // Server-side price recalculation to prevent tampering
       let serverSubtotal = 0;
@@ -3724,7 +3735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Recalculate total server-side (note: multi-vendor coupons calculated per-seller later)
       const deliveryFee = parseFloat(orderData.deliveryFee || "0");
-      const serverProcessingFee = (serverSubtotal + deliveryFee) * 0.0195;
+      const serverProcessingFee = (serverSubtotal + deliveryFee) * processingFeeRate;
       const serverTotal = serverSubtotal + deliveryFee + serverProcessingFee;
       
       // Verify total matches
@@ -3786,7 +3797,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             
             // Calculate processing fee for this seller's order AFTER applying coupon
-            const sellerProcessingFee = (sellerSubtotal - sellerCouponDiscount + sellerDeliveryFee) * 0.0195;
+            const sellerProcessingFee = (sellerSubtotal - sellerCouponDiscount + sellerDeliveryFee) * processingFeeRate;
             const sellerTotal = sellerSubtotal - sellerCouponDiscount + sellerDeliveryFee + sellerProcessingFee;
             
             return {
@@ -3844,7 +3855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Recalculate processing fee and total with coupon discount
-        const finalProcessingFee = (serverSubtotal - singleVendorCouponDiscount + deliveryFee) * 0.0195;
+        const finalProcessingFee = (serverSubtotal - singleVendorCouponDiscount + deliveryFee) * processingFeeRate;
         const finalTotal = serverSubtotal - singleVendorCouponDiscount + deliveryFee + finalProcessingFee;
         
         const orderInput = {
@@ -3934,7 +3945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/orders", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/orders", requireAuth, requireRoleFeature("orders.view"), async (req: AuthRequest, res) => {
     try {
       const normalizePaymentStatus = (value?: string | null) => (value || "").toLowerCase().trim();
       const isPaidPaymentStatus = (value?: string | null) =>
@@ -4008,7 +4019,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/orders/:id", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/orders/:id", requireAuth, requireRoleFeature("orders.view"), async (req: AuthRequest, res) => {
     try {
       const normalizePaymentStatus = (value?: string | null) => (value || "").toLowerCase().trim();
       const isPaidPaymentStatus = (value?: string | null) =>
@@ -4082,7 +4093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const normalizedStatus =
         rawStatus === "ready_for_pickup" ? "ready" :
         rawStatus === "assigned_to_rider" ? "assigned" :
-        rawStatus === "in_transit" || rawStatus === "out_for_delivery" ? "en_route" :
+        rawStatus === "in_transit" || rawStatus === "out_for_delivery" || rawStatus === "delivering" ? "en_route" :
         rawStatus;
       const orderId = req.params.id;
       
@@ -4141,21 +4152,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/orders/:id/assign-rider", requireAuth, requireRole("admin", "seller"), async (req, res) => {
-    try {
-      const { riderId } = req.body;
-      const order = await storage.assignRider(req.params.id, riderId);
-      if (!order) {
-        return res.status(404).json({ error: "Order not found" });
+  const assignRiderToOrder = async (params: {
+    orderId: string;
+    riderId: string;
+    actorId: string;
+    actorRole: string;
+    allowSellerOwnershipCheck?: boolean;
+  }) => {
+    const { orderId, riderId, actorId, actorRole, allowSellerOwnershipCheck = false } = params;
+
+    if (!riderId) {
+      const error = new Error("Rider ID is required");
+      (error as any).code = 400;
+      throw error;
+    }
+
+    const order = await storage.getOrder(orderId);
+    if (!order) {
+      const error = new Error("Order not found");
+      (error as any).code = 404;
+      throw error;
+    }
+
+    if (order.riderId) {
+      const error = new Error("Order already has a rider assigned");
+      (error as any).code = 400;
+      throw error;
+    }
+
+    if (allowSellerOwnershipCheck && actorRole === "seller" && order.sellerId !== actorId) {
+      const error = new Error("You can only assign riders to your own orders");
+      (error as any).code = 403;
+      throw error;
+    }
+
+    const rider = await storage.getUser(riderId);
+    if (!rider || rider.role !== "rider") {
+      const error = new Error("Rider not found");
+      (error as any).code = 404;
+      throw error;
+    }
+    if (!rider.isApproved || !rider.isActive) {
+      const error = new Error("Rider is not available for deliveries");
+      (error as any).code = 400;
+      throw error;
+    }
+
+    // Always assign rider first.
+    const assigned = await storage.assignRider(orderId, riderId);
+    if (!assigned) {
+      const error = new Error("Order not found");
+      (error as any).code = 404;
+      throw error;
+    }
+
+    // Promote order into assigned state when currently in dispatch-ready statuses.
+    const current = (assigned.status || "").toLowerCase().trim();
+    const canPromoteToAssigned = ["processing", "ready", "confirmed"].includes(current);
+    let updatedOrder = assigned;
+    if (canPromoteToAssigned) {
+      try {
+        const transitioned = await storage.applyOrderStatusTransition(
+          orderId,
+          "assigned",
+          actorId,
+          actorRole
+        );
+        if (transitioned) updatedOrder = transitioned as any;
+      } catch (transitionErr) {
+        // Assignment should not fail hard if the status transition is not currently allowed.
+        console.warn("[ORDER] Rider assigned but status transition to assigned failed:", (transitionErr as any)?.message || transitionErr);
       }
-      res.json(order);
+    }
+
+    await storage.createNotification({
+      userId: riderId,
+      type: "order",
+      title: "New Delivery Assigned",
+      message: `You have been assigned to deliver order #${order.orderNumber}. Please pick up the order from the seller.`,
+      metadata: { link: `/rider/deliveries?orderId=${orderId}` } as any,
+    });
+
+    await storage.createNotification({
+      userId: order.buyerId,
+      type: "order",
+      title: "Rider Assigned",
+      message: `A rider has been assigned to deliver your order #${order.orderNumber}. You can track the delivery in real-time.`,
+      metadata: { link: `/track?orderId=${orderId}` } as any,
+    });
+
+    io.emit("order_rider_assigned", {
+      orderId,
+      riderId,
+      riderName: rider.name,
+      orderNumber: order.orderNumber,
+    });
+
+    return updatedOrder;
+  };
+
+  app.patch("/api/orders/:id/assign-rider", requireAuth, requireRole("admin", "super_admin", "seller"), requirePermissionIfAdmin("manage_orders"), async (req: AuthRequest, res) => {
+    try {
+      const updatedOrder = await assignRiderToOrder({
+        orderId: req.params.id,
+        riderId: String(req.body?.riderId || ""),
+        actorId: req.user!.id,
+        actorRole: req.user!.role,
+        allowSellerOwnershipCheck: true,
+      });
+      res.json(updatedOrder);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      res.status((error as any)?.code || 400).json({ error: error.message });
     }
   });
 
   // Complete delivery with QR code verification (rider scans buyer's QR code)
-  app.post("/api/orders/:id/complete-delivery", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+  app.post("/api/orders/:id/complete-delivery", requireAuth, requireRole("rider"), requireRoleFeature("deliveries.manage"), async (req: AuthRequest, res) => {
     try {
       const { qrCode } = req.body;
       const orderId = req.params.id;
@@ -4192,11 +4304,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Update order status to delivered
-      const updatedOrder = await storage.updateOrder(orderId, { 
-        status: "delivered" as any,
-        deliveredAt: new Date(),
-      });
+      // Use canonical transition path so status history is recorded.
+      const updatedOrder = await storage.applyOrderStatusTransition(
+        orderId,
+        "delivered",
+        riderId,
+        "rider",
+        "qr_delivery_verified"
+      );
 
       // Create notifications
       await storage.createNotification({
@@ -4212,7 +4327,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: "order", 
         title: "Delivery Completed",
         message: `Order #${order.orderNumber} has been delivered to the customer.`,
-        metadata: { link: `/seller/orders/${orderId}` } as any,
+        metadata: { link: `/seller/orders?orderId=${orderId}` } as any,
       });
 
       // Emit real-time events
@@ -4294,7 +4409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/riders/available", requireAuth, requireRole("admin", "seller", "super_admin"), async (req, res) => {
+  app.get("/api/riders/available", requireAuth, requireRole("admin", "seller", "super_admin"), requirePermissionIfAdmin("manage_orders"), async (req, res) => {
     try {
       const availableRiders = await storage.getAvailableRidersWithOrderCounts();
       res.json(availableRiders);
@@ -4304,7 +4419,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get rider's active delivery (for rider navigation page)
-  app.get("/api/rider/active-delivery", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+  app.get("/api/rider/active-delivery", requireAuth, requireRole("rider"), requireRoleFeature("deliveries.view"), async (req: AuthRequest, res) => {
     try {
       const riderId = req.user!.id;
       
@@ -4358,8 +4473,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Delivery Tracking Routes ============
-  app.post("/api/delivery-tracking", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+  app.post("/api/delivery-tracking", requireAuth, requireRole("rider"), requireRoleFeature("tracking.update"), async (req: AuthRequest, res) => {
     try {
+      const order = await storage.getOrder(req.body.orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      if (order.riderId !== req.user!.id) {
+        return res.status(403).json({ error: "You are not assigned to this order" });
+      }
+
       const trackingData = {
         orderId: req.body.orderId,
         riderId: req.user!.id,
@@ -4373,7 +4496,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tracking = await storage.createDeliveryTracking(trackingData);
       
       // Emit real-time location update to buyer and admins
-      const order = await storage.getOrder(req.body.orderId);
       if (order) {
         const rider = await storage.getUser(req.user!.id);
         const locationUpdate = {
@@ -4405,8 +4527,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/delivery-tracking/:orderId", requireAuth, async (req, res) => {
+  app.get("/api/delivery-tracking/:orderId", requireAuth, async (req: AuthRequest, res) => {
     try {
+      const order = await storage.getOrder(req.params.orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const role = req.user!.role;
+      const isAllowed =
+        role === "admin" ||
+        role === "super_admin" ||
+        req.user!.id === order.buyerId ||
+        req.user!.id === order.sellerId ||
+        req.user!.id === order.riderId;
+      if (!isAllowed) {
+        return res.status(403).json({ error: "Unauthorized to view tracking data" });
+      }
+
       const tracking = await storage.getLatestDeliveryLocation(req.params.orderId);
       if (!tracking) {
         return res.status(404).json({ error: "No tracking data found" });
@@ -4417,8 +4554,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/delivery-tracking/:orderId/history", requireAuth, async (req, res) => {
+  app.get("/api/delivery-tracking/:orderId/history", requireAuth, async (req: AuthRequest, res) => {
     try {
+      const order = await storage.getOrder(req.params.orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const role = req.user!.role;
+      const isAllowed =
+        role === "admin" ||
+        role === "super_admin" ||
+        req.user!.id === order.buyerId ||
+        req.user!.id === order.sellerId ||
+        req.user!.id === order.riderId;
+      if (!isAllowed) {
+        return res.status(403).json({ error: "Unauthorized to view tracking data" });
+      }
+
       const history = await storage.getDeliveryTrackingHistory(req.params.orderId);
       res.json(history);
     } catch (error: any) {
@@ -4427,7 +4579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all active riders with their current locations (for admin tracking)
-  app.get("/api/admin/active-riders", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/admin/active-riders", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
     try {
       // Get all orders and filter for processing or delivering status with assigned riders
       const allOrders = await storage.getAllOrders();
@@ -4468,7 +4620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get pending orders that need rider assignment (for Command Center dispatch)
-  app.get("/api/admin/pending-orders", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/admin/pending-orders", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
     try {
       const allOrders = await storage.getAllOrders();
       
@@ -4522,7 +4674,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get available riders for dispatch (approved, active, not currently on delivery)
-  app.get("/api/admin/available-riders", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/admin/available-riders", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
     try {
       const { orderLat, orderLng } = req.query;
       
@@ -4568,79 +4720,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Assign rider to order
-  app.post("/api/orders/:orderId/assign-rider", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.post("/api/orders/:orderId/assign-rider", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req: AuthRequest, res) => {
     try {
-      const { orderId } = req.params;
-      const { riderId } = req.body;
-
-      if (!riderId) {
-        return res.status(400).json({ error: "Rider ID is required" });
-      }
-
-      const order = await storage.getOrder(orderId);
-      if (!order) {
-        return res.status(404).json({ error: "Order not found" });
-      }
-
-      if (order.riderId) {
-        return res.status(400).json({ error: "Order already has a rider assigned" });
-      }
-
-      const rider = await storage.getUser(riderId);
-      if (!rider || rider.role !== "rider") {
-        return res.status(404).json({ error: "Rider not found" });
-      }
-
-      if (!rider.isApproved || !rider.isActive) {
-        return res.status(400).json({ error: "Rider is not available for deliveries" });
-      }
-
-      // Update order with rider assignment
-      const updatedOrder = await storage.updateOrder(orderId, { 
-        riderId,
-        status: "assigned" as any,
+      const updatedOrder = await assignRiderToOrder({
+        orderId: req.params.orderId,
+        riderId: String(req.body?.riderId || ""),
+        actorId: req.user!.id,
+        actorRole: req.user!.role,
       });
-
-      // Create notification for rider
-      await storage.createNotification({
-        userId: riderId,
-        type: "order",
-        title: "New Delivery Assigned",
-        message: `You have been assigned to deliver order #${order.orderNumber}. Please pick up the order from the seller.`,
-        metadata: { link: `/rider/deliveries/${orderId}` } as any,
-      });
-
-      // Create notification for buyer
-      await storage.createNotification({
-        userId: order.buyerId,
-        type: "order",
-        title: "Rider Assigned",
-        message: `A rider has been assigned to deliver your order #${order.orderNumber}. You can track the delivery in real-time.`,
-        metadata: { link: `/track-order/${orderId}` } as any,
-      });
-
-      // Emit socket event for real-time update
-      io.emit("order_rider_assigned", {
-        orderId,
-        riderId,
-        riderName: rider.name,
-        orderNumber: order.orderNumber,
-      });
-
       res.json(updatedOrder);
     } catch (error: any) {
       console.error("Error assigning rider to order:", error);
-      res.status(400).json({ error: error.message });
+      res.status((error as any)?.code || 400).json({ error: error.message });
     }
   });
 
-  // Auto-dispatch: Assign unassigned orders older than 60 minutes to nearest available rider
+  // Auto-dispatch: Assign unassigned orders older than configured threshold (default 60 minutes)
   // This should be called by a cron job or scheduled task
-  app.post("/api/admin/auto-dispatch", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.post("/api/admin/auto-dispatch", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
     try {
       const allOrders = await storage.getAllOrders();
       const now = new Date();
-      const ONE_HOUR = 60 * 60 * 1000;
+      const autoDispatchThresholdMs = Math.max(1, AUTO_DISPATCH_MINUTES) * 60 * 1000;
 
       // Find orders that need auto-dispatch
       const overdueOrders = allOrders.filter(order => {
@@ -4649,7 +4750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!["processing", "ready", "confirmed"].includes((order.status || "").toLowerCase().trim())) return false;
         
         const orderAge = now.getTime() - new Date(order.createdAt!).getTime();
-        return orderAge >= ONE_HOUR;
+        return orderAge >= autoDispatchThresholdMs;
       });
 
       if (overdueOrders.length === 0) {
@@ -4689,7 +4790,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: "order",
           title: "Auto-Assigned Delivery",
           message: `You have been auto-assigned to deliver order #${order.orderNumber}. This order has been waiting for pickup.`,
-          metadata: { link: `/rider/deliveries/${order.id}` } as any,
+          metadata: { link: `/rider/deliveries?orderId=${order.id}` } as any,
         });
 
         io.emit("order_rider_assigned", {
@@ -4715,7 +4816,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Rider & Seller Analytics Routes ============
-  app.get("/api/riders/:riderId/deliveries", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/riders/:riderId/deliveries", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
     try {
       const { riderId } = req.params;
       
@@ -4728,7 +4829,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/riders/:riderId/earnings", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/riders/:riderId/earnings", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
     try {
       const { riderId } = req.params;
       
@@ -4774,7 +4875,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/sellers/:sellerId/sales", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/sellers/:sellerId/sales", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
     try {
       const { sellerId } = req.params;
       const normalizePaymentStatus = (value?: string | null) => (value || "").toLowerCase().trim();
@@ -4784,7 +4885,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sales = await storage.getOrdersByUser(sellerId, "seller");
       
       const totalSales = sales.length;
-      const totalRevenue = sales.reduce((sum, order) => {
+      const completedPaidOrders = sales.filter((order) => {
+        const normalizedStatus = (order.status || "").toLowerCase().trim();
+        return normalizedStatus === "delivered" && isPaidPaymentStatus(order.paymentStatus);
+      });
+      const totalRevenue = completedPaidOrders.reduce((sum, order) => {
         return sum + parseFloat(order.total || "0");
       }, 0);
       
@@ -4801,13 +4906,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                orderDate.getFullYear() === now.getFullYear();
       }).length;
       
-      const revenueThisMonth = sales
+      const revenueThisMonth = completedPaidOrders
         .filter(order => {
-          const orderDate = order.createdAt ? new Date(order.createdAt) : null;
-          if (!orderDate) return false;
+          const deliveredDate = order.deliveredAt ? new Date(order.deliveredAt) : null;
+          if (!deliveredDate) return false;
           const now = new Date();
-          return orderDate.getMonth() === now.getMonth() && 
-                 orderDate.getFullYear() === now.getFullYear();
+          return deliveredDate.getMonth() === now.getMonth() && 
+                 deliveredDate.getFullYear() === now.getFullYear();
         })
         .reduce((sum, order) => sum + parseFloat(order.total || "0"), 0);
       
@@ -4840,11 +4945,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/messages", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/messages", requireAuth, requireRoleFeature("messages.send"), async (req: AuthRequest, res) => {
     try {
       // Ensure IDs are strings for consistent socket room matching
       const senderId = String(req.user!.id);
       const receiverId = String(req.body.receiverId);
+
+      const permission = await chatPermissionService.canInitiateChat(senderId, receiverId);
+      if (!permission.allowed) {
+        return res.status(403).json({ error: permission.reason });
+      }
       
       const messageData = {
         senderId,
@@ -4859,9 +4969,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`📤 Message sent from ${senderId} to ${receiverId}`);
       
-      // CRITICAL FIX: Broadcast to BOTH sender and receiver for instant message updates
-      io.to(receiverId).emit("new_message", message);
+      // Sender gets immediate local echo; receiver delivery uses retry-aware queue.
       io.to(senderId).emit("new_message", message);
+      await messageDeliveryService.queueMessage({
+        id: message.id,
+        senderId,
+        receiverId,
+        message: message.message,
+        messageType: (message.messageType as any) || "text",
+        mediaUrl: (message as any).mediaUrl || undefined,
+        emitSenderAck: false,
+      });
       
       const receiver = await storage.getUser(receiverId);
       const sender = await storage.getUser(senderId);
@@ -4898,7 +5016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/messages/:userId", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/messages/:userId", requireAuth, requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const messages = await storage.getMessages(req.user!.id, req.params.userId);
       res.json(messages);
@@ -4907,7 +5025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/messages/:userId/read", requireAuth, async (req: AuthRequest, res) => {
+  app.patch("/api/messages/:userId/read", requireAuth, requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const updatedMessages = await storage.markMessagesAsRead(req.params.userId, req.user!.id);
 
@@ -4938,7 +5056,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Audio upload endpoint (voice notes/support) - max 5MB
+  // Audio upload endpoint (voice notes/support) - configurable max (default 5MB)
   app.post("/api/upload/audio", requireAuth, upload.single("file"), async (req: AuthRequest, res) => {
     try {
       if (!req.file) {
@@ -4960,9 +5078,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid file type. Only common audio formats are allowed" });
       }
 
-      const maxSize = 5 * 1024 * 1024; // 5MB
-      if (req.file.size > maxSize) {
-        return res.status(400).json({ error: "File too large. Maximum size is 5MB" });
+      if (req.file.size > AUDIO_UPLOAD_MAX_BYTES) {
+        const maxMb = (AUDIO_UPLOAD_MAX_BYTES / (1024 * 1024)).toFixed(0);
+        return res.status(400).json({ error: `File too large. Maximum size is ${maxMb}MB` });
       }
 
       const result = await uploadWithMetadata(req.file.buffer, "kiyumart/audio");
@@ -4973,7 +5091,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Support media upload endpoint - strict 5MB cap for image/video/audio
+  // Support media upload endpoint - configurable cap (default 5MB) for image/video/audio
   app.post("/api/upload/support-media", requireAuth, upload.single("file"), async (req: AuthRequest, res) => {
     try {
       if (!req.file) {
@@ -5004,9 +5122,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Unsupported file type for support media" });
       }
 
-      const maxSize = 5 * 1024 * 1024; // 5MB
-      if (req.file.size > maxSize) {
-        return res.status(400).json({ error: "File too large. Maximum size is 5MB" });
+      if (req.file.size > SUPPORT_MEDIA_MAX_BYTES) {
+        const maxMb = (SUPPORT_MEDIA_MAX_BYTES / (1024 * 1024)).toFixed(0);
+        return res.status(400).json({ error: `File too large. Maximum size is ${maxMb}MB` });
       }
 
       const result = await uploadWithMetadata(req.file.buffer, "kiyumart/support");
@@ -5032,7 +5150,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get message contacts for sellers (admins, agents, and buyers who have messaged)
-  app.get("/api/seller/message-contacts", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+  app.get("/api/seller/message-contacts", requireAuth, requireRole("seller"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const userId = req.user!.id;
       
@@ -5086,7 +5204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get message contacts for riders (admins, agents, sellers, and buyers who have messaged)
-  app.get("/api/rider/message-contacts", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+  app.get("/api/rider/message-contacts", requireAuth, requireRole("rider"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const userId = req.user!.id;
       
@@ -5166,7 +5284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get online users count (for dashboard)
-  app.get("/api/presence/stats", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.get("/api/presence/stats", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const stats = presenceService.getStats();
       res.json(stats);
@@ -5468,7 +5586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get active calls (admin dashboard)
-  app.get("/api/calls/active", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.get("/api/calls/active", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const activeCalls = jitsiMeetService.getActiveRooms();
       const stats = jitsiMeetService.getStats();
@@ -5500,7 +5618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Live Support Dashboard Endpoints ============
   
   // Get all active support conversations (admin)
-  app.get("/api/admin/live-support", requireAuth, requireRole("admin", "super_admin", "agent"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/live-support", requireAuth, requireRole("admin", "super_admin", "agent"), requirePermissionIfAdmin("view_analytics"), requireRoleFeatureIfRole(["agent"], "support.manage"), async (req: AuthRequest, res) => {
     try {
       // Get all recent messages grouped by conversation
       const recentMessages = await db.select()
@@ -5606,7 +5724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin join conversation (read messages between two users)
-  app.get("/api/admin/live-support/:user1Id/:user2Id", requireAuth, requireRole("admin", "super_admin", "agent"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/live-support/:user1Id/:user2Id", requireAuth, requireRole("admin", "super_admin", "agent"), requirePermissionIfAdmin("view_analytics"), requireRoleFeatureIfRole(["agent"], "support.manage"), async (req: AuthRequest, res) => {
     try {
       const { user1Id, user2Id } = req.params;
       
@@ -5646,7 +5764,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin send message to conversation (as mediator)
-  app.post("/api/admin/live-support/:targetUserId/message", requireAuth, requireRole("admin", "super_admin", "agent"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/live-support/:targetUserId/message", requireAuth, requireRole("admin", "super_admin", "agent"), requirePermissionIfAdmin("view_analytics"), requireRoleFeatureIfRole(["agent"], "support.manage"), async (req: AuthRequest, res) => {
     try {
       const { targetUserId } = req.params;
       const { message } = req.body;
@@ -5671,16 +5789,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Message Delivery Stats (Admin) ============
-  app.get("/api/admin/messaging-stats", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/messaging-stats", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const presenceStats = presenceService.getStats();
       const deliveryStats = messageDeliveryService.getStats();
       const callStats = jitsiMeetService.getStats();
+      const allOrders = await storage.getAllOrders();
+      const dispatchBacklog = allOrders.filter((o: any) => {
+        const status = (o.status || "").toString().toLowerCase().trim();
+        return o.deliveryMethod === "rider" && !o.riderId && ["processing", "ready", "confirmed"].includes(status);
+      }).length;
+      const alerts = {
+        messageQueueWarning: deliveryStats.queueSize >= runtimeConfig.alerts.messageQueueWarnSize,
+        dispatchBacklogWarning: dispatchBacklog >= runtimeConfig.alerts.dispatchBacklogWarnCount,
+      };
       
       res.json({
         presence: presenceStats,
         messageQueue: deliveryStats,
         calls: callStats,
+        operations: {
+          dispatchBacklog,
+        },
+        alerts,
       });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -5688,7 +5819,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Admin Audit Endpoints ============
-  app.get("/api/admin/audit/incomplete-sellers", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/admin/audit/incomplete-sellers", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
     try {
       const sellers = await storage.getUsersByRole("seller");
       
@@ -5870,7 +6001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Import environment secrets into DB (admin only)
-  app.post("/api/settings/import-env", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.post("/api/settings/import-env", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       const current = await storage.getPlatformSettings();
       const toUpdate: any = {};
@@ -5893,7 +6024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Import only Paystack secrets from environment into DB
-  app.post("/api/settings/import-paystack", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.post("/api/settings/import-paystack", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       const current = await storage.getPlatformSettings();
       const toUpdate: any = {};
@@ -5913,7 +6044,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Import only Cloudinary secrets from environment into DB
-  app.post("/api/settings/import-cloudinary", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.post("/api/settings/import-cloudinary", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       const current = await storage.getPlatformSettings();
       const toUpdate: any = {};
@@ -5933,7 +6064,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/settings", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.patch("/api/settings", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     const start = Date.now();
     try {
       const previousSettings = await storage.getPlatformSettings();
@@ -6028,7 +6159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Frontend URL Status (Admin) ============
-  app.get("/api/admin/frontend-url-status", requireAuth, requireRole("admin", "super_admin"), async (req, res) => {
+  app.get("/api/admin/frontend-url-status", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       // Get synchronously first (uses cache)
       const syncUrl = getFrontendUrlSync();
@@ -6073,7 +6204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: Promotional ads CRUD (basic scaffolding)
-  app.post('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+  app.post('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const { type, targetId, targetIds, startAt, endAt, title, description, imageUrl, ctaText, ctaUrl, themeColor } = req.body;
       if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
@@ -6096,7 +6227,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+  app.get('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const rows = await storage.getAllPromotionalAds();
       // Enrich with store/product details for admin UI
@@ -6117,7 +6248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/admin/promotions/:id/expire', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+  app.patch('/api/admin/promotions/:id/expire', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const id = req.params.id;
       await storage.expirePromotionById(id);
@@ -6153,7 +6284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Admin Promotion Pricing Management ============
-  app.post('/api/admin/promotion-pricing', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+  app.post('/api/admin/promotion-pricing', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const { type, durationType, duration, price } = req.body;
       if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
@@ -6168,7 +6299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/promotion-pricing', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+  app.get('/api/admin/promotion-pricing', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const rows = await storage.getAllPromotionPricing();
       res.json(rows);
@@ -6177,7 +6308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/admin/promotion-pricing/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+  app.put('/api/admin/promotion-pricing/:id', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const { id } = req.params;
       const { price, isActive } = req.body;
@@ -6192,13 +6323,174 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/admin/promotion-pricing/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+  app.delete('/api/admin/promotion-pricing/:id', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const { id } = req.params;
       await storage.deletePromotionPricing(parseInt(id));
       res.json({ ok: true });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
+    }
+  });
+
+  // ============ Super Admin: Per-Admin Permission Controls ============
+  app.get("/api/admin/permissions", requireAuth, requireRole("super_admin"), async (_req, res) => {
+    try {
+      const adminUsers = await db
+        .select({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          role: users.role,
+          isActive: users.isActive,
+          isApproved: users.isApproved,
+          permissionRecordId: adminPermissions.id,
+          canManageUsers: adminPermissions.canManageUsers,
+          canManageProducts: adminPermissions.canManageProducts,
+          canManageOrders: adminPermissions.canManageOrders,
+          canManageStores: adminPermissions.canManageStores,
+          canManageCategories: adminPermissions.canManageCategories,
+          canManageAdmins: adminPermissions.canManageAdmins,
+          canEditPasswords: adminPermissions.canEditPasswords,
+          canManageRoles: adminPermissions.canManageRoles,
+          canManagePlatformSettings: adminPermissions.canManagePlatformSettings,
+          canViewAnalytics: adminPermissions.canViewAnalytics,
+          canManagePromotions: adminPermissions.canManagePromotions,
+          canManageReviews: adminPermissions.canManageReviews,
+          maxProductsPerDay: adminPermissions.maxProductsPerDay,
+          maxOrdersPerDay: adminPermissions.maxOrdersPerDay,
+        })
+        .from(users)
+        .leftJoin(adminPermissions, eq(users.id, adminPermissions.userId))
+        .where(or(eq(users.role, "admin"), eq(users.role, "super_admin")))
+        .orderBy(desc(users.createdAt));
+
+      const defaultPermissions = {
+        canManageUsers: true,
+        canManageProducts: true,
+        canManageOrders: true,
+        canManageStores: true,
+        canManageCategories: true,
+        canManageAdmins: false,
+        canEditPasswords: false,
+        canManageRoles: false,
+        canManagePlatformSettings: true,
+        canViewAnalytics: true,
+        canManagePromotions: true,
+        canManageReviews: true,
+        maxProductsPerDay: 100,
+        maxOrdersPerDay: 500,
+      };
+
+      const response = adminUsers.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        isActive: u.isActive,
+        isApproved: u.isApproved,
+        hasPermissionRecord: !!u.permissionRecordId,
+        permissions: {
+          canManageUsers: u.canManageUsers ?? defaultPermissions.canManageUsers,
+          canManageProducts: u.canManageProducts ?? defaultPermissions.canManageProducts,
+          canManageOrders: u.canManageOrders ?? defaultPermissions.canManageOrders,
+          canManageStores: u.canManageStores ?? defaultPermissions.canManageStores,
+          canManageCategories: u.canManageCategories ?? defaultPermissions.canManageCategories,
+          canManageAdmins: u.canManageAdmins ?? defaultPermissions.canManageAdmins,
+          canEditPasswords: u.canEditPasswords ?? defaultPermissions.canEditPasswords,
+          canManageRoles: u.canManageRoles ?? defaultPermissions.canManageRoles,
+          canManagePlatformSettings: u.canManagePlatformSettings ?? defaultPermissions.canManagePlatformSettings,
+          canViewAnalytics: u.canViewAnalytics ?? defaultPermissions.canViewAnalytics,
+          canManagePromotions: u.canManagePromotions ?? defaultPermissions.canManagePromotions,
+          canManageReviews: u.canManageReviews ?? defaultPermissions.canManageReviews,
+          maxProductsPerDay: u.maxProductsPerDay ?? defaultPermissions.maxProductsPerDay,
+          maxOrdersPerDay: u.maxOrdersPerDay ?? defaultPermissions.maxOrdersPerDay,
+        },
+      }));
+
+      res.json(response);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to load admin permissions" });
+    }
+  });
+
+  app.put("/api/admin/permissions/:userId", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (targetUser.role !== "admin" && targetUser.role !== "super_admin") {
+        return res.status(400).json({ error: "Permissions can only be managed for admin or super_admin users" });
+      }
+
+      const payload = req.body || {};
+      const boolFields = [
+        "canManageUsers",
+        "canManageProducts",
+        "canManageOrders",
+        "canManageStores",
+        "canManageCategories",
+        "canManageAdmins",
+        "canEditPasswords",
+        "canManageRoles",
+        "canManagePlatformSettings",
+        "canViewAnalytics",
+        "canManagePromotions",
+        "canManageReviews",
+      ] as const;
+      const numberFields = ["maxProductsPerDay", "maxOrdersPerDay"] as const;
+
+      const updates: Record<string, any> = {};
+      for (const field of boolFields) {
+        if (field in payload) {
+          if (typeof payload[field] !== "boolean") {
+            return res.status(400).json({ error: `${field} must be a boolean` });
+          }
+          updates[field] = payload[field];
+        }
+      }
+      for (const field of numberFields) {
+        if (field in payload) {
+          const value = Number(payload[field]);
+          if (!Number.isFinite(value) || value < 0) {
+            return res.status(400).json({ error: `${field} must be a non-negative number` });
+          }
+          updates[field] = Math.floor(value);
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "No valid permission fields provided" });
+      }
+
+      const [existing] = await db
+        .select()
+        .from(adminPermissions)
+        .where(eq(adminPermissions.userId, userId))
+        .limit(1);
+
+      let saved;
+      if (existing) {
+        [saved] = await db
+          .update(adminPermissions)
+          .set({ ...updates, updatedAt: new Date() })
+          .where(eq(adminPermissions.userId, userId))
+          .returning();
+      } else {
+        [saved] = await db
+          .insert(adminPermissions)
+          .values({
+            userId,
+            ...updates,
+          })
+          .returning();
+      }
+
+      res.json(saved);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to update admin permissions" });
     }
   });
 
@@ -6235,7 +6527,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Seller Promotion Application ============
-  app.get('/api/seller/promotion-pricing', requireAuth, async (req: AuthRequest, res) => {
+  app.get('/api/seller/promotion-pricing', requireAuth, requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
       const user = req.user;
       if (!user || user.role !== 'seller') {
@@ -6255,7 +6547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/seller/apply-promotion', requireAuth, async (req: AuthRequest, res) => {
+  app.post('/api/seller/apply-promotion', requireAuth, requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
       const user = req.user;
       if (!user || user.role !== 'seller') {
@@ -6268,7 +6560,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Promotions are only available in multi-vendor mode" });
       }
 
-      const { type, targetId, durationType, duration } = req.body;
+      const { type, targetId, durationType, duration, paymentReference } = req.body;
       if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
       if (!['hour', 'day'].includes(durationType)) return res.status(400).json({ error: 'Invalid durationType' });
       if (typeof duration !== 'number' || duration <= 0) return res.status(400).json({ error: 'Invalid duration' });
@@ -6295,6 +6587,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Calculate total price (for multiple days, multiply)
       const unitPrice = parseFloat(pricing.price);
       const totalPrice = unitPrice * duration;
+      const expectedAmountMinor = Math.round(totalPrice * 100);
+
+      if (!paymentReference || typeof paymentReference !== "string" || !paymentReference.trim()) {
+        return res.status(400).json({ error: "paymentReference is required to activate a promotion" });
+      }
+
+      const existingTx = await storage.getTransactionByReference(paymentReference.trim());
+      if (existingTx) {
+        return res.status(400).json({ error: "This payment reference has already been used" });
+      }
+
+      if (!settings.paystackSecretKey) {
+        return res.status(503).json({ error: "Payment gateway not configured" });
+      }
+
+      const verifyResp = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(paymentReference.trim())}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${settings.paystackSecretKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!verifyResp.ok) {
+        return res.status(400).json({ error: "Unable to verify payment reference" });
+      }
+      const verifyJson = await verifyResp.json();
+      const paystackStatus = (verifyJson?.data?.status || "").toString().toLowerCase().trim();
+      const paidAmountMinor = Number(verifyJson?.data?.amount || 0);
+      const paidCurrency = (verifyJson?.data?.currency || "GHS").toString().toUpperCase();
+      if (paystackStatus !== "success") {
+        return res.status(400).json({ error: "Payment is not successful for this reference" });
+      }
+      if (paidAmountMinor < expectedAmountMinor) {
+        return res.status(400).json({ error: `Insufficient promotion payment amount. Expected ${expectedAmountMinor}, got ${paidAmountMinor}` });
+      }
 
       // Calculate end time
       const startAt = new Date();
@@ -6305,7 +6632,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         endAt.setDate(endAt.getDate() + duration);
       }
 
-      // Create promotional ad
+      // Create promotional ad only after verified payment.
       const promo = await storage.createPromotionalAd({
         type,
         targetId,
@@ -6319,8 +6646,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ctaUrl: null,
         themeColor: null,
       });
-
-      // TODO: Handle payment here if needed, for now just create the promo
 
       res.json({
         ...promo,
@@ -7166,7 +7491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Admin Payout Management Routes ============
   
   // Get all pending payouts (admin only)
-  app.get("/api/admin/payouts/pending", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/admin/payouts/pending", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const user = req.user;
       if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
@@ -7182,7 +7507,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Process payout (admin only)
-  app.patch("/api/admin/payouts/:id", requireAuth, async (req: AuthRequest, res) => {
+  app.patch("/api/admin/payouts/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req: AuthRequest, res) => {
     try {
       const user = req.user;
       if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
@@ -7806,6 +8131,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
+        const permission = await chatPermissionService.canInitiateChat(senderId, receiverId);
+        if (!permission.allowed) {
+          socket.emit("error", { message: permission.reason || "Chat not permitted" });
+          return;
+        }
+
         // Create message in database
         const { db } = await import("../db/index");
         const { chatMessages } = await import("@shared/schema");
@@ -7820,17 +8151,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         console.debug(`✅ New message from ${senderId} to ${receiverId}: ${newMessage.id}`);
 
-        // Broadcast to receiver in real-time
-        io.to(receiverId).emit("new_message", {
+        await messageDeliveryService.queueMessage({
           id: newMessage.id,
           senderId: newMessage.senderId,
           receiverId: newMessage.receiverId,
           message: newMessage.message,
-          status: newMessage.status,
-          isRead: newMessage.isRead,
-          createdAt: newMessage.createdAt,
-          deliveredAt: newMessage.deliveredAt,
-          readAt: newMessage.readAt
+          messageType: "text",
+          emitSenderAck: false,
         });
 
         // Acknowledge to sender
@@ -7875,7 +8202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Customer Support Routes ============
-  app.get("/api/support/conversations", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/support/conversations", requireAuth, requireRoleFeature("support.view"), async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
       const { db } = await import("../db/index");
@@ -7956,7 +8283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/support/conversations", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/support/conversations", requireAuth, requireRoleFeature("support.view"), async (req: AuthRequest, res) => {
     try {
       const { subject, message } = req.body;
       const user = req.user!;
@@ -8027,7 +8354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/support/conversations/:id/messages", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/support/conversations/:id/messages", requireAuth, requireRoleFeature("support.view"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const user = req.user!;
@@ -8071,7 +8398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/support/conversations/:id/messages", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/support/conversations/:id/messages", requireAuth, requireRoleFeature("support.manage"), async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const { message } = req.body;
@@ -8251,7 +8578,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Category Fields Routes (Admin Only) ============
-  app.post("/api/category-fields", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.post("/api/category-fields", requireAuth, requireRole("admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const field = await storage.createCategoryField(req.body);
       res.json(field);
@@ -8270,7 +8597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/category-fields/:id", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.patch("/api/category-fields/:id", requireAuth, requireRole("admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const field = await storage.updateCategoryField(req.params.id, req.body);
       if (!field) {
@@ -8282,7 +8609,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/category-fields/:id", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.delete("/api/category-fields/:id", requireAuth, requireRole("admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const success = await storage.deleteCategoryField(req.params.id);
       if (!success) {
@@ -8295,7 +8622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Store Routes ============
-  app.post("/api/stores", requireAuth, requireRole("admin", "seller"), async (req: AuthRequest, res) => {
+  app.post("/api/stores", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_stores"), async (req: AuthRequest, res) => {
     try {
       const storeData = {
         ...req.body,
@@ -8322,7 +8649,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get current seller's store (auto-create if missing)
-  app.get("/api/stores/my-store", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+  app.get("/api/stores/my-store", requireAuth, requireRole("seller"), requireRoleFeature("store.manage"), async (req: AuthRequest, res) => {
     try {
       console.log(`[/api/stores/my-store] Request from seller ${req.user!.id}`);
       
@@ -8391,7 +8718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/stores/:id", requireAuth, requireRole("admin", "seller"), async (req: AuthRequest, res) => {
+  app.patch("/api/stores/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_stores"), async (req: AuthRequest, res) => {
     try {
       const store = await storage.getStore(req.params.id);
       if (!store) {
@@ -8410,7 +8737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/stores/:id", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.delete("/api/stores/:id", requireAuth, requireRole("admin"), requirePermission("manage_stores"), async (req: AuthRequest, res) => {
     try {
       const success = await storage.deleteStore(req.params.id);
       if (!success) {
@@ -8423,7 +8750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Category Routes ============
-  app.post("/api/categories", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.post("/api/categories", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const category = await storage.createCategory(req.body);
       res.json(category);
@@ -8468,7 +8795,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/categories/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.patch("/api/categories/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const updated = await storage.updateCategory(req.params.id, req.body);
       if (!updated) {
@@ -8480,7 +8807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/categories/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.delete("/api/categories/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const success = await storage.deleteCategory(req.params.id);
       if (!success) {
@@ -8493,7 +8820,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Category Migration Endpoint (Admin only) - Backfill categoryId from legacy category text
-  app.post("/api/admin/migrate-categories", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/migrate-categories", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const { dryRun = true } = req.body;
       
@@ -8751,7 +9078,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Asset Browser Route ============
-  app.get("/api/assets/images", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.get("/api/assets/images", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_products"), async (req: AuthRequest, res) => {
     try {
       const fs = await import('fs');
       const path = await import('path');
@@ -8805,7 +9132,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/assets/delete", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.delete("/api/assets/delete", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_products"), async (req: AuthRequest, res) => {
     try {
       const fs = await import('fs');
       const path = await import('path');
@@ -8835,7 +9162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Enhanced Review Routes ============
-  app.post("/api/reviews/:id/reply", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+  app.post("/api/reviews/:id/reply", requireAuth, requireRole("seller"), requireRoleFeature("reviews.manage"), async (req: AuthRequest, res) => {
     try {
       const { reply } = req.body;
       if (!reply) {
@@ -8971,7 +9298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create Paystack subaccount for store
-  app.post("/api/stores/:storeId/setup-paystack", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+  app.post("/api/stores/:storeId/setup-paystack", requireAuth, requireRole("seller"), requireRoleFeature("store.manage"), async (req: AuthRequest, res) => {
     try {
       const store = await storage.getStore(req.params.storeId);
       if (!store) {
@@ -9075,7 +9402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Admin Fix Image Paths Endpoint ============
-  app.post("/api/admin/fix-image-paths", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+  app.post("/api/admin/fix-image-paths", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_products"), async (req: AuthRequest, res) => {
     try {
       // Fix products only (not banners)
       const allProducts = await db.select().from(products);

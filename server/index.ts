@@ -235,30 +235,98 @@ app.use(cookieParser());
 
   const server = await registerRoutes(app);
 
-  // Ensure super_admin has all role features on startup
+  // Seed default role features on startup (without overriding existing custom config)
   try {
     const { storage } = await import('./storage');
-    const superAdminFeatures: Record<string, boolean> = {
-      canManageUsers: true,
-      canManageProducts: true,
-      canManageOrders: true,
-      canManageStores: true,
-      canManageCategories: true,
-      canManageAdmins: true,
-      canEditPasswords: true,
-      canManageRoles: true,
-      canManagePlatformSettings: true,
-      canViewAnalytics: true,
-      canManagePromotions: true,
-      canManageReviews: true,
-      canManagePayouts: true,
-      canViewPayouts: true,
-      canManageFeatures: true,
+    const roleDefaults: Record<string, Record<string, boolean>> = {
+      super_admin: {
+        canManageUsers: true,
+        canManageProducts: true,
+        canManageOrders: true,
+        canManageStores: true,
+        canManageCategories: true,
+        canManageAdmins: true,
+        canEditPasswords: true,
+        canManageRoles: true,
+        canManagePlatformSettings: true,
+        canViewAnalytics: true,
+        canManagePromotions: true,
+        canManageReviews: true,
+        canManagePayouts: true,
+        canViewPayouts: true,
+        canManageFeatures: true,
+      },
+      admin: {
+        "products.viewAll": true,
+        "orders.view": true,
+        "orders.manage": true,
+        "users.view": true,
+        "users.approve": true,
+        "settings.view": true,
+        "settings.edit": true,
+        "analytics.view": true,
+        "promotions.manage": true,
+        "reviews.manage": true,
+        "messages.view": true,
+        "messages.send": true,
+        "support.view": true,
+        "support.manage": true,
+        "profile.manage": true,
+      },
+      seller: {
+        "products.create": true,
+        "products.edit": true,
+        "products.delete": true,
+        "orders.view": true,
+        "orders.manage": true,
+        "messages.view": true,
+        "messages.send": true,
+        "store.manage": true,
+        "payouts.request": true,
+        "promotions.manage": true,
+        "reviews.manage": true,
+        "analytics.view": true,
+      },
+      rider: {
+        "orders.view": true,
+        "deliveries.view": true,
+        "deliveries.manage": true,
+        "tracking.update": true,
+        "messages.view": true,
+        "messages.send": true,
+        "earnings.view": true,
+        "profile.manage": true,
+      },
+      agent: {
+        "orders.view": true,
+        "users.view": true,
+        "messages.view": true,
+        "messages.send": true,
+        "support.view": true,
+        "support.manage": true,
+        "profile.manage": true,
+      },
+      buyer: {
+        "orders.create": true,
+        "orders.view": true,
+        "messages.view": true,
+        "messages.send": true,
+        "support.view": true,
+        "support.manage": true,
+        "wishlist.manage": true,
+        "profile.manage": true,
+      },
     };
-    await storage.updateRoleFeatures('super_admin', superAdminFeatures, 'system');
-    console.log('[BOOT] Ensured super_admin role features are set');
+
+    for (const [role, features] of Object.entries(roleDefaults)) {
+      const existing = await storage.getRoleFeatures(role);
+      if (!existing || existing.length === 0) {
+        await storage.updateRoleFeatures(role, features, "system");
+      }
+    }
+    console.log('[BOOT] Ensured default role features exist for all roles');
   } catch (e) {
-    console.warn('[BOOT] Could not seed super_admin role features:', (e as any)?.message ?? String(e));
+    console.warn('[BOOT] Could not seed role feature defaults:', (e as any)?.message ?? String(e));
   }
 
   // Auto-populate default footer items into DB so they're editable from admin

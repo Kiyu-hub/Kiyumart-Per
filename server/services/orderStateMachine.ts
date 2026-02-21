@@ -1,6 +1,6 @@
 import type { Order } from "@shared/schema";
 
-export type OrderStatus =
+export type CanonicalOrderStatus =
   | "pending"
   | "confirmed"
   | "ready"
@@ -8,10 +8,11 @@ export type OrderStatus =
   | "assigned"
   | "picked_up"
   | "en_route"
-  | "delivering"
   | "delivered"
   | "cancelled"
   | "disputed";
+// Legacy alias accepted as input for backward compatibility.
+export type OrderStatus = CanonicalOrderStatus | "delivering";
 export type PaymentStatus = "pending" | "processing" | "completed" | "failed" | "refunded";
 export type UserRole = "super_admin" | "admin" | "seller" | "buyer" | "rider" | "agent";
 
@@ -35,16 +36,17 @@ export interface TransitionError {
   details?: Record<string, any>;
 }
 
-function normalizeOrderStatus(status?: string | null): OrderStatus {
+export function canonicalizeOrderStatus(status?: string | null): CanonicalOrderStatus {
   const s = (status || "").toLowerCase().trim();
   if (s === "ready_for_pickup") return "ready";
   if (s === "assigned_to_rider") return "assigned";
   if (s === "out_for_delivery" || s === "in_transit") return "en_route";
+  if (s === "delivering") return "en_route";
   if (!s) return "pending";
-  return s as OrderStatus;
+  return s as CanonicalOrderStatus;
 }
 
-const TRANSITION_RULES: Record<OrderStatus, Partial<Record<OrderStatus, TransitionRule>>> = {
+const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrderStatus, TransitionRule>>> = {
   pending: {
     confirmed: {
       allowedRoles: ["seller", "admin", "super_admin"],
@@ -110,7 +112,7 @@ const TRANSITION_RULES: Record<OrderStatus, Partial<Record<OrderStatus, Transiti
       ],
       sideEffects: [],
     },
-    delivering: {
+    en_route: {
       allowedRoles: ["admin", "super_admin"],
       preconditions: [
         (ctx) => ({
@@ -190,34 +192,6 @@ const TRANSITION_RULES: Record<OrderStatus, Partial<Record<OrderStatus, Transiti
     },
   },
 
-  delivering: {
-    delivered: {
-      allowedRoles: ["rider", "admin", "super_admin"],
-      preconditions: [
-        (ctx) => {
-          if (ctx.actorRole === "rider") {
-            return {
-              valid: ctx.order.riderId === ctx.actorId,
-              error: "Only the assigned rider can mark this order as delivered",
-            };
-          }
-          return { valid: true };
-        },
-      ],
-      sideEffects: [(order) => ({ deliveredAt: new Date() })],
-    },
-    cancelled: {
-      allowedRoles: ["admin", "super_admin"],
-      preconditions: [],
-      sideEffects: [(order) => ({ riderId: null })],
-    },
-    disputed: {
-      allowedRoles: ["buyer", "admin", "super_admin"],
-      preconditions: [],
-      sideEffects: [],
-    },
-  },
-
   delivered: {
     disputed: {
       allowedRoles: ["buyer", "admin", "super_admin"],
@@ -253,7 +227,7 @@ const TRANSITION_RULES: Record<OrderStatus, Partial<Record<OrderStatus, Transiti
 };
 
 export function getAllowedTransitions(order: Order, actorRole: UserRole): OrderStatus[] {
-  const currentStatus = normalizeOrderStatus(order.status);
+  const currentStatus = canonicalizeOrderStatus(order.status);
   const transitions = TRANSITION_RULES[currentStatus] || {};
 
   return Object.entries(transitions)
@@ -264,8 +238,8 @@ export function getAllowedTransitions(order: Order, actorRole: UserRole): OrderS
 export function assertCanTransition(
   ctx: TransitionContext
 ): { valid: true } | { valid: false; error: TransitionError } {
-  const currentStatus = normalizeOrderStatus(ctx.order.status);
-  const normalizedTarget = normalizeOrderStatus(ctx.targetStatus);
+  const currentStatus = canonicalizeOrderStatus(ctx.order.status);
+  const normalizedTarget = canonicalizeOrderStatus(ctx.targetStatus);
 
   const transitions = TRANSITION_RULES[currentStatus];
   if (!transitions || !transitions[normalizedTarget]) {
@@ -315,8 +289,8 @@ export function assertCanTransition(
 }
 
 export function getTransitionSideEffects(order: Order, targetStatus: OrderStatus): Partial<Order> {
-  const currentStatus = normalizeOrderStatus(order.status);
-  const normalizedTarget = normalizeOrderStatus(targetStatus);
+  const currentStatus = canonicalizeOrderStatus(order.status);
+  const normalizedTarget = canonicalizeOrderStatus(targetStatus);
   const transitions = TRANSITION_RULES[currentStatus];
 
   if (!transitions || !transitions[normalizedTarget]) {

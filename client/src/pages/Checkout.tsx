@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,10 +11,17 @@ import { ArrowLeft, Package, Bike, Building2, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 
+interface PlatformSettings {
+  processingFeePercent?: string;
+}
+
 export default function Checkout() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { formatPrice } = useLanguage();
+  const { data: settings } = useQuery<PlatformSettings>({
+    queryKey: ["/api/settings"],
+  });
   const [deliveryMethod, setDeliveryMethod] = useState<"pickup" | "bus" | "rider">("pickup");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [deliveryZone, setDeliveryZone] = useState("");
@@ -26,7 +34,9 @@ export default function Checkout() {
 
   const subtotal = mockCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const deliveryFee = deliveryMethod === "pickup" ? 0 : 0;
-  const processingFee = (subtotal + deliveryFee) * 0.0195;
+  const processingFeePercent = Number(settings?.processingFeePercent ?? "1.95");
+  const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
+  const processingFee = (subtotal + deliveryFee) * processingFeeRate;
   const total = subtotal + deliveryFee + processingFee;
 
   const handlePlaceOrder = async () => {
@@ -208,7 +218,7 @@ export default function Checkout() {
                     <span data-testid="text-checkout-delivery">{formatPrice(deliveryFee)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Processing Fee (1.95%)</span>
+                    <span className="text-muted-foreground">Processing Fee ({processingFeePercent.toFixed(2)}%)</span>
                     <span data-testid="text-checkout-processing">{formatPrice(processingFee)}</span>
                   </div>
                   <Separator />

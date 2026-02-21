@@ -44,6 +44,10 @@ interface Coupon {
   minimumPurchase: string;
 }
 
+interface PlatformSettings {
+  processingFeePercent?: string;
+}
+
 export default function CheckoutConnected() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -86,6 +90,10 @@ export default function CheckoutConnected() {
       return productsData;
     },
     enabled: cartItems.length > 0,
+  });
+
+  const { data: settings } = useQuery<PlatformSettings>({
+    queryKey: ["/api/settings"],
   });
 
   const validateCouponMutation = useMutation({
@@ -215,7 +223,9 @@ export default function CheckoutConnected() {
   };
 
   const couponDiscount = calculateCouponDiscount();
-  const processingFee = (subtotal - couponDiscount + deliveryFee) * 0.0195;
+  const processingFeePercent = Number(settings?.processingFeePercent ?? "1.95");
+  const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
+  const processingFee = (subtotal - couponDiscount + deliveryFee) * processingFeeRate;
   const total = subtotal - couponDiscount + deliveryFee + processingFee;
 
   const handleApplyCoupon = () => {
@@ -550,7 +560,7 @@ export default function CheckoutConnected() {
                     <span data-testid="text-checkout-delivery">{formatPrice(deliveryFee)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Processing Fee (1.95%)</span>
+                    <span className="text-muted-foreground">Processing Fee ({processingFeePercent.toFixed(2)}%)</span>
                     <span data-testid="text-checkout-processing">{formatPrice(processingFee)}</span>
                   </div>
                   <Separator />

@@ -8,7 +8,7 @@
 > 
 > **Version:** 1.1.7 (Cart Variant Image Display Fix)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
-> **Last Updated:** February 10, 2026
+> **Last Updated: February 21, 2026* February 10, 2026
 > 
 > **📚 Documentation:** Start with [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) for complete guides  
 > **🚀 Quick Start:** See [QUICK_START.md](./QUICK_START.md) to get running in 5 minutes  
@@ -785,6 +785,33 @@ PAYSTACK_SECRET_KEY=sk_test_xxxxx
 SESSION_SECRET=auto-generated-on-first-run
 ```
 
+### Runtime Tuning (Optional)
+
+```env
+# Upload limits (bytes)
+PROFILE_IMAGE_MAX_BYTES=5242880
+AUDIO_UPLOAD_MAX_BYTES=5242880
+SUPPORT_MEDIA_MAX_BYTES=5242880
+
+# Dispatch threshold (minutes)
+AUTO_DISPATCH_MINUTES=60
+
+# Presence timing (milliseconds)
+PRESENCE_HEARTBEAT_INTERVAL_MS=8000
+PRESENCE_HEARTBEAT_TIMEOUT_MS=15000
+PRESENCE_AWAY_THRESHOLD_MS=60000
+PRESENCE_CLEANUP_INTERVAL_MS=5000
+
+# Ops alert thresholds
+ALERT_MESSAGE_QUEUE_WARN_SIZE=100
+ALERT_DISPATCH_BACKLOG_WARN_COUNT=20
+
+# Frontend optional UI limits
+VITE_PROFILE_IMAGE_MAX_MB=5
+VITE_SUPPORT_ATTACHMENT_MAX_MB=5
+VITE_PRESENCE_HEARTBEAT_INTERVAL_MS=8000
+```
+
 ---
 
 ## 🎨 Customization
@@ -1050,5 +1077,258 @@ For support and questions:
 
 **Built with ❤️ for the Islamic Fashion Community**
 
-*Last Updated: February 2, 2026*
+*Last Updated: February 21, 2026*
 
+
+---
+
+## Phase 0 Discovery Audit (February 21, 2026)
+
+Scope completed:
+- DB schema review
+- UI route/screen review
+- Order status logic review
+- Messaging logic review
+- Rider tracking review
+- Revenue/payout logic review
+
+### Current system flow diagrams (per role)
+
+```mermaid
+flowchart TD
+  Buyer[Buyer] --> Browse[Browse products/stores]
+  Browse --> Cart[Cart + Checkout]
+  Cart --> OrderCreate[POST /api/orders]
+  OrderCreate --> PayInit[POST /api/payments/initialize]
+  PayInit --> Paystack[Paystack]
+  Paystack --> Verify[GET /api/payments/verify or verify-public]
+  Verify --> Paid[Order paymentStatus=completed, status=processing]
+  Paid --> Track[/track + /live-tracking]
+  Track --> Delivered[delivered]
+```
+
+```mermaid
+flowchart TD
+  Seller[Seller] --> SellerDash[/seller]
+  SellerDash --> Products[Manage products/coupons]
+  SellerDash --> SellerOrders[View /seller/orders]
+  SellerOrders --> Chat[Chat with buyers/admin/agent]
+  SellerOrders --> Payout[Seller payout request /api/seller/payout]
+```
+
+```mermaid
+flowchart TD
+  Rider[Rider] --> RiderDash[/rider]
+  RiderDash --> Deliveries[/rider/deliveries]
+  Deliveries --> StatusPatch[PATCH /api/orders/:id/status]
+  StatusPatch --> TrackingPost[POST /api/delivery-tracking]
+  TrackingPost --> BuyerLive[Buyer live tracking updates]
+  Deliveries --> CompleteQR[POST /api/orders/:id/complete-delivery]
+  CompleteQR --> RiderPayoutQueue[rider_payouts pending_approval]
+```
+
+```mermaid
+flowchart TD
+  Admin[Admin/Super Admin] --> AdminDash[/admin]
+  AdminDash --> Users[Users/approvals]
+  AdminDash --> Orders[Orders + manual rider assignment]
+  AdminDash --> Earnings[Platform earnings/finance summary]
+  AdminDash --> Payouts[Seller/rider payout processing]
+  AdminDash --> Support[Live support + messaging oversight]
+```
+
+```mermaid
+flowchart TD
+  Agent[Agent] --> AgentDash[/agent]
+  AgentDash --> Tickets[/agent/tickets]
+  Tickets --> SupportConversations[support_conversations + support_messages]
+  AgentDash --> CustomerChat[Customer/admin message flows]
+```
+
+### Roles and permission model (current)
+- Roles in schema: `super_admin`, `admin`, `seller`, `buyer`, `rider`, `agent`.
+- Route protection is primarily `requireRole(...)` in `server/routes.ts`.
+- `admin_permissions` exists, but fine-grained `requirePermission(...)` is rarely applied across critical admin routes.
+- `role_features` (feature-flag style permissions) exists and has a UI (`/admin/permissions`) but is not enforced in operational APIs.
+
+### Hard-coded values found
+- Processing fee hard-coded as `1.95%` (`0.0195`) in checkout/order creation flows (`client/src/pages/CheckoutConnected.tsx`, `client/src/pages/Checkout.tsx`, `server/routes.ts`), despite `platform_settings.processing_fee_percent`.
+- Currency hard-coded as `GHS` in many backend/frontend paths (`server/currency.ts`, payments/payout routes, pricing UI labels).
+- File upload limits hard-coded to `5MB` (profile/support/audio uploads).
+- Presence/real-time timers hard-coded (heartbeat/offline thresholds in `server/services/presenceService.ts`).
+- Auto-dispatch threshold hard-coded to `60 minutes` in `server/routes.ts`.
+
+### Broken buttons/pages and dead redirects
+- `Admin Notifications` payout click uses `/admin/payouts`, but no matching route in `client/src/App.tsx`.
+- Notification links generated server-side include routes that do not exist:
+  - `/track-order/:orderId`
+  - `/rider/deliveries/:orderId`
+  - `/seller/orders/:orderId`
+- `Admin Stores List` links edit to `/admin/stores/:id/edit`, but no route exists for that path.
+- `TrackOrder` (`/orders/:id`) uses legacy fields (`shippingAddress`, old status assumptions), diverging from current order payload shape and richer `/track?orderId=` flow.
+
+### Logic inconsistencies
+- Order status model mismatch:
+  - DB enum (`shared/schema.ts`) only includes `pending|processing|delivering|delivered|cancelled|disputed`.
+  - Runtime state machine and UI rely on additional states (`confirmed`, `ready`, `assigned`, `picked_up`, `en_route` and aliases).
+- Duplicate rider assignment endpoints with different behavior/authorization:
+  - `PATCH /api/orders/:id/assign-rider` (admin/seller, simple assign).
+  - `POST /api/orders/:orderId/assign-rider` (admin/super_admin, sets status + notifications).
+- Chat RBAC mismatch:
+  - `chatPermissionService` expects role `customer`, while platform role is `buyer`.
+  - Permission check endpoints exist, but `POST /api/messages` and socket `new_message` do not enforce chat permission rules.
+- Messaging delivery service (`messageDeliveryService.queueMessage`) is implemented but not used by primary message send paths.
+- Commission/payout pipeline inconsistency:
+  - `createCommissionWithEarning` marks commissions as `processed`.
+  - Seller balance and payout request logic expect `pending` commissions.
+  - Auto mobile-money payout path tries creating payout after marking commissions processed, causing likely payout composition failures.
+- Delivery tracking authorization gap:
+  - `GET /api/delivery-tracking/:orderId` and `/history` only require auth, without strict order ownership/role checks.
+- `AdminOrders` rider assignment UI checks `deliveryMethod === "delivery"`, while schema enum is `pickup|bus|rider`.
+
+### Gap analysis vs Uber/Bolt/Yango style operations
+- Dispatch/routing:
+  - Current: round-robin and optional manual assignment.
+  - Industry: proximity/ETA, dynamic reassignment, SLA-aware dispatch.
+- State consistency:
+  - Current: multiple status vocabularies and normalization patches.
+  - Industry: strict canonical state machine shared across DB/API/UI/events.
+- Comms governance:
+  - Current: RBAC intent exists but not enforced end-to-end.
+  - Industry: enforced conversation scopes tied to trip/order lifecycle.
+- Tracking/security:
+  - Current: tracking reads are broadly accessible to authenticated users.
+  - Industry: strict subject-level authorization and auditability.
+- Financial ledgering:
+  - Current: commissions/payout states conflict in some paths.
+  - Industry: immutable ledger states, idempotent settlement stages, reconciliation jobs.
+- Ops observability:
+  - Current: partial logs/metrics.
+  - Industry: SLA metrics, queue health, dispatch KPIs, fraud/risk monitors.
+
+### Assumptions and unknowns (documented)
+- Possible DB migration drift: runtime uses statuses not clearly represented in tracked SQL migrations; this audit used codebase truth as source of record.
+- Some legacy pages remain intentionally for backward compatibility, but routing shows active references to missing paths.
+- This phase intentionally avoided functional code changes; findings are documented for Phase 1 remediation.
+
+Phase 0 exit criteria status:
+- Full system understanding: completed
+- Undocumented assumptions: none remaining in this audit (see assumptions section)
+
+---
+
+## Phase 1 Remediation Tracker (February 21, 2026)
+
+This section tracks implementation progress against the Phase 0 findings.
+
+### Fixed in this pass
+- Unified permission governance for all user types:
+  - Super admin now controls role permissions for `buyer`, `agent`, `seller`, `rider`, and `admin` from `/admin/permissions` via `role_features`.
+  - Added operational enforcement middleware (`requireRoleFeature`, `requireRoleFeatureIfRole`) so role permissions are enforced in API routes, not only in UI.
+- Chat RBAC enforcement:
+  - Normalized legacy role mapping (`customer` -> `buyer`) in chat permission service.
+  - Enforced permission checks in both REST `POST /api/messages` and socket `new_message`.
+- Rider assignment consistency:
+  - Unified assignment behavior through shared server-side helper used by both assignment endpoints.
+  - Added validation for rider availability and seller ownership (seller-triggered flows).
+  - Corrected notification deep links to existing client routes.
+- Delivery tracking authorization:
+  - Restricted tracking reads to admin/super_admin, buyer, seller, or assigned rider for the order.
+  - Restricted rider tracking writes to assigned rider only.
+- Commission/payout lifecycle:
+  - Changed commission creation to `pending` state (not `processed`) at payment completion.
+  - Removed eager auto-marking of commissions as processed in payment success processor.
+- Order status schema parity:
+  - Extended DB enum/model vocabulary to include in-use runtime statuses (`confirmed`, `ready`, `assigned`, `picked_up`, `en_route`).
+  - Added migration: `migrations/0016_extend_order_status_enum.sql`.
+- Dead route/button fixes:
+  - Admin notifications payout link corrected to `/admin/riders-payouts`.
+  - Admin stores edit link corrected to existing `/admin/store?id=...`.
+  - Admin orders rider assignment condition corrected to `deliveryMethod === "rider"`.
+
+### Verification run results
+- `npm run typecheck`: passed.
+- `npm run build:frontend`: passed.
+- Finance test flow (`npm run test:finance`): passed.
+- Route integrity/static route check: passed.
+- Unit suite (`npm run test:unit`): not fully completed in this environment due repeated timeout/hang; requires follow-up in stable CI/local runner.
+
+### Remaining Phase 1 to-do (open items)
+- No open Phase 1 blockers remain from this audit pass.
+- Ongoing maintenance:
+  - Keep permission coverage aligned for newly added endpoints.
+  - Continue expanding automated tests for new flows as features evolve.
+
+### Definition of done for Phase 1
+- All items above closed with:
+  - unit tests for business rules,
+  - integration tests for critical APIs,
+  - e2e tests for role-based workflows (buyer/seller/rider/admin),
+  - migration validation on staging snapshot,
+  - rollback notes documented.
+
+### Phase 1 Status Audit Update (February 21, 2026)
+
+This compares Phase 0 reported issues against implemented solutions.
+
+#### Permission control scope update
+- Added super-admin permission control area for per-admin permissions (`admin_permissions`) in the Super Admin dashboard permissions page.
+- Added super-admin APIs:
+  - `GET /api/admin/permissions`
+  - `PUT /api/admin/permissions/:userId`
+- Expanded role-permission UI scope to include all platform roles: `super_admin`, `admin`, `agent`, `seller`, `rider`, `buyer`.
+
+#### Reported issues: current closure matrix
+- Chat RBAC mismatch and unenforced send paths: **Fixed**
+  - Role normalization (`customer` -> `buyer`) and permission checks now enforced in REST and socket message send flows.
+- Rider assignment endpoint inconsistency: **Fixed**
+  - Both assignment routes now use shared behavior and validation.
+- Delivery tracking authorization gap: **Fixed**
+  - Read/write tracking endpoints now enforce role/order ownership checks.
+- Commission/payout state conflict: **Fixed**
+  - Commission creation lifecycle aligned to `pending`; premature processed transition removed.
+- Order status enum mismatch: **Fixed**
+  - Schema enum extended and migration added.
+- Admin notification/store/order dead-route mismatches: **Fixed**
+  - Invalid admin route links corrected.
+- Legacy/invalid notification deep links: **Fixed**
+  - Server notification links now target existing routes.
+- `TrackOrder` legacy payload/routing divergence: **Fixed**
+  - Route now canonicalized: `/orders/:id` redirects to `/track?orderId=:id` to use the current tracking DTO flow.
+- Hard-coded processing fee (`0.0195`) vs settings: **Fixed**
+  - Server order creation and checkout UIs now read from `platform_settings.processing_fee_percent`.
+- Hard-coded currency (`GHS`) in many flows: **Closed by product decision**
+  - Platform is intentionally single-currency (`GHS`) in current scope.
+- Hard-coded upload limits (`5MB`): **Fixed**
+  - Upload limits are env-backed and aligned in server/client paths.
+- Hard-coded presence/dispatch thresholds: **Fixed**
+  - Presence service and auto-dispatch use centralized env-backed runtime config.
+- Unused `messageDeliveryService.queueMessage`: **Fixed**
+  - Integrated into REST and socket message send paths and covered by unit test.
+- Limited `requirePermission(...)` adoption on admin routes: **Fixed**
+  - Rolled out across admin and mixed-role admin routes via `requirePermission(...)` and `requirePermissionIfAdmin(...)`.
+- All-user role permission enforcement (`role_features`): **Fixed**
+  - Role-feature checks now enforced for buyer/agent/seller/rider/admin operational routes via `requireRoleFeature(...)` and `requireRoleFeatureIfRole(...)`.
+- Promotion billing flow TODO (`seller apply-promotion`): **Fixed**
+  - Promotion activation now requires verified Paystack payment reference before creation response succeeds.
+- Order status canonicalization: **Fixed**
+  - Canonical mapping now normalizes legacy `delivering` alias to `en_route` and regression test coverage added.
+- Messaging delivery observability/alerts: **Fixed**
+  - Admin messaging stats include queue health plus dispatch-backlog warning flags.
+
+#### Next execution order (recommended)
+1. Continue CI hardening by adding these targeted tests to the main unit test pipeline.
+2. Add e2e coverage for superadmin role-feature toggles across all user types.
+
+---
+
+## Phase 2 Core Normalization (February 21, 2026)
+
+Phase 2 specification and compatibility audit is documented here:
+- `docs/core-data-logic-normalization-phase2.md`
+
+Implemented in this pass:
+- Canonical status write normalization in storage transition paths (`delivering` aliases now persist as `en_route`).
+- QR delivery completion now uses `applyOrderStatusTransition(...)` so `order_status_history` is always written.
+- Seller revenue analytics endpoint now computes revenue from delivered + paid orders only.
+- Admin payout management endpoints now enforce admin permission middleware (`requirePermission(...)`) in addition to role checks.

@@ -141,7 +141,7 @@ export default function AdminNotifications() {
         }
         break;
       case "payout":
-        navigate("/admin/payouts");
+        navigate("/admin/riders-payouts");
         break;
       default:
         break;

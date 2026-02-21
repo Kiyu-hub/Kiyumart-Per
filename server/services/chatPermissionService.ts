@@ -22,7 +22,7 @@
 
 interface User {
   id: string;
-  role: 'customer' | 'seller' | 'rider' | 'agent' | 'admin' | 'super_admin';
+  role: 'buyer' | 'seller' | 'rider' | 'agent' | 'admin' | 'super_admin' | 'customer';
 }
 
 interface Order {
@@ -47,13 +47,22 @@ const ACTIVE_ORDER_STATUSES = [
   'pending',
   'confirmed', 
   'processing',
+  'ready',
   'ready_for_pickup',
+  'assigned',
   'assigned_to_rider',
   'picked_up',
+  'en_route',
   'in_transit',
+  'delivering',
   'out_for_delivery',
   'arriving_soon',
 ];
+
+function normalizeRole(role: User["role"]): "buyer" | "seller" | "rider" | "agent" | "admin" | "super_admin" {
+  if (role === "customer") return "buyer";
+  return role;
+}
 
 class ChatPermissionService {
   private storage: StorageAdapter | null = null;
@@ -85,29 +94,32 @@ class ChatPermissionService {
       return { allowed: false, reason: 'User not found' };
     }
 
+    const initiatorRole = normalizeRole(initiator.role);
+    const targetRole = normalizeRole(target.role);
+
     // Admins and Super Admins can chat with anyone
-    if (initiator.role === 'admin' || initiator.role === 'super_admin') {
+    if (initiatorRole === 'admin' || initiatorRole === 'super_admin') {
       return { allowed: true, reason: 'Admin has full chat access' };
     }
 
     // Agents can chat with anyone (they are support)
-    if (initiator.role === 'agent') {
+    if (initiatorRole === 'agent') {
       return { allowed: true, reason: 'Agent can provide support to any user' };
     }
 
     // Everyone can message Agents for support
-    if (target.role === 'agent') {
+    if (targetRole === 'agent') {
       return { allowed: true, reason: 'Users can contact support agents' };
     }
 
     // Everyone can message Admins/Super_Admins
-    if (target.role === 'admin' || target.role === 'super_admin') {
+    if (targetRole === 'admin' || targetRole === 'super_admin') {
       return { allowed: true, reason: 'Users can contact administrators' };
     }
 
     // Role-specific rules
-    switch (initiator.role) {
-      case 'customer':
+    switch (initiatorRole) {
+      case 'buyer':
         return this.checkCustomerPermission(initiator.id, target);
       
       case 'seller':
@@ -134,7 +146,9 @@ class ChatPermissionService {
     }
 
     // Customer can chat with Sellers they have orders with
-    if (target.role === 'seller') {
+    const targetRole = normalizeRole(target.role);
+
+    if (targetRole === 'seller') {
       const activeOrder = await this.storage.getActiveOrderBetweenUsers(customerId, target.id);
       
       if (activeOrder && ACTIVE_ORDER_STATUSES.includes(activeOrder.status)) {
@@ -152,7 +166,7 @@ class ChatPermissionService {
     }
 
     // Customer can chat with Riders delivering their orders
-    if (target.role === 'rider') {
+    if (targetRole === 'rider') {
       const activeOrder = await this.storage.getActiveOrderBetweenUsers(customerId, target.id);
       
       if (activeOrder && ACTIVE_ORDER_STATUSES.includes(activeOrder.status)) {
@@ -170,7 +184,7 @@ class ChatPermissionService {
     }
 
     // Customers cannot directly message other customers
-    if (target.role === 'customer') {
+    if (targetRole === 'buyer') {
       return { 
         allowed: false, 
         reason: 'Direct messaging between customers is not available. Please contact support.' 
@@ -193,7 +207,9 @@ class ChatPermissionService {
     }
 
     // Seller can chat with Customers who have orders with them
-    if (target.role === 'customer') {
+    const targetRole = normalizeRole(target.role);
+
+    if (targetRole === 'buyer') {
       const activeOrder = await this.storage.getActiveOrderBetweenUsers(sellerId, target.id);
       
       if (activeOrder && ACTIVE_ORDER_STATUSES.includes(activeOrder.status)) {
@@ -211,7 +227,7 @@ class ChatPermissionService {
     }
 
     // Seller can chat with Riders handling their deliveries
-    if (target.role === 'rider') {
+    if (targetRole === 'rider') {
       const orders = await this.storage.getOrdersBySeller(sellerId);
       const activeOrderWithRider = orders.find(
         o => o.riderId === target.id && ACTIVE_ORDER_STATUSES.includes(o.status)
@@ -232,7 +248,7 @@ class ChatPermissionService {
     }
 
     // Sellers cannot directly message other sellers
-    if (target.role === 'seller') {
+    if (targetRole === 'seller') {
       return { 
         allowed: false, 
         reason: 'Direct messaging between sellers is not available. Please contact support.' 
@@ -254,8 +270,10 @@ class ChatPermissionService {
       return { allowed: false, reason: 'Service not initialized' };
     }
 
-    // Rider can chat with Customers whose orders they're delivering
-    if (target.role === 'customer') {
+    const targetRole = normalizeRole(target.role);
+
+    // Rider can chat with Buyers whose orders they're delivering
+    if (targetRole === 'buyer') {
       const activeOrder = await this.storage.getActiveOrderBetweenUsers(riderId, target.id);
       
       if (activeOrder && ACTIVE_ORDER_STATUSES.includes(activeOrder.status)) {
@@ -273,7 +291,7 @@ class ChatPermissionService {
     }
 
     // Rider can chat with Sellers whose orders they're picking up
-    if (target.role === 'seller') {
+    if (targetRole === 'seller') {
       const orders = await this.storage.getOrdersByRider(riderId);
       const activeOrderWithSeller = orders.find(
         o => o.sellerId === target.id && ACTIVE_ORDER_STATUSES.includes(o.status)
@@ -294,7 +312,7 @@ class ChatPermissionService {
     }
 
     // Riders cannot directly message other riders
-    if (target.role === 'rider') {
+    if (targetRole === 'rider') {
       return { 
         allowed: false, 
         reason: 'Direct messaging between riders is not available. Please contact support.' 
@@ -348,7 +366,7 @@ class ChatPermissionService {
 
     // Admins, Super Admins, and Agents never have chats terminated
     const privilegedRoles = ['admin', 'super_admin', 'agent'];
-    if (privilegedRoles.includes(user1.role) || privilegedRoles.includes(user2.role)) {
+    if (privilegedRoles.includes(normalizeRole(user1.role)) || privilegedRoles.includes(normalizeRole(user2.role))) {
       return { terminate: false };
     }
 

@@ -4,7 +4,19 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const userRoleEnum = pgEnum("user_role", ["super_admin", "admin", "seller", "buyer", "rider", "agent"]);
-export const orderStatusEnum = pgEnum("order_status", ["pending", "processing", "delivering", "delivered", "cancelled", "disputed"]);
+export const orderStatusEnum = pgEnum("order_status", [
+  "pending",
+  "confirmed",
+  "ready",
+  "processing",
+  "assigned",
+  "picked_up",
+  "en_route",
+  "delivering",
+  "delivered",
+  "cancelled",
+  "disputed",
+]);
 export const deliveryMethodEnum = pgEnum("delivery_method", ["pickup", "bus", "rider"]);
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "processing", "completed", "failed", "refunded"]);
 export const supportStatusEnum = pgEnum("support_status", ["open", "assigned", "resolved"]);

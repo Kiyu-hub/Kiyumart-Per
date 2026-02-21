@@ -20,6 +20,7 @@ interface PendingMessage {
   message: string;
   messageType: 'text' | 'media' | 'file' | 'location';
   mediaUrl?: string;
+  emitSenderAck?: boolean;
   retryCount: number;
   maxRetries: number;
   lastAttempt: Date;
@@ -60,6 +61,7 @@ class MessageDeliveryService {
     message: string;
     messageType?: 'text' | 'media' | 'file' | 'location';
     mediaUrl?: string;
+    emitSenderAck?: boolean;
   }): Promise<{ status: 'sent' | 'queued'; delivered: boolean }> {
     const receiverPresence = presenceService.getPresence(message.receiverId);
     const isOnline = receiverPresence?.status === 'online';
@@ -71,6 +73,7 @@ class MessageDeliveryService {
       message: message.message,
       messageType: message.messageType || 'text',
       mediaUrl: message.mediaUrl,
+      emitSenderAck: message.emitSenderAck !== false,
       retryCount: 0,
       maxRetries: MAX_RETRIES,
       lastAttempt: new Date(),
@@ -124,12 +127,14 @@ class MessageDeliveryService {
         createdAt: message.createdAt.toISOString(),
       });
 
-      // Also emit to sender to confirm send
-      this.io.to(message.senderId).emit('message_sent', {
-        messageId: message.id,
-        status: 'sent',
-        timestamp: new Date().toISOString(),
-      });
+      if (message.emitSenderAck !== false) {
+        // Also emit to sender to confirm send
+        this.io.to(message.senderId).emit('message_sent', {
+          messageId: message.id,
+          status: 'sent',
+          timestamp: new Date().toISOString(),
+        });
+      }
 
       message.status = 'sent';
       message.lastAttempt = new Date();

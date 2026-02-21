@@ -9,6 +9,7 @@
  */
 
 import { Server as SocketIOServer, Socket } from "socket.io";
+import { runtimeConfig } from "../config/runtimeConfig";
 
 interface UserPresence {
   userId: string;
@@ -23,9 +24,10 @@ interface UserPresence {
 const presenceStore = new Map<string, UserPresence>();
 
 // Configuration
-const HEARTBEAT_INTERVAL = 8000; // 8 seconds
-const HEARTBEAT_TIMEOUT = 15000; // 15 seconds until marked offline
-const AWAY_THRESHOLD = 60000; // 1 minute until marked away (before offline)
+const HEARTBEAT_INTERVAL = runtimeConfig.presence.heartbeatIntervalMs;
+const HEARTBEAT_TIMEOUT = runtimeConfig.presence.heartbeatTimeoutMs;
+const AWAY_THRESHOLD = runtimeConfig.presence.awayThresholdMs;
+const CLEANUP_INTERVAL_MS = runtimeConfig.presence.cleanupIntervalMs;
 
 class PresenceService {
   private io: SocketIOServer | null = null;
@@ -217,7 +219,7 @@ class PresenceService {
           console.log(`[PRESENCE] User ${userId} marked away`);
         }
       }
-    }, 5000); // Check every 5 seconds
+    }, CLEANUP_INTERVAL_MS);
   }
 
   /**

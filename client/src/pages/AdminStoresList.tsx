@@ -406,7 +406,7 @@ export default function AdminStoresList() {
                           <Button 
                             variant="ghost" 
                             size="icon"
-                            onClick={() => navigate(`/admin/stores/${store.id}/edit`)}
+                            onClick={() => navigate(`/admin/store?id=${store.id}`)}
                             data-testid={`button-edit-${store.id}`}
                           >
                             <Edit className="h-4 w-4" />

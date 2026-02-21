@@ -209,7 +209,7 @@ function ViewOrderDialog({
               </div>
             </div>
 
-            {orderDetails.deliveryMethod === "delivery" && (
+            {orderDetails.deliveryMethod === "rider" && (
               <div className="border-t pt-4">
                 <p className="text-sm font-medium text-muted-foreground mb-2">Assign Rider</p>
                 <Select

@@ -2,7 +2,7 @@
 
 **Purpose:** Central hub for all KiyuMart project documentation  
 **Created:** January 23, 2026  
-**Updated:** February 10, 2026  
+**Updated:** February 21, 2026  
 **For:** Developers, AI models, DevOps engineers, project managers
 
 ---
@@ -46,6 +46,11 @@ This project has comprehensive documentation for every aspect of the platform. C
   - Frontend/backend structure
   - Security layers
   - Performance considerations
+- [docs/core-data-logic-normalization-phase2.md](./docs/core-data-logic-normalization-phase2.md)
+  - Canonical order lifecycle definition
+  - Revenue trigger and KPI spec
+  - Role permission matrix
+  - Resource-aware compatibility audit table
 
 **Code Organization:**
 - [README.md](./README.md) - Project overview
@@ -142,6 +147,15 @@ This project has comprehensive documentation for every aspect of the platform. C
 **Endpoint Quick Reference:**
 - [QUICK_START.md](./QUICK_START.md#key-endpoints-most-common) - Most common endpoints
 - [ARCHITECTURE.md](./ARCHITECTURE.md#restful-endpoints-structure) - Full endpoint list
+- [README.md](./README.md#phase-1-remediation-tracker-february-21-2026) - Latest remediation status and API/security updates
+
+**Recent API Additions (Phase 1):**
+- `GET /api/admin/permissions` - Load per-admin permission configuration
+- `PUT /api/admin/permissions/:userId` - Update per-admin permission flags/limits
+- Role feature enforcement middleware now applies to operational routes for all user types:
+  - `requireRoleFeature(...)`
+  - `requireRoleFeatureIfRole(...)`
+- Seller promotion application now enforces verified payment reference before activation.
 
 **Example Usage:**
 - [DEVELOPMENT.md](./DEVELOPMENT.md#task-add-a-new-api-endpoint) - API endpoint example with full code

@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-02-21 (v1.1.8)
+
+### Phase 1 Remediation Progress
+- **Security/RBAC:** Added super-admin managed per-admin permission APIs and UI controls
+  - `GET /api/admin/permissions`
+  - `PUT /api/admin/permissions/:userId`
+  - Expanded Super Admin permissions page to cover all roles and per-admin permission flags/limits
+- **Authorization Hardening:** Applied `requirePermission(...)` checks to high-risk admin routes
+  - user management
+  - finance/payout visibility routes
+  - settings mutation/import routes
+  - categories and dispatch control routes
+- **Order Tracking Unification:** Reworked legacy `/orders/:id` tracking page to canonical redirect to `/track?orderId=...`
+- **Messaging Reliability:** Integrated `messageDeliveryService.queueMessage` into primary REST/socket send paths
+- **Role Features Enforcement:** Added and applied `requireRoleFeature(...)` / `requireRoleFeatureIfRole(...)` so super-admin managed role permissions are enforced for all user types (buyer, agent, seller, rider, admin)
+- **Promotion Billing Enforcement:** Seller promotion applications now require successful Paystack reference verification before activation
+- **Order State Canonicalization:** Legacy `delivering` alias now normalizes to canonical `en_route` with regression test
+- **Order Audit Log Integrity:** QR delivery completion route now transitions through the state machine, guaranteeing `order_status_history` writes
+- **Revenue KPI Normalization:** Seller sales analytics now counts revenue from delivered + paid orders only
+- **Admin Payout RBAC Hardening:** `/api/admin/payouts/pending` and `/api/admin/payouts/:id` now enforce permission middleware
+- **Ops Alerts:** Admin messaging stats now include queue/backlog warning flags using configurable thresholds
+- **Phase 2 Documentation:** Added `docs/core-data-logic-normalization-phase2.md` (status spec, revenue spec, permission matrix, compatibility audit)
+- **Config Externalization (in progress):**
+  - server upload limits now env-backed (`PROFILE_IMAGE_MAX_BYTES`, `AUDIO_UPLOAD_MAX_BYTES`, `SUPPORT_MEDIA_MAX_BYTES`)
+  - auto-dispatch threshold now env-backed (`AUTO_DISPATCH_MINUTES`)
+  - presence service thresholds now env-backed (`PRESENCE_*`)
+- **Pricing Consistency:** Processing fee in server order creation and checkout UI now reads `platform_settings.processing_fee_percent`
+
+### Verification
+- `npm run typecheck` passed
+- `npm run build:frontend` passed
+- `server/__tests__/message-delivery-service.test.ts` passed
+- `server/__tests__/auth-permission-if-admin.test.ts` passed
+
+---
+
 ## 2026-02-10 (v1.1.7)
 
 ### Cart Variant Image Display Fix

@@ -418,10 +418,12 @@ export class DbStorage implements IStorage {
   }
 
   async updateOrderStatus(id: string, status: string): Promise<Order | undefined> {
+    const { canonicalizeOrderStatus } = await import("./services/orderStateMachine");
+    const normalizedStatus = canonicalizeOrderStatus(status);
     const result = await db.update(orders).set({ 
-      status: status as any,
+      status: normalizedStatus as any,
       updatedAt: new Date(),
-      ...(status === "delivered" ? { deliveredAt: new Date() } : {})
+      ...(normalizedStatus === "delivered" ? { deliveredAt: new Date() } : {})
     }).where(eq(orders.id, id)).returning();
     return result[0];
   }
@@ -454,11 +456,12 @@ export class DbStorage implements IStorage {
 
         // CRITICAL: Validate transition INSIDE transaction with locked order state
         // This prevents validation on stale data
-        const { assertCanTransition, getTransitionSideEffects } = await import("./services/orderStateMachine");
+        const { assertCanTransition, getTransitionSideEffects, canonicalizeOrderStatus } = await import("./services/orderStateMachine");
+        const normalizedStatus = canonicalizeOrderStatus(toStatus);
 
         const transitionResult = assertCanTransition({
           order: currentOrder, // Use locked order state
-          targetStatus: toStatus as any,
+          targetStatus: normalizedStatus as any,
           actorId: changedBy,
           actorRole: changedByRole as any,
           reason,
@@ -474,11 +477,11 @@ export class DbStorage implements IStorage {
         }
 
         // Compute side effects based on locked order state
-        const sideEffects = getTransitionSideEffects(currentOrder, toStatus as any);
+        const sideEffects = getTransitionSideEffects(currentOrder, normalizedStatus as any);
 
         // Apply status change with side effects
         const result = await tx.update(orders).set({
-          status: toStatus as any,
+          status: normalizedStatus as any,
           updatedAt: new Date(),
           ...sideEffects,
         })
@@ -495,7 +498,7 @@ export class DbStorage implements IStorage {
         await tx.insert(orderStatusHistory).values({
           orderId,
           fromStatus: fromStatus as any,
-          toStatus: toStatus as any,
+          toStatus: normalizedStatus as any,
           changedBy,
           changedByRole: changedByRole as any,
           reason,
@@ -943,7 +946,8 @@ export class DbStorage implements IStorage {
       const commissionAmountDecimal = (commissionAmountCents / 100).toFixed(2);
       const sellerAmountDecimal = (sellerAmountCents / 100).toFixed(2);
 
-      // Step 5: Create commission record with processedAt timestamp
+      // Step 5: Create commission record.
+      // Keep as pending until payout workflow consumes it.
       const [commission] = await tx.insert(commissions).values({
         orderId: order.id,
         sellerId: order.sellerId,
@@ -952,8 +956,8 @@ export class DbStorage implements IStorage {
         commissionAmount: commissionAmountDecimal,
         sellerAmount: sellerAmountDecimal,
         platformAmount: commissionAmountDecimal, // Same as commission amount
-        status: "processed", // Auto-mark processed on successful payment
-        processedAt: new Date(), // Set when commission is calculated
+        status: "pending",
+        processedAt: null,
       } as any).returning();
 
       // Step 6: Create linked platform earning
