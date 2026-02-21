@@ -186,7 +186,8 @@ export default function DashboardSidebar({
     },
     // Use cached value if present
     initialData: () => queryClient.getQueryData(["/api/auth/me"]),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
   });
 
   const visibleItems = (() => {
