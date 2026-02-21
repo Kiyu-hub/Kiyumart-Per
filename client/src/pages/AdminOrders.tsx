@@ -316,6 +316,17 @@ export default function AdminOrders() {
     refetchInterval: 30000, // Refetch every 30 seconds as fallback
   });
 
+  const { data: analytics } = useQuery<{ totalRevenue?: number }>({
+    queryKey: ["/api/analytics"],
+    queryFn: async () => {
+      const res = await fetch("/api/analytics", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch analytics");
+      return res.json();
+    },
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchInterval: 30000,
+  });
+
   // Socket.IO real-time updates
   useEffect(() => {
     if (!socket) return;
@@ -374,12 +385,10 @@ export default function AdminOrders() {
       enRoute: allOrders.filter(o => ["en_route", "picked_up"].includes(normalize(o.status))).length,
       delivered: allOrders.filter(o => normalize(o.status) === "delivered").length,
       cancelled: allOrders.filter(o => normalize(o.status) === "cancelled").length,
-      totalRevenue: allOrders
-        .filter(o => normalizePaymentStatus(o.paymentStatus) === "paid")
-        .reduce((sum, o) => sum + parseFloat(o.total || "0"), 0),
+      totalRevenue: Number(analytics?.totalRevenue || 0),
       todayOrders: allOrders.filter(o => new Date(o.createdAt) >= today).length,
     };
-  }, [allOrders]);
+  }, [allOrders, analytics?.totalRevenue]);
 
   // Separate admin's personal orders (where admin is the buyer)
   const myOrders = useMemo(() => 
