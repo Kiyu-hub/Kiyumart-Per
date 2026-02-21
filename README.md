@@ -6,7 +6,7 @@
 >
 > A **fully functional, production-ready local marketplace platform** enabling small businesses, artisans, and entrepreneurs to sell their products to local and regional customers. Multi-vendor support, comprehensive admin management, real-time order tracking, and secure payment processing.
 > 
-> **Version:** 1.1.8 (Phase 2 Messaging & Support Upgrade)  
+> **Version:** 1.1.9 (Phase 2 Zone Soft-Matching Upgrade)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
 > **Last Updated:** February 21, 2026
 > 
@@ -22,6 +22,7 @@
 - [Phase 2 Messaging Update (February 21, 2026)](#phase-2-messaging-update-february-21-2026)
 - [Phase 2 Order Flow & Sync Update (February 21, 2026)](#phase-2-order-flow--sync-update-february-21-2026)
 - [Phase 2 Rider Assignment & Delivery Update (February 21, 2026)](#phase-2-rider-assignment--delivery-update-february-21-2026)
+- [Phase 2 Zone Soft-Matching Update (February 21, 2026)](#phase-2-zone-soft-matching-update-february-21-2026)
 - [Features](#features)
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
@@ -93,6 +94,30 @@ To be the leading online marketplace platform for local businesses, connecting q
   - `searching_rider`, `rider_arrived`, `in_transit`, `completed`
 - Cost guarantee preserved: no paid APIs/services introduced.
 - Full implementation notes/spec: [docs/rider-assignment-phase2.md](./docs/rider-assignment-phase2.md)
+
+## Phase 2 Zone Soft-Matching Update (February 21, 2026)
+
+- Upgraded rider matching to Uber-style soft-zone behavior without breaking existing zone data.
+- Zone is now a ranking preference signal, not a hard eligibility filter.
+- Rider matching remains backend-only and deterministic:
+  - Primary: availability + Haversine distance
+  - Secondary: same-zone boost only when distance delta is small
+- Added dynamic assignment radius expansion:
+  - `3km -> 5km -> 8km`
+  - Existing assignment flow and APIs remain backward compatible.
+- Added rider profile zone metadata for better matching:
+  - `users.rider_city`
+  - `users.rider_region`
+  - `users.delivery_zone_id`
+- Extended delivery zone metadata (non-breaking):
+  - `delivery_zones.type` (`city`/`region`)
+  - `delivery_zones.city`
+  - `delivery_zones.region`
+- Rider application form now captures `City` and `Region`, and backend performs best-effort zone mapping.
+- Added migration:
+  - `migrations/0020_soft_zone_upgrade.sql`
+- Cost guarantee preserved: no paid APIs/services introduced.
+- Full implementation notes/spec: [docs/zone-soft-matching-phase2.md](./docs/zone-soft-matching-phase2.md)
 
 ---
 

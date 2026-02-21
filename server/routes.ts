@@ -42,8 +42,10 @@ const AUDIO_UPLOAD_MAX_BYTES = runtimeConfig.upload.audioMaxBytes;
 const SUPPORT_MEDIA_MAX_BYTES = runtimeConfig.upload.supportMediaMaxBytes;
 const AUTO_DISPATCH_MINUTES = runtimeConfig.dispatch.autoDispatchMinutes;
 const RIDER_OFFER_TIMEOUT_MS = 12_000;
-const RIDER_MATCH_RADIUS_KM = 5;
+const RIDER_MATCH_RADIUS_STEPS_KM = [3, 5, 8] as const;
 const RIDER_MATCH_LIMIT = 5;
+const SOFT_ZONE_DISTANCE_MARGIN_KM = 1;
+const ENABLE_SOFT_ZONE_MATCH = process.env.ENABLE_SOFT_ZONE_MATCH !== "false";
 
 type RiderAssignmentAttemptStatus = "offered" | "accepted" | "rejected" | "timed_out" | "failed";
 
@@ -1598,6 +1600,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Build properly typed user data
       const userData: any = { ...rawUserData };
+      userData.riderCity = typeof rawUserData.riderCity === "string" ? rawUserData.riderCity.trim() : undefined;
+      userData.riderRegion = typeof rawUserData.riderRegion === "string" ? rawUserData.riderRegion.trim() : undefined;
+      if (!userData.riderCity || !userData.riderRegion) {
+        const address = String(rawUserData.businessAddress || "").trim();
+        if (address) {
+          const parts = address.split(",").map((part: string) => part.trim()).filter(Boolean);
+          if (!userData.riderCity && parts[0]) userData.riderCity = parts[0];
+          if (!userData.riderRegion && parts[1]) userData.riderRegion = parts[1];
+        }
+      }
+      if (!userData.riderCity || String(userData.riderCity).length < 2) {
+        return res.status(400).json({ error: "City is required for rider applications" });
+      }
+      if (!userData.riderRegion || String(userData.riderRegion).length < 2) {
+        return res.status(400).json({ error: "Region is required for rider applications" });
+      }
 
       // Validate and normalize vehicle information using vehicleInfoSchema
       if (rawUserData.vehicleInfo) {
@@ -1632,6 +1650,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         userData.vehicleInfo = parsedVehicle.data as { type: string; plateNumber?: string; license?: string; color?: string };
+      }
+
+      // Best-effort zone mapping from rider city/region.
+      if (!userData.deliveryZoneId) {
+        const zones = await storage.getDeliveryZones();
+        const city = normalizeZoneText(userData.riderCity);
+        const region = normalizeZoneText(userData.riderRegion);
+        if (city) {
+          const matchedCityZone = zones.find((z: any) =>
+            normalizeZoneText(z.city) === city || normalizeZoneText(z.name) === city
+          );
+          if (matchedCityZone) userData.deliveryZoneId = matchedCityZone.id;
+        }
+        if (!userData.deliveryZoneId && region) {
+          const matchedRegionZone = zones.find((z: any) =>
+            normalizeZoneText(z.region) === region || normalizeZoneText(z.name) === region
+          );
+          if (matchedRegionZone) userData.deliveryZoneId = matchedRegionZone.id;
+        }
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -3652,6 +3689,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     riderName: string;
     rating: number;
     distanceKm: number | null;
+    zoneId: string | null;
+    zoneMatched: boolean;
   };
 
   type PendingRiderAssignment = {
@@ -3662,6 +3701,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     candidates: RiderMatchCandidate[];
     attempts: RiderAssignmentAttempt[];
     currentCandidateIndex: number;
+    currentRadiusKm: number;
+    currentRadiusIndex: number;
+    attemptedRiderIds: string[];
     currentRiderId: string | null;
     expiresAt: string | null;
     timer: NodeJS.Timeout | null;
@@ -3712,7 +3754,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return { lat, lng };
   };
 
-  const getRiderMatchCandidates = async (order: any): Promise<RiderMatchCandidate[]> => {
+  const normalizeZoneText = (value?: string | null) => (value || "").toLowerCase().trim();
+
+  const resolveZoneByRiderProfile = (rider: any, zones: any[]): string | null => {
+    if (rider.deliveryZoneId) return String(rider.deliveryZoneId);
+    const riderCity = normalizeZoneText(rider.riderCity);
+    const riderRegion = normalizeZoneText(rider.riderRegion);
+    if (riderCity) {
+      const cityZone = zones.find((z) => normalizeZoneText(z.city) === riderCity || normalizeZoneText(z.name) === riderCity);
+      if (cityZone) return String(cityZone.id);
+    }
+    if (riderRegion) {
+      const regionZone = zones.find((z) => normalizeZoneText(z.region) === riderRegion || normalizeZoneText(z.name) === riderRegion);
+      if (regionZone) return String(regionZone.id);
+    }
+    return null;
+  };
+
+  const resolveZoneByOrder = (order: any, zones: any[]): string | null => {
+    if (order.deliveryZoneId) return String(order.deliveryZoneId);
+    const city = normalizeZoneText(order.deliveryCity);
+    if (city) {
+      const cityZone = zones.find((z) => normalizeZoneText(z.city) === city || normalizeZoneText(z.name) === city);
+      if (cityZone) return String(cityZone.id);
+    }
+    return null;
+  };
+
+  const getRiderMatchCandidates = async (order: any, radiusKm: number, excludedRiderIds: string[] = []): Promise<RiderMatchCandidate[]> => {
     const allRiders = await storage.getUsersByRole("rider");
     const activeRiders = allRiders.filter((r: any) => r.isApproved && r.isActive);
     if (activeRiders.length === 0) return [];
@@ -3724,10 +3793,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .map((o: any) => o.riderId)
     );
 
-    const availableRiders = activeRiders.filter((r: any) => !ridersOnDelivery.has(r.id));
+    const excludedSet = new Set(excludedRiderIds);
+    const availableRiders = activeRiders.filter((r: any) => !ridersOnDelivery.has(r.id) && !excludedSet.has(r.id));
     if (availableRiders.length === 0) return [];
 
+    const zones = await storage.getDeliveryZones();
     const orderLocation = getOrderLocationForMatching(order);
+    const resolvedOrderZoneId = resolveZoneByOrder(order, zones);
     const riderLocations = await Promise.all(
       availableRiders.map(async (rider: any) => ({
         rider,
@@ -3748,19 +3820,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           riderName: rider.name,
           rating: toFiniteNumber(rider.ratings) ?? 0,
           distanceKm,
+          zoneId: resolveZoneByRiderProfile(rider, zones),
+          zoneMatched: false,
         };
       })
-      .filter((candidate) => candidate.distanceKm === null || candidate.distanceKm <= RIDER_MATCH_RADIUS_KM)
+      .filter((candidate) => candidate.distanceKm === null || candidate.distanceKm <= radiusKm);
+
+    const minDistance = candidates.reduce((min, c) => {
+      if (c.distanceKm === null) return min;
+      return Math.min(min, c.distanceKm);
+    }, Number.MAX_SAFE_INTEGER);
+
+    const rankedCandidates = candidates
+      .map((candidate) => ({
+        ...candidate,
+        zoneMatched:
+          ENABLE_SOFT_ZONE_MATCH &&
+          !!resolvedOrderZoneId &&
+          !!candidate.zoneId &&
+          String(candidate.zoneId) === String(resolvedOrderZoneId) &&
+          (candidate.distanceKm === null || candidate.distanceKm <= minDistance + SOFT_ZONE_DISTANCE_MARGIN_KM),
+      }))
       .sort((a, b) => {
         const distanceA = a.distanceKm === null ? Number.MAX_SAFE_INTEGER : a.distanceKm;
         const distanceB = b.distanceKm === null ? Number.MAX_SAFE_INTEGER : b.distanceKm;
+        if (a.zoneMatched !== b.zoneMatched) return a.zoneMatched ? -1 : 1;
         if (distanceA !== distanceB) return distanceA - distanceB;
         if (a.rating !== b.rating) return b.rating - a.rating;
         return a.riderId.localeCompare(b.riderId);
       })
       .slice(0, RIDER_MATCH_LIMIT);
 
-    return candidates;
+    return rankedCandidates;
   };
 
   const emitRiderAssignmentFailure = async (order: any, reason: string, attempts: RiderAssignmentAttempt[]) => {
@@ -3795,7 +3886,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return;
     }
 
-    const nextCandidate = pending.candidates[pending.currentCandidateIndex];
+    let nextCandidate = pending.candidates[pending.currentCandidateIndex];
+    while (!nextCandidate && pending.currentRadiusIndex < RIDER_MATCH_RADIUS_STEPS_KM.length - 1) {
+      pending.currentRadiusIndex += 1;
+      pending.currentRadiusKm = RIDER_MATCH_RADIUS_STEPS_KM[pending.currentRadiusIndex];
+      pending.candidates = await getRiderMatchCandidates(order, pending.currentRadiusKm, pending.attemptedRiderIds);
+      pending.currentCandidateIndex = 0;
+      nextCandidate = pending.candidates[pending.currentCandidateIndex];
+    }
+
     if (!nextCandidate) {
       pending.lastError = "No available riders accepted the offer";
       pending.currentRiderId = null;
@@ -3805,6 +3904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     pending.currentCandidateIndex += 1;
+    pending.attemptedRiderIds.push(nextCandidate.riderId);
     pending.currentRiderId = nextCandidate.riderId;
     pending.expiresAt = new Date(Date.now() + RIDER_OFFER_TIMEOUT_MS).toISOString();
 
@@ -3812,6 +3912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       riderId: nextCandidate.riderId,
       riderName: nextCandidate.riderName,
       distanceKm: nextCandidate.distanceKm,
+      reason: nextCandidate.zoneMatched ? "Same-zone preferred offer" : undefined,
       offeredAt: new Date().toISOString(),
       status: "offered",
     });
@@ -3825,6 +3926,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       estimatedPayout: order.deliveryFee,
       currency: order.currency || "GHS",
       expiresAt: pending.expiresAt,
+      radiusKm: pending.currentRadiusKm,
+      zoneMatched: nextCandidate.zoneMatched,
     };
 
     io.to(nextCandidate.riderId).emit("rider_assignment_offer", payload);
@@ -3872,7 +3975,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.applyOrderStatusTransition(order.id, "searching_rider", actorId, actorRole, "auto_rider_matching_started");
     }
 
-    const candidates = await getRiderMatchCandidates(order);
+    const initialRadiusKm = RIDER_MATCH_RADIUS_STEPS_KM[0];
+    const candidates = await getRiderMatchCandidates(order, initialRadiusKm);
     const pending: PendingRiderAssignment = {
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -3881,6 +3985,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       candidates,
       attempts: [],
       currentCandidateIndex: 0,
+      currentRadiusKm: initialRadiusKm,
+      currentRadiusIndex: 0,
+      attemptedRiderIds: [],
       currentRiderId: null,
       expiresAt: null,
       timer: null,
@@ -5145,11 +5252,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get available riders for dispatch (approved, active, not currently on delivery)
   app.get("/api/admin/available-riders", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
     try {
-      const { orderLat, orderLng } = req.query;
+      const { orderLat, orderLng, orderZoneId } = req.query;
       
       // Get all approved and active riders
       const allRiders = await storage.getUsersByRole("rider");
       const activeRiders = allRiders.filter(r => r.isApproved && r.isActive);
+      const zones = await storage.getDeliveryZones();
       
       // Get orders currently being delivered
       const allOrders = await storage.getAllOrders();
@@ -5182,12 +5290,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
               email: rider.email,
               phone: rider.phone,
               isAvailable: true,
+              zoneId: resolveZoneByRiderProfile(rider, zones),
+              zoneMatched:
+                ENABLE_SOFT_ZONE_MATCH &&
+                !!orderZoneId &&
+                String(resolveZoneByRiderProfile(rider, zones) || "") === String(orderZoneId),
               distanceToOrder,
             };
           })
       );
 
       availableRiders.sort((a, b) => {
+        if ((a as any).zoneMatched !== (b as any).zoneMatched) {
+          return (a as any).zoneMatched ? -1 : 1;
+        }
         const distanceA = typeof a.distanceToOrder === "number" ? a.distanceToOrder : Number.MAX_SAFE_INTEGER;
         const distanceB = typeof b.distanceToOrder === "number" ? b.distanceToOrder : Number.MAX_SAFE_INTEGER;
         if (distanceA !== distanceB) return distanceA - distanceB;
@@ -5509,6 +5625,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       expiresAt: entry.expiresAt,
       currentRiderId: entry.currentRiderId,
       currentCandidateIndex: entry.currentCandidateIndex,
+      currentRadiusKm: entry.currentRadiusKm,
       candidateCount: entry.candidates.length,
       attempts: entry.attempts,
       lastError: entry.lastError || null,

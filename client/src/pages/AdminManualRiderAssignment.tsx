@@ -63,7 +63,9 @@ interface AvailableRider {
 interface DeliveryZone {
   id: string;
   name: string;
-  city: string;
+  city?: string | null;
+  region?: string | null;
+  type?: "city" | "region";
   isActive: boolean;
 }
 
@@ -916,7 +918,7 @@ export default function AdminManualRiderAssignment() {
                       <div className="flex items-center justify-between mb-3">
                         <div>
                           <h4 className="font-semibold">{zone.name}</h4>
-                          <p className="text-sm text-muted-foreground">{zone.city}</p>
+                          <p className="text-sm text-muted-foreground">{zone.city || zone.region || "Not specified"}</p>
                         </div>
                         <Badge variant={zone.isActive ? "default" : "secondary"}>
                           {zone.isActive ? "Active" : "Inactive"}

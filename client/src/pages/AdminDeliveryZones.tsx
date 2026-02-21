@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
@@ -35,6 +36,9 @@ import { Loader2, Plus, Edit, Trash2, MapPin } from "lucide-react";
 
 const zoneSchema = z.object({
   name: z.string().min(1, "Zone name is required"),
+  type: z.enum(["city", "region"]).default("city"),
+  city: z.string().optional(),
+  region: z.string().optional(),
   fee: z.string().refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) >= 0, {
     message: "Fee must be a positive number",
   }),
@@ -46,6 +50,9 @@ type ZoneFormData = z.infer<typeof zoneSchema>;
 interface DeliveryZone {
   id: string;
   name: string;
+  type?: "city" | "region";
+  city?: string | null;
+  region?: string | null;
   fee: string;
   isActive: boolean;
   createdAt: string;
@@ -74,6 +81,9 @@ export default function AdminDeliveryZones() {
     resolver: zodResolver(zoneSchema),
     defaultValues: {
       name: "",
+      type: "city",
+      city: "",
+      region: "",
       fee: "0",
       isActive: true,
     },
@@ -159,6 +169,9 @@ export default function AdminDeliveryZones() {
     setEditingZone(zone);
     form.reset({
       name: zone.name,
+      type: (zone.type as "city" | "region") || "city",
+      city: zone.city || "",
+      region: zone.region || "",
       fee: zone.fee,
       isActive: zone.isActive,
     });
@@ -169,6 +182,9 @@ export default function AdminDeliveryZones() {
     setEditingZone(null);
     form.reset({
       name: "",
+      type: "city",
+      city: "",
+      region: "",
       fee: "0",
       isActive: true,
     });
@@ -231,6 +247,42 @@ export default function AdminDeliveryZones() {
                         {form.formState.errors.name.message}
                       </p>
                     )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="type">Zone Type</Label>
+                      <Select
+                        value={form.watch("type")}
+                        onValueChange={(value) => form.setValue("type", value as "city" | "region")}
+                      >
+                        <SelectTrigger data-testid="select-zone-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="city">City</SelectItem>
+                          <SelectItem value="region">Region</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="city">City</Label>
+                      <Input
+                        id="city"
+                        {...form.register("city")}
+                        placeholder="Accra"
+                        data-testid="input-zone-city"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="region">Region</Label>
+                      <Input
+                        id="region"
+                        {...form.register("region")}
+                        placeholder="Greater Accra"
+                        data-testid="input-zone-region"
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -315,6 +367,8 @@ export default function AdminDeliveryZones() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Zone Name</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>City/Region</TableHead>
                     <TableHead>Delivery Fee</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -324,6 +378,8 @@ export default function AdminDeliveryZones() {
                   {zones.map((zone) => (
                     <TableRow key={zone.id} data-testid={`row-zone-${zone.id}`}>
                       <TableCell className="font-medium">{zone.name}</TableCell>
+                      <TableCell className="capitalize">{zone.type || "city"}</TableCell>
+                      <TableCell>{zone.city || zone.region || "-"}</TableCell>
                       <TableCell>{formatPrice(parseFloat(zone.fee))}</TableCell>
                       <TableCell>
                         <span

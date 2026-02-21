@@ -595,6 +595,9 @@ export class DbStorage implements IStorage {
     const normalizedZone = {
       ...validatedZone,
       name: validatedZone.name.trim(),
+      type: (validatedZone.type || "city").toLowerCase(),
+      city: validatedZone.city?.trim() || null,
+      region: validatedZone.region?.trim() || null,
       fee: validatedZone.fee.toString(), // Convert number to string for database
     };
     
@@ -664,6 +667,24 @@ export class DbStorage implements IStorage {
       }
       
       updateData.name = trimmedName;
+    }
+
+    if (data.type !== undefined) {
+      const normalizedType = String(data.type || "").toLowerCase();
+      if (!["city", "region"].includes(normalizedType)) {
+        const error = new Error("Zone type must be either city or region");
+        (error as any).code = "INVALID_ZONE_TYPE";
+        throw error;
+      }
+      updateData.type = normalizedType as any;
+    }
+
+    if (data.city !== undefined) {
+      updateData.city = (data.city || "").trim() || null;
+    }
+
+    if (data.region !== undefined) {
+      updateData.region = (data.region || "").trim() || null;
     }
     
     // Copy over other fields that don't need validation

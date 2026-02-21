@@ -28,6 +28,8 @@ const becomeRiderSchema = z.discriminatedUnion("vehicleType", [
     ghanaCardBack: z.string().min(1, "Ghana Card back image is required"),
     nationalIdCard: z.string().min(10, "Ghana Card number is required"),
     businessAddress: z.string().min(5, "Address/Location is required"),
+    riderCity: z.string().min(2, "City is required"),
+    riderRegion: z.string().min(2, "Region is required"),
     vehicleType: z.literal("car"),
     vehicleNumber: z.string().min(1, "Plate number is required for cars"),
     licenseNumber: z.string().min(1, "Driver's license is required for cars"),
@@ -43,6 +45,8 @@ const becomeRiderSchema = z.discriminatedUnion("vehicleType", [
     ghanaCardBack: z.string().min(1, "Ghana Card back image is required"),
     nationalIdCard: z.string().min(10, "Ghana Card number is required"),
     businessAddress: z.string().min(5, "Address/Location is required"),
+    riderCity: z.string().min(2, "City is required"),
+    riderRegion: z.string().min(2, "Region is required"),
     vehicleType: z.literal("motorcycle"),
     vehicleNumber: z.string().min(1, "Plate number is required for motorcycles"),
     licenseNumber: z.string().min(1, "Driver's license is required for motorcycles"),
@@ -58,6 +62,8 @@ const becomeRiderSchema = z.discriminatedUnion("vehicleType", [
     ghanaCardBack: z.string().min(1, "Ghana Card back image is required"),
     nationalIdCard: z.string().min(10, "Ghana Card number is required"),
     businessAddress: z.string().min(5, "Address/Location is required"),
+    riderCity: z.string().min(2, "City is required"),
+    riderRegion: z.string().min(2, "Region is required"),
     vehicleType: z.literal("bicycle"),
     vehicleNumber: z.string().optional(),
     licenseNumber: z.string().optional(),
@@ -89,6 +95,8 @@ export default function BecomeRiderPage() {
       ghanaCardBack: "",
       nationalIdCard: "",
       businessAddress: "",
+      riderCity: "",
+      riderRegion: "",
       vehicleType: undefined,
       vehicleNumber: "",
       licenseNumber: "",
@@ -102,6 +110,8 @@ export default function BecomeRiderPage() {
       if (user.name) form.setValue("name", user.name);
       if (user.email) form.setValue("email", user.email);
       if ((user as any).phone) form.setValue("phone", (user as any).phone);
+      if ((user as any).riderCity) form.setValue("riderCity", (user as any).riderCity);
+      if ((user as any).riderRegion) form.setValue("riderRegion", (user as any).riderRegion);
       if (isLoggedIn) form.setValue("password", "existing-user");
       if ((user as any).profilePicture) {
         form.setValue("profileImage", (user as any).profilePicture);
@@ -192,6 +202,8 @@ export default function BecomeRiderPage() {
         ghanaCardBack: data.ghanaCardBack,
         nationalIdCard: data.nationalIdCard,
         businessAddress: data.businessAddress,
+        riderCity: data.riderCity,
+        riderRegion: data.riderRegion,
         vehicleInfo,
       });
     },
@@ -364,6 +376,35 @@ export default function BecomeRiderPage() {
                         </FormItem>
                       )}
                     />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="riderCity"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>City</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Accra" {...field} data-testid="input-rider-city" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="riderRegion"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Region</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Greater Accra" {...field} data-testid="input-rider-region" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-4">

@@ -91,6 +91,9 @@ export const users = pgTable("users", {
   ghanaCardFront: text("ghana_card_front"),
   ghanaCardBack: text("ghana_card_back"),
   businessAddress: text("business_address"),
+  riderCity: text("rider_city"),
+  riderRegion: text("rider_region"),
+  deliveryZoneId: varchar("delivery_zone_id").references(() => deliveryZones.id),
   storeName: text("store_name"),
   storeDescription: text("store_description"),
   storeBanner: text("store_banner"),
@@ -305,6 +308,9 @@ export const products = pgTable("products", {
 export const deliveryZones = pgTable("delivery_zones", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(), // Unique constraint on normalized lowercase name
+  type: text("type").notNull().default("city"), // city | region
+  city: text("city"),
+  region: text("region"),
   fee: decimal("fee", { precision: 10, scale: 2 }).notNull(),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -789,6 +795,9 @@ export const insertUserSchema = createInsertSchema(users).pick({
   ghanaCardBack: true,
   nationalIdCard: true,
   businessAddress: true,
+  riderCity: true,
+  riderRegion: true,
+  deliveryZoneId: true,
   storeName: true,
   storeDescription: true,
   storeBanner: true,
@@ -849,9 +858,15 @@ export const insertProductSchema = createInsertSchema(products).pick({
 
 export const insertDeliveryZoneSchema = createInsertSchema(deliveryZones).pick({
   name: true,
+  type: true,
+  city: true,
+  region: true,
   fee: true,
 }).extend({
   name: z.string().min(1, "Zone name is required").max(100, "Zone name must be less than 100 characters"),
+  type: z.enum(["city", "region"]).default("city"),
+  city: z.string().max(120, "City must be less than 120 characters").optional().nullable(),
+  region: z.string().max(120, "Region must be less than 120 characters").optional().nullable(),
   // Use coerce to accept both string and number inputs (for seeds/scripts)
   fee: z.coerce.number().nonnegative("Delivery fee must be a non-negative number"),
 });

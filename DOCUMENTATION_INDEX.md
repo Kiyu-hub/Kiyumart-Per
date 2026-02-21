@@ -63,6 +63,10 @@ This project has comprehensive documentation for every aspect of the platform. C
   - Deterministic Uber-like rider matching (non-breaking)
   - Sequential offer/timeout flow and admin visibility endpoints
   - Real-time tracking smoothing, deviation alerts, and edge-case handling
+- [docs/zone-soft-matching-phase2.md](./docs/zone-soft-matching-phase2.md)
+  - Soft-zone (city/region) matching upgrade with distance-first ranking
+  - Dynamic radius expansion (`3km -> 5km -> 8km`) and same-zone preference
+  - Rider city/region onboarding and non-breaking schema additions
 
 **Code Organization:**
 - [README.md](./README.md) - Project overview
