@@ -162,6 +162,8 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "orders.manage": true,
     "messages.view": true,
     "messages.send": true,
+    "support.view": true,
+    "support.manage": true,
     "store.manage": true,
     "payouts.request": true,
     "promotions.manage": true,
@@ -175,6 +177,8 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "tracking.update": true,
     "messages.view": true,
     "messages.send": true,
+    "support.view": true,
+    "support.manage": true,
     "earnings.view": true,
     "profile.manage": true,
   },
@@ -286,7 +290,7 @@ export default function SuperAdminPermissions() {
   useEffect(() => {
     const currentRole = roleFeatures.find(rf => rf.role === selectedRole);
     if (currentRole) {
-      setLocalFeatures(currentRole.features);
+      setLocalFeatures({ ...(DEFAULT_FEATURES[selectedRole] || {}), ...(currentRole.features || {}) });
     } else {
       // Load defaults if no configuration exists
       setLocalFeatures(DEFAULT_FEATURES[selectedRole] || {});
@@ -324,7 +328,7 @@ export default function SuperAdminPermissions() {
   const handleReset = () => {
     const currentRole = roleFeatures.find(rf => rf.role === selectedRole);
     if (currentRole) {
-      setLocalFeatures(currentRole.features);
+      setLocalFeatures({ ...(DEFAULT_FEATURES[selectedRole] || {}), ...(currentRole.features || {}) });
     } else {
       setLocalFeatures(DEFAULT_FEATURES[selectedRole] || {});
     }

@@ -32,6 +32,7 @@ import { presenceService } from "./services/presenceService";
 import { messageDeliveryService } from "./services/messageDeliveryService";
 import { chatPermissionService } from "./services/chatPermissionService";
 import { jitsiMeetService } from "./services/jitsiMeetService";
+import { hasSupportFirstResponse, isSupportStaffRole, resolveSupportDisplayName, shouldMaskSupportIdentityForViewer } from "./services/supportMessagingService";
 
 const upload = multer({ storage: multer.memoryStorage() });
 const PROFILE_IMAGE_MAX_BYTES = runtimeConfig.upload.profileImageMaxBytes;
@@ -8228,9 +8229,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
               where ${users.id} = ${supportConversations.agentId}
               limit 1
             )`,
+            agentRole: sql<string | null>`(
+              select ${users.role}
+              from ${users}
+              where ${users.id} = ${supportConversations.agentId}
+              limit 1
+            )`,
             status: supportConversations.status,
             subject: supportConversations.subject,
             lastMessage: supportConversations.lastMessage,
+            unreadCount: sql<number>`(
+              select count(*)::int
+              from ${supportMessages}
+              where ${supportMessages.conversationId} = ${supportConversations.id}
+                and ${supportMessages.senderId} <> ${user.id}
+                and coalesce(${supportMessages.isRead}, false) = false
+            )`,
+            firstResponseAt: supportConversations.firstResponseAt,
+            resolvedAt: supportConversations.resolvedAt,
             createdAt: supportConversations.createdAt,
             updatedAt: supportConversations.updatedAt,
           })
@@ -8259,9 +8275,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
               where ${users.id} = ${supportConversations.agentId}
               limit 1
             )`,
+            agentRole: sql<string | null>`(
+              select ${users.role}
+              from ${users}
+              where ${users.id} = ${supportConversations.agentId}
+              limit 1
+            )`,
             status: supportConversations.status,
             subject: supportConversations.subject,
             lastMessage: supportConversations.lastMessage,
+            unreadCount: sql<number>`(
+              select count(*)::int
+              from ${supportMessages}
+              where ${supportMessages.conversationId} = ${supportConversations.id}
+                and ${supportMessages.senderId} <> ${user.id}
+                and coalesce(${supportMessages.isRead}, false) = false
+            )`,
+            firstResponseAt: supportConversations.firstResponseAt,
+            resolvedAt: supportConversations.resolvedAt,
             createdAt: supportConversations.createdAt,
             updatedAt: supportConversations.updatedAt,
           })
@@ -8272,7 +8303,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await conversationsQuery;
-      res.json(result);
+      const response = result.map((conversation: any) => {
+        const maskedAgentName = resolveSupportDisplayName({
+          senderRole: conversation.agentRole,
+          senderName: conversation.agentName,
+          viewerRole: user.role,
+        });
+        const shouldMaskAgentImage = shouldMaskSupportIdentityForViewer({
+          senderRole: conversation.agentRole,
+          viewerRole: user.role,
+        });
+        return {
+          ...conversation,
+          agentName: maskedAgentName,
+          agentProfileImage: shouldMaskAgentImage ? null : conversation.agentProfileImage,
+        };
+      });
+      res.json(response);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -8303,6 +8350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         conversationId: conversation.id,
         senderId: user.id,
         message,
+        isRead: false,
       });
 
       // Notify support staff instantly (admins, super admins, agents)
@@ -8355,7 +8403,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user!;
       const { db } = await import("../db/index");
       const { supportMessages, supportConversations, users } = await import("@shared/schema");
-      const { eq, asc, or } = await import("drizzle-orm");
+      const { eq, asc, and, ne, sql } = await import("drizzle-orm");
 
       // Check access
       const [conversation] = await db
@@ -8378,8 +8426,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: supportMessages.id,
           senderId: supportMessages.senderId,
           senderName: users.name,
+          senderRole: users.role,
           senderProfileImage: users.profileImage,
           message: supportMessages.message,
+          isRead: supportMessages.isRead,
+          readAt: supportMessages.readAt,
           createdAt: supportMessages.createdAt,
         })
         .from(supportMessages)
@@ -8387,7 +8438,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(supportMessages.conversationId, id))
         .orderBy(asc(supportMessages.createdAt));
 
-      res.json(messages);
+      // Mark inbound unread messages as read when opened by recipient
+      const now = new Date();
+      await db
+        .update(supportMessages)
+        .set({ isRead: true, readAt: now })
+        .where(
+          and(
+            eq(supportMessages.conversationId, id),
+            ne(supportMessages.senderId, user.id),
+            sql`coalesce(${supportMessages.isRead}, false) = false`
+          )
+        );
+
+      const mappedMessages = messages.map((msg: any) => {
+        const maskedName = resolveSupportDisplayName({
+          senderRole: msg.senderRole,
+          senderName: msg.senderName,
+          viewerRole: user.role,
+        });
+        const shouldMaskImage = shouldMaskSupportIdentityForViewer({
+          senderRole: msg.senderRole,
+          viewerRole: user.role,
+        });
+
+        return {
+          ...msg,
+          senderName: maskedName,
+          senderDisplayName: maskedName,
+          senderProfileImage: shouldMaskImage ? null : msg.senderProfileImage,
+        };
+      });
+
+      io.to(conversation.customerId).emit("support_conversation_updated", {
+        conversationId: id,
+        event: "read",
+      });
+      if (conversation.agentId) {
+        io.to(conversation.agentId).emit("support_conversation_updated", {
+          conversationId: id,
+          event: "read",
+        });
+      }
+
+      res.json(mappedMessages);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -8426,12 +8520,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         conversationId: id,
         senderId: user.id,
         message,
+        isRead: false,
       }).returning();
 
       // Update conversation last message and timestamp
+      const isSupportSender = isSupportStaffRole(user.role);
+      const shouldSetFirstResponse = hasSupportFirstResponse({
+        firstResponseAt: conversation.firstResponseAt,
+        senderRole: isSupportSender ? user.role : null,
+      });
+      const updatedConversationData: any = { lastMessage: message, updatedAt: new Date() };
+      if (!conversation.firstResponseAt && shouldSetFirstResponse && isSupportSender) {
+        updatedConversationData.firstResponseAt = new Date();
+      }
+
       await db
         .update(supportConversations)
-        .set({ lastMessage: message, updatedAt: new Date() })
+        .set(updatedConversationData)
         .where(eq(supportConversations.id, id));
 
       // Notify relevant participants instantly
@@ -8439,10 +8544,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const senderProfile = await storage.getUser(user.id);
         const senderName = senderProfile?.name || req.user?.email || "Support";
         const isSupportStaffSender = ["admin", "super_admin", "agent"].includes(user.role || "");
+        const customerVisibleSenderName = resolveSupportDisplayName({
+          senderRole: user.role,
+          senderName,
+          viewerRole: "buyer",
+        });
 
         if (isSupportStaffSender) {
           const customerLink = `/support?conversationId=${id}`;
-          const supportReplyPreview = `${senderName}: ${message}`;
+          const supportReplyPreview = `${customerVisibleSenderName}: ${message}`;
           await storage.createNotification({
             userId: conversation.customerId,
             type: "message",
@@ -8558,7 +8668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const [updated] = await db
         .update(supportConversations)
-        .set({ status: "resolved", updatedAt: new Date() })
+        .set({ status: "resolved", resolvedAt: new Date(), updatedAt: new Date() })
         .where(eq(supportConversations.id, id))
         .returning();
 
@@ -8571,6 +8681,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ error: error.message });
     }
   });
+
+  app.get(
+    "/api/support/analytics",
+    requireAuth,
+    requireRole("agent", "admin", "super_admin"),
+    requirePermissionIfAdmin("view_analytics"),
+    requireRoleFeatureIfRole(["agent"], "support.view"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const { db } = await import("../db/index");
+        const { supportConversations } = await import("@shared/schema");
+        const { eq, and, ne, isNotNull, isNull, lte, count, avg, sql } = await import("drizzle-orm");
+
+        const [totals] = await db
+          .select({
+            total: count(),
+            open: sql<number>`count(*) filter (where ${supportConversations.status} = 'open')::int`,
+            assigned: sql<number>`count(*) filter (where ${supportConversations.status} = 'assigned')::int`,
+            resolved: sql<number>`count(*) filter (where ${supportConversations.status} = 'resolved')::int`,
+            unresolved: sql<number>`count(*) filter (where ${supportConversations.status} <> 'resolved')::int`,
+          })
+          .from(supportConversations);
+
+        const [firstResponse] = await db
+          .select({
+            avgSeconds: avg(
+              sql<number>`extract(epoch from (${supportConversations.firstResponseAt} - ${supportConversations.createdAt}))`
+            ),
+          })
+          .from(supportConversations)
+          .where(isNotNull(supportConversations.firstResponseAt));
+
+        const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+        const [backlog] = await db
+          .select({ count: count() })
+          .from(supportConversations)
+          .where(
+            and(
+              ne(supportConversations.status, "resolved"),
+              isNull(supportConversations.firstResponseAt),
+              lte(supportConversations.createdAt, thirtyMinutesAgo)
+            )
+          );
+
+        res.json({
+          totals: totals || { total: 0, open: 0, assigned: 0, resolved: 0, unresolved: 0 },
+          responseTime: {
+            avgFirstResponseSeconds: Number(firstResponse?.avgSeconds || 0),
+          },
+          unresolvedBacklog: {
+            over30MinutesWithoutFirstResponse: backlog?.count || 0,
+          },
+        });
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    }
+  );
 
   // ============ Category Fields Routes (Admin Only) ============
   app.post("/api/category-fields", requireAuth, requireRole("admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {

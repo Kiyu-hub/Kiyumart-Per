@@ -6,9 +6,9 @@
 >
 > A **fully functional, production-ready local marketplace platform** enabling small businesses, artisans, and entrepreneurs to sell their products to local and regional customers. Multi-vendor support, comprehensive admin management, real-time order tracking, and secure payment processing.
 > 
-> **Version:** 1.1.7 (Cart Variant Image Display Fix)  
+> **Version:** 1.1.8 (Phase 2 Messaging & Support Upgrade)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
-> **Last Updated: February 21, 2026* February 10, 2026
+> **Last Updated:** February 21, 2026
 > 
 > **📚 Documentation:** Start with [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) for complete guides  
 > **🚀 Quick Start:** See [QUICK_START.md](./QUICK_START.md) to get running in 5 minutes  
@@ -19,6 +19,7 @@
 ## 📖 Table of Contents
 
 - [Overview](#overview)
+- [Phase 2 Messaging Update (February 21, 2026)](#phase-2-messaging-update-february-21-2026)
 - [Features](#features)
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
@@ -42,6 +43,20 @@ Key capabilities include product inventory management, secure payment processing
 ### 🎯 Business Vision
 
 To be the leading online marketplace platform for local businesses, connecting quality products with customers while providing tools, logistics support, and payment processing that empowers entrepreneurs to scale their operations regionally and internationally.
+
+## Phase 2 Messaging Update (February 21, 2026)
+
+- Kept existing Socket.IO + PostgreSQL messaging stack and added non-breaking support-chat upgrades.
+- Support access is controlled by Super Admin via role features (`support.view`, `support.manage`) for all user types.
+- Customer-facing support masks `admin` and `super_admin` identity as `Live Support`.
+- Added support read state persistence:
+  - `support_messages.is_read`
+  - `support_messages.read_at`
+- Added response lifecycle fields:
+  - `support_conversations.first_response_at`
+  - `support_conversations.resolved_at`
+- Added support analytics endpoint: `GET /api/support/analytics`
+- Full diagrams/spec: [docs/messaging-communication-phase2.md](./docs/messaging-communication-phase2.md)
 
 ---
 
@@ -1332,3 +1347,4 @@ Implemented in this pass:
 - QR delivery completion now uses `applyOrderStatusTransition(...)` so `order_status_history` is always written.
 - Seller revenue analytics endpoint now computes revenue from delivered + paid orders only.
 - Admin payout management endpoints now enforce admin permission middleware (`requirePermission(...)`) in addition to role checks.
+

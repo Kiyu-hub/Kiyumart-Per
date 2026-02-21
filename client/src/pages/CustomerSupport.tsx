@@ -28,10 +28,14 @@ interface SupportConversation {
   customerProfileImage?: string | null;
   agentId: string | null;
   agentName: string | null;
+  agentRole?: string | null;
   agentProfileImage?: string | null;
   status: "open" | "assigned" | "resolved";
   subject: string;
   lastMessage: string;
+  unreadCount?: number;
+  firstResponseAt?: string | null;
+  resolvedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -40,8 +44,12 @@ interface Message {
   id: string;
   senderId: string;
   senderName: string | null;
+  senderDisplayName?: string | null;
+  senderRole?: string | null;
   senderProfileImage?: string | null;
   message: string;
+  isRead?: boolean | null;
+  readAt?: string | null;
   createdAt: string;
 }
 
@@ -715,11 +723,11 @@ export default function CustomerSupport() {
                               );
                             })()}
                           </div>
-                          <div className="min-w-0">
-                            <p className="font-medium text-sm truncate">{conv.subject}</p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {isSupportStaff ? (conv.customerName || conv.customerEmail) : (conv.agentName || "Support Team")}
-                            </p>
+                           <div className="min-w-0">
+                             <p className="font-medium text-sm truncate">{conv.subject}</p>
+                             <p className="text-xs text-muted-foreground truncate">
+                               {isSupportStaff ? (conv.customerName || conv.customerEmail) : (conv.agentName || "Support Team")}
+                             </p>
                             {(() => {
                               const p = getConversationPresence(conv);
                               return (
@@ -730,7 +738,14 @@ export default function CustomerSupport() {
                             })()}
                           </div>
                         </div>
-                        <Badge className={`${getStatusColor(conv.status)} text-white`}>{conv.status}</Badge>
+                        <div className="flex items-center gap-2">
+                          {Number(conv.unreadCount || 0) > 0 && (
+                            <Badge variant="secondary" className="bg-primary text-primary-foreground">
+                              {conv.unreadCount}
+                            </Badge>
+                          )}
+                          <Badge className={`${getStatusColor(conv.status)} text-white`}>{conv.status}</Badge>
+                        </div>
                       </div>
                       <p className="text-xs text-muted-foreground truncate mb-1">
                         {(() => {
@@ -881,7 +896,7 @@ export default function CustomerSupport() {
                           const isMe = msg.senderId === user?.id;
                           const attachment = parseAttachmentMessage(msg.message);
                           const hasPeerReplyAfter = messages.slice(idx + 1).some((nextMsg) => nextMsg.senderId !== msg.senderId);
-                          const inferredStatus: "delivered" | "read" = hasPeerReplyAfter ? "read" : "delivered";
+                          const inferredStatus: "delivered" | "read" = msg.isRead ? "read" : hasPeerReplyAfter ? "read" : "delivered";
                           return (
                             <div
                               key={msg.id}
@@ -910,8 +925,8 @@ export default function CustomerSupport() {
                               >
                                 <div className="flex items-center gap-2 mb-1">
                                   <User className="h-3 w-3" />
-                                  <span className="text-xs font-medium">{msg.senderName || "Unknown"}</span>
-                                </div>
+                                   <span className="text-xs font-medium">{msg.senderDisplayName || msg.senderName || "Unknown"}</span>
+                                 </div>
                                 {attachment ? (
                                   <div className="space-y-2">
                                     {attachment.kind === "image" && (

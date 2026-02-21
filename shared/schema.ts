@@ -422,6 +422,8 @@ export const supportConversations = pgTable("support_conversations", {
   status: supportStatusEnum("status").notNull().default("open"),
   subject: text("subject").notNull(),
   lastMessage: text("last_message").default(""),
+  firstResponseAt: timestamp("first_response_at"),
+  resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -431,6 +433,8 @@ export const supportMessages = pgTable("support_messages", {
   conversationId: varchar("conversation_id").notNull().references(() => supportConversations.id),
   senderId: varchar("sender_id").notNull().references(() => users.id),
   message: text("message").notNull(),
+  isRead: boolean("is_read").default(false),
+  readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

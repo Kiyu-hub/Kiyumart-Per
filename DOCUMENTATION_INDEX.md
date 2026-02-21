@@ -51,6 +51,10 @@ This project has comprehensive documentation for every aspect of the platform. C
   - Revenue trigger and KPI spec
   - Role permission matrix
   - Resource-aware compatibility audit table
+- [docs/messaging-communication-phase2.md](./docs/messaging-communication-phase2.md)
+  - Real-time support/messaging flow diagrams
+  - Support chat schema and analytics definitions
+  - Non-breaking upgrade strategy and compatibility table
 
 **Code Organization:**
 - [README.md](./README.md) - Project overview
@@ -156,6 +160,11 @@ This project has comprehensive documentation for every aspect of the platform. C
   - `requireRoleFeature(...)`
   - `requireRoleFeatureIfRole(...)`
 - Seller promotion application now enforces verified payment reference before activation.
+
+**Recent API Additions (Phase 2 Messaging):**
+- `GET /api/support/analytics` - Support KPIs (response time and unresolved backlog)
+- `GET /api/support/conversations` now returns support unread counts and response lifecycle fields
+- `GET /api/support/conversations/:id/messages` now marks inbound unread support messages as read
 
 **Example Usage:**
 - [DEVELOPMENT.md](./DEVELOPMENT.md#task-add-a-new-api-endpoint) - API endpoint example with full code
