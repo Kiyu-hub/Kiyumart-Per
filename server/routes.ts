@@ -714,6 +714,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             details: "The rider must have vehicle type and details set. Please ask them to update their profile before approval."
           });
         }
+        if (!user.riderCity || String(user.riderCity).trim().length < 2) {
+          return res.status(400).json({
+            error: "Cannot approve rider without city",
+            details: "Set rider city before approval to enable zone-aware matching.",
+          });
+        }
+        if (!user.riderRegion || String(user.riderRegion).trim().length < 2) {
+          return res.status(400).json({
+            error: "Cannot approve rider without region",
+            details: "Set rider region before approval to enable zone-aware matching.",
+          });
+        }
       }
       
       // Now approve the user (store creation succeeded or not needed)
@@ -1066,6 +1078,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle rider-specific fields - validate and coerce into vehicleInfo JSONB
       if (validatedData.role === "rider") {
+        const normalizedRiderCity = typeof req.body.riderCity === "string" ? req.body.riderCity.trim() : "";
+        const normalizedRiderRegion = typeof req.body.riderRegion === "string" ? req.body.riderRegion.trim() : "";
+        const addressFallback = String(validatedData.businessAddress || "").split(",").map((part) => part.trim()).filter(Boolean);
+        const resolvedRiderCity = normalizedRiderCity || addressFallback[0] || "";
+        const resolvedRiderRegion = normalizedRiderRegion || addressFallback[1] || "";
+
+        if (!resolvedRiderCity || resolvedRiderCity.length < 2) {
+          return res.status(400).json({
+            error: "City is required for rider accounts"
+          });
+        }
+
+        if (!resolvedRiderRegion || resolvedRiderRegion.length < 2) {
+          return res.status(400).json({
+            error: "Region is required for rider accounts"
+          });
+        }
+
         if (!validatedData.nationalIdCard) {
           return res.status(400).json({
             error: "Ghana card number is required for rider accounts"
@@ -1078,17 +1108,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
-        if (!vehicleType) {
+        const rawVehicleInfo = req.body.vehicleInfo;
+        const vehicleTypeFromPayload = vehicleType || rawVehicleInfo?.type;
+        const vehicleColorFromPayload = vehicleColor || rawVehicleInfo?.color;
+        const vehiclePlateNumberFromPayload = vehiclePlateNumber || rawVehicleInfo?.plateNumber;
+        const vehicleLicenseFromPayload = vehicleLicense || rawVehicleInfo?.license;
+
+        if (!vehicleTypeFromPayload) {
           return res.status(400).json({ 
             error: "Vehicle type is required for rider accounts" 
           });
         }
         
         const vehiclePayload = {
-          type: vehicleType,
-          color: vehicleColor,
-          plateNumber: vehiclePlateNumber,
-          license: vehicleLicense,
+          type: vehicleTypeFromPayload,
+          color: vehicleColorFromPayload,
+          plateNumber: vehiclePlateNumberFromPayload,
+          license: vehicleLicenseFromPayload,
         };
         
         const parsedVehicle = vehicleInfoSchema.safeParse(vehiclePayload);
@@ -1100,6 +1136,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         userData.vehicleInfo = parsedVehicle.data;
+        userData.riderCity = resolvedRiderCity;
+        userData.riderRegion = resolvedRiderRegion;
+
+        // Best-effort zone resolution from rider city/region.
+        if (!userData.deliveryZoneId) {
+          const zones = await storage.getDeliveryZones();
+          const normalize = (value?: string | null) => (value || "").toLowerCase().trim();
+          const city = normalize(resolvedRiderCity);
+          const region = normalize(resolvedRiderRegion);
+          if (city) {
+            const cityZone = zones.find((z: any) => normalize(z.city) === city || normalize(z.name) === city);
+            if (cityZone) userData.deliveryZoneId = cityZone.id;
+          }
+          if (!userData.deliveryZoneId && region) {
+            const regionZone = zones.find((z: any) => normalize(z.region) === region || normalize(z.name) === region);
+            if (regionZone) userData.deliveryZoneId = regionZone.id;
+          }
+        }
       }
 
       // Handle seller-specific fields - ENFORCE storeType requirement
@@ -1218,6 +1272,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "storeType",
         "nationalIdCard",
         "businessAddress",
+        "riderCity",
+        "riderRegion",
+        "deliveryZoneId",
       ];
       const updateData: Record<string, any> = {};
 
@@ -1263,6 +1320,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           error: "Invalid store type",
           details: `Valid types: ${STORE_TYPES.join(", ")}`,
         });
+      }
+
+      if ("riderCity" in updateData) {
+        updateData.riderCity = typeof updateData.riderCity === "string" ? updateData.riderCity.trim() || null : null;
+      }
+      if ("riderRegion" in updateData) {
+        updateData.riderRegion = typeof updateData.riderRegion === "string" ? updateData.riderRegion.trim() || null : null;
       }
 
       if ("vehicleInfo" in updateData && updateData.vehicleInfo) {
@@ -1325,6 +1389,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const requiredRiderFields: Array<{ key: string; label: string }> = [
             { key: "nationalIdCard", label: "Ghana Card Number" },
             { key: "businessAddress", label: "Address / Location" },
+            { key: "riderCity", label: "City" },
+            { key: "riderRegion", label: "Region" },
           ];
 
           const missingRiderFields = requiredRiderFields
@@ -1374,6 +1440,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({
             error: "Cannot remove vehicle information from approved rider",
             details: "Approved riders must maintain valid vehicle information.",
+          });
+        }
+        if ("riderCity" in updateData && !updateData.riderCity) {
+          return res.status(400).json({
+            error: "Cannot remove rider city from approved rider",
+            details: "Approved riders must maintain city metadata for assignment logic.",
+          });
+        }
+        if ("riderRegion" in updateData && !updateData.riderRegion) {
+          return res.status(400).json({
+            error: "Cannot remove rider region from approved rider",
+            details: "Approved riders must maintain region metadata for assignment logic.",
           });
         }
       }

@@ -26,6 +26,9 @@ interface User {
   nationalIdCard?: string | null;
   businessAddress?: string | null;
   storeType?: string | null;
+  riderCity?: string | null;
+  riderRegion?: string | null;
+  deliveryZoneId?: string | null;
   vehicleInfo?: {
     type: string;
     plateNumber?: string;
@@ -43,6 +46,9 @@ const editUserSchema = z
     nationalIdCard: z.string().optional(),
     businessAddress: z.string().optional(),
     storeType: z.string().optional(),
+    riderCity: z.string().optional(),
+    riderRegion: z.string().optional(),
+    deliveryZoneId: z.string().optional(),
     vehicleType: z.string().optional(),
     vehiclePlateNumber: z.string().optional(),
     vehicleLicense: z.string().optional(),
@@ -58,6 +64,8 @@ const editUserSchema = z
     const requiredForRider: Array<{ key: keyof typeof data; label: string }> = [
       { key: "nationalIdCard", label: "Ghana Card Number" },
       { key: "businessAddress", label: "Address / Location" },
+      { key: "riderCity", label: "City" },
+      { key: "riderRegion", label: "Region" },
       { key: "vehicleType", label: "Vehicle Type" },
     ];
 
@@ -175,6 +183,9 @@ export default function AdminUserEdit() {
       nationalIdCard: "",
       businessAddress: "",
       storeType: "",
+      riderCity: "",
+      riderRegion: "",
+      deliveryZoneId: "",
       vehicleType: "",
       vehiclePlateNumber: "",
       vehicleLicense: "",
@@ -184,6 +195,10 @@ export default function AdminUserEdit() {
 
   const selectedRole = form.watch("role");
   const selectedVehicleType = form.watch("vehicleType");
+  const { data: deliveryZones = [] } = useQuery<Array<{ id: string; name: string; city?: string | null; region?: string | null }>>({
+    queryKey: ["/api/delivery-zones"],
+    enabled: selectedRole === "rider",
+  });
 
   useEffect(() => {
     if (userData) {
@@ -195,6 +210,9 @@ export default function AdminUserEdit() {
         nationalIdCard: userData.nationalIdCard || "",
         businessAddress: userData.businessAddress || "",
         storeType: userData.storeType || "",
+        riderCity: userData.riderCity || "",
+        riderRegion: userData.riderRegion || "",
+        deliveryZoneId: userData.deliveryZoneId || "",
         vehicleType: userData.vehicleInfo?.type || "",
         vehiclePlateNumber: userData.vehicleInfo?.plateNumber || "",
         vehicleLicense: userData.vehicleInfo?.license || "",
@@ -219,6 +237,9 @@ export default function AdminUserEdit() {
       }
 
       if (data.role === "rider") {
+        payload.riderCity = trimOrUndefined(data.riderCity);
+        payload.riderRegion = trimOrUndefined(data.riderRegion);
+        payload.deliveryZoneId = trimOrUndefined(data.deliveryZoneId);
         payload.vehicleInfo = {
           type: trimOrUndefined(data.vehicleType),
           plateNumber: trimOrUndefined(data.vehiclePlateNumber),
@@ -445,6 +466,63 @@ export default function AdminUserEdit() {
                   <>
                     <div className="pt-2 border-t" />
                     <h3 className="text-base font-semibold">Rider Vehicle Information</h3>
+
+                    <FormField
+                      control={form.control}
+                      name="riderCity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>City</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Accra" {...field} data-testid="input-rider-city" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="riderRegion"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Region</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Greater Accra" {...field} data-testid="input-rider-region" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="deliveryZoneId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Preferred Zone (Optional)</FormLabel>
+                          <Select
+                            onValueChange={(value) => field.onChange(value === "__none__" ? "" : value)}
+                            value={field.value || "__none__"}
+                          >
+                            <FormControl>
+                              <SelectTrigger data-testid="select-rider-zone">
+                                <SelectValue placeholder="Select zone" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="__none__">No explicit zone</SelectItem>
+                              {deliveryZones.map((zone) => (
+                                <SelectItem key={zone.id} value={zone.id}>
+                                  {zone.name} ({zone.city || zone.region || "N/A"})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
                     <FormField
                       control={form.control}

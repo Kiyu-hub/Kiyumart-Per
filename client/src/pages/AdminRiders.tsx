@@ -38,6 +38,8 @@ interface Rider {
     color?: string;
   } | null;
   businessAddress: string | null;
+  riderCity?: string | null;
+  riderRegion?: string | null;
   createdAt: string | null;
 }
 
@@ -47,11 +49,28 @@ const addRiderSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
   phone: z.string().min(10, "Phone number must be at least 10 characters"),
   vehicleType: z.string().min(1, "Vehicle type is required"),
-  vehicleNumber: z.string().min(1, "Vehicle number is required"),
+  vehicleNumber: z.string().optional(),
   vehicleColor: z.string().min(1, "Vehicle color is required"),
-  licenseNumber: z.string().min(1, "License number is required"),
+  licenseNumber: z.string().optional(),
   nationalIdCard: z.string().min(5, "National ID card must be at least 5 characters"),
   businessAddress: z.string().min(5, "Business address is required"),
+  riderCity: z.string().min(2, "City is required"),
+  riderRegion: z.string().min(2, "Region is required"),
+}).superRefine((data, ctx) => {
+  if ((data.vehicleType === "car" || data.vehicleType === "motorcycle") && !data.vehicleNumber?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["vehicleNumber"],
+      message: "Vehicle number is required for motorized riders",
+    });
+  }
+  if ((data.vehicleType === "car" || data.vehicleType === "motorcycle") && !data.licenseNumber?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["licenseNumber"],
+      message: "License number is required for motorized riders",
+    });
+  }
 });
 
 type AddRiderFormData = z.infer<typeof addRiderSchema>;
@@ -73,6 +92,8 @@ function AddRiderDialog() {
       licenseNumber: "",
       nationalIdCard: "",
       businessAddress: "",
+      riderCity: "",
+      riderRegion: "",
     },
   });
 
@@ -84,14 +105,14 @@ function AddRiderDialog() {
         password: data.password,
         phone: data.phone,
         role: "rider",
-        vehicleInfo: {
-          type: data.vehicleType,
-          plateNumber: data.vehicleNumber,
-          color: data.vehicleColor,
-          license: data.licenseNumber,
-        },
+        vehicleType: data.vehicleType,
+        vehiclePlateNumber: data.vehicleNumber,
+        vehicleColor: data.vehicleColor,
+        vehicleLicense: data.licenseNumber,
         nationalIdCard: data.nationalIdCard,
         businessAddress: data.businessAddress,
+        riderCity: data.riderCity,
+        riderRegion: data.riderRegion,
       };
       return apiRequest("POST", "/api/users", riderData);
     },
@@ -281,6 +302,34 @@ function AddRiderDialog() {
                   </FormControl>
                   <FormMessage />
                 </FormItem>
+                )}
+              />
+
+            <FormField
+              control={form.control}
+              name="riderCity"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>City</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Accra" {...field} data-testid="input-rider-city" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="riderRegion"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Region</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Greater Accra" {...field} data-testid="input-rider-region" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
               )}
             />
 
@@ -365,6 +414,10 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
               <div>
                 <p className="text-muted-foreground">Phone</p>
                 <p className="font-medium">{riderData.phone || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">City / Region</p>
+                <p className="font-medium">{riderData.riderCity || "N/A"} / {riderData.riderRegion || "N/A"}</p>
               </div>
               {riderData.nationalIdCard && (
                 <div>

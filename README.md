@@ -23,6 +23,7 @@
 - [Phase 2 Order Flow & Sync Update (February 21, 2026)](#phase-2-order-flow--sync-update-february-21-2026)
 - [Phase 2 Rider Assignment & Delivery Update (February 21, 2026)](#phase-2-rider-assignment--delivery-update-february-21-2026)
 - [Phase 2 Zone Soft-Matching Update (February 21, 2026)](#phase-2-zone-soft-matching-update-february-21-2026)
+- [Rider Onboarding & Assignment Data Integrity Update (February 21, 2026)](#rider-onboarding--assignment-data-integrity-update-february-21-2026)
 - [Features](#features)
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
@@ -118,6 +119,31 @@ To be the leading online marketplace platform for local businesses, connecting q
   - `migrations/0020_soft_zone_upgrade.sql`
 - Cost guarantee preserved: no paid APIs/services introduced.
 - Full implementation notes/spec: [docs/zone-soft-matching-phase2.md](./docs/zone-soft-matching-phase2.md)
+
+## Rider Onboarding & Assignment Data Integrity Update (February 21, 2026)
+
+- Audited all rider intake paths:
+  - Public rider application (`/api/applications/rider`)
+  - Admin/Super Admin user creation (`/api/users`)
+  - Admin rider-specific create/edit screens
+- Unified required rider identity/location fields across intake paths:
+  - `riderCity`
+  - `riderRegion`
+  - `businessAddress`
+  - `nationalIdCard`
+  - `vehicleInfo` (type + motorized requirements)
+- Fixed admin rider-create payload mismatch:
+  - Admin rider UI now sends backend-supported rider fields (`vehicleType`, `vehiclePlateNumber`, `vehicleLicense`, `vehicleColor`) instead of incompatible shape.
+- Added backend approval guards:
+  - Rider approvals now require valid `riderCity` and `riderRegion` to keep zone-aware assignment quality.
+- Added backend update guards:
+  - Approved riders cannot remove city/region metadata.
+- Added rider edit/manage coverage in admin screens:
+  - Admin create/edit forms now capture city and region.
+  - Admin rider edit flow now supports city/region/address updates.
+  - Admin user edit includes optional preferred `deliveryZoneId`.
+- Result:
+  - Rider assignment pipeline now receives consistent rider metadata across all creation/edit paths.
 
 ---
 

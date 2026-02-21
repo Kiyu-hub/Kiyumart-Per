@@ -27,6 +27,9 @@ interface RiderUser {
     license: string;
   } | null;
   nationalIdCard: string | null;
+  businessAddress?: string | null;
+  riderCity?: string | null;
+  riderRegion?: string | null;
 }
 
 const editRiderSchema = z.object({
@@ -37,6 +40,9 @@ const editRiderSchema = z.object({
   vehicleNumber: z.string().min(1, "Vehicle number is required"),
   licenseNumber: z.string().min(1, "License number is required"),
   nationalIdCard: z.string().min(5, "National ID card must be at least 5 characters"),
+  businessAddress: z.string().min(5, "Address is required"),
+  riderCity: z.string().min(2, "City is required"),
+  riderRegion: z.string().min(2, "Region is required"),
 });
 
 type EditRiderFormData = z.infer<typeof editRiderSchema>;
@@ -70,6 +76,9 @@ export default function RiderEdit() {
       vehicleNumber: "",
       licenseNumber: "",
       nationalIdCard: "",
+      businessAddress: "",
+      riderCity: "",
+      riderRegion: "",
     },
   });
 
@@ -83,6 +92,9 @@ export default function RiderEdit() {
         vehicleNumber: riderData.vehicleInfo?.plateNumber || "",
         licenseNumber: riderData.vehicleInfo?.license || "",
         nationalIdCard: riderData.nationalIdCard || "",
+        businessAddress: riderData.businessAddress || "",
+        riderCity: riderData.riderCity || "",
+        riderRegion: riderData.riderRegion || "",
       });
     }
   }, [riderData, form]);
@@ -99,6 +111,9 @@ export default function RiderEdit() {
           license: data.licenseNumber,
         },
         nationalIdCard: data.nationalIdCard,
+        businessAddress: data.businessAddress,
+        riderCity: data.riderCity,
+        riderRegion: data.riderRegion,
       };
       return apiRequest("PATCH", `/api/users/${riderId}`, updateData);
     },
@@ -247,8 +262,51 @@ export default function RiderEdit() {
                         </FormControl>
                         <FormMessage />
                       </FormItem>
+                      )}
+                    />
+
+                  <FormField
+                    control={form.control}
+                    name="businessAddress"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Address</FormLabel>
+                        <FormControl>
+                          <Input placeholder="123 Main St, Accra" {...field} data-testid="input-business-address" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
                     )}
                   />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="riderCity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>City</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Accra" {...field} data-testid="input-rider-city" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="riderRegion"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Region</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Greater Accra" {...field} data-testid="input-rider-region" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                 </CardContent>
               </Card>
 

@@ -44,6 +44,9 @@ const createUserSchema = z.object({
   vehicleType: z.string().optional(),
   vehicleColor: z.string().optional(),
   vehiclePlateNumber: z.string().optional(),
+  vehicleLicense: z.string().optional(),
+  riderCity: z.string().optional(),
+  riderRegion: z.string().optional(),
 }).refine((data) => {
   if (data.role === "seller") {
     return data.nationalIdCard?.trim() && data.businessAddress?.trim() && data.storeType;
@@ -54,12 +57,28 @@ const createUserSchema = z.object({
   path: ["nationalIdCard"],
 }).refine((data) => {
   if (data.role === "rider") {
-    return data.nationalIdCard?.trim() && data.businessAddress?.trim() && data.vehicleType && data.vehicleColor;
+    return data.nationalIdCard?.trim() && data.businessAddress?.trim() && data.vehicleType && data.vehicleColor && data.riderCity?.trim() && data.riderRegion?.trim();
   }
   return true;
 }, {
-  message: "Ghana card number, address, vehicle type and color are required for riders",
+  message: "Ghana card number, address, city, region, vehicle type and color are required for riders",
   path: ["vehicleType"],
+}).superRefine((data, ctx) => {
+  if (data.role !== "rider") return;
+  if ((data.vehicleType === "car" || data.vehicleType === "motorcycle") && !data.vehiclePlateNumber?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["vehiclePlateNumber"],
+      message: "Plate number is required for motorized riders",
+    });
+  }
+  if ((data.vehicleType === "car" || data.vehicleType === "motorcycle") && !data.vehicleLicense?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["vehicleLicense"],
+      message: "Driver's license is required for motorized riders",
+    });
+  }
 });
 
 type CreateUserFormData = z.infer<typeof createUserSchema>;
@@ -92,6 +111,9 @@ export default function AdminUserCreate() {
       vehicleType: "",
       vehicleColor: "",
       vehiclePlateNumber: "",
+      vehicleLicense: "",
+      riderCity: "",
+      riderRegion: "",
     },
   });
 
@@ -320,6 +342,34 @@ export default function AdminUserCreate() {
                   <>
                     <FormField
                       control={form.control}
+                      name="riderCity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>City <span className="text-destructive">*</span></FormLabel>
+                          <FormControl>
+                            <Input placeholder="Accra" {...field} data-testid="input-rider-city" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="riderRegion"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Region <span className="text-destructive">*</span></FormLabel>
+                          <FormControl>
+                            <Input placeholder="Greater Accra" {...field} data-testid="input-rider-region" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
                       name="vehicleType"
                       render={({ field }) => (
                         <FormItem>
@@ -372,6 +422,22 @@ export default function AdminUserCreate() {
                             <FormDescription>
                               Required for motorized vehicles
                             </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+
+                    {selectedVehicleType && selectedVehicleType !== "bicycle" && (
+                      <FormField
+                        control={form.control}
+                        name="vehicleLicense"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Driver's License <span className="text-destructive">*</span></FormLabel>
+                            <FormControl>
+                              <Input placeholder="DL-123456" {...field} data-testid="input-vehicle-license" />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
