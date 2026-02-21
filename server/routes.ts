@@ -34,6 +34,7 @@ import { messageDeliveryService } from "./services/messageDeliveryService";
 import { chatPermissionService } from "./services/chatPermissionService";
 import { jitsiMeetService } from "./services/jitsiMeetService";
 import { hasSupportFirstResponse, isSupportStaffRole, resolveSupportDisplayName, shouldMaskSupportIdentityForViewer } from "./services/supportMessagingService";
+import { canonicalizeOrderStatus } from "./services/orderStateMachine";
 
 const upload = multer({ storage: multer.memoryStorage() });
 const PROFILE_IMAGE_MAX_BYTES = runtimeConfig.upload.profileImageMaxBytes;
@@ -3631,6 +3632,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Order Routes ============
+  const emitOrderStatusUpdateToStakeholders = async (order: any, statusOverride?: string) => {
+    const canonicalStatus = canonicalizeOrderStatus(statusOverride || order.status);
+    const payload = {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: canonicalStatus,
+      updatedAt: order.updatedAt || new Date().toISOString(),
+    };
+
+    const stakeholderIds = new Set<string>();
+    if (order.buyerId) stakeholderIds.add(order.buyerId);
+    if (order.sellerId) stakeholderIds.add(order.sellerId);
+    if (order.riderId) stakeholderIds.add(order.riderId);
+    stakeholderIds.forEach((id) => io.to(id).emit("order_status_updated", payload));
+
+    const [admins, superAdmins] = await Promise.all([
+      storage.getUsersByRole("admin"),
+      storage.getUsersByRole("super_admin"),
+    ]);
+    [...admins, ...superAdmins].forEach((adminUser) => {
+      io.to(adminUser.id).emit("order_status_updated", payload);
+      io.to(adminUser.id).emit("admin_order_status_updated", payload);
+    });
+  };
+
   app.post("/api/orders", requireAuth, requireRoleFeature("orders.create"), async (req: AuthRequest, res) => {
     try {
       const { items, ...orderData } = req.body;
@@ -3976,11 +4002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Self-heal stale records and normalize response immediately.
       const stalePaidPending = orders.filter((o: any) => isPaidPaymentStatus(o.paymentStatus) && (o.status || "").toLowerCase().trim() === "pending");
       if (stalePaidPending.length > 0) {
-        await Promise.allSettled(
-          stalePaidPending.map((o: any) =>
-            storage.updateOrder(o.id, { status: "processing" as any })
-          )
-        );
+        // Read path must not write status changes directly; return canonicalized response.
         orders = orders.map((o: any) =>
           isPaidPaymentStatus(o.paymentStatus) && (o.status || "").toLowerCase().trim() === "pending"
             ? { ...o, status: "processing" }
@@ -4005,6 +4027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const buyer = buyersById.get(order.buyerId);
           return {
             ...order,
+            status: canonicalizeOrderStatus(order.status),
             totalAmount: order.total,
             items,
             buyer: buyer
@@ -4038,10 +4061,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Payment state normalization for single-order reads as well.
       if (isPaidPaymentStatus(order.paymentStatus) && (order.status || "").toLowerCase().trim() === "pending") {
-        const healed = await storage.updateOrder(order.id, { status: "processing" as any });
-        if (healed) order = healed as any;
+        order = { ...(order as any), status: "processing" } as any;
       }
-      const finalOrder = order as NonNullable<typeof order>;
+      const finalOrder = {
+        ...(order as NonNullable<typeof order>),
+        status: canonicalizeOrderStatus((order as any).status),
+      };
       
       // Only include customer PII for admin/super_admin or the buyer themselves
       const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
@@ -4117,24 +4142,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Order not found" });
       }
       
-      // Create notification for buyer about status update
-      if (updatedOrder.buyerId) {
+      const canonicalStatus = canonicalizeOrderStatus(updatedOrder.status);
+      const recipients = [
+        { userId: updatedOrder.buyerId, label: "buyer" },
+        { userId: updatedOrder.sellerId, label: "seller" },
+        { userId: updatedOrder.riderId, label: "rider" },
+      ].filter((r) => Boolean(r.userId));
+      for (const recipient of recipients) {
         await storage.createNotification({
-          userId: updatedOrder.buyerId,
+          userId: recipient.userId!,
           type: "order",
           title: "Order Status Updated",
-          message: `Your order #${updatedOrder.orderNumber} status has been updated to ${normalizedStatus}`,
-          metadata: { orderId: updatedOrder.id, orderNumber: updatedOrder.orderNumber, status: normalizedStatus } as any
-        });
-        
-        // Emit real-time order status update to buyer
-        io.to(updatedOrder.buyerId).emit("order_status_updated", {
-          orderId: updatedOrder.id,
-          orderNumber: updatedOrder.orderNumber,
-          status: updatedOrder.status,
-          updatedAt: updatedOrder.updatedAt,
+          message: `Order #${updatedOrder.orderNumber} is now ${canonicalStatus}`,
+          metadata: { orderId: updatedOrder.id, orderNumber: updatedOrder.orderNumber, status: canonicalStatus, audience: recipient.label } as any
         });
       }
+      await emitOrderStatusUpdateToStakeholders(updatedOrder, canonicalStatus);
       
       res.json(updatedOrder);
     } catch (error: any) {
@@ -4253,6 +4276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       riderName: rider.name,
       orderNumber: order.orderNumber,
     });
+    await emitOrderStatusUpdateToStakeholders(updatedOrder, updatedOrder.status);
 
     return updatedOrder;
   };
@@ -4354,6 +4378,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         riderId,
         deliveredAt: new Date().toISOString(),
       });
+      if (updatedOrder) {
+        await emitOrderStatusUpdateToStakeholders(updatedOrder, "delivered");
+      }
 
       // Create rider payout record (if enabled)
       try {
@@ -4468,7 +4495,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         id: order.id,
         orderNumber: order.orderNumber,
-        status: order.status,
+        status: canonicalizeOrderStatus(order.status),
         deliveryAddress: order.deliveryAddress || "Address not available",
         deliveryLatitude: order.deliveryLatitude ? parseFloat(order.deliveryLatitude) : null,
         deliveryLongitude: order.deliveryLongitude ? parseFloat(order.deliveryLongitude) : null,
@@ -4584,6 +4611,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const history = await storage.getDeliveryTrackingHistory(req.params.orderId);
       res.json(history);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/orders/:id/status-history", requireAuth, requireRoleFeature("orders.view"), async (req: AuthRequest, res) => {
+    try {
+      const order = await storage.getOrder(req.params.id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      const role = req.user!.role;
+      const canView =
+        role === "admin" ||
+        role === "super_admin" ||
+        req.user!.id === order.buyerId ||
+        req.user!.id === order.sellerId ||
+        req.user!.id === order.riderId;
+
+      if (!canView) {
+        return res.status(403).json({ error: "Unauthorized to view order status history" });
+      }
+
+      const history = await storage.getOrderStatusHistory(order.id);
+      const chronological = [...history]
+        .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+        .map((entry) => ({
+          ...entry,
+          fromStatus: entry.fromStatus ? canonicalizeOrderStatus(entry.fromStatus) : null,
+          toStatus: canonicalizeOrderStatus(entry.toStatus),
+        }));
+
+      res.json(chronological);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

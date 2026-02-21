@@ -54,8 +54,9 @@ export default function OrderTracking() {
   const socketRef = useRef<Socket | null>(null);
   const normalizeStatus = (value?: string) => {
     const s = (value || "").toLowerCase().trim();
-    if (s === "ready" || s === "confirmed") return "processing";
-    if (s === "assigned" || s === "picked_up" || s === "en_route") return "en_route";
+    if (s === "ready_for_pickup") return "ready";
+    if (s === "assigned_to_rider") return "assigned";
+    if (s === "in_transit" || s === "out_for_delivery" || s === "delivering") return "en_route";
     return s || "pending";
   };
 
@@ -269,13 +270,17 @@ export default function OrderTracking() {
                         <Filter className="h-4 w-4 mr-2" />
                         <SelectValue placeholder="Filter by status" />
                       </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Orders</SelectItem>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="processing">Processing</SelectItem>
-                        <SelectItem value="en_route">Out for Delivery</SelectItem>
-                        <SelectItem value="delivered">Delivered</SelectItem>
-                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                        <SelectContent>
+                          <SelectItem value="all">All Orders</SelectItem>
+                          <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="confirmed">Confirmed</SelectItem>
+                          <SelectItem value="ready">Ready</SelectItem>
+                          <SelectItem value="processing">Processing</SelectItem>
+                          <SelectItem value="assigned">Assigned</SelectItem>
+                          <SelectItem value="picked_up">Picked Up</SelectItem>
+                          <SelectItem value="en_route">Out for Delivery</SelectItem>
+                          <SelectItem value="delivered">Delivered</SelectItem>
+                          <SelectItem value="cancelled">Cancelled</SelectItem>
                         <SelectItem value="disputed">Disputed</SelectItem>
                       </SelectContent>
                     </Select>

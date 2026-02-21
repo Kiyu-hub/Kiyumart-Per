@@ -1966,25 +1966,27 @@ export class DbStorage implements IStorage {
     const result: any = {};
     // payment_status can be enum/text depending on DB state, so cast to text before lower()
     const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
+    const completedRevenueFilter = and(eq(orders.status, "delivered"), paidStatusFilter);
     
     if (role === "admin" || role === "super_admin" || !userId) {
       // Keep order counts aligned with DB totals and calculate revenue from paid states only.
       const totalOrders = await db.select({ count: sql<number>`count(*)` })
         .from(orders);
 
-      const paidOrders = await db.select({ count: sql<number>`count(*)` })
+      const completedOrders = await db.select({ count: sql<number>`count(*)` })
         .from(orders)
-        .where(paidStatusFilter);
+        .where(completedRevenueFilter);
       
       const totalRevenue = await db.select({ sum: sql<number>`sum(${orders.total})` })
         .from(orders)
-        .where(paidStatusFilter);
+        .where(completedRevenueFilter);
       
       const totalUsers = await db.select({ count: sql<number>`count(*)` }).from(users);
       const totalProducts = await db.select({ count: sql<number>`count(*)` }).from(products);
       
       result.totalOrders = Number(totalOrders[0]?.count ?? 0);
-      result.paidOrders = Number(paidOrders[0]?.count ?? 0);
+      result.paidOrders = Number(completedOrders[0]?.count ?? 0);
+      result.completedOrders = Number(completedOrders[0]?.count ?? 0);
       result.totalRevenue = Number(totalRevenue[0]?.sum ?? 0);
       result.totalUsers = Number(totalUsers[0]?.count ?? 0);
       result.totalProducts = Number(totalProducts[0]?.count ?? 0);
@@ -1993,10 +1995,11 @@ export class DbStorage implements IStorage {
         .from(orders)
         .where(eq(orders.sellerId, userId));
 
-      const paidSellerOrders = await db.select({ count: sql<number>`count(*)` })
+      const completedSellerOrders = await db.select({ count: sql<number>`count(*)` })
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
+          eq(orders.status, "delivered"),
           paidStatusFilter
         ));
       
@@ -2004,11 +2007,13 @@ export class DbStorage implements IStorage {
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
+          eq(orders.status, "delivered"),
           paidStatusFilter
         ));
       
       result.totalOrders = Number(totalSellerOrders[0]?.count ?? 0);
-      result.paidOrders = Number(paidSellerOrders[0]?.count ?? 0);
+      result.paidOrders = Number(completedSellerOrders[0]?.count ?? 0);
+      result.completedOrders = Number(completedSellerOrders[0]?.count ?? 0);
       result.totalRevenue = Number(sellerRevenue[0]?.sum ?? 0);
     }
     

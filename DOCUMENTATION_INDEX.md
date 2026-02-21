@@ -55,6 +55,10 @@ This project has comprehensive documentation for every aspect of the platform. C
   - Real-time support/messaging flow diagrams
   - Support chat schema and analytics definitions
   - Non-breaking upgrade strategy and compatibility table
+- [docs/order-flow-tracking-sync-phase2.md](./docs/order-flow-tracking-sync-phase2.md)
+  - Canonical order lifecycle and role flow chart
+  - Real-time status propagation and notification rules
+  - Revenue normalization and aggregate view strategy
 
 **Code Organization:**
 - [README.md](./README.md) - Project overview

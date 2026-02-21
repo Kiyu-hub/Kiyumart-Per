@@ -128,7 +128,19 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
       });
 
       for (const order of orders) {
-        io.to(order.buyerId).emit('order_status_updated', { orderId: order.id, orderNumber: order.orderNumber, status: 'processing', updatedAt: new Date().toISOString() });
+        const payload = { orderId: order.id, orderNumber: order.orderNumber, status: 'processing', updatedAt: new Date().toISOString() };
+        const recipients = new Set<string>();
+        if (order.buyerId) recipients.add(order.buyerId);
+        if (order.sellerId) recipients.add(order.sellerId);
+        if (order.riderId) recipients.add(order.riderId);
+        recipients.forEach((id) => io.to(id).emit('order_status_updated', payload));
+
+        const admins = await storage.getUsersByRole("admin");
+        const superAdmins = await storage.getUsersByRole("super_admin");
+        [...admins, ...superAdmins].forEach((admin) => {
+          io.to(admin.id).emit("order_status_updated", payload);
+          io.to(admin.id).emit("admin_order_status_updated", payload);
+        });
       }
     } else {
       // mark failed

@@ -20,6 +20,7 @@
 
 - [Overview](#overview)
 - [Phase 2 Messaging Update (February 21, 2026)](#phase-2-messaging-update-february-21-2026)
+- [Phase 2 Order Flow & Sync Update (February 21, 2026)](#phase-2-order-flow--sync-update-february-21-2026)
 - [Features](#features)
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
@@ -59,6 +60,21 @@ To be the leading online marketplace platform for local businesses, connecting q
 - Seller/Rider dashboard chat menu now respects role features (`messages.view`) so Super Admin can hide chat from Permissions.
 - Direct URL guard added: `/seller/messages` and `/rider/messages` now redirect to dashboard when `messages.view` is disabled.
 - Full diagrams/spec: [docs/messaging-communication-phase2.md](./docs/messaging-communication-phase2.md)
+
+## Phase 2 Order Flow & Sync Update (February 21, 2026)
+
+- Canonical order states are now propagated to all stakeholders in real time (`order_status_updated`).
+- Status changes remain backend-only through transition validation and audit logging.
+- Added order status-history API:
+  - `GET /api/orders/:id/status-history`
+- Order tracking UI now uses canonical status mapping (no compressed UI-only state logic).
+- Revenue analytics baseline aligned to delivered+paid orders in analytics source.
+- Added compatibility aggregate views (read-only):
+  - `order_payments`
+  - `daily_revenue`
+  - `seller_revenue`
+  - `platform_commission`
+- Full flow chart/spec: [docs/order-flow-tracking-sync-phase2.md](./docs/order-flow-tracking-sync-phase2.md)
 
 ---
 
