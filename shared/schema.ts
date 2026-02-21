@@ -874,9 +874,14 @@ export const insertDeliveryZoneSchema = createInsertSchema(deliveryZones).pick({
 export const insertOrderSchema = createInsertSchema(orders).pick({
   buyerId: true,
   sellerId: true,
+  status: true,
   deliveryMethod: true,
   deliveryZoneId: true,
   deliveryAddress: true,
+  deliveryCity: true,
+  deliveryPhone: true,
+  deliveryLatitude: true,
+  deliveryLongitude: true,
   deliveryFee: true,
   subtotal: true,
   couponCode: true,
@@ -884,6 +889,7 @@ export const insertOrderSchema = createInsertSchema(orders).pick({
   processingFee: true,
   total: true,
   currency: true,
+  estimatedDelivery: true,
 });
 
 export const insertChatMessageSchema = createInsertSchema(chatMessages).pick({

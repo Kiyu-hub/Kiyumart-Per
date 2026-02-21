@@ -4556,10 +4556,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Unauthorized to view this order" });
       }
 
-      let riderInfo: any = null;
+      let riderInfo: any = finalOrder.riderId
+        ? {
+            id: finalOrder.riderId,
+            name: "Assigned Rider",
+            phone: null,
+            vehicleType: null,
+            vehiclePlateNumber: null,
+            rating: null,
+          }
+        : null;
       if (finalOrder.riderId) {
         const rider = await storage.getUser(finalOrder.riderId);
-        if (rider?.role === "rider") {
+        if (rider) {
           riderInfo = {
             id: rider.id,
             name: rider.name,
