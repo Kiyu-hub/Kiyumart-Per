@@ -13,22 +13,26 @@ const normalizeStatus = (status?: string) => {
   const s = (status || "").toLowerCase().trim();
   if (s === "ready_for_pickup") return "ready";
   if (s === "assigned_to_rider") return "assigned";
-  if (s === "in_transit" || s === "out_for_delivery" || s === "delivering") return "en_route";
+  if (s === "out_for_delivery" || s === "delivering") return "en_route";
   return s || "pending";
 };
 
 const statusSteps = [
   { key: "pending", label: "Order Placed", icon: Clock },
+  { key: "searching_rider", label: "Finding Rider", icon: Truck },
   { key: "confirmed", label: "Confirmed", icon: Check },
   { key: "ready", label: "Ready", icon: Package },
   { key: "processing", label: "Processing", icon: Package },
   { key: "assigned", label: "Rider Assigned", icon: Truck },
+  { key: "rider_arrived", label: "Rider Arrived", icon: Truck },
   { key: "picked_up", label: "Picked Up", icon: Truck },
+  { key: "in_transit", label: "In Transit", icon: Truck },
   { key: "en_route", label: "Out for Delivery", icon: Truck },
   { key: "delivered", label: "Delivered", icon: CheckCircle2 },
+  { key: "completed", label: "Completed", icon: CheckCircle2 },
 ];
 
-const statusOrder = ["pending", "confirmed", "ready", "processing", "assigned", "picked_up", "en_route", "delivered"];
+const statusOrder = ["pending", "searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route", "delivered", "completed"];
 
 export default function OrderStatusTimeline({ 
   currentStatus, 

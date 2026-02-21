@@ -121,6 +121,7 @@ export interface IStorage {
   // Delivery Tracking operations
   createDeliveryTracking(data: InsertDeliveryTracking): Promise<DeliveryTracking>;
   getLatestDeliveryLocation(orderId: string): Promise<DeliveryTracking | undefined>;
+  getLatestRiderLocation(riderId: string): Promise<DeliveryTracking | undefined>;
   getDeliveryTrackingHistory(orderId: string): Promise<DeliveryTracking[]>;
   
   // Review operations
@@ -540,7 +541,9 @@ export class DbStorage implements IStorage {
     const result = await db.update(orders).set({ 
       riderId,
       updatedAt: new Date()
-    }).where(eq(orders.id, orderId)).returning();
+    })
+    .where(and(eq(orders.id, orderId), isNull(orders.riderId)))
+    .returning();
     return result[0];
   }
 
@@ -1869,6 +1872,15 @@ export class DbStorage implements IStorage {
     const result = await db.select()
       .from(deliveryTracking)
       .where(eq(deliveryTracking.orderId, orderId))
+      .orderBy(desc(deliveryTracking.timestamp))
+      .limit(1);
+    return result[0];
+  }
+
+  async getLatestRiderLocation(riderId: string): Promise<DeliveryTracking | undefined> {
+    const result = await db.select()
+      .from(deliveryTracking)
+      .where(eq(deliveryTracking.riderId, riderId))
       .orderBy(desc(deliveryTracking.timestamp))
       .limit(1);
     return result[0];

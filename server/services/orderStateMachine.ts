@@ -2,13 +2,17 @@ import type { Order } from "@shared/schema";
 
 export type CanonicalOrderStatus =
   | "pending"
+  | "searching_rider"
   | "confirmed"
   | "ready"
   | "processing"
   | "assigned"
+  | "rider_arrived"
   | "picked_up"
+  | "in_transit"
   | "en_route"
   | "delivered"
+  | "completed"
   | "cancelled"
   | "disputed";
 // Legacy alias accepted as input for backward compatibility.
@@ -38,16 +42,28 @@ export interface TransitionError {
 
 export function canonicalizeOrderStatus(status?: string | null): CanonicalOrderStatus {
   const s = (status || "").toLowerCase().trim();
+  if (s === "created") return "pending";
   if (s === "ready_for_pickup") return "ready";
   if (s === "assigned_to_rider") return "assigned";
-  if (s === "out_for_delivery" || s === "in_transit") return "en_route";
+  if (s === "out_for_delivery") return "en_route";
   if (s === "delivering") return "en_route";
+  if (s === "in_transit") return "in_transit";
   if (!s) return "pending";
   return s as CanonicalOrderStatus;
 }
 
 const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrderStatus, TransitionRule>>> = {
   pending: {
+    searching_rider: {
+      allowedRoles: ["admin", "super_admin", "seller"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before rider matching starts",
+        }),
+      ],
+      sideEffects: [],
+    },
     confirmed: {
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [],
@@ -71,6 +87,16 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
   },
 
   confirmed: {
+    searching_rider: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before rider matching starts",
+        }),
+      ],
+      sideEffects: [],
+    },
     ready: {
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [],
@@ -89,6 +115,16 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
   },
 
   ready: {
+    searching_rider: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before rider matching starts",
+        }),
+      ],
+      sideEffects: [],
+    },
     processing: {
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [],
@@ -102,6 +138,16 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
   },
 
   processing: {
+    searching_rider: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before rider matching starts",
+        }),
+      ],
+      sideEffects: [],
+    },
     assigned: {
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [
@@ -139,6 +185,21 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
   },
 
   assigned: {
+    rider_arrived: {
+      allowedRoles: ["rider", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => {
+          if (ctx.actorRole === "rider") {
+            return {
+              valid: ctx.order.riderId === ctx.actorId,
+              error: "Only the assigned rider can mark as arrived",
+            };
+          }
+          return { valid: true };
+        },
+      ],
+      sideEffects: [],
+    },
     picked_up: {
       allowedRoles: ["rider", "admin", "super_admin"],
       preconditions: [
@@ -162,6 +223,21 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
   },
 
   picked_up: {
+    in_transit: {
+      allowedRoles: ["rider", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => {
+          if (ctx.actorRole === "rider") {
+            return {
+              valid: ctx.order.riderId === ctx.actorId,
+              error: "Only the assigned rider can mark order in transit",
+            };
+          }
+          return { valid: true };
+        },
+      ],
+      sideEffects: [],
+    },
     en_route: {
       allowedRoles: ["rider", "admin", "super_admin"],
       preconditions: [
@@ -192,7 +268,75 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
     },
   },
 
+  searching_rider: {
+    assigned: {
+      allowedRoles: ["rider", "seller", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: !!ctx.order.riderId,
+          error: "Rider must be attached before assignment confirmation",
+        }),
+        (ctx) => {
+          if (ctx.actorRole === "rider") {
+            return {
+              valid: ctx.order.riderId === ctx.actorId,
+              error: "Only the offered rider can accept assignment",
+            };
+          }
+          return { valid: true };
+        },
+      ],
+      sideEffects: [],
+    },
+    cancelled: {
+      allowedRoles: ["buyer", "seller", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ riderId: null })],
+    },
+  },
+
+  rider_arrived: {
+    picked_up: {
+      allowedRoles: ["rider", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => {
+          if (ctx.actorRole === "rider") {
+            return {
+              valid: ctx.order.riderId === ctx.actorId,
+              error: "Only the assigned rider can mark as picked up",
+            };
+          }
+          return { valid: true };
+        },
+      ],
+      sideEffects: [],
+    },
+    cancelled: {
+      allowedRoles: ["admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ riderId: null })],
+    },
+  },
+
+  in_transit: {
+    en_route: {
+      allowedRoles: ["rider", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [],
+    },
+    delivered: {
+      allowedRoles: ["rider", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ deliveredAt: new Date() })],
+    },
+  },
+
   delivered: {
+    completed: {
+      allowedRoles: ["admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [],
+    },
     disputed: {
       allowedRoles: ["buyer", "admin", "super_admin"],
       preconditions: [],
@@ -201,6 +345,8 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
   },
 
   cancelled: {},
+
+  completed: {},
 
   disputed: {
     delivered: {

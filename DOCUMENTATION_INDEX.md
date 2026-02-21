@@ -59,6 +59,10 @@ This project has comprehensive documentation for every aspect of the platform. C
   - Canonical order lifecycle and role flow chart
   - Real-time status propagation and notification rules
   - Revenue normalization and aggregate view strategy
+- [docs/rider-assignment-phase2.md](./docs/rider-assignment-phase2.md)
+  - Deterministic Uber-like rider matching (non-breaking)
+  - Sequential offer/timeout flow and admin visibility endpoints
+  - Real-time tracking smoothing, deviation alerts, and edge-case handling
 
 **Code Organization:**
 - [README.md](./README.md) - Project overview

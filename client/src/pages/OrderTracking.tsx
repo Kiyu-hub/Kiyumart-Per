@@ -56,7 +56,7 @@ export default function OrderTracking() {
     const s = (value || "").toLowerCase().trim();
     if (s === "ready_for_pickup") return "ready";
     if (s === "assigned_to_rider") return "assigned";
-    if (s === "in_transit" || s === "out_for_delivery" || s === "delivering") return "en_route";
+    if (s === "out_for_delivery" || s === "delivering") return "en_route";
     return s || "pending";
   };
 
@@ -273,13 +273,17 @@ export default function OrderTracking() {
                         <SelectContent>
                           <SelectItem value="all">All Orders</SelectItem>
                           <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="searching_rider">Searching Rider</SelectItem>
                           <SelectItem value="confirmed">Confirmed</SelectItem>
                           <SelectItem value="ready">Ready</SelectItem>
                           <SelectItem value="processing">Processing</SelectItem>
                           <SelectItem value="assigned">Assigned</SelectItem>
+                          <SelectItem value="rider_arrived">Rider Arrived</SelectItem>
                           <SelectItem value="picked_up">Picked Up</SelectItem>
+                          <SelectItem value="in_transit">In Transit</SelectItem>
                           <SelectItem value="en_route">Out for Delivery</SelectItem>
                           <SelectItem value="delivered">Delivered</SelectItem>
+                          <SelectItem value="completed">Completed</SelectItem>
                           <SelectItem value="cancelled">Cancelled</SelectItem>
                         <SelectItem value="disputed">Disputed</SelectItem>
                       </SelectContent>
@@ -377,7 +381,7 @@ export default function OrderTracking() {
                         </div>
 
                         {/* Live Delivery Map for Delivering Orders */}
-                        {normalizeStatus(order.status) === "en_route" && order.deliveryLatitude && order.deliveryLongitude && 
+                        {["rider_arrived", "picked_up", "in_transit", "en_route"].includes(normalizeStatus(order.status)) && order.deliveryLatitude && order.deliveryLongitude && 
                          !isNaN(parseFloat(order.deliveryLatitude)) && !isNaN(parseFloat(order.deliveryLongitude)) && (
                           <div className="pt-4 border-t space-y-4">
                             <div className="flex items-center justify-between">

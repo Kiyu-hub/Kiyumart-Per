@@ -21,6 +21,7 @@
 - [Overview](#overview)
 - [Phase 2 Messaging Update (February 21, 2026)](#phase-2-messaging-update-february-21-2026)
 - [Phase 2 Order Flow & Sync Update (February 21, 2026)](#phase-2-order-flow--sync-update-february-21-2026)
+- [Phase 2 Rider Assignment & Delivery Update (February 21, 2026)](#phase-2-rider-assignment--delivery-update-february-21-2026)
 - [Features](#features)
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
@@ -75,6 +76,23 @@ To be the leading online marketplace platform for local businesses, connecting q
   - `seller_revenue`
   - `platform_commission`
 - Full flow chart/spec: [docs/order-flow-tracking-sync-phase2.md](./docs/order-flow-tracking-sync-phase2.md)
+
+## Phase 2 Rider Assignment & Delivery Update (February 21, 2026)
+
+- Upgraded rider assignment to deterministic backend matching (Haversine ranking, radius filter, top-candidate queue).
+- Added sequential rider offer lifecycle (one rider at a time, 12s timeout, reject/timeout fallback).
+- Added rider offer response endpoint for strict accept/reject handling:
+  - `POST /api/rider/assignment-offers/:orderId/respond`
+- Added manual trigger + admin monitoring endpoints:
+  - `POST /api/orders/:id/start-rider-matching`
+  - `GET /api/admin/rider-assignment/active`
+- Added socket + HTTP tracking alignment so backend remains single source of truth for rider position updates.
+- Added GPS smoothing/spike suppression and deviation alerting (`geofence_alert`) to admin/super admin.
+- Added early offline auto-reassign behavior (`searching_rider` / `assigned` disconnect protection).
+- Extended canonical delivery states with backward compatibility:
+  - `searching_rider`, `rider_arrived`, `in_transit`, `completed`
+- Cost guarantee preserved: no paid APIs/services introduced.
+- Full implementation notes/spec: [docs/rider-assignment-phase2.md](./docs/rider-assignment-phase2.md)
 
 ---
 

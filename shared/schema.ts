@@ -6,14 +6,18 @@ import { z } from "zod";
 export const userRoleEnum = pgEnum("user_role", ["super_admin", "admin", "seller", "buyer", "rider", "agent"]);
 export const orderStatusEnum = pgEnum("order_status", [
   "pending",
+  "searching_rider",
   "confirmed",
   "ready",
   "processing",
   "assigned",
+  "rider_arrived",
   "picked_up",
+  "in_transit",
   "en_route",
   "delivering",
   "delivered",
+  "completed",
   "cancelled",
   "disputed",
 ]);

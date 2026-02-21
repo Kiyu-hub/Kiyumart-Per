@@ -10,7 +10,9 @@ interface OrderStatusBadgeProps {
 const normalizeStatus = (status?: string) => {
   const s = (status || "").toLowerCase().trim();
   if (s === "ready" || s === "confirmed") return "processing";
-  if (s === "assigned" || s === "picked_up" || s === "en_route") return "en_route";
+  if (s === "searching_rider") return "searching_rider";
+  if (s === "assigned" || s === "rider_arrived" || s === "picked_up" || s === "in_transit" || s === "en_route") return "en_route";
+  if (s === "completed") return "completed";
   return s || "pending";
 };
 
@@ -27,6 +29,12 @@ const statusConfig = {
     variant: "secondary" as const,
     className: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   },
+  searching_rider: {
+    label: "Searching Rider",
+    icon: Truck,
+    variant: "secondary" as const,
+    className: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300",
+  },
   en_route: {
     label: "Out for Delivery",
     icon: Truck,
@@ -35,6 +43,12 @@ const statusConfig = {
   },
   delivered: {
     label: "Delivered",
+    icon: CheckCircle2,
+    variant: "secondary" as const,
+    className: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+  },
+  completed: {
+    label: "Completed",
     icon: CheckCircle2,
     variant: "secondary" as const,
     className: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",

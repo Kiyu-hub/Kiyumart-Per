@@ -39,9 +39,10 @@ export default function RiderDeliveries() {
 
   const normalizeStatus = (value?: string) => {
     const s = (value || "").toLowerCase().trim();
+    if (s === "searching_rider") return "searching_rider";
     if (s === "ready_for_pickup") return "assigned";
     if (s === "assigned_to_rider") return "assigned";
-    if (s === "out_for_delivery" || s === "in_transit") return "en_route";
+    if (s === "out_for_delivery") return "en_route";
     return s || "pending";
   };
 
@@ -66,8 +67,11 @@ export default function RiderDeliveries() {
   const getStatusColor = (status: string) => {
     switch (normalizeStatus(status)) {
       case "pending": return "bg-yellow-500";
+      case "searching_rider": return "bg-indigo-500";
       case "assigned": return "bg-blue-500";
+      case "rider_arrived": return "bg-cyan-500";
       case "picked_up": return "bg-purple-500";
+      case "in_transit": return "bg-orange-500";
       case "en_route": return "bg-orange-500";
       case "delivered": return "bg-green-500";
       default: return "bg-gray-500";
@@ -89,7 +93,9 @@ export default function RiderDeliveries() {
             <SelectContent>
               <SelectItem value="all">All Deliveries</SelectItem>
               <SelectItem value="assigned">Assigned</SelectItem>
+              <SelectItem value="rider_arrived">Rider Arrived</SelectItem>
               <SelectItem value="picked_up">Picked Up</SelectItem>
+              <SelectItem value="in_transit">In Transit</SelectItem>
               <SelectItem value="en_route">In Transit</SelectItem>
               <SelectItem value="delivered">Delivered</SelectItem>
             </SelectContent>
@@ -142,6 +148,16 @@ export default function RiderDeliveries() {
                     {normalizeStatus(delivery.status) === "assigned" && (
                       <Button
                         size="sm"
+                        onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "rider_arrived" })}
+                        disabled={updateStatusMutation.isPending}
+                        data-testid={`button-arrived-${delivery.id}`}
+                      >
+                        Mark as Arrived
+                      </Button>
+                    )}
+                    {normalizeStatus(delivery.status) === "rider_arrived" && (
+                      <Button
+                        size="sm"
                         onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "picked_up" })}
                         disabled={updateStatusMutation.isPending}
                         data-testid={`button-pickup-${delivery.id}`}
@@ -152,9 +168,19 @@ export default function RiderDeliveries() {
                     {normalizeStatus(delivery.status) === "picked_up" && (
                       <Button
                         size="sm"
-                        onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "en_route" })}
+                        onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "in_transit" })}
                         disabled={updateStatusMutation.isPending}
                         data-testid={`button-intransit-${delivery.id}`}
+                      >
+                        Mark as In Transit
+                      </Button>
+                    )}
+                    {normalizeStatus(delivery.status) === "in_transit" && (
+                      <Button
+                        size="sm"
+                        onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "en_route" })}
+                        disabled={updateStatusMutation.isPending}
+                        data-testid={`button-enroute-${delivery.id}`}
                       >
                         Mark as En Route
                       </Button>

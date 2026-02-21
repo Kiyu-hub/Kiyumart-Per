@@ -41,6 +41,21 @@ const PROFILE_IMAGE_MAX_BYTES = runtimeConfig.upload.profileImageMaxBytes;
 const AUDIO_UPLOAD_MAX_BYTES = runtimeConfig.upload.audioMaxBytes;
 const SUPPORT_MEDIA_MAX_BYTES = runtimeConfig.upload.supportMediaMaxBytes;
 const AUTO_DISPATCH_MINUTES = runtimeConfig.dispatch.autoDispatchMinutes;
+const RIDER_OFFER_TIMEOUT_MS = 12_000;
+const RIDER_MATCH_RADIUS_KM = 5;
+const RIDER_MATCH_LIMIT = 5;
+
+type RiderAssignmentAttemptStatus = "offered" | "accepted" | "rejected" | "timed_out" | "failed";
+
+type RiderAssignmentAttempt = {
+  riderId: string;
+  riderName: string;
+  distanceKm: number | null;
+  offeredAt: string;
+  resolvedAt?: string;
+  status: RiderAssignmentAttemptStatus;
+  reason?: string;
+};
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -3632,6 +3647,315 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Order Routes ============
+  type RiderMatchCandidate = {
+    riderId: string;
+    riderName: string;
+    rating: number;
+    distanceKm: number | null;
+  };
+
+  type PendingRiderAssignment = {
+    orderId: string;
+    orderNumber: string;
+    actorId: string;
+    actorRole: "seller" | "admin" | "super_admin";
+    candidates: RiderMatchCandidate[];
+    attempts: RiderAssignmentAttempt[];
+    currentCandidateIndex: number;
+    currentRiderId: string | null;
+    expiresAt: string | null;
+    timer: NodeJS.Timeout | null;
+    startedAt: string;
+    lastError?: string;
+  };
+
+  const pendingRiderAssignments = new Map<string, PendingRiderAssignment>();
+
+  let assignRiderToOrder: (params: {
+    orderId: string;
+    riderId: string;
+    actorId: string;
+    actorRole: string;
+    allowSellerOwnershipCheck?: boolean;
+  }) => Promise<any>;
+
+  const toFiniteNumber = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const haversineDistanceKm = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const earthRadiusKm = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return earthRadiusKm * c;
+  };
+
+  const clearPendingRiderAssignment = (orderId: string) => {
+    const pending = pendingRiderAssignments.get(orderId);
+    if (pending?.timer) {
+      clearTimeout(pending.timer);
+    }
+    pendingRiderAssignments.delete(orderId);
+  };
+
+  const getOrderLocationForMatching = (order: any): { lat: number; lng: number } | null => {
+    const lat = toFiniteNumber(order.deliveryLatitude);
+    const lng = toFiniteNumber(order.deliveryLongitude);
+    if (lat === null || lng === null) return null;
+    return { lat, lng };
+  };
+
+  const getRiderMatchCandidates = async (order: any): Promise<RiderMatchCandidate[]> => {
+    const allRiders = await storage.getUsersByRole("rider");
+    const activeRiders = allRiders.filter((r: any) => r.isApproved && r.isActive);
+    if (activeRiders.length === 0) return [];
+
+    const allOrders = await storage.getAllOrders();
+    const ridersOnDelivery = new Set(
+      allOrders
+        .filter((o: any) => ["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
+        .map((o: any) => o.riderId)
+    );
+
+    const availableRiders = activeRiders.filter((r: any) => !ridersOnDelivery.has(r.id));
+    if (availableRiders.length === 0) return [];
+
+    const orderLocation = getOrderLocationForMatching(order);
+    const riderLocations = await Promise.all(
+      availableRiders.map(async (rider: any) => ({
+        rider,
+        location: await storage.getLatestRiderLocation(rider.id),
+      }))
+    );
+
+    const candidates = riderLocations
+      .map(({ rider, location }) => {
+        const riderLat = toFiniteNumber(location?.latitude);
+        const riderLng = toFiniteNumber(location?.longitude);
+        const distanceKm =
+          orderLocation && riderLat !== null && riderLng !== null
+            ? haversineDistanceKm(riderLat, riderLng, orderLocation.lat, orderLocation.lng)
+            : null;
+        return {
+          riderId: rider.id,
+          riderName: rider.name,
+          rating: toFiniteNumber(rider.ratings) ?? 0,
+          distanceKm,
+        };
+      })
+      .filter((candidate) => candidate.distanceKm === null || candidate.distanceKm <= RIDER_MATCH_RADIUS_KM)
+      .sort((a, b) => {
+        const distanceA = a.distanceKm === null ? Number.MAX_SAFE_INTEGER : a.distanceKm;
+        const distanceB = b.distanceKm === null ? Number.MAX_SAFE_INTEGER : b.distanceKm;
+        if (distanceA !== distanceB) return distanceA - distanceB;
+        if (a.rating !== b.rating) return b.rating - a.rating;
+        return a.riderId.localeCompare(b.riderId);
+      })
+      .slice(0, RIDER_MATCH_LIMIT);
+
+    return candidates;
+  };
+
+  const emitRiderAssignmentFailure = async (order: any, reason: string, attempts: RiderAssignmentAttempt[]) => {
+    const [admins, superAdmins] = await Promise.all([
+      storage.getUsersByRole("admin"),
+      storage.getUsersByRole("super_admin"),
+    ]);
+    const payload = {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      reason,
+      attempts,
+      failedAt: new Date().toISOString(),
+    };
+    [...admins, ...superAdmins].forEach((adminUser: any) => {
+      io.to(adminUser.id).emit("order_rider_assignment_failed", payload);
+    });
+  };
+
+  const dispatchNextRiderOffer = async (orderId: string) => {
+    const pending = pendingRiderAssignments.get(orderId);
+    if (!pending) return;
+
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+      pending.timer = null;
+    }
+
+    const order = await storage.getOrder(orderId);
+    if (!order || order.riderId) {
+      clearPendingRiderAssignment(orderId);
+      return;
+    }
+
+    const nextCandidate = pending.candidates[pending.currentCandidateIndex];
+    if (!nextCandidate) {
+      pending.lastError = "No available riders accepted the offer";
+      pending.currentRiderId = null;
+      pending.expiresAt = null;
+      await emitRiderAssignmentFailure(order, pending.lastError, pending.attempts);
+      return;
+    }
+
+    pending.currentCandidateIndex += 1;
+    pending.currentRiderId = nextCandidate.riderId;
+    pending.expiresAt = new Date(Date.now() + RIDER_OFFER_TIMEOUT_MS).toISOString();
+
+    pending.attempts.push({
+      riderId: nextCandidate.riderId,
+      riderName: nextCandidate.riderName,
+      distanceKm: nextCandidate.distanceKm,
+      offeredAt: new Date().toISOString(),
+      status: "offered",
+    });
+
+    const payload = {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      deliveryAddress: order.deliveryAddress,
+      deliveryLatitude: order.deliveryLatitude,
+      deliveryLongitude: order.deliveryLongitude,
+      estimatedPayout: order.deliveryFee,
+      currency: order.currency || "GHS",
+      expiresAt: pending.expiresAt,
+    };
+
+    io.to(nextCandidate.riderId).emit("rider_assignment_offer", payload);
+    await storage.createNotification({
+      userId: nextCandidate.riderId,
+      type: "order",
+      title: "Delivery Offer",
+      message: `You have a new delivery offer for order #${order.orderNumber}.`,
+      metadata: { orderId: order.id, orderNumber: order.orderNumber, expiresAt: pending.expiresAt } as any,
+    });
+
+    pending.timer = setTimeout(async () => {
+      const timedOut = pendingRiderAssignments.get(orderId);
+      if (!timedOut || timedOut.currentRiderId !== nextCandidate.riderId) return;
+      const offeredAttempt = [...timedOut.attempts].reverse().find((a) => a.riderId === nextCandidate.riderId && a.status === "offered");
+      if (offeredAttempt) {
+        offeredAttempt.status = "timed_out";
+        offeredAttempt.resolvedAt = new Date().toISOString();
+        offeredAttempt.reason = "Offer timed out";
+      }
+      timedOut.currentRiderId = null;
+      timedOut.expiresAt = null;
+      await dispatchNextRiderOffer(orderId);
+    }, RIDER_OFFER_TIMEOUT_MS);
+  };
+
+  const startRiderMatching = async (orderId: string, actorId: string, actorRole: "seller" | "admin" | "super_admin") => {
+    const order = await storage.getOrder(orderId);
+    if (!order) {
+      throw new Error("Order not found");
+    }
+    if (order.deliveryMethod !== "rider") {
+      throw new Error("Order does not require rider delivery");
+    }
+    if (order.riderId) {
+      clearPendingRiderAssignment(order.id);
+      return order;
+    }
+    if (canonicalizeOrderStatus(order.status) === "pending" && order.paymentStatus !== "completed") {
+      throw new Error("Payment must be completed before rider matching");
+    }
+
+    const currentStatus = canonicalizeOrderStatus(order.status);
+    if (currentStatus !== "searching_rider") {
+      await storage.applyOrderStatusTransition(order.id, "searching_rider", actorId, actorRole, "auto_rider_matching_started");
+    }
+
+    const candidates = await getRiderMatchCandidates(order);
+    const pending: PendingRiderAssignment = {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      actorId,
+      actorRole,
+      candidates,
+      attempts: [],
+      currentCandidateIndex: 0,
+      currentRiderId: null,
+      expiresAt: null,
+      timer: null,
+      startedAt: new Date().toISOString(),
+    };
+    clearPendingRiderAssignment(order.id);
+    pendingRiderAssignments.set(order.id, pending);
+    await dispatchNextRiderOffer(order.id);
+    return await storage.getOrder(order.id);
+  };
+
+  const startRiderMatchingForPaidOrders = async (orderIds: string[]) => {
+    for (const orderId of orderIds) {
+      try {
+        const order = await storage.getOrder(orderId);
+        if (!order) continue;
+        if (order.deliveryMethod !== "rider") continue;
+        if (order.riderId) continue;
+        if (order.paymentStatus !== "completed") continue;
+        await startRiderMatching(order.id, order.sellerId, "seller");
+      } catch (error: any) {
+        console.warn(`[RIDER_MATCH] Failed to start matching for order ${orderId}:`, error?.message || error);
+      }
+    }
+  };
+
+  const extractOrderIdsFromPaymentPayload = (paymentData: any): string[] => {
+    const meta = paymentData?.metadata || {};
+    const orderIds = Array.isArray(meta.orderIds) ? meta.orderIds.filter(Boolean) : [];
+    if (orderIds.length > 0) return orderIds;
+    if (meta.orderId) return [meta.orderId];
+    return [];
+  };
+
+  const resolveRiderOfferResponse = async (orderId: string, riderId: string, action: "accept" | "reject") => {
+    const pending = pendingRiderAssignments.get(orderId);
+    if (!pending) {
+      const error = new Error("No active assignment offer for this order");
+      (error as any).code = 404;
+      throw error;
+    }
+    if (pending.currentRiderId !== riderId) {
+      const error = new Error("This offer is not active for the rider");
+      (error as any).code = 409;
+      throw error;
+    }
+
+    const activeAttempt = [...pending.attempts].reverse().find((a) => a.riderId === riderId && a.status === "offered");
+    if (activeAttempt) {
+      activeAttempt.resolvedAt = new Date().toISOString();
+      activeAttempt.status = action === "accept" ? "accepted" : "rejected";
+      activeAttempt.reason = action === "accept" ? "Accepted by rider" : "Rejected by rider";
+    }
+
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+      pending.timer = null;
+    }
+    pending.currentRiderId = null;
+    pending.expiresAt = null;
+
+    if (action === "accept") {
+      clearPendingRiderAssignment(orderId);
+      return assignRiderToOrder({
+        orderId,
+        riderId,
+        actorId: riderId,
+        actorRole: "rider",
+      });
+    }
+
+    await dispatchNextRiderOffer(orderId);
+    return await storage.getOrder(orderId);
+  };
+
   const emitOrderStatusUpdateToStakeholders = async (order: any, statusOverride?: string) => {
     const canonicalStatus = canonicalizeOrderStatus(statusOverride || order.status);
     const payload = {
@@ -3923,39 +4247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })));
         createdOrders = [order];
       }
-      
-      // Automatic rider assignment with round-robin load balancing for all orders
-      try {
-        const availableRiders = await storage.getAvailableRidersWithOrderCounts();
-        
-        if (availableRiders.length > 0) {
-          for (const order of createdOrders) {
-            const selectedRider = availableRiders[0];
-            
-            await storage.assignRider(order.id, selectedRider.rider.id);
-            
-            await storage.createNotification({
-              userId: selectedRider.rider.id,
-              type: 'order',
-              title: 'New Order Assigned',
-              message: `Order ${order.orderNumber} has been automatically assigned to you`,
-              metadata: { orderId: order.id, orderNumber: order.orderNumber } as any
-            });
-            
-            io.to(selectedRider.rider.id).emit('new_order_assigned', {
-              orderId: order.id,
-              orderNumber: order.orderNumber,
-              message: `New order ${order.orderNumber} assigned to you`
-            });
-            
-            console.log(`✅ Auto-assigned order ${order.orderNumber} to rider ${selectedRider.rider.name}`);
-          }
-        } else {
-          console.log(`⚠️ No available riders for ${createdOrders.length} orders`);
-        }
-      } catch (riderAssignmentError: any) {
-        console.error('Rider auto-assignment failed:', riderAssignmentError);
-      }
+      // Rider matching starts only after payment verification to keep assignment deterministic.
       
       // NOTE: Order notification will be sent after successful payment verification
       // See /api/payments/verify/:reference endpoint
@@ -4124,7 +4416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const normalizedStatus =
         rawStatus === "ready_for_pickup" ? "ready" :
         rawStatus === "assigned_to_rider" ? "assigned" :
-        rawStatus === "in_transit" || rawStatus === "out_for_delivery" || rawStatus === "delivering" ? "en_route" :
+        rawStatus === "out_for_delivery" || rawStatus === "delivering" ? "en_route" :
         rawStatus;
       const orderId = req.params.id;
       
@@ -4158,6 +4450,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       await emitOrderStatusUpdateToStakeholders(updatedOrder, canonicalStatus);
+
+      if (
+        updatedOrder.deliveryMethod === "rider" &&
+        !updatedOrder.riderId &&
+        updatedOrder.paymentStatus === "completed" &&
+        ["processing", "ready", "confirmed", "searching_rider"].includes(canonicalStatus)
+      ) {
+        try {
+          await startRiderMatching(updatedOrder.id, req.user!.id, req.user!.role as "seller" | "admin" | "super_admin");
+        } catch (matchError: any) {
+          console.warn(`[RIDER_MATCH] Could not start after status update for order ${updatedOrder.id}:`, matchError?.message || matchError);
+        }
+      }
       
       res.json(updatedOrder);
     } catch (error: any) {
@@ -4181,7 +4486,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const assignRiderToOrder = async (params: {
+  assignRiderToOrder = async (params: {
     orderId: string;
     riderId: string;
     actorId: string;
@@ -4230,14 +4535,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Always assign rider first.
     const assigned = await storage.assignRider(orderId, riderId);
     if (!assigned) {
-      const error = new Error("Order not found");
-      (error as any).code = 404;
+      const refreshed = await storage.getOrder(orderId);
+      const error = new Error(refreshed?.riderId ? "Order already has a rider assigned" : "Order not found");
+      (error as any).code = refreshed?.riderId ? 409 : 404;
       throw error;
     }
 
     // Promote order into assigned state when currently in dispatch-ready statuses.
     const current = (assigned.status || "").toLowerCase().trim();
-    const canPromoteToAssigned = ["processing", "ready", "confirmed"].includes(current);
+    const canPromoteToAssigned = ["processing", "ready", "confirmed", "searching_rider"].includes(current);
     let updatedOrder = assigned;
     if (canPromoteToAssigned) {
       try {
@@ -4278,6 +4584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     await emitOrderStatusUpdateToStakeholders(updatedOrder, updatedOrder.status);
 
+    clearPendingRiderAssignment(orderId);
     return updatedOrder;
   };
 
@@ -4291,6 +4598,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allowSellerOwnershipCheck: true,
       });
       res.json(updatedOrder);
+    } catch (error: any) {
+      res.status((error as any)?.code || 400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/orders/:id/start-rider-matching", requireAuth, requireRole("admin", "super_admin", "seller"), requirePermissionIfAdmin("manage_orders"), async (req: AuthRequest, res) => {
+    try {
+      const updated = await startRiderMatching(
+        req.params.id,
+        req.user!.id,
+        req.user!.role as "seller" | "admin" | "super_admin"
+      );
+      res.json(updated);
+    } catch (error: any) {
+      res.status((error as any)?.code || 400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/rider/assignment-offers/:orderId/respond", requireAuth, requireRole("rider"), requireRoleFeature("deliveries.manage"), async (req: AuthRequest, res) => {
+    try {
+      const action = String(req.body?.action || "").toLowerCase();
+      if (action !== "accept" && action !== "reject") {
+        return res.status(400).json({ error: "Invalid action. Use accept or reject." });
+      }
+
+      const updated = await resolveRiderOfferResponse(req.params.orderId, req.user!.id, action as "accept" | "reject");
+      res.json(updated);
     } catch (error: any) {
       res.status((error as any)?.code || 400).json({ error: error.message });
     }
@@ -4319,7 +4653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify the order is in a valid state for completion
       const normalizedOrderStatus = (order.status || "").toLowerCase().trim();
-      const completionEligibleStatuses = ["en_route", "picked_up"];
+      const completionEligibleStatuses = ["rider_arrived", "picked_up", "in_transit", "en_route"];
       const completionStatus =
         normalizedOrderStatus === "delivering" || normalizedOrderStatus === "in_transit" || normalizedOrderStatus === "out_for_delivery"
           ? "en_route"
@@ -4477,7 +4811,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(orders.riderId, riderId),
-            sql`lower(cast(${orders.status} as text)) in ('processing','ready','confirmed','assigned','picked_up','en_route')`
+            sql`lower(cast(${orders.status} as text)) in ('processing','ready','confirmed','searching_rider','assigned','rider_arrived','picked_up','in_transit','en_route')`
           )
         )
         .orderBy(desc(orders.createdAt))
@@ -4521,19 +4855,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "You are not assigned to this order" });
       }
 
+      const currentLat = toFiniteNumber(req.body.latitude);
+      const currentLng = toFiniteNumber(req.body.longitude);
+      if (currentLat === null || currentLng === null || currentLat < -90 || currentLat > 90 || currentLng < -180 || currentLng > 180) {
+        return res.status(400).json({ error: "Invalid latitude/longitude payload" });
+      }
+
+      const latest = await storage.getLatestDeliveryLocation(order.id);
+      let effectiveLat = currentLat;
+      let effectiveLng = currentLng;
+      let smoothingApplied = false;
+      let ignoredGpsSpike = false;
+
+      if (latest) {
+        const prevLat = toFiniteNumber(latest.latitude);
+        const prevLng = toFiniteNumber(latest.longitude);
+        if (prevLat !== null && prevLng !== null) {
+          const distanceKm = haversineDistanceKm(prevLat, prevLng, currentLat, currentLng);
+          const prevTs = latest.timestamp ? new Date(latest.timestamp).getTime() : Date.now();
+          const elapsedHours = Math.max((Date.now() - prevTs) / 3_600_000, 1 / 3600);
+          const impliedSpeed = distanceKm / elapsedHours;
+
+          if (impliedSpeed > 160) {
+            // Ignore impossible GPS spike and keep the latest valid point.
+            effectiveLat = prevLat;
+            effectiveLng = prevLng;
+            ignoredGpsSpike = true;
+          } else if (distanceKm < 0.03) {
+            // Apply light smoothing for short jitter jumps.
+            effectiveLat = Number((prevLat * 0.65 + currentLat * 0.35).toFixed(7));
+            effectiveLng = Number((prevLng * 0.65 + currentLng * 0.35).toFixed(7));
+            smoothingApplied = true;
+          }
+        }
+      }
+
       const trackingData = {
         orderId: req.body.orderId,
         riderId: req.user!.id,
-        latitude: req.body.latitude,
-        longitude: req.body.longitude,
+        latitude: effectiveLat.toString(),
+        longitude: effectiveLng.toString(),
         accuracy: req.body.accuracy,
         speed: req.body.speed,
         heading: req.body.heading,
       };
 
-      const tracking = await storage.createDeliveryTracking(trackingData);
+      const tracking = await storage.createDeliveryTracking(trackingData as any);
       
-      // Emit real-time location update to buyer and admins
+      // Emit real-time location update to all stakeholders
       if (order) {
         const rider = await storage.getUser(req.user!.id);
         const locationUpdate = {
@@ -4546,17 +4915,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
           speed: tracking.speed,
           heading: tracking.heading,
           timestamp: tracking.timestamp,
+          smoothingApplied,
+          ignoredGpsSpike,
         };
         
-        // Send to buyer
+        // Send to buyer/seller/rider
         io.to(order.buyerId).emit("rider_location_updated", locationUpdate);
+        if (order.sellerId) io.to(order.sellerId).emit("rider_location_updated", locationUpdate);
+        if (order.riderId) io.to(order.riderId).emit("rider_location_updated", locationUpdate);
         
         // Send to all admins for real-time tracking
         const admins = await storage.getUsersByRole("admin");
         const superAdmins = await storage.getUsersByRole("super_admin");
-        [...admins, ...superAdmins].forEach(admin => {
-          io.to(admin.id).emit("admin_rider_location_updated", locationUpdate);
+        [...admins, ...superAdmins].forEach(adminUser => {
+          io.to(adminUser.id).emit("admin_rider_location_updated", locationUpdate);
         });
+
+        // Deviation signal: moving significantly farther from destination.
+        const destination = getOrderLocationForMatching(order);
+        const prevLat = latest ? toFiniteNumber(latest.latitude) : null;
+        const prevLng = latest ? toFiniteNumber(latest.longitude) : null;
+        if (destination && prevLat !== null && prevLng !== null) {
+          const previousDistance = haversineDistanceKm(prevLat, prevLng, destination.lat, destination.lng);
+          const currentDistance = haversineDistanceKm(effectiveLat, effectiveLng, destination.lat, destination.lng);
+          if (currentDistance - previousDistance > 2) {
+            const alert = {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              riderId: req.user!.id,
+              riderName: rider?.name || "Rider",
+              message: "Rider trajectory deviated from expected route",
+              previousDistanceKm: previousDistance,
+              currentDistanceKm: currentDistance,
+              timestamp: new Date().toISOString(),
+            };
+            [...admins, ...superAdmins].forEach((adminUser) => {
+              io.to(adminUser.id).emit("geofence_alert", alert);
+            });
+          }
+        }
       }
       
       res.json(tracking);
@@ -4656,7 +5053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get all orders and filter for active delivery statuses with assigned riders
       const allOrders = await storage.getAllOrders();
       const activeOrders = allOrders.filter(order => 
-        ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route"].includes((order.status || "").toLowerCase().trim()) && order.riderId
+        ["processing", "ready", "confirmed", "searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes((order.status || "").toLowerCase().trim()) && order.riderId
       );
       
       const riderLocations = await Promise.all(
@@ -4703,7 +5100,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pendingOrders = allOrders
         .filter(order => 
           order.deliveryMethod === "rider" &&
-          ["processing", "ready", "confirmed"].includes((order.status || "").toLowerCase().trim()) &&
+          ["processing", "ready", "confirmed", "searching_rider"].includes((order.status || "").toLowerCase().trim()) &&
           !order.riderId
         )
         .map(order => ({
@@ -4758,31 +5155,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allOrders = await storage.getAllOrders();
       const ridersOnDelivery = new Set(
         allOrders
-          .filter(o => ["assigned", "picked_up", "en_route"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
+          .filter(o => ["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
           .map(o => o.riderId)
       );
       
       // Filter out riders currently on delivery
-      const availableRiders = activeRiders
-        .filter(r => !ridersOnDelivery.has(r.id))
-        .map(rider => {
-          let distanceToOrder: number | undefined;
-          
-          // Calculate distance if order location provided
-          if (orderLat && orderLng && rider.businessAddress) {
-            // For now, we'll leave distance as undefined
-            // In production, you'd geocode the business address or store rider's current location
-          }
-          
-          return {
-            id: rider.id,
-            name: rider.name,
-            email: rider.email,
-            phone: rider.phone,
-            isAvailable: true,
-            distanceToOrder,
-          };
-        });
+      const orderLatNum = toFiniteNumber(orderLat);
+      const orderLngNum = toFiniteNumber(orderLng);
+      const availableRiders = await Promise.all(
+        activeRiders
+          .filter(r => !ridersOnDelivery.has(r.id))
+          .map(async (rider) => {
+            let distanceToOrder: number | undefined;
+            if (orderLatNum !== null && orderLngNum !== null) {
+              const latest = await storage.getLatestRiderLocation(rider.id);
+              const riderLat = toFiniteNumber(latest?.latitude);
+              const riderLng = toFiniteNumber(latest?.longitude);
+              if (riderLat !== null && riderLng !== null) {
+                distanceToOrder = haversineDistanceKm(riderLat, riderLng, orderLatNum, orderLngNum);
+              }
+            }
+            
+            return {
+              id: rider.id,
+              name: rider.name,
+              email: rider.email,
+              phone: rider.phone,
+              isAvailable: true,
+              distanceToOrder,
+            };
+          })
+      );
+
+      availableRiders.sort((a, b) => {
+        const distanceA = typeof a.distanceToOrder === "number" ? a.distanceToOrder : Number.MAX_SAFE_INTEGER;
+        const distanceB = typeof b.distanceToOrder === "number" ? b.distanceToOrder : Number.MAX_SAFE_INTEGER;
+        if (distanceA !== distanceB) return distanceA - distanceB;
+        return a.name.localeCompare(b.name);
+      });
 
       res.json(availableRiders);
     } catch (error: any) {
@@ -4809,7 +5219,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Auto-dispatch: Assign unassigned orders older than configured threshold (default 60 minutes)
   // This should be called by a cron job or scheduled task
-  app.post("/api/admin/auto-dispatch", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
+  app.post("/api/admin/auto-dispatch", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req: AuthRequest, res) => {
     try {
       const allOrders = await storage.getAllOrders();
       const now = new Date();
@@ -4819,7 +5229,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const overdueOrders = allOrders.filter(order => {
         if (order.deliveryMethod !== "rider") return false;
         if (order.riderId) return false; // Already assigned
-        if (!["processing", "ready", "confirmed"].includes((order.status || "").toLowerCase().trim())) return false;
+        if (!["processing", "ready", "confirmed", "searching_rider"].includes((order.status || "").toLowerCase().trim())) return false;
         
         const orderAge = now.getTime() - new Date(order.createdAt!).getTime();
         return orderAge >= autoDispatchThresholdMs;
@@ -4829,57 +5239,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ message: "No orders require auto-dispatch", assigned: 0 });
       }
 
-      // Get available riders
-      const allRiders = await storage.getUsersByRole("rider");
-      const activeRiders = allRiders.filter(r => r.isApproved && r.isActive);
-      
-      const ridersOnDelivery = new Set(
-        allOrders
-          .filter(o => ["assigned", "picked_up", "en_route"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
-          .map(o => o.riderId)
-      );
-      
-      const availableRiders = activeRiders.filter(r => !ridersOnDelivery.has(r.id));
-
-      if (availableRiders.length === 0) {
-        return res.json({ message: "No available riders for auto-dispatch", assigned: 0, pending: overdueOrders.length });
+      let startedMatching = 0;
+      for (const order of overdueOrders) {
+        try {
+          await startRiderMatching(order.id, req.user!.id, req.user!.role as "admin" | "super_admin");
+          startedMatching++;
+        } catch (error: any) {
+          console.warn(`[AUTO_DISPATCH] Rider matching skipped for order ${order.id}:`, error?.message || error);
+        }
       }
 
-      let assignedCount = 0;
-      
-      // Simple round-robin assignment (in production, use proximity-based assignment)
-      for (let i = 0; i < overdueOrders.length && i < availableRiders.length; i++) {
-        const order = overdueOrders[i];
-        const rider = availableRiders[i];
-
-        await storage.updateOrder(order.id, { 
-          riderId: rider.id,
-          status: "assigned" as any,
-        });
-
-        await storage.createNotification({
-          userId: rider.id,
-          type: "order",
-          title: "Auto-Assigned Delivery",
-          message: `You have been auto-assigned to deliver order #${order.orderNumber}. This order has been waiting for pickup.`,
-          metadata: { link: `/rider/deliveries?orderId=${order.id}` } as any,
-        });
-
-        io.emit("order_rider_assigned", {
-          orderId: order.id,
-          riderId: rider.id,
-          riderName: rider.name,
-          orderNumber: order.orderNumber,
-          isAutoAssigned: true,
-        });
-
-        assignedCount++;
-      }
-
-      res.json({ 
-        message: `Auto-dispatch completed`, 
-        assigned: assignedCount,
-        pending: overdueOrders.length - assignedCount
+      res.json({
+        message: "Auto-dispatch completed",
+        matchingStarted: startedMatching,
+        pending: Math.max(overdueOrders.length - startedMatching, 0),
       });
     } catch (error: any) {
       console.error("Error in auto-dispatch:", error);
@@ -5126,6 +5499,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
+  });
+
+  app.get("/api/admin/rider-assignment/active", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (_req, res) => {
+    const active = Array.from(pendingRiderAssignments.values()).map((entry) => ({
+      orderId: entry.orderId,
+      orderNumber: entry.orderNumber,
+      startedAt: entry.startedAt,
+      expiresAt: entry.expiresAt,
+      currentRiderId: entry.currentRiderId,
+      currentCandidateIndex: entry.currentCandidateIndex,
+      candidateCount: entry.candidates.length,
+      attempts: entry.attempts,
+      lastError: entry.lastError || null,
+    }));
+    res.json(active);
   });
 
   // Audio upload endpoint (voice notes/support) - configurable max (default 5MB)
@@ -7147,6 +7535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           })
         );
+        await startRiderMatchingForPaidOrders(targetOrderIds);
       }
 
       return {
@@ -7284,6 +7673,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('[VERIFY] Error processing payment via shared helper:', procErr?.message || procErr);
       }
 
+      if (data.data.status === "success") {
+        await startRiderMatchingForPaidOrders(orders.map((o: any) => o.id));
+      }
+
       const transaction = await storage.getTransactionByReference(reference);
 
       return {
@@ -7376,6 +7769,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const { processPaystackChargeSuccess } = await import('./payments');
             await processPaystackChargeSuccess(data, storage, io);
+            await startRiderMatchingForPaidOrders(extractOrderIdsFromPaymentPayload(data));
             console.log('[WEBHOOK] Payment processed successfully (charge.success)');
 
             // Mark idempotency record used (associate with reference)
@@ -7670,7 +8064,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
          (o.buyerId === userId2 && (o.sellerId === userId1 || o.riderId === userId1)) ||
          (o.sellerId === userId1 && o.riderId === userId2) ||
          (o.sellerId === userId2 && o.riderId === userId1)) &&
-        ['pending', 'confirmed', 'processing', 'ready', 'assigned', 'picked_up', 'en_route'].includes(o.status)
+        ['pending', 'confirmed', 'processing', 'ready', 'searching_rider', 'assigned', 'rider_arrived', 'picked_up', 'in_transit', 'en_route'].includes(o.status)
       ) || null;
     },
   });
@@ -7693,17 +8087,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
     messageDeliveryService.onUserOnline(userId);
 
     socket.on("disconnect", () => {
-      console.log(`❌ User disconnected: ${userEmail} (${userId})`);
+      console.log(`User disconnected: ${userEmail} (${userId})`);
       userSockets.delete(userId);
       io.emit("user_offline", userId);
       
       // Update presence service
       presenceService.userDisconnected(userId);
+      if (socket.data.userRole === "rider") {
+        void (async () => {
+          try {
+            const riderOrders = await storage.getOrdersByUser(userId, "rider");
+            const impacted = riderOrders.find((o: any) =>
+              ["searching_rider", "assigned"].includes(canonicalizeOrderStatus(o.status))
+            );
+            if (!impacted) return;
+
+            await storage.updateOrder(impacted.id, { riderId: null } as any);
+            await startRiderMatchingForPaidOrders([impacted.id]);
+          } catch (error) {
+            console.warn(`[RIDER_MATCH] Offline reassign failed for rider ${userId}:`, (error as any)?.message || error);
+          }
+        })();
+      }
     });
 
     // Heartbeat for presence tracking
     socket.on("heartbeat", () => {
       presenceService.heartbeat(userId);
+    });
+
+    socket.on("rider_location_update", async (payload) => {
+      try {
+        if (socket.data.userRole !== "rider") return;
+        const orderId = String(payload?.orderId || "");
+        if (!orderId) return;
+
+        const order = await storage.getOrder(orderId);
+        if (!order || order.riderId !== userId) return;
+
+        const lat = toFiniteNumber(payload?.latitude);
+        const lng = toFiniteNumber(payload?.longitude);
+        if (lat === null || lng === null) return;
+
+        const latest = await storage.getLatestDeliveryLocation(order.id);
+        let effectiveLat = lat;
+        let effectiveLng = lng;
+
+        if (latest) {
+          const prevLat = toFiniteNumber(latest.latitude);
+          const prevLng = toFiniteNumber(latest.longitude);
+          if (prevLat !== null && prevLng !== null) {
+            const distanceKm = haversineDistanceKm(prevLat, prevLng, lat, lng);
+            const prevTs = latest.timestamp ? new Date(latest.timestamp).getTime() : Date.now();
+            const elapsedHours = Math.max((Date.now() - prevTs) / 3_600_000, 1 / 3600);
+            const impliedSpeed = distanceKm / elapsedHours;
+            if (impliedSpeed > 160) {
+              effectiveLat = prevLat;
+              effectiveLng = prevLng;
+            }
+          }
+        }
+
+        const tracking = await storage.createDeliveryTracking({
+          orderId: order.id,
+          riderId: userId,
+          latitude: effectiveLat.toString(),
+          longitude: effectiveLng.toString(),
+          accuracy: payload?.accuracy,
+          speed: payload?.speed,
+          heading: payload?.heading,
+        } as any);
+
+        const rider = await storage.getUser(userId);
+        const update = {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          riderId: userId,
+          riderName: rider?.name || "Rider",
+          latitude: tracking.latitude,
+          longitude: tracking.longitude,
+          speed: tracking.speed,
+          heading: tracking.heading,
+          timestamp: tracking.timestamp,
+        };
+        io.to(order.buyerId).emit("rider_location_updated", update);
+        if (order.sellerId) io.to(order.sellerId).emit("rider_location_updated", update);
+        io.to(userId).emit("rider_location_updated", update);
+
+        const [admins, superAdmins] = await Promise.all([
+          storage.getUsersByRole("admin"),
+          storage.getUsersByRole("super_admin"),
+        ]);
+        [...admins, ...superAdmins].forEach((adminUser) => {
+          io.to(adminUser.id).emit("admin_rider_location_updated", update);
+        });
+      } catch (error) {
+        console.error("rider_location_update handler error:", error);
+      }
     });
 
     socket.on("typing", ({ receiverId }) => {
@@ -9622,6 +10102,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (event.event === "charge.success") {
         const { processPaystackChargeSuccess } = await import('./payments');
         await processPaystackChargeSuccess(event.data, storage, io);
+        await startRiderMatchingForPaidOrders(extractOrderIdsFromPaymentPayload(event.data));
       }
 
       res.status(200).json({ status: "success" });
@@ -9667,5 +10148,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   return httpServer;
 }
+
 
 
