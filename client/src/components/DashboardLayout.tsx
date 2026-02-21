@@ -1,4 +1,4 @@
-import { ReactNode, useMemo } from "react";
+import { ReactNode, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import DashboardSidebar from "./DashboardSidebar";
 import BackButton from "./BackButton";
@@ -11,6 +11,7 @@ interface User {
   email: string;
   role: "admin" | "seller" | "buyer" | "rider" | "agent" | "super_admin";
   profileImage?: string;
+  roleFeatures?: Record<string, boolean>;
 }
 
 interface DashboardLayoutProps {
@@ -126,6 +127,19 @@ export default function DashboardLayout({
 
     return "dashboard";
   }, [location, role]);
+
+  useEffect(() => {
+    if (!user) return;
+    const isSellerMessagesRoute = normalizedRole === "seller" && location.startsWith("/seller/messages");
+    const isRiderMessagesRoute = normalizedRole === "rider" && location.startsWith("/rider/messages");
+    if (!isSellerMessagesRoute && !isRiderMessagesRoute) return;
+
+    const canViewMessages = user.roleFeatures?.["messages.view"] === true;
+    if (!canViewMessages) {
+      const basePath = roleBasePaths[normalizedRole] || "/";
+      setLocation(basePath);
+    }
+  }, [location, normalizedRole, setLocation, user]);
 
   const handleItemClick = (id: string) => {
     const basePath = roleBasePaths[normalizedRole];
