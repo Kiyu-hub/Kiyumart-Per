@@ -135,6 +135,23 @@ Scope: End-to-end audit and verification of checkout, payment verification, assi
 - Type safety: `npm run typecheck` passed
 - Frontend build: `npm run build:frontend` passed
 
+## Follow-up Hardening (February 23, 2026)
+
+1. Deterministic local payment-completion hook (dev-only)
+- Added `POST /api/test/payments/complete` for admin/super_admin local QA.
+- Endpoint is blocked in production and backend-guarded.
+- It marks target order(s) as paid, writes test transaction records, and triggers rider matching.
+
+2. Chat lifecycle status alignment
+- Updated chat RBAC active-status normalization to include full delivery lifecycle states:
+  - `searching_rider`, `assigned`, `rider_arrived`, `picked_up`, `in_transit`, `en_route`, `delivered`
+- Added normalization for legacy aliases (`created`, `assigned_to_rider`, `out_for_delivery`, `delivering`).
+
+3. Backend ETA as source of truth
+- Added `GET /api/orders/:id/eta` to compute ETA server-side from rider and destination coordinates.
+- Updated delivery maps to read backend ETA values instead of local UI ETA math.
+- Admin live rider feed now includes backend `eta` and `distance` per active rider.
+
 ## Conclusion
 
 The order purchase -> payment verification -> rider assignment -> live tracking pipeline is now fully aligned with backend-first, real-time, deterministic behavior. The remaining logic inconsistencies identified in this audit pass were fixed and validated.

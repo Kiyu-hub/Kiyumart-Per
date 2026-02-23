@@ -3817,6 +3817,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return earthRadiusKm * c;
   };
 
+  const resolveSpeedKmh = (value: unknown): number | null => {
+    const raw = toFiniteNumber(value);
+    if (raw === null || raw <= 0) return null;
+    if (raw <= 60) return raw * 3.6;
+    return raw;
+  };
+
+  const computeEtaMetrics = (params: {
+    riderLat: number;
+    riderLng: number;
+    destinationLat: number;
+    destinationLng: number;
+    speedRaw?: unknown;
+  }) => {
+    const distanceKm = haversineDistanceKm(
+      params.riderLat,
+      params.riderLng,
+      params.destinationLat,
+      params.destinationLng
+    );
+    const speedKmh = resolveSpeedKmh(params.speedRaw) ?? 30;
+    const etaMinutes = distanceKm <= 0.05 ? 0 : Math.max(1, Math.ceil((distanceKm / speedKmh) * 60));
+    return {
+      distanceKm: Number(distanceKm.toFixed(3)),
+      etaMinutes,
+      speedKmh: Number(speedKmh.toFixed(2)),
+      source: "backend_math",
+    };
+  };
+
   const clearPendingRiderAssignment = (orderId: string) => {
     const pending = pendingRiderAssignments.get(orderId);
     if (pending?.timer) {
@@ -4608,6 +4638,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/orders/:id/eta", requireAuth, requireRoleFeature("orders.view"), async (req: AuthRequest, res) => {
+    try {
+      const order = await storage.getOrder(req.params.id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      const role = req.user!.role;
+      const canView =
+        role === "admin" ||
+        role === "super_admin" ||
+        req.user!.id === order.buyerId ||
+        req.user!.id === order.sellerId ||
+        req.user!.id === order.riderId;
+      if (!canView) {
+        return res.status(403).json({ error: "Unauthorized to view ETA for this order" });
+      }
+
+      const destinationLat = toFiniteNumber(order.deliveryLatitude);
+      const destinationLng = toFiniteNumber(order.deliveryLongitude);
+      if (destinationLat === null || destinationLng === null) {
+        return res.status(400).json({ error: "Delivery destination coordinates are not available" });
+      }
+
+      const queryRiderLat = toFiniteNumber(req.query.riderLat);
+      const queryRiderLng = toFiniteNumber(req.query.riderLng);
+      const querySpeed = toFiniteNumber(req.query.speed);
+
+      let riderLat = queryRiderLat;
+      let riderLng = queryRiderLng;
+      let riderSpeed: number | null = querySpeed;
+      if (riderLat === null || riderLng === null) {
+        const latest = await storage.getLatestDeliveryLocation(order.id);
+        riderLat = toFiniteNumber(latest?.latitude);
+        riderLng = toFiniteNumber(latest?.longitude);
+        riderSpeed = toFiniteNumber(latest?.speed);
+      }
+
+      if (riderLat === null || riderLng === null) {
+        return res.status(404).json({ error: "Rider location is not available for ETA calculation" });
+      }
+
+      const eta = computeEtaMetrics({
+        riderLat,
+        riderLng,
+        destinationLat,
+        destinationLng,
+        speedRaw: riderSpeed,
+      });
+
+      res.json({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        ...eta,
+        calculatedAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Dev-only payment completion hook for deterministic local QA without external webhooks.
+  app.post(
+    "/api/test/payments/complete",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermissionIfAdmin("manage_orders"),
+    async (req: AuthRequest, res) => {
+      try {
+        if (process.env.NODE_ENV === "production") {
+          console.warn("[SECURITY] Blocked test endpoint /api/test/payments/complete in production");
+          return res.status(403).json({ error: "Test endpoints are disabled in production" });
+        }
+
+        const orderId = String(req.body?.orderId || "").trim();
+        const checkoutSessionId = String(req.body?.checkoutSessionId || "").trim();
+        if (!orderId && !checkoutSessionId) {
+          return res.status(400).json({ error: "orderId or checkoutSessionId is required" });
+        }
+
+        const allOrders = await storage.getAllOrders();
+        const targetOrders = orderId
+          ? allOrders.filter((o: any) => o.id === orderId)
+          : allOrders.filter((o: any) => o.checkoutSessionId === checkoutSessionId);
+
+        if (targetOrders.length === 0) {
+          return res.status(404).json({ error: "No matching orders found" });
+        }
+
+        const reference = `test-local-${Date.now()}`;
+        const updatedOrders: any[] = [];
+        for (const order of targetOrders) {
+          const nextStatus =
+            canonicalizeOrderStatus(order.status) === "pending" ? "processing" : order.status;
+          const updated = await storage.updateOrder(order.id, {
+            paymentStatus: "completed",
+            status: nextStatus,
+            paymentReference: order.paymentReference || reference,
+          } as any);
+
+          await storage.createTransaction({
+            orderId: order.id,
+            userId: order.buyerId,
+            amount: order.total,
+            currency: order.currency || "GHS",
+            paymentProvider: "test_hook",
+            paymentReference: `${reference}-${order.id}`,
+            status: "completed",
+            metadata: {
+              source: "api_test_payments_complete",
+              actorId: req.user!.id,
+              actorRole: req.user!.role,
+            },
+          });
+
+          updatedOrders.push(updated);
+        }
+
+        await startRiderMatchingForPaidOrders(updatedOrders.map((o: any) => o.id));
+        res.json({
+          success: true,
+          reference,
+          orderCount: updatedOrders.length,
+          orders: updatedOrders.map((o: any) => ({
+            id: o.id,
+            orderNumber: o.orderNumber,
+            status: o.status,
+            paymentStatus: o.paymentStatus,
+          })),
+        });
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    }
+  );
+
   app.get("/api/orders/:id/items", requireAuth, async (req: AuthRequest, res) => {
     try {
       const order = await storage.getOrder(req.params.id);
@@ -5285,6 +5451,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!rider) return null;
           
           const latestLocation = await storage.getLatestDeliveryLocation(order.id);
+          const destinationLat = toFiniteNumber(order.deliveryLatitude);
+          const destinationLng = toFiniteNumber(order.deliveryLongitude);
+          const riderLat = toFiniteNumber(latestLocation?.latitude);
+          const riderLng = toFiniteNumber(latestLocation?.longitude);
+          const etaPayload =
+            destinationLat !== null &&
+            destinationLng !== null &&
+            riderLat !== null &&
+            riderLng !== null
+              ? computeEtaMetrics({
+                  riderLat,
+                  riderLng,
+                  destinationLat,
+                  destinationLng,
+                  speedRaw: latestLocation?.speed,
+                })
+              : null;
           
           // Return rider even without location data (they may not have started tracking)
           return {
@@ -5299,6 +5482,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             heading: latestLocation?.heading ?? null,
             timestamp: latestLocation?.timestamp ?? null,
             hasLocation: !!latestLocation,
+            eta: etaPayload?.etaMinutes ?? null,
+            distance: etaPayload?.distanceKm ?? null,
           };
         })
       );

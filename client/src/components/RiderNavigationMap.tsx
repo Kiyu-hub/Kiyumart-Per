@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import { Icon, LatLng } from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -18,6 +19,7 @@ import {
   LocateFixed
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
+import { fetchOrderEta } from "@/lib/eta";
 
 interface DeliveryDetails {
   orderId: string;
@@ -35,8 +37,6 @@ interface DeliveryDetails {
 }
 
 interface RouteInfo {
-  distance: number; // in km
-  duration: number; // in minutes
   geometry: [number, number][];
 }
 
@@ -74,7 +74,7 @@ function MapCenterController({ position }: { position: [number, number] | null }
   return null;
 }
 
-// OSRM Route calculation
+// OSRM route geometry for path visualization only. ETA is backend-computed.
 async function calculateRoute(from: [number, number], to: [number, number]): Promise<RouteInfo | null> {
   try {
     const response = await fetch(
@@ -85,8 +85,6 @@ async function calculateRoute(from: [number, number], to: [number, number]): Pro
     if (data.code === "Ok" && data.routes?.[0]) {
       const route = data.routes[0];
       return {
-        distance: route.distance / 1000,
-        duration: Math.round(route.duration / 60),
         geometry: route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number])
       };
     }
@@ -111,6 +109,18 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
   const watchIdRef = useRef<number | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
+
+  const etaQuery = useQuery({
+    queryKey: ["/api/orders/eta", delivery.orderId, currentPosition?.[0], currentPosition?.[1]],
+    queryFn: () =>
+      fetchOrderEta({
+        orderId: delivery.orderId,
+        riderLat: currentPosition?.[0],
+        riderLng: currentPosition?.[1],
+      }),
+    enabled: Boolean(delivery.orderId && currentPosition?.[0] != null && currentPosition?.[1] != null),
+    refetchInterval: 10000,
+  });
 
   // Start watching position
   const startWatching = useCallback(() => {
@@ -247,13 +257,13 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
             <div className="flex items-center gap-6">
               <div className="text-center">
                 <p className="text-2xl font-bold">
-                  {routeInfo ? `${routeInfo.distance.toFixed(1)} km` : '--'}
+                  {routeInfo ? `${(etaQuery.data?.distanceKm ?? 0).toFixed(1)} km` : '--'}
                 </p>
                 <p className="text-xs opacity-90">Distance</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-bold">
-                  {routeInfo ? `${routeInfo.duration} min` : '--'}
+                  {routeInfo ? `${etaQuery.data?.etaMinutes ?? '--'} min` : '--'}
                 </p>
                 <p className="text-xs opacity-90">ETA</p>
               </div>

@@ -203,6 +203,7 @@ export default function LiveTracking() {
   return (
     <div className="h-screen w-full bg-background" data-testid="page-live-tracking">
       <DeliveryMap
+        orderId={order.id}
         deliveryLocation={deliveryLocation}
         riderLocation={riderLocation || undefined}
         riderInfo={riderInfo}

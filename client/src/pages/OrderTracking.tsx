@@ -395,6 +395,7 @@ export default function OrderTracking() {
                               </Button>
                             </div>
                             <DeliveryMap
+                              orderId={order.id}
                               deliveryLocation={{
                                 latitude: parseFloat(order.deliveryLatitude),
                                 longitude: parseFloat(order.deliveryLongitude),

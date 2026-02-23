@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import { Icon, LatLngExpression, DivIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import UserAvatar from "@/components/UserAvatar";
 import { Loader2, MapPin, Navigation, Star, Car, Clock } from "lucide-react";
+import { fetchOrderEta } from "@/lib/eta";
 
 // Fix Leaflet icon issue
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -20,6 +22,7 @@ Icon.Default.mergeOptions({
 });
 
 interface DeliveryMapProps {
+  orderId?: string;
   deliveryLocation: {
     latitude: number;
     longitude: number;
@@ -30,6 +33,7 @@ interface DeliveryMapProps {
     longitude: number;
     timestamp?: string;
     heading?: number;
+    speed?: number;
   };
   riderInfo?: {
     name?: string;
@@ -41,25 +45,6 @@ interface DeliveryMapProps {
   orderNumber: string;
   className?: string;
   compact?: boolean;
-}
-
-// Haversine formula for calculating distance between two coordinates
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Radius of Earth in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distance in km
-}
-
-// Calculate ETA based on distance and average speed
-function calculateETA(distanceKm: number, avgSpeedKmh: number = 30): number {
-  const hours = distanceKm / avgSpeedKmh;
-  return Math.ceil(hours * 60); // Return in minutes
 }
 
 // Format ETA for display
@@ -89,6 +74,7 @@ function MapBoundsUpdater({ deliveryPos, riderPos }: { deliveryPos: [number, num
 }
 
 export default function DeliveryMap({ 
+  orderId,
   deliveryLocation, 
   riderLocation, 
   riderInfo,
@@ -103,13 +89,30 @@ export default function DeliveryMap({
     ? [riderLocation.latitude, riderLocation.longitude]
     : undefined;
 
-  // Calculate distance and ETA
-  const { distance, eta } = useMemo(() => {
-    if (!riderPos) return { distance: 0, eta: 0 };
-    const dist = calculateDistance(riderPos[0], riderPos[1], deliveryPos[0], deliveryPos[1]);
-    const estimatedTime = calculateETA(dist);
-    return { distance: dist, eta: estimatedTime };
+  const etaQuery = useQuery({
+    queryKey: ["/api/orders/eta", orderId, riderLocation?.latitude, riderLocation?.longitude, riderLocation?.speed],
+    queryFn: () =>
+      fetchOrderEta({
+        orderId: orderId!,
+        riderLat: riderLocation?.latitude,
+        riderLng: riderLocation?.longitude,
+        speed: riderLocation?.speed,
+      }),
+    enabled: Boolean(orderId && riderPos),
+    refetchInterval: 10000,
+  });
+
+  // Fallback math only used when orderId is unavailable; primary path is backend ETA.
+  const fallbackDistance = useMemo(() => {
+    if (!riderPos) return 0;
+    const latDiff = riderPos[0] - deliveryPos[0];
+    const lngDiff = riderPos[1] - deliveryPos[1];
+    const approxKm = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff) * 111;
+    return approxKm;
   }, [riderPos, deliveryPos]);
+
+  const distance = etaQuery.data?.distanceKm ?? fallbackDistance;
+  const eta = etaQuery.data?.etaMinutes ?? (fallbackDistance > 0 ? Math.ceil((fallbackDistance / 30) * 60) : 0);
 
   // Create custom icons
   const deliveryIcon = new Icon({

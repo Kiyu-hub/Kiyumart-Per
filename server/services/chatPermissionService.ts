@@ -42,16 +42,32 @@ interface StorageAdapter {
   getActiveOrderBetweenUsers(userId1: string, userId2: string): Promise<Order | null>;
 }
 
-// Active order statuses that allow chat
+// Active order statuses that allow chat, normalized to canonical delivery lifecycle.
 const ACTIVE_ORDER_STATUSES = [
-  'pending',
-  'confirmed', 
-  'processing',
-  'ready',
-  'assigned',
-  'picked_up',
-  'en_route',
+  "pending",
+  "confirmed",
+  "processing",
+  "ready",
+  "searching_rider",
+  "assigned",
+  "rider_arrived",
+  "picked_up",
+  "in_transit",
+  "en_route",
+  "delivered",
 ];
+
+function normalizeOrderStatus(status?: string | null): string {
+  const value = String(status || "").toLowerCase().trim();
+  if (value === "created") return "pending";
+  if (value === "assigned_to_rider") return "assigned";
+  if (value === "out_for_delivery" || value === "delivering") return "en_route";
+  return value;
+}
+
+function isChatActiveOrderStatus(status?: string | null): boolean {
+  return ACTIVE_ORDER_STATUSES.includes(normalizeOrderStatus(status));
+}
 
 function normalizeRole(role: User["role"]): "buyer" | "seller" | "rider" | "agent" | "admin" | "super_admin" {
   if (role === "customer") return "buyer";
@@ -145,7 +161,7 @@ class ChatPermissionService {
     if (targetRole === 'seller') {
       const activeOrder = await this.storage.getActiveOrderBetweenUsers(customerId, target.id);
       
-      if (activeOrder && ACTIVE_ORDER_STATUSES.includes(activeOrder.status)) {
+      if (activeOrder && isChatActiveOrderStatus(activeOrder.status)) {
         return { 
           allowed: true, 
           reason: 'You have an active order with this seller',
@@ -163,7 +179,7 @@ class ChatPermissionService {
     if (targetRole === 'rider') {
       const activeOrder = await this.storage.getActiveOrderBetweenUsers(customerId, target.id);
       
-      if (activeOrder && ACTIVE_ORDER_STATUSES.includes(activeOrder.status)) {
+      if (activeOrder && isChatActiveOrderStatus(activeOrder.status)) {
         return { 
           allowed: true, 
           reason: 'Rider is handling your order delivery',
@@ -206,7 +222,7 @@ class ChatPermissionService {
     if (targetRole === 'buyer') {
       const activeOrder = await this.storage.getActiveOrderBetweenUsers(sellerId, target.id);
       
-      if (activeOrder && ACTIVE_ORDER_STATUSES.includes(activeOrder.status)) {
+      if (activeOrder && isChatActiveOrderStatus(activeOrder.status)) {
         return { 
           allowed: true, 
           reason: 'Customer has an active order with your store',
@@ -224,7 +240,7 @@ class ChatPermissionService {
     if (targetRole === 'rider') {
       const orders = await this.storage.getOrdersBySeller(sellerId);
       const activeOrderWithRider = orders.find(
-        o => o.riderId === target.id && ACTIVE_ORDER_STATUSES.includes(o.status)
+        o => o.riderId === target.id && isChatActiveOrderStatus(o.status)
       );
       
       if (activeOrderWithRider) {
@@ -270,7 +286,7 @@ class ChatPermissionService {
     if (targetRole === 'buyer') {
       const activeOrder = await this.storage.getActiveOrderBetweenUsers(riderId, target.id);
       
-      if (activeOrder && ACTIVE_ORDER_STATUSES.includes(activeOrder.status)) {
+      if (activeOrder && isChatActiveOrderStatus(activeOrder.status)) {
         return { 
           allowed: true, 
           reason: 'You are delivering an order to this customer',
@@ -288,7 +304,7 @@ class ChatPermissionService {
     if (targetRole === 'seller') {
       const orders = await this.storage.getOrdersByRider(riderId);
       const activeOrderWithSeller = orders.find(
-        o => o.sellerId === target.id && ACTIVE_ORDER_STATUSES.includes(o.status)
+        o => o.sellerId === target.id && isChatActiveOrderStatus(o.status)
       );
       
       if (activeOrderWithSeller) {
@@ -374,7 +390,7 @@ class ChatPermissionService {
       };
     }
 
-    if (!ACTIVE_ORDER_STATUSES.includes(activeOrder.status)) {
+    if (!isChatActiveOrderStatus(activeOrder.status)) {
       return { 
         terminate: true, 
         reason: `Order ${activeOrder.id} is ${activeOrder.status} - chat access revoked` 

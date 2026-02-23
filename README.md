@@ -1435,6 +1435,13 @@ This compares Phase 0 reported issues against implemented solutions.
   - Canonical mapping now normalizes legacy `delivering` alias to `en_route` and regression test coverage added.
 - Messaging delivery observability/alerts: **Fixed**
   - Admin messaging stats include queue health plus dispatch-backlog warning flags.
+- Deterministic local payment completion for QA: **Fixed**
+  - Added dev-only, backend-guarded endpoint `POST /api/test/payments/complete` (admin/super_admin only, blocked in production) to complete payment state and trigger rider matching without webhook signing.
+- Chat active lifecycle status drift: **Fixed**
+  - Chat RBAC active status handling now includes canonical delivery lifecycle states with normalization for legacy aliases.
+- ETA source-of-truth drift across delivery maps: **Fixed**
+  - Added backend ETA endpoint `GET /api/orders/:id/eta` and moved all delivery map ETA displays to backend-computed values.
+  - Admin active-rider payload now includes server-calculated `eta` and `distance`.
 
 #### Next execution order (recommended)
 1. Continue CI hardening by adding these targeted tests to the main unit test pipeline.

@@ -31,6 +31,7 @@ import {
 import { io, Socket } from "socket.io-client";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { fetchOrderEta } from "@/lib/eta";
 
 interface RiderLocation {
   riderId: string;
@@ -137,8 +138,8 @@ function MapBoundsController({ riders, pendingOrders }: { riders: RiderLocation[
   return null;
 }
 
-// OSRM Route calculation (public API)
-async function calculateRoute(from: [number, number], to: [number, number]): Promise<{ distance: number; duration: number; geometry: [number, number][] } | null> {
+// OSRM route geometry for visual path only. ETA is backend-computed.
+async function calculateRoute(from: [number, number], to: [number, number]): Promise<[number, number][] | null> {
   try {
     const response = await fetch(
       `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`
@@ -147,11 +148,7 @@ async function calculateRoute(from: [number, number], to: [number, number]): Pro
     
     if (data.code === "Ok" && data.routes?.[0]) {
       const route = data.routes[0];
-      return {
-        distance: route.distance / 1000, // Convert to km
-        duration: Math.round(route.duration / 60), // Convert to minutes
-        geometry: route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number])
-      };
+      return route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number]);
     }
     return null;
   } catch (error) {
@@ -272,20 +269,39 @@ export default function RealTimeRiderMap() {
           [selectedRider.latitude, selectedRider.longitude],
           [Number(order.deliveryLatitude), Number(order.deliveryLongitude)]
         ).then(route => {
-          if (route) {
-            setRouteGeometry(route.geometry);
-            setSelectedRider(prev => prev ? {
-              ...prev,
-              eta: route.duration,
-              distance: route.distance
-            } : null);
-          }
+          setRouteGeometry(route);
         });
       }
     } else {
       setRouteGeometry(null);
     }
   }, [selectedRider?.riderId, pendingOrders]);
+
+  useEffect(() => {
+    const loadSelectedRiderEta = async () => {
+      if (!selectedRider?.orderId || selectedRider.latitude == null || selectedRider.longitude == null) return;
+      try {
+        const eta = await fetchOrderEta({
+          orderId: selectedRider.orderId,
+          riderLat: selectedRider.latitude,
+          riderLng: selectedRider.longitude,
+          speed: selectedRider.speed,
+        });
+        setSelectedRider((prev) =>
+          prev
+            ? {
+                ...prev,
+                eta: eta.etaMinutes,
+                distance: eta.distanceKm,
+              }
+            : null
+        );
+      } catch {
+        // Keep rendering location data even if ETA fetch temporarily fails.
+      }
+    };
+    loadSelectedRiderEta();
+  }, [selectedRider?.orderId, selectedRider?.latitude, selectedRider?.longitude, selectedRider?.speed]);
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);

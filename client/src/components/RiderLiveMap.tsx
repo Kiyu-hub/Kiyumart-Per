@@ -21,6 +21,7 @@ import {
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { fetchOrderEta } from "@/lib/eta";
 
 interface ActiveDelivery {
   id: string;
@@ -34,8 +35,6 @@ interface ActiveDelivery {
 }
 
 interface RouteInfo {
-  distance: number; // km
-  duration: number; // minutes
   geometry: [number, number][];
 }
 
@@ -93,7 +92,7 @@ function MapBoundsController({ riderPos, destPos }: { riderPos: [number, number]
   return null;
 }
 
-// OSRM Route calculation
+// OSRM route geometry for path visualization only. ETA is backend-computed.
 async function calculateRoute(from: [number, number], to: [number, number]): Promise<RouteInfo | null> {
   try {
     const response = await fetch(
@@ -104,8 +103,6 @@ async function calculateRoute(from: [number, number], to: [number, number]): Pro
     if (data.code === "Ok" && data.routes?.[0]) {
       const route = data.routes[0];
       return {
-        distance: route.distance / 1000,
-        duration: Math.round(route.duration / 60),
         geometry: route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number])
       };
     }
@@ -135,6 +132,18 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   const { data: activeDelivery, isLoading, refetch } = useQuery<ActiveDelivery | null>({
     queryKey: ["/api/rider/active-delivery"],
     refetchInterval: 30000,
+  });
+
+  const etaQuery = useQuery({
+    queryKey: ["/api/orders/eta", activeDelivery?.id, riderPosition?.[0], riderPosition?.[1]],
+    queryFn: () =>
+      fetchOrderEta({
+        orderId: activeDelivery!.id,
+        riderLat: riderPosition?.[0],
+        riderLng: riderPosition?.[1],
+      }),
+    enabled: Boolean(activeDelivery?.id && riderPosition?.[0] != null && riderPosition?.[1] != null),
+    refetchInterval: 10000,
   });
 
   const destPos: [number, number] | null = activeDelivery?.deliveryLatitude && activeDelivery?.deliveryLongitude
@@ -275,9 +284,9 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
               </Badge>
               {routeInfo && (
                 <>
-                  <span className="text-primary font-medium">{routeInfo.distance.toFixed(1)} km</span>
+                  <span className="text-primary font-medium">{(etaQuery.data?.distanceKm ?? 0).toFixed(1)} km</span>
                   <span>•</span>
-                  <span className="text-primary font-medium">{routeInfo.duration} min</span>
+                  <span className="text-primary font-medium">{etaQuery.data?.etaMinutes ?? "--"} min</span>
                 </>
               )}
             </div>
@@ -400,10 +409,10 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
                     <div className="flex gap-3 mt-2 text-xs">
                       <span className="text-primary font-medium">
                         <Clock className="h-3 w-3 inline mr-1" />
-                        {routeInfo.duration} min
+                        {etaQuery.data?.etaMinutes ?? "--"} min
                       </span>
                       <span className="text-primary font-medium">
-                        {routeInfo.distance.toFixed(1)} km
+                        {(etaQuery.data?.distanceKm ?? 0).toFixed(1)} km
                       </span>
                     </div>
                   )}
@@ -421,11 +430,11 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
                 <>
                   <div className="flex items-center gap-1">
                     <Clock className="h-4 w-4 text-blue-500" />
-                    <span className="font-semibold">{routeInfo.duration} min</span>
+                    <span className="font-semibold">{etaQuery.data?.etaMinutes ?? "--"} min</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <MapPin className="h-4 w-4 text-green-500" />
-                    <span className="font-semibold">{routeInfo.distance.toFixed(1)} km</span>
+                    <span className="font-semibold">{(etaQuery.data?.distanceKm ?? 0).toFixed(1)} km</span>
                   </div>
                 </>
               ) : (
