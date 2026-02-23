@@ -102,17 +102,9 @@ export default function DeliveryMap({
     refetchInterval: 10000,
   });
 
-  // Fallback math only used when orderId is unavailable; primary path is backend ETA.
-  const fallbackDistance = useMemo(() => {
-    if (!riderPos) return 0;
-    const latDiff = riderPos[0] - deliveryPos[0];
-    const lngDiff = riderPos[1] - deliveryPos[1];
-    const approxKm = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff) * 111;
-    return approxKm;
-  }, [riderPos, deliveryPos]);
-
-  const distance = etaQuery.data?.distanceKm ?? fallbackDistance;
-  const eta = etaQuery.data?.etaMinutes ?? (fallbackDistance > 0 ? Math.ceil((fallbackDistance / 30) * 60) : 0);
+  // Backend is authoritative for ETA/distance. No client-derived fallback math.
+  const distanceKm = typeof etaQuery.data?.distanceKm === "number" ? etaQuery.data.distanceKm : null;
+  const etaMinutes = typeof etaQuery.data?.etaMinutes === "number" ? etaQuery.data.etaMinutes : null;
 
   // Create custom icons
   const deliveryIcon = new Icon({
@@ -224,7 +216,7 @@ export default function DeliveryMap({
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[1000]" data-testid="eta-display">
             <div className="bg-white dark:bg-gray-800 rounded-full px-6 py-3 shadow-xl border-2 border-primary">
               <div className="flex flex-col items-center">
-                <p className="text-3xl font-bold text-primary">{eta}</p>
+                <p className="text-3xl font-bold text-primary">{etaMinutes !== null ? etaMinutes : "--"}</p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">MIN AWAY</p>
               </div>
             </div>
@@ -256,7 +248,7 @@ export default function DeliveryMap({
                   <Car className="h-4 w-4" />
                   <span>{riderInfo.vehicleType || 'Motorcycle'}</span>
                   <span className="mx-1">•</span>
-                  <span>{distance.toFixed(1)} km away</span>
+                  <span>{distanceKm !== null ? `${distanceKm.toFixed(1)} km away` : "ETA pending"}</span>
                 </div>
               </div>
 
@@ -358,7 +350,7 @@ export default function DeliveryMap({
                 <Clock className="h-4 w-4 text-primary" />
                 <div>
                   <p className="text-xs text-muted-foreground">ETA</p>
-                  <p className="text-sm font-bold text-primary">{formatETA(eta)}</p>
+                  <p className="text-sm font-bold text-primary">{etaMinutes !== null ? formatETA(etaMinutes) : "ETA pending"}</p>
                 </div>
               </div>
             </div>
@@ -384,7 +376,7 @@ export default function DeliveryMap({
               <div>
                 <p className="text-sm font-medium">Rider Location</p>
                 <p className="text-xs text-muted-foreground">
-                  {distance.toFixed(2)} km away • ETA: {formatETA(eta)}
+                  {distanceKm !== null ? `${distanceKm.toFixed(2)} km away` : "Distance pending"} • {etaMinutes !== null ? `ETA: ${formatETA(etaMinutes)}` : "ETA pending"}
                 </p>
                 {riderLocation.timestamp && (
                   <p className="text-xs text-muted-foreground mt-1">

@@ -196,6 +196,11 @@ To be the leading online marketplace platform for local businesses, connecting q
 - Added stale GPS metadata on delivery tracking reads and rider reconnect resume event.
 - Updated rider external map quick-links from Google Maps to OpenStreetMap.
 - Added deterministic 4-second rider GPS emission cadence in rider map components.
+- Removed client-side ETA fallback math from delivery tracking map component:
+  - `client/src/components/DeliveryMap.tsx` now renders ETA/distance from backend API responses only.
+- Hardened socket call signaling to enforce backend chat/call permission checks before forwarding offers/invitations.
+- Tightened group-call REST access:
+  - `POST /api/calls/group/start` now restricted to `admin` and `super_admin`.
 - Added report-only media alternatives documentation (no provider replacement in this pass):
   - [docs/media-provider-alternatives-report.md](./docs/media-provider-alternatives-report.md)
 

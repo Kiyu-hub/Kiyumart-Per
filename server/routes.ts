@@ -6410,7 +6410,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Start a group call
-  app.post("/api/calls/group/start", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/calls/group/start", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const { participantIds, callType } = req.body;
       
@@ -8954,15 +8954,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       messageDeliveryService.markRead(messageIds, userId);
     });
 
+    const authorizeSocketCallTarget = async (targetUserId: string): Promise<boolean> => {
+      const target = String(targetUserId || "");
+      if (!target) {
+        socket.emit("error", { message: "Target user is required" });
+        return false;
+      }
+      const permission = await chatPermissionService.canInitiateChat(userId, target);
+      if (!permission.allowed) {
+        socket.emit("error", { message: permission.reason || "Call not permitted" });
+        return false;
+      }
+      return true;
+    };
+
     // WebRTC Call Signaling Events
-    socket.on("call-offer", ({ receiverId, offer, callType, callerId, callerName }) => {
-      console.log(`Call offer from ${callerId} to ${receiverId} (${callType})`);
-      io.to(receiverId).emit("call-incoming", { 
-        callerId, 
-        callerName, 
-        offer, 
-        callType 
-      });
+    socket.on("call-offer", async ({ receiverId, offer, callType }) => {
+      try {
+        const targetId = String(receiverId || "");
+        if (!(await authorizeSocketCallTarget(targetId))) return;
+        const caller = await storage.getUser(userId);
+        io.to(targetId).emit("call-incoming", {
+          callerId: userId,
+          callerName: caller?.name || "User",
+          offer,
+          callType,
+        });
+      } catch (error) {
+        console.error("Error forwarding call-offer:", error);
+        socket.emit("error", { message: "Failed to initiate call" });
+      }
     });
 
     socket.on("call-answer", ({ callerId, answer }) => {
@@ -8989,6 +9010,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const callerId = socket.data.userId;
         const callerRole = socket.data.userRole;
+        if (!(await authorizeSocketCallTarget(String(targetUserId || "")))) return;
         
         const caller = await storage.getUser(callerId);
         if (!caller) {
@@ -9012,6 +9034,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     socket.on("call_offer", async ({ offer, targetUserId, callType }) => {
       try {
         const callerId = socket.data.userId;
+        if (!(await authorizeSocketCallTarget(String(targetUserId || "")))) return;
         const caller = await storage.getUser(callerId);
         
         if (!caller) {
