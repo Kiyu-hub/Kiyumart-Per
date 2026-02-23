@@ -39,7 +39,8 @@ export default function RiderActiveRoute() {
   const { data: activeDelivery, isLoading, refetch } = useQuery<ActiveDelivery | null>({
     queryKey: ["/api/rider/active-delivery"],
     queryFn: async () => {
-      const res = await fetch("/api/rider/active-delivery");
+      const base = (import.meta.env as any).VITE_API_URL || "";
+      const res = await fetch(`${base}/api/rider/active-delivery`, { credentials: "include" });
       if (!res.ok) {
         if (res.status === 404) return null;
         throw new Error("Failed to fetch active delivery");
