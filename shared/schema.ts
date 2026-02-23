@@ -897,6 +897,18 @@ export const insertOrderSchema = createInsertSchema(orders).pick({
   total: true,
   currency: true,
   estimatedDelivery: true,
+}).extend({
+  // Accept both numeric and string GPS inputs from checkout UIs and normalize to DB decimal strings.
+  deliveryLatitude: z
+    .union([z.string(), z.number()])
+    .optional()
+    .nullable()
+    .transform((value) => (value === null || value === undefined || value === "" ? null : String(value))),
+  deliveryLongitude: z
+    .union([z.string(), z.number()])
+    .optional()
+    .nullable()
+    .transform((value) => (value === null || value === undefined || value === "" ? null : String(value))),
 });
 
 export const insertChatMessageSchema = createInsertSchema(chatMessages).pick({
