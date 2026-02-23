@@ -42,19 +42,15 @@ interface StorageAdapter {
   getActiveOrderBetweenUsers(userId1: string, userId2: string): Promise<Order | null>;
 }
 
-// Active order statuses that allow chat, normalized to canonical delivery lifecycle.
+// Active delivery statuses that allow non-support stakeholder chat/calls.
+// Support roles (agent/admin/super_admin) are handled as explicit exceptions.
 const ACTIVE_ORDER_STATUSES = [
-  "created",
-  "confirmed",
-  "processing",
-  "ready",
   "searching_rider",
   "assigned",
   "rider_arrived",
   "picked_up",
   "in_transit",
   "en_route",
-  "delivered",
 ];
 
 function normalizeOrderStatus(status?: string | null): string {

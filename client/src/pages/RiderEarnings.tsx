@@ -12,7 +12,7 @@ export default function RiderEarnings() {
   const { data: earnings, isLoading } = useQuery({
     queryKey: ["/api/rider/earnings"],
     queryFn: async () => {
-      const res = await fetch("/api/rider/earnings");
+      const res = await fetch("/api/rider/earnings", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch earnings");
       return res.json();
     },

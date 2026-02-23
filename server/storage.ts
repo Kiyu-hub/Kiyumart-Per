@@ -555,7 +555,8 @@ export class DbStorage implements IStorage {
         and(
           eq(users.role, 'rider'),
           eq(users.isApproved, true),
-          eq(users.isActive, true)
+          eq(users.isActive, true),
+          eq(users.riderOnline, true)
         )
       );
 

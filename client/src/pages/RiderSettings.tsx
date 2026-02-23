@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,9 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Bell, Truck, Settings as SettingsIcon } from "lucide-react";
+import { Bell, Loader2, Truck, Settings as SettingsIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+
+type RiderSettingsPayload = {
+  riderOnline: boolean;
+  deliveryNotifications: boolean;
+  emailNotifications: boolean;
+  locationSharing: boolean;
+};
 
 export default function RiderSettings() {
   const { user } = useAuth();
@@ -18,11 +27,75 @@ export default function RiderSettings() {
   const [deliveryNotifications, setDeliveryNotifications] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [locationSharing, setLocationSharing] = useState(true);
+  const [riderOnline, setRiderOnline] = useState(true);
+
+  const { data: settings, isLoading } = useQuery<RiderSettingsPayload>({
+    queryKey: ["/api/rider/settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/rider/settings", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch rider settings");
+      return res.json();
+    },
+  });
+
+  useEffect(() => {
+    if (!settings) return;
+    setRiderOnline(settings.riderOnline !== false);
+    setDeliveryNotifications(settings.deliveryNotifications !== false);
+    setEmailNotifications(settings.emailNotifications !== false);
+    setLocationSharing(settings.locationSharing !== false);
+  }, [settings]);
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (payload: Partial<RiderSettingsPayload>) => {
+      const res = await apiRequest("PATCH", "/api/rider/settings", payload);
+      if (!res.ok) throw new Error("Failed to update rider settings");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rider/settings"] });
+      toast({
+        title: "Settings saved",
+        description: "Your preferences have been updated.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update failed",
+        description: error.message || "Could not save preferences",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const availabilityMutation = useMutation({
+    mutationFn: async (online: boolean) => {
+      const res = await apiRequest("PATCH", "/api/rider/availability", { online });
+      if (!res.ok) throw new Error("Failed to update availability");
+      return res.json();
+    },
+    onSuccess: (payload) => {
+      setRiderOnline(Boolean(payload?.online));
+      queryClient.invalidateQueries({ queryKey: ["/api/rider/settings"] });
+      toast({
+        title: "Availability updated",
+        description: payload?.online ? "You are online for new assignments." : "You are offline for new assignments.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Availability update failed",
+        description: error.message || "Could not update rider availability",
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleSavePreferences = () => {
-    toast({
-      title: "Settings saved",
-      description: "Your preferences have been updated.",
+    saveSettingsMutation.mutate({
+      deliveryNotifications,
+      emailNotifications,
+      locationSharing,
     });
   };
 
@@ -34,6 +107,11 @@ export default function RiderSettings() {
           <p className="text-muted-foreground">Manage your rider account settings</p>
         </div>
 
+        {isLoading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
+          </div>
+        ) : (
         <div className="space-y-6">
           <Card data-testid="card-notifications">
             <CardHeader>
@@ -83,7 +161,11 @@ export default function RiderSettings() {
               </div>
 
               <div className="pt-4">
-                <Button onClick={handleSavePreferences} data-testid="button-save">
+                <Button
+                  onClick={handleSavePreferences}
+                  data-testid="button-save"
+                  disabled={saveSettingsMutation.isPending}
+                >
                   Save Preferences
                 </Button>
               </div>
@@ -117,6 +199,24 @@ export default function RiderSettings() {
                   data-testid="switch-location-sharing"
                 />
               </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="rider-online" className="text-base">
+                    Rider Availability
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Control if you can receive new rider assignments.
+                  </p>
+                </div>
+                <Switch
+                  id="rider-online"
+                  checked={riderOnline}
+                  onCheckedChange={(checked) => availabilityMutation.mutate(Boolean(checked))}
+                  disabled={availabilityMutation.isPending}
+                  data-testid="switch-rider-availability"
+                />
+              </div>
               <div className="pt-4">
                 <Button onClick={() => navigate("/profile")} data-testid="button-edit-profile">
                   Edit Vehicle Information
@@ -142,6 +242,7 @@ export default function RiderSettings() {
             </CardContent>
           </Card>
         </div>
+        )}
       </div>
     </DashboardLayout>
   );

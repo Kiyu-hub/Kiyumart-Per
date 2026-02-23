@@ -82,6 +82,7 @@ export const users = pgTable("users", {
   role: userRoleEnum("role").notNull().default("buyer"),
   phone: text("phone"),
   isActive: boolean("is_active").default(true),
+  riderOnline: boolean("rider_online").default(true),
   isApproved: boolean("is_approved").default(false),
   applicationStatus: applicationStatusEnum("application_status").default("pending"),
   interviewScheduledAt: timestamp("interview_scheduled_at"),
@@ -100,6 +101,11 @@ export const users = pgTable("users", {
   storeType: storeTypeEnum("store_type"),
   storeTypeMetadata: jsonb("store_type_metadata").$type<Record<string, any>>(),
   vehicleInfo: jsonb("vehicle_info").$type<{ type: string; plateNumber?: string; license?: string; color?: string }>(),
+  riderPreferences: jsonb("rider_preferences").$type<{
+    deliveryNotifications: boolean;
+    emailNotifications: boolean;
+    locationSharing: boolean;
+  }>(),
   nationalIdCard: varchar("national_id_card"),
   ratings: decimal("ratings", { precision: 3, scale: 2 }).default("0"),
   totalRatings: integer("total_ratings").default(0),
@@ -107,6 +113,7 @@ export const users = pgTable("users", {
 }, (table) => ({
   roleIdx: index("users_role_idx").on(table.role),
   isActiveIdx: index("users_is_active_idx").on(table.isActive),
+  riderOnlineIdx: index("users_rider_online_idx").on(table.riderOnline),
   isApprovedIdx: index("users_is_approved_idx").on(table.isApproved),
   applicationStatusIdx: index("users_application_status_idx").on(table.applicationStatus),
 }));

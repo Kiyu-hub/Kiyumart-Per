@@ -4,7 +4,7 @@ import { Server as SocketIOServer } from "socket.io";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { db } from "../db";
-import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable, adminPermissions } from "@shared/schema";
+import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable, adminPermissions, riderPayouts } from "@shared/schema";
 import { eq, or, isNotNull, and, desc, sql } from "drizzle-orm";
 import { 
   hashPassword, 
@@ -3891,7 +3891,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const getRiderMatchCandidates = async (order: any, radiusKm: number, excludedRiderIds: string[] = []): Promise<RiderMatchCandidate[]> => {
     const allRiders = await storage.getUsersByRole("rider");
-    const activeRiders = allRiders.filter((r: any) => r.isApproved && r.isActive);
+    const activeRiders = allRiders.filter((r: any) => r.isApproved && r.isActive && r.riderOnline !== false);
     if (activeRiders.length === 0) return [];
 
     const allOrders = await storage.getAllOrders();
@@ -4194,6 +4194,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
       io.to(adminUser.id).emit("order_status_updated", payload);
       io.to(adminUser.id).emit("admin_order_status_updated", payload);
     });
+  };
+
+  const finalizeRiderDelivery = async (orderId: string, riderId: string, reason: string) => {
+    const order = await storage.getOrder(orderId);
+    if (!order) {
+      const error = new Error("Order not found");
+      (error as any).code = 404;
+      throw error;
+    }
+    if (order.riderId !== riderId) {
+      const error = new Error("You are not assigned to this delivery");
+      (error as any).code = 403;
+      throw error;
+    }
+
+    const normalizedOrderStatus = canonicalizeOrderStatus(order.status);
+    const completionEligibleStatuses = new Set(["rider_arrived", "picked_up", "in_transit", "en_route"]);
+    if (!completionEligibleStatuses.has(normalizedOrderStatus)) {
+      const error = new Error(`Order cannot be completed from "${order.status}" status`);
+      (error as any).code = 400;
+      throw error;
+    }
+
+    const updatedOrder = await storage.applyOrderStatusTransition(
+      orderId,
+      "delivered",
+      riderId,
+      "rider",
+      reason
+    );
+    if (!updatedOrder) {
+      const error = new Error("Order not found");
+      (error as any).code = 404;
+      throw error;
+    }
+
+    await storage.createNotification({
+      userId: order.buyerId,
+      type: "order",
+      title: "Order Delivered!",
+      message: `Your order #${order.orderNumber} has been successfully delivered. Thank you for shopping with us!`,
+      metadata: { link: `/orders/${orderId}` } as any,
+    });
+
+    await storage.createNotification({
+      userId: order.sellerId,
+      type: "order",
+      title: "Delivery Completed",
+      message: `Order #${order.orderNumber} has been delivered to the customer.`,
+      metadata: { link: `/seller/orders?orderId=${orderId}` } as any,
+    });
+
+    io.to(order.buyerId).emit("order_delivered", {
+      orderId,
+      orderNumber: order.orderNumber,
+      deliveredAt: new Date().toISOString(),
+    });
+
+    io.emit("admin_delivery_completed", {
+      orderId,
+      orderNumber: order.orderNumber,
+      riderId,
+      deliveredAt: new Date().toISOString(),
+    });
+
+    await emitOrderStatusUpdateToStakeholders(updatedOrder, "delivered");
+
+    // Keep payout creation idempotent across all delivery completion entry points.
+    if (order.deliveryFee) {
+      const existingPayout = await db
+        .select({ id: riderPayouts.id })
+        .from(riderPayouts)
+        .where(and(eq(riderPayouts.orderId, orderId), eq(riderPayouts.riderId, riderId)))
+        .limit(1);
+      if (existingPayout.length === 0) {
+        try {
+          const rider = await storage.getUser(riderId);
+          const payout = await storage.createRiderPayout({
+            riderId,
+            orderId,
+            amount: order.deliveryFee,
+            currency: order.currency || "GHS",
+            method: "mobile_money",
+            status: "pending_approval",
+            notes: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Delivered & Verified.`,
+          });
+
+          const superAdmins = await storage.getUsersByRole("super_admin");
+          const buyer = await storage.getUser(order.buyerId);
+          for (const admin of superAdmins) {
+            if (!admin.isActive) continue;
+            await storage.createNotification({
+              userId: admin.id,
+              type: "payout",
+              title: "📦 Payout Action Required",
+              message: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Delivered & Verified.`,
+              metadata: {
+                link: `/admin/riders-payouts`,
+                payoutId: payout.id,
+                orderId,
+                riderId,
+                riderName: rider?.name || "Rider",
+                amount: order.deliveryFee,
+                currency: order.currency || "GHS",
+                orderNumber: order.orderNumber,
+                buyerName: buyer?.name || "Customer",
+                deliveryAddress: order.deliveryAddress || "",
+              } as any,
+            });
+          }
+          io.emit("admin_payout_pending", {
+            payoutId: payout.id,
+            orderId,
+            orderNumber: order.orderNumber,
+            riderId,
+            riderName: rider?.name || "Rider",
+            amount: order.deliveryFee,
+            currency: order.currency || "GHS",
+            createdAt: new Date().toISOString(),
+          });
+        } catch (payoutError) {
+          console.error("[PAYOUT] Failed to create rider payout after delivery:", payoutError);
+        }
+      }
+    }
+
+    return updatedOrder;
   };
 
   app.post("/api/orders", requireAuth, requireRoleFeature("orders.create"), async (req: AuthRequest, res) => {
@@ -4806,14 +4933,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         rawStatus === "out_for_delivery" || rawStatus === "delivering" ? "en_route" :
         rawStatus;
       const orderId = req.params.id;
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const actorRole = req.user!.role;
+      const actorId = req.user!.id;
+      const isAdminActor = actorRole === "admin" || actorRole === "super_admin";
+      if (!isAdminActor) {
+        const isStakeholder =
+          (actorRole === "buyer" && order.buyerId === actorId) ||
+          (actorRole === "seller" && order.sellerId === actorId) ||
+          (actorRole === "rider" && order.riderId === actorId);
+        if (!isStakeholder) {
+          return res.status(403).json({ error: "Unauthorized to update this order status" });
+        }
+      }
+
+      // Single backend-authoritative rider completion path: use shared finalize helper.
+      if (normalizedStatus === "delivered" && actorRole === "rider") {
+        try {
+          const finalized = await finalizeRiderDelivery(orderId, actorId, reason || "rider_status_delivery_complete");
+          return res.json(finalized);
+        } catch (deliveryError: any) {
+          return res.status(deliveryError?.code || 400).json({ error: deliveryError?.message || "Failed to complete delivery" });
+        }
+      }
       
       // CRITICAL: All validation, side effects, and audit trail happen INSIDE the transaction
       // in applyOrderStatusTransition() to prevent TOCTOU race conditions
       const updatedOrder = await storage.applyOrderStatusTransition(
         orderId,
         normalizedStatus,
-        req.user!.id,
-        req.user!.role,
+        actorId,
+        actorRole,
         reason
       );
       
@@ -4913,7 +5067,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       (error as any).code = 404;
       throw error;
     }
-    if (!rider.isApproved || !rider.isActive) {
+    if (!rider.isApproved || !rider.isActive || (rider as any).riderOnline === false) {
       const error = new Error("Rider is not available for deliveries");
       (error as any).code = 400;
       throw error;
@@ -5038,20 +5192,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "You are not assigned to this delivery" });
       }
 
-      // Verify the order is in a valid state for completion
-      const normalizedOrderStatus = (order.status || "").toLowerCase().trim();
-      const completionEligibleStatuses = ["rider_arrived", "picked_up", "in_transit", "en_route"];
-      const completionStatus =
-        normalizedOrderStatus === "delivering" || normalizedOrderStatus === "in_transit" || normalizedOrderStatus === "out_for_delivery"
-          ? "en_route"
-          : normalizedOrderStatus;
-      if (!completionEligibleStatuses.includes(completionStatus)) {
-        return res.status(400).json({ 
-          error: "Order cannot be completed",
-          details: `Order is currently in "${order.status}" status. Only orders in delivery can be completed.`
-        });
-      }
-
       // Verify QR code matches
       if (order.qrCode !== qrCode) {
         return res.status(400).json({ 
@@ -5059,112 +5199,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           details: "The scanned QR code does not match this order."
         });
       }
-
-      // Use canonical transition path so status history is recorded.
-      const updatedOrder = await storage.applyOrderStatusTransition(
-        orderId,
-        "delivered",
-        riderId,
-        "rider",
-        "qr_delivery_verified"
-      );
-
-      // Create notifications
-      await storage.createNotification({
-        userId: order.buyerId,
-        type: "order",
-        title: "Order Delivered!",
-        message: `Your order #${order.orderNumber} has been successfully delivered. Thank you for shopping with us!`,
-        metadata: { link: `/orders/${orderId}` } as any,
-      });
-
-      await storage.createNotification({
-        userId: order.sellerId,
-        type: "order", 
-        title: "Delivery Completed",
-        message: `Order #${order.orderNumber} has been delivered to the customer.`,
-        metadata: { link: `/seller/orders?orderId=${orderId}` } as any,
-      });
-
-      // Emit real-time events
-      io.to(order.buyerId).emit("order_delivered", {
-        orderId,
-        orderNumber: order.orderNumber,
-        deliveredAt: new Date().toISOString(),
-      });
-
-      io.emit("admin_delivery_completed", {
-        orderId,
-        orderNumber: order.orderNumber,
-        riderId,
-        deliveredAt: new Date().toISOString(),
-      });
-      if (updatedOrder) {
-        await emitOrderStatusUpdateToStakeholders(updatedOrder, "delivered");
-      }
-
-      // Create rider payout record (if enabled)
-      try {
-        const rider = await storage.getUser(riderId);
-        if (rider && order.deliveryFee) {
-          const payout = await storage.createRiderPayout({
-            riderId,
-            orderId,
-            amount: order.deliveryFee,
-            currency: order.currency || "GHS",
-            method: "mobile_money",
-            status: "pending_approval",
-          });
-          console.log(`Created rider payout for delivery ${orderId}`);
-
-          // Get all super admins and notify them about pending payout
-          const superAdmins = await storage.getUsersByRole("super_admin");
-          const buyer = await storage.getUser(order.buyerId);
-          
-          for (const admin of superAdmins) {
-            if (!admin.isActive) continue;
-            await storage.createNotification({
-              userId: admin.id,
-              type: "payout",
-              title: "📦 Payout Action Required",
-              message: `Order #${order.orderNumber} delivered by ${rider.name}. Amount: ${order.currency || 'GHS'} ${order.deliveryFee}. Status: Delivered & Verified.`,
-              metadata: { 
-                link: `/admin/riders-payouts`,
-                payoutId: payout.id,
-                orderId,
-                riderId,
-                riderName: rider.name,
-                amount: order.deliveryFee,
-                currency: order.currency || "GHS",
-                orderNumber: order.orderNumber,
-                buyerName: buyer?.name || "Customer",
-                deliveryAddress: order.deliveryAddress || ""
-              } as any,
-            });
-          }
-
-          // Emit real-time event for super admins
-          io.emit("admin_payout_pending", {
-            payoutId: payout.id,
-            orderId,
-            orderNumber: order.orderNumber,
-            riderId,
-            riderName: rider.name,
-            amount: order.deliveryFee,
-            currency: order.currency || "GHS",
-            createdAt: new Date().toISOString(),
-          });
-        }
-      } catch (payoutError) {
-        console.error("Failed to create rider payout:", payoutError);
-        // Don't fail the delivery completion even if payout creation fails
-      }
-
-      console.log(`Order ${orderId} delivered by rider ${riderId} via QR verification`);
+      const updatedOrder = await finalizeRiderDelivery(orderId, riderId, "qr_delivery_verified");
+      console.log(`Order ${orderId} delivered by rider ${riderId} via unified completion flow`);
       res.json(updatedOrder);
     } catch (error: any) {
       console.error("Error completing delivery:", error);
-      res.status(400).json({ error: error.message });
+      res.status((error as any)?.code || 400).json({ error: error.message });
     }
   });
 
@@ -5172,6 +5212,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const availableRiders = await storage.getAvailableRidersWithOrderCounts();
       res.json(availableRiders);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/rider/earnings", requireAuth, requireRole("rider"), requireRoleFeature("deliveries.view"), async (req: AuthRequest, res) => {
+    try {
+      const riderId = req.user!.id;
+      const payouts = await storage.getRiderPayouts(riderId);
+      const payableStatuses = new Set(["pending_approval", "approved", "processing", "completed"]);
+      const settledPayouts = payouts.filter((p: any) => payableStatuses.has(String(p.status || "").toLowerCase().trim()));
+
+      const total = settledPayouts.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+      const now = new Date();
+      const thisMonthPayouts = settledPayouts.filter((p: any) => {
+        const dt = p.createdAt ? new Date(p.createdAt) : null;
+        return !!dt && dt.getMonth() === now.getMonth() && dt.getFullYear() === now.getFullYear();
+      });
+      const thisMonth = thisMonthPayouts.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+      const todayPayouts = settledPayouts.filter((p: any) => {
+        const dt = p.createdAt ? new Date(p.createdAt) : null;
+        return !!dt && dt.toDateString() === now.toDateString();
+      });
+      const today = todayPayouts.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+
+      const history = settledPayouts.slice(0, 100).map((p: any) => ({
+        deliveryId: p.orderId || p.id,
+        orderId: p.orderId || null,
+        date: p.createdAt || null,
+        amount: p.amount,
+        currency: p.currency || "GHS",
+        status: p.status,
+      }));
+
+      res.json({
+        total: total.toFixed(2),
+        thisMonth: thisMonth.toFixed(2),
+        today: today.toFixed(2),
+        deliveriesCompleted: settledPayouts.filter((p: any) => String(p.status || "").toLowerCase().trim() === "completed").length,
+        history,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/rider/settings", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const rider = await storage.getUser(req.user!.id);
+      if (!rider) return res.status(404).json({ error: "Rider not found" });
+      const prefs = (rider as any).riderPreferences || {};
+      res.json({
+        riderOnline: (rider as any).riderOnline !== false,
+        deliveryNotifications: prefs.deliveryNotifications !== false,
+        emailNotifications: prefs.emailNotifications !== false,
+        locationSharing: prefs.locationSharing !== false,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/rider/settings", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const rider = await storage.getUser(req.user!.id);
+      if (!rider) return res.status(404).json({ error: "Rider not found" });
+      const currentPrefs = (rider as any).riderPreferences || {};
+      const nextPrefs = {
+        deliveryNotifications: req.body?.deliveryNotifications !== undefined ? Boolean(req.body.deliveryNotifications) : currentPrefs.deliveryNotifications !== false,
+        emailNotifications: req.body?.emailNotifications !== undefined ? Boolean(req.body.emailNotifications) : currentPrefs.emailNotifications !== false,
+        locationSharing: req.body?.locationSharing !== undefined ? Boolean(req.body.locationSharing) : currentPrefs.locationSharing !== false,
+      };
+      const updated = await storage.updateUser(req.user!.id, {
+        riderPreferences: nextPrefs as any,
+      } as any);
+      res.json({
+        riderOnline: (updated as any)?.riderOnline !== false,
+        ...nextPrefs,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/rider/availability", requireAuth, requireRole("rider"), async (req: AuthRequest, res) => {
+    try {
+      const online = Boolean(req.body?.online);
+      if (!online) {
+        const riderOrders = await storage.getOrdersByUser(req.user!.id, "rider");
+        const hasActiveDelivery = riderOrders.some((o: any) =>
+          ["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes(canonicalizeOrderStatus(o.status))
+        );
+        if (hasActiveDelivery) {
+          return res.status(409).json({ error: "Cannot go offline while an active delivery is in progress" });
+        }
+      }
+      const updated = await storage.updateUser(req.user!.id, { riderOnline: online } as any);
+      io.to(req.user!.id).emit("rider_availability_updated", { online });
+      res.json({ online: (updated as any)?.riderOnline !== false });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -5564,7 +5703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get all approved and active riders
       const allRiders = await storage.getUsersByRole("rider");
-      const activeRiders = allRiders.filter(r => r.isApproved && r.isActive);
+      const activeRiders = allRiders.filter(r => r.isApproved && r.isActive && r.riderOnline !== false);
       const zones = await storage.getDeliveryZones();
       
       // Get orders currently being delivered
@@ -5887,6 +6026,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/messages/:userId", requireAuth, requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
+      const permission = await chatPermissionService.canInitiateChat(req.user!.id, req.params.userId);
+      if (!permission.allowed) {
+        return res.status(403).json({ error: permission.reason });
+      }
       const messages = await storage.getMessages(req.user!.id, req.params.userId);
       res.json(messages);
     } catch (error: any) {
@@ -5896,6 +6039,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/messages/:userId/read", requireAuth, requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
+      const permission = await chatPermissionService.canInitiateChat(req.user!.id, req.params.userId);
+      if (!permission.allowed) {
+        return res.status(403).json({ error: permission.reason });
+      }
       const updatedMessages = await storage.markMessagesAsRead(req.params.userId, req.user!.id);
 
       // Emit WhatsApp-style read status updates back to original senders
@@ -6092,35 +6239,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/rider/message-contacts", requireAuth, requireRole("rider"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const userId = req.user!.id;
-      
-      // Get all admins, super_admins, and agents as potential contacts
+
+      // Explicit policy: rider can always contact support staff; buyer/seller contacts are restricted to active deliveries.
       const admins = await storage.getUsersByRole("admin");
       const superAdmins = await storage.getUsersByRole("super_admin");
       const agents = await storage.getUsersByRole("agent");
-      
-      // Get users who have had conversations with this rider
-      const allMessages = await db.select({
-        senderId: chatMessages.senderId,
-        receiverId: chatMessages.receiverId,
-      }).from(chatMessages).where(
-        sql`${chatMessages.senderId} = ${userId} OR ${chatMessages.receiverId} = ${userId}`
-      );
-      
-      const conversationPartners = new Set<string>();
-      allMessages.forEach(msg => {
-        if (msg.senderId !== userId) conversationPartners.add(msg.senderId);
-        if (msg.receiverId !== userId) conversationPartners.add(msg.receiverId);
+
+      const riderOrders = await storage.getOrdersByUser(userId, "rider");
+      const activeStatuses = new Set(["searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"]);
+      const activeStakeholderIds = new Set<string>();
+      riderOrders.forEach((o: any) => {
+        if (!activeStatuses.has(canonicalizeOrderStatus(o.status))) return;
+        if (o.buyerId) activeStakeholderIds.add(String(o.buyerId));
+        if (o.sellerId) activeStakeholderIds.add(String(o.sellerId));
       });
-      
-      // Get user details for conversation partners
-      const partnerUsers = await Promise.all(
-        Array.from(conversationPartners).map(id => storage.getUser(id))
+      const activeStakeholders = await Promise.all(
+        Array.from(activeStakeholderIds).map((id) => storage.getUser(id))
       );
-      
-      // Combine all contacts (admins + agents + conversation partners)
+
       const allContacts = [...admins, ...superAdmins, ...agents];
-      partnerUsers.forEach(u => {
-        if (u && !allContacts.some(c => c.id === u.id)) {
+      activeStakeholders.forEach((u) => {
+        if (u && !allContacts.some((c) => c.id === u.id)) {
           allContacts.push(u);
         }
       });

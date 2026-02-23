@@ -169,6 +169,22 @@ To be the leading online marketplace platform for local businesses, connecting q
 - Added strict canonical lifecycle normalization with non-breaking DB persistence:
   - Canonical input state starts at `created`.
   - Storage layer maps `created -> pending` for existing DB enum compatibility.
+- Unified rider delivery completion into one backend-authoritative path:
+  - Rider `PATCH /api/orders/:id/status` with `delivered`
+  - Rider `POST /api/orders/:id/complete-delivery` (QR flow)
+  - Both now execute the same backend finalize helper and idempotent payout logic.
+- Added strict stakeholder authorization guard on `PATCH /api/orders/:id/status`:
+  - Non-admin actors must be true order stakeholders (`buyerId`/`sellerId`/`riderId`).
+- Added rider earnings API and removed client-derived earnings math in rider dashboard:
+  - `GET /api/rider/earnings` (DB-backed payout totals/history)
+- Added backend-persisted rider settings + availability controls:
+  - `GET /api/rider/settings`
+  - `PATCH /api/rider/settings`
+  - `PATCH /api/rider/availability`
+  - New schema fields: `users.rider_online`, `users.rider_preferences`
+  - Migration: `migrations/0022_rider_availability_and_preferences.sql`
+- Rider assignment eligibility now respects rider availability (`rider_online = true`) across matching/admin availability views.
+- Rider chat/call permission scope tightened to active-delivery context (support roles remain explicit exceptions).
 - Added deterministic local payment-completion QA hook (dev-only, backend-guarded):
   - `POST /api/test/payments/complete`
 - Added admin/super-admin system health endpoint:
