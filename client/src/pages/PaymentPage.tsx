@@ -58,7 +58,7 @@ export default function PaymentPage() {
 
   const initializePaymentMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/payments/initialize", { orderId });
+      const res = await apiRequest("POST", "/api/payments/initialize", { orderId, forceRetry: true });
       const data = await res.json();
       
       if (!res.ok) {

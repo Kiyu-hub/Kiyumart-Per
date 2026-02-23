@@ -7688,11 +7688,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payments/initialize", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { orderId, checkoutSessionId } = req.body;
+      const forceRetry = req.body?.forceRetry === true;
       const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
       const isCompletedPaymentStatus = (value?: string | null) =>
         ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
       const isInFlightPaymentStatus = (value?: string | null) =>
         ["pending", "processing"].includes(normalizePaymentStatus(value));
+      const inFlightWindowMs = 15 * 60 * 1000;
       
       if (!orderId && !checkoutSessionId) {
         return res.status(400).json({ error: "Either Order ID or Checkout Session ID is required" });
@@ -7706,6 +7708,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userMessage: "Payment system is currently unavailable. Please contact support or try again later."
         });
       }
+
+      const verifyExistingReferenceStatus = async (reference: string): Promise<string | null> => {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 8000);
+          const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${settings.paystackSecretKey}`,
+              "Content-Type": "application/json",
+            },
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (!response.ok) return null;
+          const data = await response.json().catch(() => null);
+          return normalizePaymentStatus(data?.data?.status || null);
+        } catch {
+          return null;
+        }
+      };
       
       // Determine if this is multi-vendor (session-based) or single-vendor payment
       const isMultiVendor = !!checkoutSessionId;
@@ -7747,13 +7770,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!o.paymentReference) return false;
           const updatedAt = o.updatedAt ? new Date(o.updatedAt).getTime() : 0;
           if (!updatedAt) return false;
-          return Date.now() - updatedAt < 15 * 60 * 1000;
+          return Date.now() - updatedAt < inFlightWindowMs;
         });
         if (hasInFlightRecentAttempt) {
-          return res.status(409).json({
-            error: "Payment attempt already in progress",
-            userMessage: "A recent payment attempt is still processing. Please wait a few minutes before trying again.",
-          });
+          const refs = Array.from(new Set(
+            orders
+              .map((o: any) => String(o.paymentReference || "").trim())
+              .filter((r: string) => r.length > 0)
+          ));
+          for (const ref of refs) {
+            const status = await verifyExistingReferenceStatus(ref);
+            if (status === "success") {
+              await verifyReferenceAndProcess(ref, req.user!.id);
+              return res.status(400).json({
+                error: "Order is already paid",
+                userMessage: "This order has already been paid for.",
+              });
+            }
+            if (status && !["abandoned", "failed", "cancelled", "reversed"].includes(status)) {
+              const canForceRetry = forceRetry;
+              if (canForceRetry) continue;
+              return res.status(409).json({
+                error: "Payment attempt already in progress",
+                userMessage: "A recent payment attempt is still processing. Please wait a few minutes before trying again.",
+              });
+            }
+          }
         }
         
         // Calculate total amount across all orders
@@ -7781,11 +7823,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // stale in-flight state without a reference; allow retry to recover.
           } else {
           const updatedAt = order.updatedAt ? new Date(order.updatedAt).getTime() : 0;
-          if (updatedAt && Date.now() - updatedAt < 15 * 60 * 1000) {
-            return res.status(409).json({
-              error: "Payment attempt already in progress",
-              userMessage: "A recent payment attempt is still processing. Please wait a few minutes before trying again.",
-            });
+          if (updatedAt && Date.now() - updatedAt < inFlightWindowMs) {
+            const status = await verifyExistingReferenceStatus(order.paymentReference);
+            if (status === "success") {
+              await verifyReferenceAndProcess(order.paymentReference, req.user!.id);
+              return res.status(400).json({ error: "Order is already paid", userMessage: "This order has already been paid for." });
+            }
+            if (status && !["abandoned", "failed", "cancelled", "reversed"].includes(status)) {
+              const canForceRetry = forceRetry;
+              if (canForceRetry) {
+                // Continue below and create a fresh Paystack initialization for explicit resume flow.
+              } else {
+              return res.status(409).json({
+                error: "Payment attempt already in progress",
+                userMessage: "A recent payment attempt is still processing. Please wait a few minutes before trying again.",
+              });
+              }
+            }
           }
           }
         }
