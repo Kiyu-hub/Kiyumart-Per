@@ -29,6 +29,15 @@ interface ActiveDelivery {
   qrCode?: string;
 }
 
+const COMMUNICATION_ACTIVE_STATUSES = new Set([
+  "searching_rider",
+  "assigned",
+  "rider_arrived",
+  "picked_up",
+  "in_transit",
+  "en_route",
+]);
+
 export default function RiderActiveRoute() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
@@ -53,6 +62,9 @@ export default function RiderActiveRoute() {
     refetch();
     setActiveTab("navigation");
   };
+
+  const normalizedStatus = String(activeDelivery?.status || "").toLowerCase().trim();
+  const canUseDeliveryComms = COMMUNICATION_ACTIVE_STATUSES.has(normalizedStatus);
 
   return (
     <DashboardLayout role="rider">
@@ -92,7 +104,7 @@ export default function RiderActiveRoute() {
                 
                 {/* Buyer Contact - In-App Chat & Call */}
                 <div className="flex items-center gap-2">
-                  {activeDelivery.buyerId && (
+                  {activeDelivery.buyerId && canUseDeliveryComms && (
                     <>
                       <Button
                         size="sm"
