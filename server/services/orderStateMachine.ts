@@ -1,7 +1,7 @@
 import type { Order } from "@shared/schema";
 
 export type CanonicalOrderStatus =
-  | "pending"
+  | "created"
   | "searching_rider"
   | "confirmed"
   | "ready"
@@ -15,8 +15,8 @@ export type CanonicalOrderStatus =
   | "completed"
   | "cancelled"
   | "disputed";
-// Legacy alias accepted as input for backward compatibility.
-export type OrderStatus = CanonicalOrderStatus | "delivering";
+// Legacy aliases accepted as input for backward compatibility.
+export type OrderStatus = CanonicalOrderStatus | "delivering" | "pending";
 export type PaymentStatus = "pending" | "processing" | "completed" | "failed" | "refunded";
 export type UserRole = "super_admin" | "admin" | "seller" | "buyer" | "rider" | "agent";
 
@@ -42,18 +42,25 @@ export interface TransitionError {
 
 export function canonicalizeOrderStatus(status?: string | null): CanonicalOrderStatus {
   const s = (status || "").toLowerCase().trim();
-  if (s === "created") return "pending";
+  if (s === "pending") return "created";
+  if (s === "created") return "created";
   if (s === "ready_for_pickup") return "ready";
   if (s === "assigned_to_rider") return "assigned";
   if (s === "out_for_delivery") return "en_route";
   if (s === "delivering") return "en_route";
   if (s === "in_transit") return "in_transit";
-  if (!s) return "pending";
+  if (!s) return "created";
   return s as CanonicalOrderStatus;
 }
 
+export function toStorageOrderStatus(status: OrderStatus): string {
+  const normalized = canonicalizeOrderStatus(status);
+  if (normalized === "created") return "pending";
+  return normalized;
+}
+
 const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrderStatus, TransitionRule>>> = {
-  pending: {
+  created: {
     searching_rider: {
       allowedRoles: ["admin", "super_admin", "seller"],
       preconditions: [
@@ -258,6 +265,11 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       preconditions: [],
       sideEffects: [(order) => ({ deliveredAt: new Date() })],
     },
+    cancelled: {
+      allowedRoles: ["admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ riderId: null })],
+    },
   },
 
   en_route: {
@@ -265,6 +277,11 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       allowedRoles: ["rider", "admin", "super_admin"],
       preconditions: [],
       sideEffects: [(order) => ({ deliveredAt: new Date() })],
+    },
+    cancelled: {
+      allowedRoles: ["admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ riderId: null })],
     },
   },
 
@@ -328,6 +345,11 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       allowedRoles: ["rider", "admin", "super_admin"],
       preconditions: [],
       sideEffects: [(order) => ({ deliveredAt: new Date() })],
+    },
+    cancelled: {
+      allowedRoles: ["admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ riderId: null })],
     },
   },
 

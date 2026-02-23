@@ -44,7 +44,7 @@ interface StorageAdapter {
 
 // Active order statuses that allow chat, normalized to canonical delivery lifecycle.
 const ACTIVE_ORDER_STATUSES = [
-  "pending",
+  "created",
   "confirmed",
   "processing",
   "ready",
@@ -59,7 +59,7 @@ const ACTIVE_ORDER_STATUSES = [
 
 function normalizeOrderStatus(status?: string | null): string {
   const value = String(status || "").toLowerCase().trim();
-  if (value === "created") return "pending";
+  if (value === "pending") return "created";
   if (value === "assigned_to_rider") return "assigned";
   if (value === "out_for_delivery" || value === "delivering") return "en_route";
   return value;

@@ -419,10 +419,11 @@ export class DbStorage implements IStorage {
   }
 
   async updateOrderStatus(id: string, status: string): Promise<Order | undefined> {
-    const { canonicalizeOrderStatus } = await import("./services/orderStateMachine");
+    const { canonicalizeOrderStatus, toStorageOrderStatus } = await import("./services/orderStateMachine");
     const normalizedStatus = canonicalizeOrderStatus(status);
+    const storageStatus = toStorageOrderStatus(normalizedStatus as any);
     const result = await db.update(orders).set({ 
-      status: normalizedStatus as any,
+      status: storageStatus as any,
       updatedAt: new Date(),
       ...(normalizedStatus === "delivered" ? { deliveredAt: new Date() } : {})
     }).where(eq(orders.id, id)).returning();
@@ -457,8 +458,9 @@ export class DbStorage implements IStorage {
 
         // CRITICAL: Validate transition INSIDE transaction with locked order state
         // This prevents validation on stale data
-        const { assertCanTransition, getTransitionSideEffects, canonicalizeOrderStatus } = await import("./services/orderStateMachine");
+        const { assertCanTransition, getTransitionSideEffects, canonicalizeOrderStatus, toStorageOrderStatus } = await import("./services/orderStateMachine");
         const normalizedStatus = canonicalizeOrderStatus(toStatus);
+        const storageStatus = toStorageOrderStatus(normalizedStatus as any);
 
         const transitionResult = assertCanTransition({
           order: currentOrder, // Use locked order state
@@ -482,7 +484,7 @@ export class DbStorage implements IStorage {
 
         // Apply status change with side effects
         const result = await tx.update(orders).set({
-          status: normalizedStatus as any,
+          status: storageStatus as any,
           updatedAt: new Date(),
           ...sideEffects,
         })
@@ -499,7 +501,7 @@ export class DbStorage implements IStorage {
         await tx.insert(orderStatusHistory).values({
           orderId,
           fromStatus: fromStatus as any,
-          toStatus: normalizedStatus as any,
+          toStatus: storageStatus as any,
           changedBy,
           changedByRole: changedByRole as any,
           reason,
@@ -1999,7 +2001,7 @@ export class DbStorage implements IStorage {
     const result: any = {};
     // payment_status can be enum/text depending on DB state, so cast to text before lower()
     const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
-    const completedRevenueFilter = and(eq(orders.status, "delivered"), paidStatusFilter);
+    const completedRevenueFilter = and(eq(orders.status, "completed"), paidStatusFilter);
     
     if (role === "admin" || role === "super_admin" || !userId) {
       // Keep order counts aligned with DB totals and calculate revenue from paid states only.
@@ -2032,7 +2034,7 @@ export class DbStorage implements IStorage {
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
-          eq(orders.status, "delivered"),
+          eq(orders.status, "completed"),
           paidStatusFilter
         ));
       
@@ -2040,7 +2042,7 @@ export class DbStorage implements IStorage {
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
-          eq(orders.status, "delivered"),
+          eq(orders.status, "completed"),
           paidStatusFilter
         ));
       

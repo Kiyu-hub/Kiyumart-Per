@@ -199,13 +199,13 @@ export default function RiderActiveRoute() {
                         </p>
                         <Button 
                           onClick={() => {
-                            const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeDelivery.deliveryAddress)}`;
+                            const mapsUrl = `https://www.openstreetmap.org/search?query=${encodeURIComponent(activeDelivery.deliveryAddress)}`;
                             window.open(mapsUrl, '_blank');
                           }}
                           data-testid="button-navigate"
                         >
                           <Navigation className="h-4 w-4 mr-2" />
-                          Open in Google Maps
+                          Open in OpenStreetMap
                         </Button>
                       </div>
                     </Card>

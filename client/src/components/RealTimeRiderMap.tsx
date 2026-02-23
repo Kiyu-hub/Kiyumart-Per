@@ -669,13 +669,13 @@ export default function RealTimeRiderMap() {
                           disabled={!selectedRider.latitude || !selectedRider.longitude}
                           onClick={() => {
                             if (selectedRider.latitude && selectedRider.longitude) {
-                              const url = `https://www.google.com/maps?q=${selectedRider.latitude},${selectedRider.longitude}`;
+                              const url = `https://www.openstreetmap.org/?mlat=${selectedRider.latitude}&mlon=${selectedRider.longitude}#map=16/${selectedRider.latitude}/${selectedRider.longitude}`;
                               window.open(url, '_blank');
                             }
                           }}
                         >
                           <ExternalLink className="h-4 w-4 mr-2" />
-                          Open in Google Maps
+                          Open in OpenStreetMap
                         </Button>
                       </div>
                     </div>

@@ -127,6 +127,13 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   const socketRef = useRef<Socket | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const mapRef = useRef<any>(null);
+  const latestCoordsRef = useRef<{
+    latitude: number;
+    longitude: number;
+    accuracy?: number | null;
+    speed?: number | null;
+    heading?: number | null;
+  } | null>(null);
 
   // Fetch active delivery
   const { data: activeDelivery, isLoading, refetch } = useQuery<ActiveDelivery | null>({
@@ -164,17 +171,13 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
       setGpsStatus("active");
       setLastUpdate(new Date());
 
-      // Send location to server
-      if (socketRef.current?.connected && activeDelivery) {
-        socketRef.current.emit("rider_location_update", {
-          orderId: activeDelivery.id,
-          latitude,
-          longitude,
-          accuracy,
-          speed: speed || 0,
-          heading: heading || 0,
-        });
-      }
+      latestCoordsRef.current = {
+        latitude,
+        longitude,
+        accuracy,
+        speed: speed || 0,
+        heading: heading || 0,
+      };
     };
 
     const handleError = (error: GeolocationPositionError) => {
@@ -211,6 +214,24 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     };
   }, []);
 
+  // Emit rider GPS updates at deterministic 4s cadence for backend real-time sync.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!activeDelivery || !socketRef.current?.connected) return;
+      const latest = latestCoordsRef.current;
+      if (!latest) return;
+      socketRef.current.emit("rider_location_update", {
+        orderId: activeDelivery.id,
+        latitude: latest.latitude,
+        longitude: latest.longitude,
+        accuracy: latest.accuracy ?? 0,
+        speed: latest.speed ?? 0,
+        heading: latest.heading ?? 0,
+      });
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [activeDelivery?.id]);
+
   // Calculate route when positions change
   useEffect(() => {
     if (riderPosition && destPos) {
@@ -230,9 +251,9 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     }
   }, [riderPosition]);
 
-  const openGoogleMapsNav = () => {
+  const openOsmNav = () => {
     if (destPos) {
-      const url = `https://www.google.com/maps/dir/?api=1&destination=${destPos[0]},${destPos[1]}&travelmode=driving`;
+      const url = `https://www.openstreetmap.org/?mlat=${destPos[0]}&mlon=${destPos[1]}#map=16/${destPos[0]}/${destPos[1]}`;
       window.open(url, "_blank");
     }
   };
@@ -333,7 +354,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
                     </Button>
                   </a>
                 )}
-                <Button size="sm" onClick={openGoogleMapsNav} className="h-8 px-2" disabled={!destPos}>
+                <Button size="sm" onClick={openOsmNav} className="h-8 px-2" disabled={!destPos}>
                   <Navigation className="h-3 w-3 mr-1" />
                   Navigate
                 </Button>

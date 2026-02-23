@@ -6,9 +6,9 @@
 >
 > A **fully functional, production-ready local marketplace platform** enabling small businesses, artisans, and entrepreneurs to sell their products to local and regional customers. Multi-vendor support, comprehensive admin management, real-time order tracking, and secure payment processing.
 > 
-> **Version:** 1.1.9 (Phase 2 Zone Soft-Matching Upgrade)  
+> **Version:** 1.2.0 (Strict Verification & Hardening Update)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
-> **Last Updated:** February 21, 2026
+> **Last Updated:** February 23, 2026
 > 
 > **📚 Documentation:** Start with [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) for complete guides  
 > **🚀 Quick Start:** See [QUICK_START.md](./QUICK_START.md) to get running in 5 minutes  
@@ -25,6 +25,7 @@
 - [Phase 2 Zone Soft-Matching Update (February 21, 2026)](#phase-2-zone-soft-matching-update-february-21-2026)
 - [Rider Onboarding & Assignment Data Integrity Update (February 21, 2026)](#rider-onboarding--assignment-data-integrity-update-february-21-2026)
 - [Order Purchase to Live Tracking Audit Update (February 21, 2026)](#order-purchase-to-live-tracking-audit-update-february-21-2026)
+- [Strict Verification & Hardening Update (February 23, 2026)](#strict-verification--hardening-update-february-23-2026)
 - [Features](#features)
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
@@ -162,6 +163,36 @@ To be the leading online marketplace platform for local businesses, connecting q
   - Initial rider location hydration now handles `rider_arrived`, `picked_up`, `in_transit`, and `en_route`.
 - Full technical report:
   - [docs/order-purchase-assignment-live-tracking-report.md](./docs/order-purchase-assignment-live-tracking-report.md)
+
+## Strict Verification & Hardening Update (February 23, 2026)
+
+- Added strict canonical lifecycle normalization with non-breaking DB persistence:
+  - Canonical input state starts at `created`.
+  - Storage layer maps `created -> pending` for existing DB enum compatibility.
+- Added deterministic local payment-completion QA hook (dev-only, backend-guarded):
+  - `POST /api/test/payments/complete`
+- Added admin/super-admin system health endpoint:
+  - `GET /api/admin/system-health`
+- Added completed-only revenue accounting enforcement in analytics and aggregate views.
+- Added revenue aggregate read endpoints:
+  - `GET /api/admin/revenue/views/summary`
+  - `GET /api/admin/revenue/views/order-payments`
+- Added stale GPS metadata on delivery tracking reads and rider reconnect resume event.
+- Updated rider external map quick-links from Google Maps to OpenStreetMap.
+- Added deterministic 4-second rider GPS emission cadence in rider map components.
+- Added report-only media alternatives documentation (no provider replacement in this pass):
+  - [docs/media-provider-alternatives-report.md](./docs/media-provider-alternatives-report.md)
+
+### Runtime Verification Evidence (February 23, 2026)
+
+- PASS `seed_test_users`
+- PASS `token_generation`
+- PASS `order_create`
+- PASS `payment_hook_complete`
+- PASS `payment_gated_searching_rider` (`status=searching_rider`, `payment=completed`)
+- PASS `backend_eta_endpoint` (`source=backend_math`)
+- PASS `system_health_endpoint`
+- PASS `revenue_view_endpoints`
 
 ---
 
@@ -1197,7 +1228,7 @@ For support and questions:
 
 **Built with ❤️ for the Islamic Fashion Community**
 
-*Last Updated: February 21, 2026*
+*Last Updated: February 23, 2026*
 
 
 ---

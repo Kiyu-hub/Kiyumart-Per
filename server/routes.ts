@@ -4074,7 +4074,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       clearPendingRiderAssignment(order.id);
       return order;
     }
-    if (canonicalizeOrderStatus(order.status) === "pending" && order.paymentStatus !== "completed") {
+    if (canonicalizeOrderStatus(order.status) === "created" && order.paymentStatus !== "completed") {
       throw new Error("Payment must be completed before rider matching");
     }
 
@@ -4731,7 +4731,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const updatedOrders: any[] = [];
         for (const order of targetOrders) {
           const nextStatus =
-            canonicalizeOrderStatus(order.status) === "pending" ? "processing" : order.status;
+            canonicalizeOrderStatus(order.status) === "created" ? "processing" : order.status;
           const updated = await storage.updateOrder(order.id, {
             paymentStatus: "completed",
             status: nextStatus,
@@ -5370,7 +5370,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!tracking) {
         return res.status(404).json({ error: "No tracking data found" });
       }
-      res.json(tracking);
+      const timestampMs = tracking.timestamp ? new Date(tracking.timestamp).getTime() : Date.now();
+      const ageMs = Math.max(0, Date.now() - timestampMs);
+      const staleAfterMs = 2 * 60 * 1000;
+      res.json({
+        ...tracking,
+        lastKnown: true,
+        isStale: ageMs > staleAfterMs,
+        ageSeconds: Math.floor(ageMs / 1000),
+        staleAfterSeconds: staleAfterMs / 1000,
+      });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -5696,7 +5705,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const deliveries = await db.query.orders.findMany({
         where: and(
           eq(orders.riderId, riderId),
-          eq(orders.status, "delivered")
+          eq(orders.status, "completed")
         ),
       });
       
@@ -5747,7 +5756,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const totalSales = sales.length;
       const completedPaidOrders = sales.filter((order) => {
         const normalizedStatus = (order.status || "").toLowerCase().trim();
-        return normalizedStatus === "delivered" && isPaidPaymentStatus(order.paymentStatus);
+        return normalizedStatus === "completed" && isPaidPaymentStatus(order.paymentStatus);
       });
       const totalRevenue = completedPaidOrders.reduce((sum, order) => {
         return sum + parseFloat(order.total || "0");
@@ -5768,11 +5777,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const revenueThisMonth = completedPaidOrders
         .filter(order => {
-          const deliveredDate = order.deliveredAt ? new Date(order.deliveredAt) : null;
-          if (!deliveredDate) return false;
+          const completionDate = order.updatedAt ? new Date(order.updatedAt) : order.deliveredAt ? new Date(order.deliveredAt) : null;
+          if (!completionDate) return false;
           const now = new Date();
-          return deliveredDate.getMonth() === now.getMonth() && 
-                 deliveredDate.getFullYear() === now.getFullYear();
+          return completionDate.getMonth() === now.getMonth() && 
+                 completionDate.getFullYear() === now.getFullYear();
         })
         .reduce((sum, order) => sum + parseFloat(order.total || "0"), 0);
       
@@ -8418,6 +8427,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Revenue aggregate views (completed-only accounting source for dashboards/audits).
+  app.get("/api/admin/revenue/views/summary", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (_req: AuthRequest, res) => {
+    try {
+      const [daily, seller, commissions] = await Promise.all([
+        db.execute(sql`select * from daily_revenue order by revenue_date desc limit 30`),
+        db.execute(sql`select * from seller_revenue order by total_revenue desc limit 50`),
+        db.execute(sql`select * from platform_commission order by commission_created_at desc limit 50`),
+      ]);
+      res.json({
+        dailyRevenue: (daily as any).rows || [],
+        sellerRevenue: (seller as any).rows || [],
+        platformCommission: (commissions as any).rows || [],
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/revenue/views/order-payments", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
+    try {
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit || 100)));
+      const rows = await db.execute(sql`select * from order_payments order by order_created_at desc limit ${limit}`);
+      res.json((rows as any).rows || []);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // ============ Socket.IO for Real-time Chat ============
   const userSockets = new Map<string, string>();
 
@@ -8480,9 +8517,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
          (o.buyerId === userId2 && (o.sellerId === userId1 || o.riderId === userId1)) ||
          (o.sellerId === userId1 && o.riderId === userId2) ||
          (o.sellerId === userId2 && o.riderId === userId1)) &&
-        ['pending', 'confirmed', 'processing', 'ready', 'searching_rider', 'assigned', 'rider_arrived', 'picked_up', 'in_transit', 'en_route'].includes(o.status)
+        ['pending', 'created', 'confirmed', 'processing', 'ready', 'searching_rider', 'assigned', 'rider_arrived', 'picked_up', 'in_transit', 'en_route', 'delivered'].includes(String(o.status || '').toLowerCase().trim())
       ) || null;
     },
+  });
+
+  // Aggregated system health indicators for admin/super admin operational dashboards.
+  app.get("/api/admin/system-health", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (_req: AuthRequest, res) => {
+    try {
+      const presence = presenceService.getStats();
+      const allOrders = await storage.getAllOrders();
+      const canonicalActive = new Set(["searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"]);
+      const activeOrders = allOrders.filter((o: any) => canonicalActive.has(canonicalizeOrderStatus(o.status)));
+
+      const ordersByRider = new Map<string, any[]>();
+      for (const order of activeOrders) {
+        if (!order.riderId) continue;
+        const bucket = ordersByRider.get(order.riderId) || [];
+        bucket.push(order);
+        ordersByRider.set(order.riderId, bucket);
+      }
+
+      let staleGpsOrders = 0;
+      const gpsLossThresholdMs = 2 * 60 * 1000;
+      for (const order of activeOrders) {
+        if (!order.riderId) continue;
+        const latest = await storage.getLatestDeliveryLocation(order.id);
+        if (!latest?.timestamp) {
+          staleGpsOrders += 1;
+          continue;
+        }
+        const ageMs = Date.now() - new Date(latest.timestamp).getTime();
+        if (ageMs > gpsLossThresholdMs) staleGpsOrders += 1;
+      }
+
+      const overloadedRiders = Array.from(ordersByRider.entries())
+        .filter(([, orders]) => orders.length > 1)
+        .map(([riderId, orders]) => ({ riderId, activeOrders: orders.length }));
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        presence,
+        pipeline: {
+          totalOrders: allOrders.length,
+          activeOrders: activeOrders.length,
+          searchingRider: activeOrders.filter((o: any) => canonicalizeOrderStatus(o.status) === "searching_rider").length,
+          assigned: activeOrders.filter((o: any) => canonicalizeOrderStatus(o.status) === "assigned").length,
+          inTransit: activeOrders.filter((o: any) => ["picked_up", "in_transit", "en_route"].includes(canonicalizeOrderStatus(o.status))).length,
+        },
+        assignment: {
+          activeAttempts: pendingRiderAssignments.size,
+          failedAttempts: Array.from(pendingRiderAssignments.values()).filter((entry) => Boolean(entry.lastError)).length,
+        },
+        tracking: {
+          staleGpsOrders,
+          gpsLossThresholdSeconds: gpsLossThresholdMs / 1000,
+        },
+        alerts: {
+          overloadedRiders,
+        },
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
   });
   console.log('[BOOT] WhatsApp-style messaging services initialized');
 
@@ -8498,6 +8595,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     // Register with presence service
     presenceService.userConnected(userId, socket.id);
+    if (socket.data.userRole === "rider") {
+      void (async () => {
+        try {
+          const riderOrders = await storage.getOrdersByUser(userId, "rider");
+          const activeOrder = riderOrders.find((o: any) =>
+            ["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes(canonicalizeOrderStatus(o.status))
+          );
+          if (!activeOrder) return;
+          const latest = await storage.getLatestDeliveryLocation(activeOrder.id);
+          socket.emit("rider_resume_state", {
+            orderId: activeOrder.id,
+            orderNumber: activeOrder.orderNumber,
+            status: canonicalizeOrderStatus(activeOrder.status),
+            lastKnownLocation: latest
+              ? {
+                  latitude: latest.latitude,
+                  longitude: latest.longitude,
+                  speed: latest.speed,
+                  heading: latest.heading,
+                  timestamp: latest.timestamp,
+                }
+              : null,
+          });
+        } catch (error) {
+          console.warn(`[RIDER] Failed to send reconnect resume state for ${userId}:`, (error as any)?.message || error);
+        }
+      })();
+    }
     
     // Deliver any queued messages for this user
     messageDeliveryService.onUserOnline(userId);
@@ -8514,7 +8639,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const riderOrders = await storage.getOrdersByUser(userId, "rider");
             const impacted = riderOrders.find((o: any) =>
-              ["searching_rider", "assigned"].includes(canonicalizeOrderStatus(o.status))
+              ["searching_rider", "assigned", "rider_arrived"].includes(canonicalizeOrderStatus(o.status))
             );
             if (!impacted) return;
 

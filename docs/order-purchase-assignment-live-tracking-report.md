@@ -152,6 +152,29 @@ Scope: End-to-end audit and verification of checkout, payment verification, assi
 - Updated delivery maps to read backend ETA values instead of local UI ETA math.
 - Admin live rider feed now includes backend `eta` and `distance` per active rider.
 
+4. Strict lifecycle and accounting normalization
+- Canonical state model now starts from `created` (legacy `pending` accepted as alias).
+- DB persistence remains backward-compatible by mapping `created -> pending` at storage write time.
+- Revenue analytics and aggregate views now use `completed` orders only.
+
+5. GPS cadence and map-provider compliance hardening
+- Rider map components now emit location updates on deterministic 4-second cadence.
+- Rider/admin external map links were switched to OpenStreetMap links (no Google Maps links in rider flow).
+
+## Runtime QA Matrix (Fresh Evidence - February 23, 2026)
+
+Executed via `scripts/qa-runtime-check.ps1` against live backend runtime:
+
+- PASS `seed_test_users`
+- PASS `token_generation`
+- PASS `product_available`
+- PASS `order_create`
+- PASS `payment_hook_complete`
+- PASS `payment_gated_searching_rider` (`status=searching_rider`, `payment=completed`)
+- PASS `backend_eta_endpoint` (`source=backend_math`)
+- PASS `system_health_endpoint` (pipeline + assignment + tracking present)
+- PASS `revenue_view_endpoints`
+
 ## Conclusion
 
 The order purchase -> payment verification -> rider assignment -> live tracking pipeline is now fully aligned with backend-first, real-time, deterministic behavior. The remaining logic inconsistencies identified in this audit pass were fixed and validated.

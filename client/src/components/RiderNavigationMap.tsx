@@ -108,6 +108,13 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
   const [isWatching, setIsWatching] = useState(false);
   const watchIdRef = useRef<number | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const latestCoordsRef = useRef<{
+    latitude: number;
+    longitude: number;
+    accuracy?: number | null;
+    speed?: number | null;
+    heading?: number | null;
+  } | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
 
   const etaQuery = useQuery({
@@ -137,18 +144,13 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
         setCurrentPosition(newPos);
         setLastUpdateTime(new Date());
 
-        // Send location update to server
-        if (socketRef.current) {
-          socketRef.current.emit("rider_location_update", {
-            riderId,
-            orderId: delivery.orderId,
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            speed: position.coords.speed,
-            heading: position.coords.heading,
-          });
-        }
+        latestCoordsRef.current = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          speed: position.coords.speed,
+          heading: position.coords.heading,
+        };
 
         onLocationUpdate?.(position.coords.latitude, position.coords.longitude);
       },
@@ -199,6 +201,24 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
     };
   }, [delivery, startWatching, stopWatching]);
 
+  // Emit rider GPS updates at deterministic 4s cadence for backend real-time sync.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const latest = latestCoordsRef.current;
+      if (!latest || !socketRef.current?.connected) return;
+      socketRef.current.emit("rider_location_update", {
+        riderId,
+        orderId: delivery.orderId,
+        latitude: latest.latitude,
+        longitude: latest.longitude,
+        accuracy: latest.accuracy ?? 0,
+        speed: latest.speed ?? 0,
+        heading: latest.heading ?? 0,
+      });
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [delivery.orderId, riderId]);
+
   // Calculate route when position or destination changes
   useEffect(() => {
     if (currentPosition && delivery.deliveryLatitude && delivery.deliveryLongitude) {
@@ -217,7 +237,7 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
 
   const openInMaps = () => {
     if (delivery.deliveryLatitude && delivery.deliveryLongitude) {
-      const url = `https://www.google.com/maps/dir/?api=1&destination=${delivery.deliveryLatitude},${delivery.deliveryLongitude}`;
+      const url = `https://www.openstreetmap.org/?mlat=${delivery.deliveryLatitude}&mlon=${delivery.deliveryLongitude}#map=16/${delivery.deliveryLatitude}/${delivery.deliveryLongitude}`;
       window.open(url, '_blank');
     }
   };
