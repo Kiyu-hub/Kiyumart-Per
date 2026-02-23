@@ -157,14 +157,24 @@ export default function PaymentPage() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
           <CardHeader>
-            <CardTitle>Payment Processing</CardTitle>
+            <CardTitle>Payment Not Completed</CardTitle>
             <CardDescription>
-              Payment for order #{order.orderNumber} is currently processing
+              Order #{order.orderNumber} has an unfinished payment attempt. Continue payment to complete checkout.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Button onClick={() => navigate(`/track?orderId=${order.id}`)} className="w-full" data-testid="button-track">
-              Track Order
+            <Button onClick={handlePayNow} className="w-full" data-testid="button-pay-now-processing" disabled={isInitializing}>
+              {isInitializing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Redirecting to Paystack...
+                </>
+              ) : (
+                <>
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Continue Payment
+                </>
+              )}
             </Button>
             <Button onClick={() => navigate("/")} variant="outline" className="w-full" data-testid="button-home">
               Continue Shopping

@@ -58,7 +58,7 @@ export default function BuyerDashboard() {
     totalSpend: orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0),
     pendingPayments: orders.filter((o) => {
       const paymentStatus = normalizePaymentStatus(o.paymentStatus);
-      return paymentStatus === "pending" || paymentStatus === "failed";
+      return paymentStatus === "pending" || paymentStatus === "failed" || paymentStatus === "processing";
     }).length,
   };
 
@@ -180,7 +180,7 @@ export default function BuyerDashboard() {
               const isPaid = paymentStatus === "paid";
               const isProcessingPayment = paymentStatus === "processing";
               const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
-              const requiresPaymentAction = isUnpaid;
+              const requiresPaymentAction = isUnpaid || isProcessingPayment;
               const displayStatus = (s === "pending" && (isPaid || isProcessingPayment)) ? "processing" : order.status;
 
               const action = requiresPaymentAction

@@ -7995,7 +7995,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const updatePromises = orders.map((order: any) => 
           storage.updateOrder(order.id, {
             paymentReference: data.data.reference,
-            paymentStatus: "processing",
+            // Keep payment as pending until verify/webhook confirms completion.
+            paymentStatus: "pending",
           })
         );
         await Promise.all(updatePromises);
