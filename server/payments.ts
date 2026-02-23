@@ -31,6 +31,14 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
       orders = [order];
     }
 
+    const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
+    const isCompletedPaymentStatus = (value?: string | null) =>
+      ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+
+    if (orders.every((o: any) => isCompletedPaymentStatus(o.paymentStatus))) {
+      return { message: 'Order already paid', reference };
+    }
+
     // Calculate primary order reference for transaction record
     const primaryOrder = orders[0];
 
@@ -55,7 +63,11 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
 
     if (eventData.status === 'success') {
       // Update orders atomically: mark completed and processing status
-      const updatePromises = orders.map((order: any) => storage.updateOrder(order.id, { paymentStatus: 'completed', status: 'processing' }));
+      const updatePromises = orders.map((order: any) => {
+        const normalizedStatus = String(order.status || "").toLowerCase().trim();
+        const nextStatus = (normalizedStatus === "pending" || normalizedStatus === "created") ? "processing" : order.status;
+        return storage.updateOrder(order.id, { paymentStatus: 'completed', status: nextStatus, paymentReference: reference });
+      });
       await Promise.all(updatePromises);
 
       // Calculate commission for each order (storage helper)

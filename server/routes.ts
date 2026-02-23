@@ -7688,6 +7688,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payments/initialize", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { orderId, checkoutSessionId } = req.body;
+      const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
+      const isCompletedPaymentStatus = (value?: string | null) =>
+        ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+      const isInFlightPaymentStatus = (value?: string | null) =>
+        ["pending", "processing"].includes(normalizePaymentStatus(value));
       
       if (!orderId && !checkoutSessionId) {
         return res.status(400).json({ error: "Either Order ID or Checkout Session ID is required" });
@@ -7729,11 +7734,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Prevent double payment - check if any order is already paid
-        const anyAlreadyPaid = orders.some((o: any) => o.paymentStatus === "completed");
+        const anyAlreadyPaid = orders.some((o: any) => isCompletedPaymentStatus(o.paymentStatus));
         if (anyAlreadyPaid) {
           return res.status(400).json({ 
             error: "One or more orders are already paid", 
             userMessage: "Some of these orders have already been paid for." 
+          });
+        }
+
+        const hasInFlightRecentAttempt = orders.some((o: any) => {
+          if (!isInFlightPaymentStatus(o.paymentStatus)) return false;
+          if (!o.paymentReference) return false;
+          const updatedAt = o.updatedAt ? new Date(o.updatedAt).getTime() : 0;
+          if (!updatedAt) return false;
+          return Date.now() - updatedAt < 15 * 60 * 1000;
+        });
+        if (hasInFlightRecentAttempt) {
+          return res.status(409).json({
+            error: "Payment attempt already in progress",
+            userMessage: "A recent payment attempt is still processing. Please wait a few minutes before trying again.",
           });
         }
         
@@ -7753,8 +7772,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Prevent double payment
-        if (order.paymentStatus === "completed") {
+        if (isCompletedPaymentStatus(order.paymentStatus)) {
           return res.status(400).json({ error: "Order is already paid", userMessage: "This order has already been paid for." });
+        }
+
+        if (isInFlightPaymentStatus(order.paymentStatus)) {
+          if (!order.paymentReference) {
+            // stale in-flight state without a reference; allow retry to recover.
+          } else {
+          const updatedAt = order.updatedAt ? new Date(order.updatedAt).getTime() : 0;
+          if (updatedAt && Date.now() - updatedAt < 15 * 60 * 1000) {
+            return res.status(409).json({
+              error: "Payment attempt already in progress",
+              userMessage: "A recent payment attempt is still processing. Please wait a few minutes before trying again.",
+            });
+          }
+          }
         }
         
         orders = [order];
@@ -8230,12 +8263,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (orders.length === 0) throw new Error("No orders found in payment session");
       const primaryOrder = orders[0];
+      const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
+      const isCompletedPaymentStatus = (value?: string | null) =>
+        ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+
+      if (orders.every((o: any) => isCompletedPaymentStatus(o.paymentStatus))) {
+        return {
+          transaction: await storage.getTransactionByReference(reference),
+          verified: true,
+          orderId: primaryOrder.id,
+          orderIds: orders.map((o: any) => o.id),
+          isMultiVendor,
+          orderCount: orders.length,
+          message: "Order already paid",
+        };
+      }
 
       try {
         const { processPaystackChargeSuccess } = await import('./payments');
         await processPaystackChargeSuccess(data.data, storage, io);
       } catch (procErr: any) {
         console.error('[VERIFY] Error processing payment via shared helper:', procErr?.message || procErr);
+        if (data.data.status === "success") {
+          const existingTx = await storage.getTransactionByReference(reference);
+          if (!existingTx) {
+            await storage.createTransaction({
+              orderId: primaryOrder.id,
+              userId: primaryOrder.buyerId,
+              amount: (Number(data.data.amount || 0) / 100).toString(),
+              currency: data.data.currency || primaryOrder.currency || "GHS",
+              paymentProvider: "paystack",
+              paymentReference: reference,
+              status: "completed",
+              metadata: {
+                source: "verify_fallback",
+                orderIds: orders.map((o: any) => o.id),
+                raw: data.data,
+              },
+            } as any);
+          }
+
+          await Promise.all(
+            orders.map(async (o: any) => {
+              const currentStatus = canonicalizeOrderStatus(o.status);
+              const nextStatus = currentStatus === "created" ? "processing" : currentStatus;
+              await storage.updateOrder(o.id, {
+                paymentStatus: "completed",
+                status: nextStatus,
+                paymentReference: reference,
+              } as any);
+            })
+          );
+        } else {
+          throw procErr;
+        }
       }
 
       if (data.data.status === "success") {
