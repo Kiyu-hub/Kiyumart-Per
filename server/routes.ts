@@ -359,9 +359,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/auth/me", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user!.id);
-      if (!user) {
+      const currentUser = await storage.getUser(req.user!.id);
+      if (!currentUser) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      // Safety self-heal:
+      // If an unapproved operational role leaked onto the account, keep the user in buyer role
+      // and retain the intended role in requestedRole until admin approval.
+      let user = currentUser;
+      if (!user.isApproved && (user.role === "seller" || user.role === "rider")) {
+        const patch: Record<string, unknown> = {
+          role: "buyer",
+          applicationStatus:
+            (user as any).applicationStatus && (user as any).applicationStatus !== "approved"
+              ? (user as any).applicationStatus
+              : ("pending" as any),
+        };
+        if (!(user as any).requestedRole) {
+          patch.requestedRole = user.role;
+        }
+        const healed = await storage.updateUser(user.id, patch);
+        if (healed) user = healed as any;
       }
 
       const { password, ...userWithoutPassword } = user;
@@ -1922,7 +1941,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const newUser = await storage.createUser({
         ...userData,
         password: hashedPassword,
-        role: "seller",
+        role: "buyer",
+        requestedRole: "seller",
+        applicationStatus: "pending",
         isApproved: false,
       });
 
@@ -2051,7 +2072,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const newUser = await storage.createUser({
         ...userData,
         password: hashedPassword,
-        role: "rider",
+        role: "buyer",
+        requestedRole: "rider",
+        applicationStatus: "pending",
         isApproved: false,
       });
 
