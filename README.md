@@ -204,6 +204,9 @@ To be the leading online marketplace platform for local businesses, connecting q
   - `POST /api/calls/group/start` now restricted to `admin` and `super_admin`.
 - Added report-only media alternatives documentation (no provider replacement in this pass):
   - [docs/media-provider-alternatives-report.md](./docs/media-provider-alternatives-report.md)
+- Added role-application request state for approval-safe promotions:
+  - New field: `users.requested_role`
+  - Migration: `migrations/0023_add_requested_role.sql`
 
 ### Runtime Verification Evidence (February 23, 2026)
 
@@ -215,6 +218,25 @@ To be the leading online marketplace platform for local businesses, connecting q
 - PASS `backend_eta_endpoint` (`source=backend_math`)
 - PASS `system_health_endpoint`
 - PASS `revenue_view_endpoints`
+
+## Mandatory Migration Workflow (Non-Negotiable)
+
+Any change that affects DB schema, enums, defaults, constraints, or SQL views must include and run a migration before QA and before push.
+
+- Canonical runner:
+  - `npx tsx scripts/apply-migrations.ts`
+- Required after schema-impacting updates:
+  1. Create SQL migration in `migrations/` (incremental file name).
+  2. Run migration locally.
+  3. Run migration in staging.
+  4. Run migration in production.
+  5. Verify critical columns/tables/views exist with a direct DB check.
+  6. Include migration file name in release notes/README update section.
+
+Environment execution rule:
+- Run the same migration runner in each environment with that environment's `DATABASE_URL`.
+- Example target for this release:
+  - `migrations/0023_add_requested_role.sql`
 
 ## Order Fulfillment Visibility Audit Update (February 23, 2026)
 
