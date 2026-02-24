@@ -721,7 +721,7 @@ export default function AdminApplications() {
 
         {/* Application Details Dialog */}
         <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
-          <DialogContent className="relative w-[95vw] max-w-5xl max-h-[88vh] overflow-y-auto">
+          <DialogContent className="relative w-[95vw] max-w-5xl max-h-[88vh] overflow-hidden">
             {selectedApplication && (
               <>
                 <DialogHeader>
@@ -738,7 +738,7 @@ export default function AdminApplications() {
                   </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-6 mt-4">
+                <div className="space-y-6 mt-4 max-h-[58vh] overflow-y-auto pr-2">
                   {/* Rejection Reason (if rejected) */}
                   {selectedApplication.applicationStatus === "rejected" && selectedApplication.rejectionReason && (
                     <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
@@ -797,34 +797,42 @@ export default function AdminApplications() {
                         <p className="text-sm font-medium text-muted-foreground">Address / Location</p>
                         <p className="text-base">{selectedApplication.businessAddress || "N/A"}</p>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Rider City</p>
-                        <p className="text-base">{selectedApplication.riderCity || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Rider Region</p>
-                        <p className="text-base">{selectedApplication.riderRegion || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Store Name</p>
-                        <p className="text-base">{selectedApplication.storeName || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Store Type</p>
-                        <p className="text-base">{selectedApplication.storeType || "N/A"}</p>
-                      </div>
-                      <div className="md:col-span-2">
-                        <p className="text-sm font-medium text-muted-foreground">Store Description</p>
-                        <p className="text-base">{selectedApplication.storeDescription || "N/A"}</p>
-                      </div>
-                      <div className="md:col-span-2">
-                        <p className="text-sm font-medium text-muted-foreground">Store Metadata</p>
-                        <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                          {selectedApplication.storeTypeMetadata
-                            ? JSON.stringify(selectedApplication.storeTypeMetadata, null, 2)
-                            : "N/A"}
-                        </pre>
-                      </div>
+                      {getEffectiveRole(selectedApplication) === "rider" && (
+                        <>
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground">Rider City</p>
+                            <p className="text-base">{selectedApplication.riderCity || "N/A"}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground">Rider Region</p>
+                            <p className="text-base">{selectedApplication.riderRegion || "N/A"}</p>
+                          </div>
+                        </>
+                      )}
+                      {getEffectiveRole(selectedApplication) === "seller" && (
+                        <>
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground">Store Name</p>
+                            <p className="text-base">{selectedApplication.storeName || "N/A"}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground">Store Type</p>
+                            <p className="text-base">{selectedApplication.storeType || "N/A"}</p>
+                          </div>
+                          <div className="md:col-span-2">
+                            <p className="text-sm font-medium text-muted-foreground">Store Description</p>
+                            <p className="text-base">{selectedApplication.storeDescription || "N/A"}</p>
+                          </div>
+                          <div className="md:col-span-2">
+                            <p className="text-sm font-medium text-muted-foreground">Store Metadata</p>
+                            <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
+                              {selectedApplication.storeTypeMetadata
+                                ? JSON.stringify(selectedApplication.storeTypeMetadata, null, 2)
+                                : "N/A"}
+                            </pre>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -892,31 +900,33 @@ export default function AdminApplications() {
                     </div>
                   </div>
 
-                  {/* Vehicle Information (for riders) */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                      <Car className="h-5 w-5" />
-                      Vehicle Information
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Vehicle Type</p>
-                        <p className="text-base capitalize">{selectedApplication.vehicleInfo?.type || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Plate Number</p>
-                        <p className="text-base">{selectedApplication.vehicleInfo?.plateNumber || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">License Number</p>
-                        <p className="text-base">{selectedApplication.vehicleInfo?.license || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Vehicle Color</p>
-                        <p className="text-base">{selectedApplication.vehicleInfo?.color || "N/A"}</p>
+                  {/* Vehicle Information (rider-only) */}
+                  {getEffectiveRole(selectedApplication) === "rider" && (
+                    <div>
+                      <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                        <Car className="h-5 w-5" />
+                        Vehicle Information
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Vehicle Type</p>
+                          <p className="text-base capitalize">{selectedApplication.vehicleInfo?.type || "N/A"}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Plate Number</p>
+                          <p className="text-base">{selectedApplication.vehicleInfo?.plateNumber || "N/A"}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">License Number</p>
+                          <p className="text-base">{selectedApplication.vehicleInfo?.license || "N/A"}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Vehicle Color</p>
+                          <p className="text-base">{selectedApplication.vehicleInfo?.color || "N/A"}</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Action Buttons */}
                   {(selectedApplication.applicationStatus === "pending" || selectedApplication.applicationStatus === "interview_scheduled") && (
