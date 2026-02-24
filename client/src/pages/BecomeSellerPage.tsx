@@ -55,15 +55,18 @@ export default function BecomeSellerPage() {
   const { user } = useAuth();
   const isLoggedIn = !!user;
   const currentRole = String(user?.role || "").toLowerCase();
+  const currentRequestedRole = String((user as any)?.requestedRole || "").toLowerCase();
   const currentApplicationStatus = String((user as any)?.applicationStatus || "").toLowerCase();
   const sameRoleAlreadySubmitted =
     isLoggedIn &&
-    currentRole === "seller" &&
-    ((user?.isApproved ?? false) || ["pending", "interview_scheduled", "approved"].includes(currentApplicationStatus));
+    ((currentRole === "seller" && (user?.isApproved ?? false)) ||
+      ((currentRequestedRole === "seller" || currentRole === "seller") &&
+        ["pending", "interview_scheduled", "approved"].includes(currentApplicationStatus)));
   const blockedByOtherRole =
     isLoggedIn &&
-    currentRole === "rider" &&
-    ((user?.isApproved ?? false) || ["pending", "interview_scheduled", "approved"].includes(currentApplicationStatus));
+    (((currentRole === "rider" && (user?.isApproved ?? false)) ||
+      (currentRequestedRole === "rider" &&
+        ["pending", "interview_scheduled", "approved"].includes(currentApplicationStatus))));
   const [uploading, setUploading] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState<string>("");
   const [cardFrontPreview, setCardFrontPreview] = useState<string>("");

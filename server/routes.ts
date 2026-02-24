@@ -687,7 +687,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let users;
       
       if (role && role !== "all") {
-        users = await storage.getUsersByRole(role as string);
+        if (role === "seller" || role === "rider") {
+          const allRoles = ["admin", "buyer", "seller", "rider", "agent"];
+          users = [];
+          for (const r of allRoles) {
+            const roleUsers = await storage.getUsersByRole(r);
+            users.push(...roleUsers);
+          }
+          users = users.filter((u: any) => u.role === role || u.requestedRole === role);
+        } else {
+          users = await storage.getUsersByRole(role as string);
+        }
       } else {
         // Get all users including admins
         const allRoles = ["admin", "buyer", "seller", "rider", "agent"];
@@ -736,8 +746,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
       
+      const targetRole = (user as any).requestedRole || user.role;
+      if (targetRole !== "seller" && targetRole !== "rider") {
+        return res.status(400).json({ error: "User does not have a pending seller/rider application" });
+      }
+
       // CRITICAL: Validate role-specific requirements before approval
-      if (user.role === "seller") {
+      if (targetRole === "seller") {
         if (!user.storeType) {
           return res.status(400).json({ 
             error: "Cannot approve seller without store type",
@@ -767,7 +782,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      if (user.role === "rider") {
+      if (targetRole === "rider") {
         if (!user.vehicleInfo || !user.vehicleInfo.type) {
           return res.status(400).json({ 
             error: "Cannot approve rider without vehicle information",
@@ -790,6 +805,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Now approve the user (store creation succeeded or not needed)
       const approvedUser = await storage.updateUser(req.params.id, { 
+        role: targetRole as any,
+        requestedRole: null,
         isApproved: true,
         applicationStatus: "approved" as any,
         interviewScheduledAt: null,
@@ -800,7 +817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
       
-      const approvedRoleLabel = ROLE_LABELS[user.role] || user.role;
+      const approvedRoleLabel = ROLE_LABELS[targetRole] || targetRole;
       const approvalMessage = formatFormalNotification(
         `Dear ${approvedUser.name || "Applicant"},`,
         [
@@ -814,7 +831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
           {
             label: "Next Steps",
-            value: user.role === "seller"
+            value: targetRole === "seller"
               ? "Open your seller dashboard, complete any remaining store setup items, and begin listing products."
               : "Open your rider dashboard, confirm your vehicle details, and begin accepting delivery assignments.",
           },
@@ -828,14 +845,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         title: `${approvedRoleLabel} Application Approved`,
         message: approvalMessage,
         metadata: {
-          role: user.role,
+          role: targetRole,
           status: "approved",
-          link: user.role === "seller" ? "/seller" : "/rider",
+          link: targetRole === "seller" ? "/seller" : "/rider",
         } as any,
       });
       
       // Emit Socket.IO event for real-time seller dashboard update
-      if (user.role === "seller") {
+      if (targetRole === "seller") {
         console.log(`[Socket.IO] Emitting seller-approved event for seller ${approvedUser.id}`);
         io.emit(`seller-approved:${approvedUser.id}`, {
           sellerId: approvedUser.id,
@@ -867,7 +884,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      if (user.role !== "seller" && user.role !== "rider") {
+      const targetRole = ((user as any).requestedRole || user.role) as string;
+      if (targetRole !== "seller" && targetRole !== "rider") {
         return res.status(400).json({ error: "Interview scheduling is only available for seller and rider applications" });
       }
 
@@ -890,7 +908,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      const roleLabel = ROLE_LABELS[user.role] || user.role;
+      const roleLabel = ROLE_LABELS[targetRole] || targetRole;
       const formattedDate = interviewDate.toLocaleString("en-US", {
         weekday: "long",
         year: "numeric",
@@ -924,7 +942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         title: `${roleLabel} Interview Scheduled`,
         message,
         metadata: {
-          role: user.role,
+          role: targetRole,
           status: "interview_scheduled",
           interviewScheduledAt: interviewDate.toISOString(),
           link: "/notifications",
@@ -936,7 +954,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         title: `${roleLabel} Interview Scheduled`,
         message,
         data: {
-          role: user.role,
+          role: targetRole,
           status: "interview_scheduled",
           interviewScheduledAt: interviewDate.toISOString(),
           link: "/notifications",
@@ -963,14 +981,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       const currentRole = String(user.role || "");
+      const currentRequestedRole = String((user as any).requestedRole || "").toLowerCase();
       const currentApplicationStatus = String((user as any).applicationStatus || "").toLowerCase();
       const hasActiveApplication = ["pending", "interview_scheduled"].includes(currentApplicationStatus);
-      const roleIsApplicationRole = currentRole === "seller" || currentRole === "rider";
+      const approvedOperationalRole = (currentRole === "seller" || currentRole === "rider") && user.isApproved;
+      const pendingRequestedRole = currentRequestedRole === "seller" || currentRequestedRole === "rider";
 
-      if (roleIsApplicationRole && currentRole !== role) {
+      if (approvedOperationalRole && currentRole !== role) {
         return res.status(409).json({
           error: `You can only apply for one role. Your current application/account role is ${currentRole}.`,
           userMessage: `You can only apply to one role. You already applied as ${currentRole}.`,
+          currentRole,
+          requestedRole: role,
+          applicationStatus: currentApplicationStatus || null,
+        });
+      }
+
+      if (pendingRequestedRole && currentRequestedRole !== role) {
+        return res.status(409).json({
+          error: `You can only apply for one role. Your current pending application role is ${currentRequestedRole}.`,
+          userMessage: `You can only apply to one role. You already applied as ${currentRequestedRole}.`,
           currentRole,
           requestedRole: role,
           applicationStatus: currentApplicationStatus || null,
@@ -987,7 +1017,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      if (user.role === role && hasActiveApplication) {
+      if ((currentRequestedRole === role || user.role === role) && hasActiveApplication) {
         return res.status(200).json({
           success: true,
           alreadyApplied: true,
@@ -998,8 +1028,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updateData: Record<string, unknown> = {
-        role,
-        isApproved: false,
+        requestedRole: role,
         applicationStatus: 'pending' as any,
         interviewScheduledAt: null,
         interviewScheduledBy: null,
@@ -1142,7 +1171,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         else if (matchedRegionZone?.id) updateData.deliveryZoneId = matchedRegionZone.id;
       }
 
-      // Update user's role, application status, and submitted profile details.
+      // Keep user on current role (e.g., buyer) until admin approval.
       const updated = await storage.updateUser(user.id, updateData as any);
 
       if (!updated) return res.status(500).json({ error: 'Failed to submit application' });
@@ -1199,7 +1228,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
       
-      const rejectedRoleLabel = ROLE_LABELS[user.role] || user.role;
+      const rejectedRole = ((user as any).requestedRole || user.role) as string;
+      const rejectedRoleLabel = ROLE_LABELS[rejectedRole] || rejectedRole;
       const rejectionMessage = formatFormalNotification(
         `Dear ${rejectedUser.name || "Applicant"},`,
         [
@@ -1225,14 +1255,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         title: `${rejectedRoleLabel} Application Rejected`,
         message: rejectionMessage,
         metadata: {
-          role: user.role,
+          role: rejectedRole,
           status: "rejected",
           reason: reason?.trim() || null,
           link: "/support",
         } as any,
       });
       
-      console.log(`User ${user.id} (${user.role}) pending application rejected by admin`);
+      console.log(`User ${user.id} (${rejectedRole}) pending application rejected by admin`);
       const { password, ...userWithoutPassword } = rejectedUser;
       res.json(userWithoutPassword);
     } catch (error: any) {
@@ -1864,12 +1894,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existingUser = await storage.getUserByEmail(userData.email);
       if (existingUser) {
         const existingRole = String(existingUser.role || "");
+        const existingRequestedRole = String((existingUser as any).requestedRole || "");
         const existingStatus = String((existingUser as any).applicationStatus || "").toLowerCase();
-        if (existingRole === "seller" || existingRole === "rider") {
-          if (existingRole !== "seller") {
+        const effectiveRole = (existingRequestedRole || existingRole).toLowerCase();
+        if (effectiveRole === "seller" || effectiveRole === "rider") {
+          if (effectiveRole !== "seller") {
             return res.status(409).json({
-              error: `You can only apply to one role. This account already applied as ${existingRole}.`,
-              userMessage: `You can only apply to one role. This account already applied as ${existingRole}.`,
+              error: `You can only apply to one role. This account already applied as ${effectiveRole}.`,
+              userMessage: `You can only apply to one role. This account already applied as ${effectiveRole}.`,
             });
           }
           if (["pending", "interview_scheduled", "approved"].includes(existingStatus) || (existingUser as any).isApproved) {
@@ -1918,12 +1950,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existingUser = await storage.getUserByEmail(rawUserData.email);
       if (existingUser) {
         const existingRole = String(existingUser.role || "");
+        const existingRequestedRole = String((existingUser as any).requestedRole || "");
         const existingStatus = String((existingUser as any).applicationStatus || "").toLowerCase();
-        if (existingRole === "seller" || existingRole === "rider") {
-          if (existingRole !== "rider") {
+        const effectiveRole = (existingRequestedRole || existingRole).toLowerCase();
+        if (effectiveRole === "seller" || effectiveRole === "rider") {
+          if (effectiveRole !== "rider") {
             return res.status(409).json({
-              error: `You can only apply to one role. This account already applied as ${existingRole}.`,
-              userMessage: `You can only apply to one role. This account already applied as ${existingRole}.`,
+              error: `You can only apply to one role. This account already applied as ${effectiveRole}.`,
+              userMessage: `You can only apply to one role. This account already applied as ${effectiveRole}.`,
             });
           }
           if (["pending", "interview_scheduled", "approved"].includes(existingStatus) || (existingUser as any).isApproved) {

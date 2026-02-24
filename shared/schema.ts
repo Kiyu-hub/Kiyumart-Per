@@ -80,6 +80,7 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
   name: text("name").notNull(),
   role: userRoleEnum("role").notNull().default("buyer"),
+  requestedRole: userRoleEnum("requested_role"),
   phone: text("phone"),
   isActive: boolean("is_active").default(true),
   riderOnline: boolean("rider_online").default(true),
@@ -112,6 +113,7 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   roleIdx: index("users_role_idx").on(table.role),
+  requestedRoleIdx: index("users_requested_role_idx").on(table.requestedRole),
   isActiveIdx: index("users_is_active_idx").on(table.isActive),
   riderOnlineIdx: index("users_rider_online_idx").on(table.riderOnline),
   isApprovedIdx: index("users_is_approved_idx").on(table.isApproved),
