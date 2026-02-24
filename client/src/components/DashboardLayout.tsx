@@ -10,6 +10,7 @@ interface User {
   name: string;
   email: string;
   role: "admin" | "seller" | "buyer" | "rider" | "agent" | "super_admin";
+  isApproved?: boolean;
   profileImage?: string;
   roleFeatures?: Record<string, boolean>;
 }
@@ -130,6 +131,15 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!user) return;
+    // Seller/Rider dashboards require explicit admin approval.
+    if ((normalizedRole === "seller" || normalizedRole === "rider")) {
+      const roleMismatch = user.role !== normalizedRole;
+      const pendingApproval = user.role === normalizedRole && user.isApproved !== true;
+      if (roleMismatch || pendingApproval) {
+        setLocation("/");
+        return;
+      }
+    }
     const isSellerMessagesRoute = normalizedRole === "seller" && location.startsWith("/seller/messages");
     const isRiderMessagesRoute = normalizedRole === "rider" && location.startsWith("/rider/messages");
     if (!isSellerMessagesRoute && !isRiderMessagesRoute) return;

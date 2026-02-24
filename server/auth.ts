@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { type User } from "@shared/schema";
 import { Request, Response, NextFunction } from "express";
+import { storage } from "./storage";
 
 if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required for JWT authentication");
@@ -72,14 +73,28 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
 }
 
 export function requireRole(...roles: string[]) {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: "Authentication required" });
     }
 
-    if (!roles.includes(req.user.role)) {
+    const latestUser = await storage.getUser(req.user.id);
+    if (!latestUser || !latestUser.isActive) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    // Enforce current DB role/approval, not token snapshot role.
+    const latestRole = latestUser.role;
+    if (!roles.includes(latestRole)) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
+
+    if (!latestUser.isApproved && (latestRole === "seller" || latestRole === "rider")) {
+      return res.status(403).json({ error: "Account pending approval" });
+    }
+
+    // Keep downstream checks aligned with freshest role value.
+    req.user.role = latestRole;
 
     next();
   };
