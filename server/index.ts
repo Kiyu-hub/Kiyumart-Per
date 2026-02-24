@@ -410,6 +410,8 @@ app.use(cookieParser());
 
   // Serve static files from attached_assets directory
   app.use("/attached_assets", express.static(path.resolve(import.meta.dirname, "..", "attached_assets")));
+  // Serve local fallback uploads used when external media provider is unavailable.
+  app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route

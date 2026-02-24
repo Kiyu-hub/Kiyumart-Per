@@ -22,6 +22,7 @@ interface Order {
   id: string;
   orderNumber: string;
   status: string;
+  deliveryMethod?: "pickup" | "bus" | "rider" | string;
   totalAmount: number;
   deliveryAddress: string;
   deliveryCity: string;
@@ -54,10 +55,40 @@ export default function OrderTracking() {
   const socketRef = useRef<Socket | null>(null);
   const normalizeStatus = (value?: string) => {
     const s = (value || "").toLowerCase().trim();
+    if (s === "created") return "pending";
     if (s === "ready_for_pickup") return "ready";
     if (s === "assigned_to_rider") return "assigned";
     if (s === "out_for_delivery" || s === "delivering") return "en_route";
     return s || "pending";
+  };
+  const normalizeDeliveryMethod = (value?: string) => (value || "").toLowerCase().trim();
+  const toCustomerStatus = (value?: string) => {
+    const s = normalizeStatus(value);
+    if (["pending"].includes(s)) return "pending";
+    if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
+    if (["picked_up", "in_transit", "en_route"].includes(s)) return "en_route";
+    if (["delivered", "completed"].includes(s)) return "delivered";
+    if (["cancelled", "disputed"].includes(s)) return s;
+    return "pending";
+  };
+  const toCustomerStatusLabel = (value?: string) => {
+    const s = toCustomerStatus(value);
+    switch (s) {
+      case "pending":
+        return "Pending";
+      case "processing":
+        return "Preparing Delivery";
+      case "en_route":
+        return "On the Way";
+      case "delivered":
+        return "Delivered";
+      case "cancelled":
+        return "Cancelled";
+      case "disputed":
+        return "Disputed";
+      default:
+        return "Pending";
+    }
   };
 
   // Redirect to auth if not authenticated
@@ -89,7 +120,7 @@ export default function OrderTracking() {
       // Show toast notification
       toast({
         title: "Order Status Updated",
-        description: `Order #${data.orderNumber} is now ${data.status}`,
+        description: `Order #${data.orderNumber} is now ${toCustomerStatusLabel(data.status)}`,
       });
     });
 
@@ -138,8 +169,11 @@ export default function OrderTracking() {
     if (!orders || orders.length === 0) return;
 
     const fetchRiderLocations = async () => {
-      const liveTrackingStatuses = new Set(["rider_arrived", "picked_up", "in_transit", "en_route"]);
-      const enRouteOrders = orders.filter(order => liveTrackingStatuses.has(normalizeStatus(order.status)));
+      const liveTrackingStatuses = new Set(["in_transit", "en_route"]);
+      const enRouteOrders = orders.filter(order =>
+        normalizeDeliveryMethod(order.deliveryMethod) === "rider" &&
+        liveTrackingStatuses.has(normalizeStatus(order.status))
+      );
       
       for (const order of enRouteOrders) {
         try {
@@ -180,7 +214,8 @@ export default function OrderTracking() {
     if (requestedOrderId && order.id !== requestedOrderId) return false;
 
     const normalized = normalizeStatus(order.status);
-    const address = order.deliveryAddress || "";
+    const customerStatus = toCustomerStatus(order.status);
+    const address = normalizeDeliveryMethod(order.deliveryMethod) === "pickup" ? "" : (order.deliveryAddress || "");
     const city = order.deliveryCity || "";
     const matchesSearch = 
       searchQuery === "" ||
@@ -188,8 +223,7 @@ export default function OrderTracking() {
       address.toLowerCase().includes(searchQuery.toLowerCase()) ||
       city.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesStatus = 
-      statusFilter === "all" || normalized === statusFilter;
+    const matchesStatus = statusFilter === "all" || customerStatus === statusFilter;
 
     return matchesSearch && matchesStatus;
   });
@@ -271,17 +305,9 @@ export default function OrderTracking() {
                         <SelectContent>
                           <SelectItem value="all">All Orders</SelectItem>
                           <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="searching_rider">Searching Rider</SelectItem>
-                          <SelectItem value="confirmed">Confirmed</SelectItem>
-                          <SelectItem value="ready">Ready</SelectItem>
-                          <SelectItem value="processing">Processing</SelectItem>
-                          <SelectItem value="assigned">Assigned</SelectItem>
-                          <SelectItem value="rider_arrived">Rider Arrived</SelectItem>
-                          <SelectItem value="picked_up">Picked Up</SelectItem>
-                          <SelectItem value="in_transit">In Transit</SelectItem>
-                          <SelectItem value="en_route">Out for Delivery</SelectItem>
+                          <SelectItem value="processing">Preparing Delivery</SelectItem>
+                          <SelectItem value="en_route">On the Way</SelectItem>
                           <SelectItem value="delivered">Delivered</SelectItem>
-                          <SelectItem value="completed">Completed</SelectItem>
                           <SelectItem value="cancelled">Cancelled</SelectItem>
                         <SelectItem value="disputed">Disputed</SelectItem>
                       </SelectContent>
@@ -352,11 +378,19 @@ export default function OrderTracking() {
                         {/* Order Details */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
                           <div>
-                            <p className="text-sm text-muted-foreground">Delivery Address</p>
-                            <p className="font-medium" data-testid={`text-address-${order.id}`}>
-                              {order.deliveryAddress}
+                            <p className="text-sm text-muted-foreground">Fulfillment Method</p>
+                            <p className="font-medium capitalize" data-testid={`text-fulfillment-${order.id}`}>
+                              {order.deliveryMethod || "pickup"}
                             </p>
-                            <p className="text-sm">{order.deliveryCity}</p>
+                            {normalizeDeliveryMethod(order.deliveryMethod) !== "pickup" && (
+                              <>
+                                <p className="text-sm text-muted-foreground mt-2">Delivery Address</p>
+                                <p className="font-medium" data-testid={`text-address-${order.id}`}>
+                                  {order.deliveryAddress}
+                                </p>
+                                <p className="text-sm">{order.deliveryCity}</p>
+                              </>
+                            )}
                           </div>
 
                           <div className="grid grid-cols-2 gap-4">
@@ -378,12 +412,13 @@ export default function OrderTracking() {
                           </div>
                         </div>
 
-                        {/* Live Delivery Map for Delivering Orders */}
-                        {["rider_arrived", "picked_up", "in_transit", "en_route"].includes(normalizeStatus(order.status)) && order.deliveryLatitude && order.deliveryLongitude && 
+                        {/* Live Delivery Map for in-transit deliveries */}
+                        {normalizeDeliveryMethod(order.deliveryMethod) === "rider" &&
+                         ["in_transit", "en_route"].includes(normalizeStatus(order.status)) && order.deliveryLatitude && order.deliveryLongitude && 
                          !isNaN(parseFloat(order.deliveryLatitude)) && !isNaN(parseFloat(order.deliveryLongitude)) && (
                           <div className="pt-4 border-t space-y-4">
                             <div className="flex items-center justify-between">
-                              <h3 className="text-sm font-medium">Live Delivery Tracking</h3>
+                              <h3 className="text-sm font-medium">Live Rider Tracking</h3>
                               <Button
                                 onClick={() => navigate(`/live-tracking?orderId=${order.id}`)}
                                 variant="default"
@@ -391,7 +426,7 @@ export default function OrderTracking() {
                                 data-testid={`button-live-tracking-${order.id}`}
                               >
                                 <Navigation className="h-4 w-4 mr-2" />
-                                View Full Map
+                                Open Live Map
                               </Button>
                             </div>
                             <DeliveryMap

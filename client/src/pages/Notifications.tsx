@@ -12,6 +12,7 @@ import { Bell, Package, ShoppingCart, Tag, Check, User, MessageSquare, Trash2, E
 import { formatDistanceToNow } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { formatNotificationMessage } from "@/lib/notificationMessage";
 import { useState } from "react";
 
 interface Notification {
@@ -288,7 +289,7 @@ export default function Notifications() {
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground line-clamp-2 mb-2" data-testid={`text-notification-message-${notification.id}`}>
-                          {notification.message}
+                          {formatNotificationMessage(notification.message)}
                         </p>
                         <div className="flex items-center gap-2">
                           <p className="text-xs text-muted-foreground">
@@ -358,7 +359,7 @@ export default function Notifications() {
           {selectedNotification && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                {selectedNotification.message}
+                {formatNotificationMessage(selectedNotification.message)}
               </p>
               <p className="text-xs text-muted-foreground">
                 {formatDistanceToNow(new Date(selectedNotification.createdAt), { addSuffix: true })}

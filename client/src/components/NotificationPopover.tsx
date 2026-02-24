@@ -35,6 +35,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatNotificationMessage } from "@/lib/notificationMessage";
 
 interface Notification {
   id: string;
@@ -341,8 +342,8 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
                           <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                        {notification.message}
+                        <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                          {formatNotificationMessage(notification.message)}
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-1">
                         {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
@@ -422,7 +423,7 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
               <div>
                 <h4 className="font-semibold text-base">{selectedNotification.title}</h4>
                 <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap">
-                  {selectedNotification.message}
+                  {formatNotificationMessage(selectedNotification.message)}
                 </p>
               </div>
 

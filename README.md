@@ -26,6 +26,7 @@
 - [Rider Onboarding & Assignment Data Integrity Update (February 21, 2026)](#rider-onboarding--assignment-data-integrity-update-february-21-2026)
 - [Order Purchase to Live Tracking Audit Update (February 21, 2026)](#order-purchase-to-live-tracking-audit-update-february-21-2026)
 - [Strict Verification & Hardening Update (February 23, 2026)](#strict-verification--hardening-update-february-23-2026)
+- [Order Fulfillment Visibility Audit Update (February 23, 2026)](#order-fulfillment-visibility-audit-update-february-23-2026)
 - [Features](#features)
 - [Documentation](#documentation)
 - [Technology Stack](#technology-stack)
@@ -214,6 +215,20 @@ To be the leading online marketplace platform for local businesses, connecting q
 - PASS `backend_eta_endpoint` (`source=backend_math`)
 - PASS `system_health_endpoint`
 - PASS `revenue_view_endpoints`
+
+## Order Fulfillment Visibility Audit Update (February 23, 2026)
+
+- Enforced ecommerce-standard fulfillment visibility for buyer surfaces:
+  - Pickup orders no longer expose delivery-only fields (address/phone/map) in buyer views.
+  - Live rider map is now rider-delivery only and only when order is in transit.
+- Backend `/api/orders` creation now normalizes fulfillment data:
+  - Validates `deliveryMethod` (`pickup|bus|rider`) server-side.
+  - For `pickup`, delivery address/phone/city/zone/coordinates are forced to `null`.
+  - For `bus`/`rider`, delivery address and phone are required.
+- Updated buyer pages:
+  - `Orders`, `OrderTracking`, `LiveTracking`, `PaymentSuccess`
+- Full audit report:
+  - [docs/order-process-ecommerce-fulfillment-audit.md](./docs/order-process-ecommerce-fulfillment-audit.md)
 
 ---
 

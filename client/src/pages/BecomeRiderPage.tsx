@@ -154,9 +154,11 @@ export default function BecomeRiderPage() {
         body: formData,
       });
 
-      if (!response.ok) throw new Error("Upload failed");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.url) {
+        throw new Error(data?.error || "Upload failed");
+      }
 
-      const data = await response.json();
       form.setValue(fieldName, data.url);
 
       if (fieldName === "profileImage") setProfilePreview(data.url);
@@ -170,7 +172,7 @@ export default function BecomeRiderPage() {
     } catch (error) {
       toast({
         title: "Upload failed",
-        description: "Failed to upload image. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to upload image. Please try again.",
         variant: "destructive",
       });
     } finally {

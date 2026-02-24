@@ -9,9 +9,10 @@ interface OrderStatusBadgeProps {
 
 const normalizeStatus = (status?: string) => {
   const s = (status || "").toLowerCase().trim();
+  if (s === "created") return "pending";
   if (s === "ready" || s === "confirmed") return "processing";
-  if (s === "searching_rider") return "searching_rider";
-  if (s === "assigned" || s === "rider_arrived" || s === "picked_up" || s === "in_transit" || s === "en_route") return "en_route";
+  if (s === "searching_rider" || s === "assigned" || s === "rider_arrived") return "processing";
+  if (s === "picked_up" || s === "in_transit" || s === "en_route") return "en_route";
   if (s === "completed") return "completed";
   return s || "pending";
 };
@@ -24,19 +25,13 @@ const statusConfig = {
     className: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   },
   processing: {
-    label: "Processing",
+    label: "Preparing Delivery",
     icon: Package,
     variant: "secondary" as const,
     className: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   },
-  searching_rider: {
-    label: "Searching Rider",
-    icon: Truck,
-    variant: "secondary" as const,
-    className: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300",
-  },
   en_route: {
-    label: "Out for Delivery",
+    label: "On the Way",
     icon: Truck,
     variant: "secondary" as const,
     className: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",

@@ -19,6 +19,7 @@ interface Order {
   total: string;
   currency: string;
   status: string;
+  deliveryMethod?: "pickup" | "bus" | "rider" | string;
   deliveryAddress: string;
   createdAt: string;
 }
@@ -38,6 +39,7 @@ export default function PaymentSuccess() {
     queryKey: [`/api/orders/${orderId}`],
     enabled: !!orderId,
   });
+  const isPickupOrder = ((order?.deliveryMethod || "").toLowerCase() === "pickup");
 
   const { data: orderItems = [] } = useQuery<Array<{
     productId: string;
@@ -206,20 +208,21 @@ export default function PaymentSuccess() {
 
               <Separator />
 
-              {/* Delivery Information */}
+              {/* Fulfillment Information */}
               <div className="space-y-3">
                 <h3 className="font-semibold flex items-center gap-2">
                   <MapPin className="h-4 w-4" />
-                  Delivery Information
+                  Fulfillment Information
                 </h3>
                 <div className="space-y-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-muted-foreground">Address</p>
+                  <p className="text-muted-foreground">Method</p>
+                  <p className="capitalize" data-testid="text-fulfillment-method">{order.deliveryMethod || "pickup"}</p>
+                  {!isPickupOrder && (
+                    <>
+                      <p className="text-muted-foreground pt-1">Address</p>
                       <p data-testid="text-address">{order.deliveryAddress}</p>
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -268,9 +271,9 @@ export default function PaymentSuccess() {
                   <span className="font-semibold text-primary">3</span>
                 </div>
                 <div>
-                  <p className="font-medium">Delivery Updates</p>
+                  <p className="font-medium">{isPickupOrder ? "Pickup Updates" : "Delivery Updates"}</p>
                   <p className="text-sm text-muted-foreground">
-                    Track your order in real-time with live updates
+                    {isPickupOrder ? "Check order status and pickup readiness in your orders page" : "Track your order in real-time with live updates"}
                   </p>
                 </div>
               </div>
@@ -397,7 +400,7 @@ export default function PaymentSuccess() {
               data-testid="button-track-order"
             >
               <MapPin className="h-4 w-4 mr-2" />
-              Track Order
+              {isPickupOrder ? "View Order Status" : "Track Order"}
             </Button>
             <Button
               variant="outline"

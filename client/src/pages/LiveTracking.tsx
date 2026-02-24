@@ -11,6 +11,7 @@ interface Order {
   id: string;
   orderNumber: string;
   status: string;
+  deliveryMethod?: "pickup" | "bus" | "rider" | string;
   deliveryAddress: string;
   deliveryLatitude?: string;
   deliveryLongitude?: string;
@@ -42,6 +43,11 @@ export default function LiveTracking() {
   // Get orderId from query params (safe extraction)
   const searchParams = new URLSearchParams(location.split('?')[1] || '');
   const orderId = searchParams.get("orderId");
+  const normalizeStatus = (value?: string) => {
+    const s = (value || "").toLowerCase().trim();
+    if (s === "out_for_delivery" || s === "delivering") return "en_route";
+    return s;
+  };
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -182,6 +188,32 @@ export default function LiveTracking() {
         <Button onClick={() => navigate("/orders")} data-testid="button-back-orders">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Orders
+        </Button>
+      </div>
+    );
+  }
+
+  const currentStatus = normalizeStatus(order.status);
+  const deliveryMethod = String(order.deliveryMethod || "").toLowerCase().trim();
+  if (deliveryMethod !== "rider") {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-background p-6">
+        <p className="text-lg text-muted-foreground mb-2">Live map is available for rider delivery orders only</p>
+        <Button onClick={() => navigate(`/track?orderId=${order.id}`)} data-testid="button-back-track-order-non-rider">
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Order Tracking
+        </Button>
+      </div>
+    );
+  }
+  if (!["in_transit", "en_route"].includes(currentStatus)) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-background p-6">
+        <p className="text-lg text-muted-foreground mb-2">Live tracking starts when your rider is on the way</p>
+        <p className="text-sm text-muted-foreground mb-4">Current status: {order.status}</p>
+        <Button onClick={() => navigate(`/track?orderId=${order.id}`)} data-testid="button-back-track-order">
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Order Tracking
         </Button>
       </div>
     );

@@ -11,28 +11,31 @@ interface OrderStatusTimelineProps {
 
 const normalizeStatus = (status?: string) => {
   const s = (status || "").toLowerCase().trim();
+  if (s === "created") return "pending";
   if (s === "ready_for_pickup") return "ready";
   if (s === "assigned_to_rider") return "assigned";
   if (s === "out_for_delivery" || s === "delivering") return "en_route";
   return s || "pending";
 };
 
+const toCustomerTimelineStatus = (status?: string) => {
+  const s = normalizeStatus(status);
+  if (s === "cancelled" || s === "disputed") return s;
+  if (["pending"].includes(s)) return "pending";
+  if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
+  if (["picked_up", "in_transit", "en_route"].includes(s)) return "en_route";
+  if (["delivered", "completed"].includes(s)) return "delivered";
+  return "pending";
+};
+
 const statusSteps = [
   { key: "pending", label: "Order Placed", icon: Clock },
-  { key: "searching_rider", label: "Finding Rider", icon: Truck },
-  { key: "confirmed", label: "Confirmed", icon: Check },
-  { key: "ready", label: "Ready", icon: Package },
-  { key: "processing", label: "Processing", icon: Package },
-  { key: "assigned", label: "Rider Assigned", icon: Truck },
-  { key: "rider_arrived", label: "Rider Arrived", icon: Truck },
-  { key: "picked_up", label: "Picked Up", icon: Truck },
-  { key: "in_transit", label: "In Transit", icon: Truck },
-  { key: "en_route", label: "Out for Delivery", icon: Truck },
+  { key: "processing", label: "Preparing Delivery", icon: Package },
+  { key: "en_route", label: "On the Way", icon: Truck },
   { key: "delivered", label: "Delivered", icon: CheckCircle2 },
-  { key: "completed", label: "Completed", icon: CheckCircle2 },
 ];
 
-const statusOrder = ["pending", "searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route", "delivered", "completed"];
+const statusOrder = ["pending", "processing", "en_route", "delivered"];
 
 export default function OrderStatusTimeline({ 
   currentStatus, 
@@ -41,7 +44,7 @@ export default function OrderStatusTimeline({
   deliveredAt,
   className 
 }: OrderStatusTimelineProps) {
-  const normalizedStatus = normalizeStatus(currentStatus);
+  const normalizedStatus = toCustomerTimelineStatus(currentStatus);
   // Handle cancelled and disputed separately
   const isCancelled = normalizedStatus === "cancelled";
   const isDisputed = normalizedStatus === "disputed";

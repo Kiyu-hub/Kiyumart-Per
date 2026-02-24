@@ -2,6 +2,9 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import bcrypt from "bcryptjs";
+import path from "path";
+import fs from "fs/promises";
+import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { db } from "../db";
 import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable, adminPermissions, riderPayouts } from "@shared/schema";
@@ -46,6 +49,57 @@ const RIDER_MATCH_RADIUS_STEPS_KM = [3, 5, 8] as const;
 const RIDER_MATCH_LIMIT = 5;
 const SOFT_ZONE_DISTANCE_MARGIN_KM = 1;
 const ENABLE_SOFT_ZONE_MATCH = process.env.ENABLE_SOFT_ZONE_MATCH !== "false";
+const CHAT_ATTACHMENT_PREFIX = "__CHAT_ATTACHMENT__:";
+const SUPPORT_ATTACHMENT_PREFIX = "__SUPPORT_ATTACHMENT__:";
+
+const PUBLIC_UPLOAD_MIME_TO_EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
+async function persistPublicUploadLocally(fileBuffer: Buffer, mimetype: string): Promise<string> {
+  const extension = PUBLIC_UPLOAD_MIME_TO_EXT[mimetype] || "bin";
+  const baseDir = path.resolve(process.cwd(), "uploads", "registration");
+  await fs.mkdir(baseDir, { recursive: true });
+  const filename = `${Date.now()}-${randomUUID()}.${extension}`;
+  const fullPath = path.join(baseDir, filename);
+  await fs.writeFile(fullPath, fileBuffer);
+  return `/uploads/registration/${filename}`;
+}
+
+function decodeAttachmentNotificationPreview(rawMessage: string): string | null {
+  const trimmed = String(rawMessage || "").trim();
+  if (!trimmed) return null;
+
+  const supportIdx = trimmed.indexOf(SUPPORT_ATTACHMENT_PREFIX);
+  const chatIdx = trimmed.indexOf(CHAT_ATTACHMENT_PREFIX);
+  const prefixIdx =
+    supportIdx >= 0 && chatIdx >= 0 ? Math.min(supportIdx, chatIdx) : supportIdx >= 0 ? supportIdx : chatIdx;
+
+  if (prefixIdx < 0) return null;
+
+  const isSupportAttachment = prefixIdx === supportIdx;
+  const prefix = isSupportAttachment ? SUPPORT_ATTACHMENT_PREFIX : CHAT_ATTACHMENT_PREFIX;
+  const payload = trimmed.slice(prefixIdx + prefix.length);
+  let attachmentLabel = "Sent an attachment";
+
+  try {
+    const parsed = JSON.parse(decodeURIComponent(payload));
+    const kind = String(parsed?.kind || "").toLowerCase();
+    if (kind === "image") attachmentLabel = "Sent an image";
+    else if (kind === "video") attachmentLabel = "Sent a video";
+    else if (kind === "audio") attachmentLabel = "Sent a voice note";
+    else if (kind === "file") attachmentLabel = "Sent a file";
+  } catch {
+    // Fall back to a generic attachment label when payload cannot be decoded.
+  }
+
+  const senderPrefix = trimmed.slice(0, prefixIdx).trim().replace(/:\s*$/, "");
+  return senderPrefix ? `${senderPrefix}: ${attachmentLabel}` : attachmentLabel;
+}
 
 type RiderAssignmentAttemptStatus = "offered" | "accepted" | "rejected" | "timed_out" | "failed";
 
@@ -533,8 +587,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "File too large. Maximum size is 10MB" });
       }
 
-      const imageUrl = await uploadToCloudinary(req.file.buffer, "kiyumart/registration");
-      res.json({ url: imageUrl });
+      try {
+        const imageUrl = await uploadToCloudinary(req.file.buffer, "kiyumart/registration");
+        return res.json({ url: imageUrl, provider: "cloudinary" });
+      } catch (cloudinaryError: any) {
+        console.warn("Public image upload cloud provider failed, using local fallback:", cloudinaryError?.message || cloudinaryError);
+        const localUrl = await persistPublicUploadLocally(req.file.buffer, req.file.mimetype);
+        return res.json({ url: localUrl, provider: "local" });
+      }
     } catch (error: any) {
       console.error("Public image upload error:", error);
       res.status(500).json({ error: error.message || "Failed to upload image" });
@@ -4461,12 +4521,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let createdOrders: any[] = [];
       let sessionId: string | undefined;
       const buyerProfile = await storage.getUser(req.user!.id);
-      const resolvedDeliveryPhone =
-        (typeof orderData.deliveryPhone === "string" && orderData.deliveryPhone.trim()) ||
-        (buyerProfile?.phone || null);
-      const resolvedDeliveryAddress =
-        (typeof orderData.deliveryAddress === "string" && orderData.deliveryAddress.trim()) ||
-        (buyerProfile?.businessAddress || null);
+      const normalizedDeliveryMethod = String(orderData.deliveryMethod || "").toLowerCase().trim();
+      if (!["pickup", "bus", "rider"].includes(normalizedDeliveryMethod)) {
+        return res.status(400).json({
+          error: "Invalid delivery method",
+          userMessage: "Please select a valid fulfillment method before placing your order.",
+        });
+      }
+      const isPickupOrder = normalizedDeliveryMethod === "pickup";
+      const resolvedDeliveryPhone = isPickupOrder
+        ? null
+        : ((typeof orderData.deliveryPhone === "string" && orderData.deliveryPhone.trim()) ||
+          (buyerProfile?.phone || null));
+      const resolvedDeliveryAddress = isPickupOrder
+        ? null
+        : ((typeof orderData.deliveryAddress === "string" && orderData.deliveryAddress.trim()) ||
+          (buyerProfile?.businessAddress || null));
+      const resolvedDeliveryCity = isPickupOrder
+        ? null
+        : (typeof orderData.deliveryCity === "string" && orderData.deliveryCity.trim())
+          ? orderData.deliveryCity
+          : null;
+      const resolvedDeliveryZoneId = isPickupOrder ? null : (orderData.deliveryZoneId || null);
+      const resolvedDeliveryLatitude = isPickupOrder ? null : (orderData.deliveryLatitude || null);
+      const resolvedDeliveryLongitude = isPickupOrder ? null : (orderData.deliveryLongitude || null);
+
+      if (!isPickupOrder && !resolvedDeliveryAddress) {
+        return res.status(400).json({
+          error: "Delivery address is required",
+          userMessage: "Please provide a delivery address for bus or rider delivery.",
+        });
+      }
+      if (!isPickupOrder && !resolvedDeliveryPhone) {
+        return res.status(400).json({
+          error: "Delivery phone is required",
+          userMessage: "Please provide a delivery contact number for bus or rider delivery.",
+        });
+      }
       
       if (isMultiVendor) {
         // Multi-vendor: create separate order per seller with proportional delivery fee
@@ -4519,13 +4610,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const baseOrderData = {
           buyerId: req.user!.id,
           status: orderData.status || 'pending',
-          deliveryMethod: orderData.deliveryMethod,
-          deliveryZoneId: orderData.deliveryZoneId || null,
+          deliveryMethod: normalizedDeliveryMethod,
+          deliveryZoneId: resolvedDeliveryZoneId,
           deliveryAddress: resolvedDeliveryAddress,
-          deliveryCity: orderData.deliveryCity || null,
+          deliveryCity: resolvedDeliveryCity,
           deliveryPhone: resolvedDeliveryPhone,
-          deliveryLatitude: orderData.deliveryLatitude || null,
-          deliveryLongitude: orderData.deliveryLongitude || null,
+          deliveryLatitude: resolvedDeliveryLatitude,
+          deliveryLongitude: resolvedDeliveryLongitude,
           currency: orderData.currency || 'GHS',
           paymentStatus: 'pending',
           couponCode: orderData.couponCode || null,
@@ -4559,8 +4650,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const orderInput = {
           ...orderData,
           buyerId: req.user!.id,
+          deliveryMethod: normalizedDeliveryMethod,
+          deliveryZoneId: resolvedDeliveryZoneId,
+          deliveryCity: resolvedDeliveryCity,
           deliveryAddress: resolvedDeliveryAddress,
           deliveryPhone: resolvedDeliveryPhone,
+          deliveryLatitude: resolvedDeliveryLatitude,
+          deliveryLongitude: resolvedDeliveryLongitude,
           subtotal: serverSubtotal.toFixed(2),
           couponDiscount: singleVendorCouponDiscount > 0 ? singleVendorCouponDiscount.toFixed(2) : null,
           processingFee: finalProcessingFee.toFixed(2),
@@ -5995,11 +6091,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create notification for the receiver only (never notify sender for own outgoing message)
       if (receiver && receiver.id !== senderId) {
         const rawMessage = (message.message || "").trim();
-        const messagePreview = rawMessage.startsWith("__CHAT_ATTACHMENT__:")
-          ? "Sent an attachment"
-          : rawMessage.startsWith("__SUPPORT_ATTACHMENT__:")
-            ? "Sent an attachment"
-            : rawMessage;
+        const messagePreview = decodeAttachmentNotificationPreview(rawMessage) || rawMessage;
         const notificationBody = messagePreview || `You have a new message from ${sender?.name || sender?.email || 'Support'}`;
         await storage.createNotification({
           userId: receiver.id,
@@ -9937,7 +10029,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (isSupportStaffSender) {
           const customerLink = `/support?conversationId=${id}`;
-          const supportReplyPreview = `${customerVisibleSenderName}: ${message}`;
+          const supportReplyPreview =
+            decodeAttachmentNotificationPreview(`${customerVisibleSenderName}: ${message}`) ||
+            `${customerVisibleSenderName}: ${message}`;
           await storage.createNotification({
             userId: conversation.customerId,
             type: "message",
@@ -9967,7 +10061,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const supportLink = staff.role === "agent"
               ? `/agent/tickets?conversationId=${id}`
               : `/admin/live-support?conversationId=${id}`;
-            const supportMessagePreview = `${senderName}: ${message}`;
+            const supportMessagePreview =
+              decodeAttachmentNotificationPreview(`${senderName}: ${message}`) ||
+              `${senderName}: ${message}`;
             await storage.createNotification({
               userId: staff.id,
               type: "message",

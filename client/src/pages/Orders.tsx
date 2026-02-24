@@ -16,6 +16,7 @@ interface Order {
   userId: string;
   status: string;
   paymentStatus: string;
+  deliveryMethod: "pickup" | "bus" | "rider" | string;
   totalAmount: string;
   createdAt: string;
   deliveryAddress: string;
@@ -44,10 +45,37 @@ export default function Orders() {
   const getEffectiveOrderStatus = (order: Order) => {
     const orderStatus = normalize(order.status) || "pending";
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
-    if (orderStatus === "pending" && (paymentStatus === "paid" || paymentStatus === "processing")) {
+    if ((orderStatus === "pending" || orderStatus === "created") && (paymentStatus === "paid" || paymentStatus === "processing")) {
       return "processing";
     }
+    if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(orderStatus)) {
+      return "processing";
+    }
+    if (["picked_up", "in_transit", "en_route", "out_for_delivery", "delivering"].includes(orderStatus)) {
+      return "en_route";
+    }
+    if (orderStatus === "completed") return "delivered";
+    if (orderStatus === "created") return "pending";
     return orderStatus;
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status.toLowerCase()) {
+      case "pending":
+        return "Pending";
+      case "processing":
+        return "Preparing Delivery";
+      case "en_route":
+        return "On the Way";
+      case "delivered":
+        return "Delivered";
+      case "cancelled":
+        return "Cancelled";
+      case "disputed":
+        return "Disputed";
+      default:
+        return "Pending";
+    }
   };
 
   // Always fetch orders where the user is the buyer (their purchases)
@@ -129,14 +157,15 @@ export default function Orders() {
   const getPaymentButtonConfig = (order: Order) => {
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const orderStatus = getEffectiveOrderStatus(order);
+    const isPickup = normalize(order.deliveryMethod) === "pickup";
 
     if (paymentStatus === "paid") {
       return {
-        label: "Track Order",
+        label: isPickup ? "View Order" : "Track Order",
         variant: "outline" as const,
         disabled: false,
         onClick: () => navigate(`/track?orderId=${order.id}`),
-        title: "View order status and tracking information",
+        title: isPickup ? "View order updates" : "View order status and tracking information",
       };
     }
 
@@ -210,7 +239,7 @@ export default function Orders() {
               </div>
             </div>
             <Badge className={getStatusColor(orderStatus)} data-testid={`badge-status-${order.id}`}>
-              {orderStatus}
+              {getStatusLabel(orderStatus)}
             </Badge>
           </div>
         </CardHeader>
@@ -244,15 +273,23 @@ export default function Orders() {
               </Badge>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Delivery:</span>
-              <span className="font-medium truncate max-w-[200px]">
-                {order.deliveryAddress || "N/A"}
-              </span>
+              <span className="text-muted-foreground">Fulfillment:</span>
+              <span className="font-medium capitalize">{order.deliveryMethod || "pickup"}</span>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Phone:</span>
-              <span className="font-medium">{order.deliveryPhone || user?.phone || "N/A"}</span>
-            </div>
+            {normalize(order.deliveryMethod) !== "pickup" && (
+              <>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Delivery:</span>
+                  <span className="font-medium truncate max-w-[200px]">
+                    {order.deliveryAddress || "N/A"}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Phone:</span>
+                  <span className="font-medium">{order.deliveryPhone || user?.phone || "N/A"}</span>
+                </div>
+              </>
+            )}
           </div>
           <Button
             className="w-full mt-4"
