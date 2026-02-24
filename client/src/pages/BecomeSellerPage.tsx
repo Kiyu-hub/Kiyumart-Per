@@ -20,6 +20,7 @@ import { Loader2, Store, ArrowLeft, Upload, Image as ImageIcon, AlertCircle, Pac
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { STORE_TYPES, STORE_TYPE_CONFIG, type StoreType, getStoreTypeFields, getStoreTypeSchema } from "@shared/storeTypes";
+import { resolveSavedLocationToAddress } from "@/lib/locationPrefill";
 
 const baseSellerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -107,18 +108,54 @@ export default function BecomeSellerPage() {
 
   // Auto-fill form fields from authenticated user data
   useEffect(() => {
+    const setIfEmpty = (field: keyof BecomeSellerFormData, value: unknown) => {
+      const next = typeof value === "string" ? value.trim() : "";
+      const current = String(form.getValues(field as any) || "").trim();
+      if (next && !current) {
+        form.setValue(field as any, next as any);
+      }
+    };
+
     if (user) {
-      if (user.name) form.setValue("name", user.name);
-      if (user.email) form.setValue("email", user.email);
-      if ((user as any).phone) form.setValue("phone", (user as any).phone);
+      setIfEmpty("name", user.name);
+      setIfEmpty("email", user.email);
+      setIfEmpty("phone", (user as any).phone);
+      setIfEmpty("storeName", (user as any).storeName);
+      setIfEmpty("storeDescription", (user as any).storeDescription);
+      setIfEmpty("nationalIdCard", (user as any).nationalIdCard);
+      setIfEmpty("businessAddress", (user as any).businessAddress);
+      if ((user as any).storeType && !form.getValues("storeType")) {
+        form.setValue("storeType", (user as any).storeType);
+        setSelectedStoreType((user as any).storeType as StoreType);
+      }
       // Set a placeholder password for logged-in users (they already have an account)
       if (isLoggedIn) form.setValue("password", "existing-user");
-      if ((user as any).profilePicture) {
-        form.setValue("profileImage", (user as any).profilePicture);
-        setProfilePreview((user as any).profilePicture);
+      const profileImage = (user as any).profileImage || (user as any).profilePicture;
+      if (profileImage && !String(form.getValues("profileImage") || "").trim()) {
+        form.setValue("profileImage", profileImage);
+        setProfilePreview(profileImage);
+      }
+      if ((user as any).ghanaCardFront && !String(form.getValues("ghanaCardFront") || "").trim()) {
+        form.setValue("ghanaCardFront", (user as any).ghanaCardFront);
+        setCardFrontPreview((user as any).ghanaCardFront);
+      }
+      if ((user as any).ghanaCardBack && !String(form.getValues("ghanaCardBack") || "").trim()) {
+        form.setValue("ghanaCardBack", (user as any).ghanaCardBack);
+        setCardBackPreview((user as any).ghanaCardBack);
       }
     }
-  }, [user]);
+
+    let cancelled = false;
+    (async () => {
+      const resolvedLocation = await resolveSavedLocationToAddress();
+      if (cancelled || !resolvedLocation) return;
+      setIfEmpty("businessAddress", resolvedLocation.address);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isLoggedIn, form]);
 
   useEffect(() => {
     if (selectedStoreType) {

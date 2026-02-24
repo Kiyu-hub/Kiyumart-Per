@@ -18,12 +18,17 @@ import { User, MapPin, CreditCard, Package, LogOut, Settings, Camera, Loader2, T
 import MediaUploadInput from "@/components/MediaUploadInput";
 import { useLocation } from "wouter";
 import { STORE_TYPES, STORE_TYPE_CONFIG } from "@shared/storeTypes";
+import { resolveSavedLocationToAddress } from "@/lib/locationPrefill";
 
 interface UserProfile {
   id: string;
   name: string;
   email: string;
   phone?: string;
+  businessAddress?: string;
+  riderCity?: string;
+  riderRegion?: string;
+  nationalIdCard?: string;
   role: string;
   profileImage?: string;
   storeName?: string;
@@ -91,11 +96,26 @@ export default function Profile() {
         name: profile.name,
         email: profile.email,
         phone: profile.phone || "",
+        businessAddress: profile.businessAddress || "",
+        riderCity: profile.riderCity || "",
+        riderRegion: profile.riderRegion || "",
+        nationalIdCard: profile.nationalIdCard || "",
         storeName: profile.storeName || "",
         storeDescription: profile.storeDescription || "",
         storeBanner: profile.storeBanner || "",
         storeType: profile.storeType || "",
         vehicleInfo: profile.vehicleInfo || { type: "", plateNumber: "", license: "" },
+      });
+
+      // Best-effort fallback from signup location cache for empty profile fields.
+      void resolveSavedLocationToAddress().then((resolved) => {
+        if (!resolved) return;
+        setFormData((prev) => ({
+          ...prev,
+          businessAddress: String(prev.businessAddress || "").trim() || resolved.address,
+          riderCity: String(prev.riderCity || "").trim() || resolved.city,
+          riderRegion: String(prev.riderRegion || "").trim() || resolved.region,
+        }));
       });
     }
     setIsEditing(!isEditing);
@@ -350,6 +370,17 @@ export default function Profile() {
                         data-testid="input-phone"
                       />
                     </div>
+                    <div className="md:col-span-2">
+                      <Label htmlFor="businessAddress">Address / Location</Label>
+                      <Input
+                        id="businessAddress"
+                        value={isEditing ? (formData.businessAddress as string) || "" : profile?.businessAddress || ""}
+                        onChange={(e) => handleInputChange("businessAddress", e.target.value)}
+                        disabled={!isEditing}
+                        placeholder="e.g., 123 Main St, Accra, Ghana"
+                        data-testid="input-business-address"
+                      />
+                    </div>
                   </div>
 
                   {/* Seller-specific fields */}
@@ -445,6 +476,35 @@ export default function Profile() {
                   {profile?.role === "rider" && (
                     <>
                       <div className="border-t pt-4 mt-4">
+                        <h3 className="font-semibold mb-3 flex items-center gap-2">
+                          <MapPin className="h-4 w-4" />
+                          Rider Location
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                          <div>
+                            <Label htmlFor="riderCity">City</Label>
+                            <Input
+                              id="riderCity"
+                              value={isEditing ? (formData.riderCity as string) || "" : profile?.riderCity || ""}
+                              onChange={(e) => handleInputChange("riderCity", e.target.value)}
+                              disabled={!isEditing}
+                              placeholder="Accra"
+                              data-testid="input-rider-city-profile"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="riderRegion">Region</Label>
+                            <Input
+                              id="riderRegion"
+                              value={isEditing ? (formData.riderRegion as string) || "" : profile?.riderRegion || ""}
+                              onChange={(e) => handleInputChange("riderRegion", e.target.value)}
+                              disabled={!isEditing}
+                              placeholder="Greater Accra"
+                              data-testid="input-rider-region-profile"
+                            />
+                          </div>
+                        </div>
+
                         <h3 className="font-semibold mb-3 flex items-center gap-2">
                           <Truck className="h-4 w-4" />
                           Vehicle Information

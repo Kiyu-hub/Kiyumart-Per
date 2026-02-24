@@ -453,7 +453,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/profile", requireAuth, requireRoleFeature("profile.manage"), async (req: AuthRequest, res) => {
     try {
       // CRITICAL FIX: Added storeType and storeTypeMetadata to allow existing sellers to complete their profiles
-      const allowedFields = ['name', 'username', 'phone', 'address', 'city', 'country', 'email', 'storeName', 'storeDescription', 'storeBanner', 'vehicleInfo', 'storeType', 'storeTypeMetadata'];
+      const allowedFields = [
+        'name',
+        'username',
+        'phone',
+        'address',
+        'city',
+        'country',
+        'email',
+        'storeName',
+        'storeDescription',
+        'storeBanner',
+        'vehicleInfo',
+        'storeType',
+        'storeTypeMetadata',
+        'businessAddress',
+        'riderCity',
+        'riderRegion',
+        'nationalIdCard',
+      ];
       const updateData: Record<string, any> = {};
       
       for (const field of allowedFields) {
