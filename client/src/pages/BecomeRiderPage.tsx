@@ -8,6 +8,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -91,6 +92,17 @@ export default function BecomeRiderPage() {
     (((currentRole === "seller" && (user?.isApproved ?? false)) ||
       (currentRequestedRole === "seller" &&
         ["pending", "interview_scheduled", "approved"].includes(currentApplicationStatus))));
+  const applicationGate = blockedByOtherRole
+    ? {
+        title: "Application blocked",
+        description: "You can only apply to one role. Your account already has a seller application/profile.",
+      }
+    : sameRoleAlreadySubmitted
+      ? {
+          title: "Application already submitted",
+          description: "Your application to become a rider has been submitted. An admin will review and approve your application shortly.",
+        }
+      : null;
   const [uploading, setUploading] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState<string>("");
   const [cardFrontPreview, setCardFrontPreview] = useState<string>("");
@@ -311,6 +323,26 @@ export default function BecomeRiderPage() {
             Back to Home
           </Button>
 
+          {applicationGate && (
+            <Dialog open>
+              <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
+                <DialogHeader>
+                  <DialogTitle>{applicationGate.title}</DialogTitle>
+                  <DialogDescription>{applicationGate.description}</DialogDescription>
+                </DialogHeader>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => navigate("/")}>
+                    Back to Home
+                  </Button>
+                  <Button onClick={() => navigate("/notifications")}>
+                    View Updates
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+
+          {!applicationGate && (
           <Card>
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -333,24 +365,6 @@ export default function BecomeRiderPage() {
                   Ensure all information matches exactly as it appears on your Ghana Card for verification purposes.
                 </AlertDescription>
               </Alert>
-
-              {sameRoleAlreadySubmitted && (
-                <Alert className="mb-6 border-blue-500/20 bg-blue-500/5">
-                  <AlertCircle className="h-4 w-4 text-blue-600" />
-                  <AlertDescription className="text-sm">
-                    Your application to become a rider has been submitted. An admin will review and approve your application shortly.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {blockedByOtherRole && (
-                <Alert className="mb-6 border-amber-500/20 bg-amber-500/5">
-                  <AlertCircle className="h-4 w-4 text-amber-600" />
-                  <AlertDescription className="text-sm">
-                    You can only apply to one role. Your account already has a seller application/profile.
-                  </AlertDescription>
-                </Alert>
-              )}
 
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -710,6 +724,7 @@ export default function BecomeRiderPage() {
               </Form>
             </CardContent>
           </Card>
+          )}
         </div>
       </main>
 
