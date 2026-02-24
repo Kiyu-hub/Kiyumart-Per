@@ -52,6 +52,7 @@ export default function AdminApplications() {
   const { toast } = useToast();
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
   const [viewDetailsOpen, setViewDetailsOpen] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -202,9 +203,20 @@ export default function AdminApplications() {
     return new Date(parsed.getTime() - timezoneOffset).toISOString().slice(0, 16);
   };
 
-  const openDetails = (application: Application) => {
+  const openDetails = async (application: Application) => {
     setSelectedApplication(application);
     setViewDetailsOpen(true);
+    setDetailsLoading(true);
+    try {
+      const res = await fetch(`/api/users/${application.id}`, { credentials: "include" });
+      if (!res.ok) return;
+      const full = await res.json();
+      setSelectedApplication(full);
+    } catch {
+      // Keep list payload as fallback.
+    } finally {
+      setDetailsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -387,10 +399,10 @@ export default function AdminApplications() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Button
+              <Button
               variant="outline"
               size="sm"
-              onClick={() => openDetails(application)}
+              onClick={() => { void openDetails(application); }}
               data-testid={`button-view-${application.id}`}
               className="gap-2"
             >
@@ -709,7 +721,7 @@ export default function AdminApplications() {
 
         {/* Application Details Dialog */}
         <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="relative max-w-4xl max-h-[90vh] overflow-y-auto">
             {selectedApplication && (
               <>
                 <DialogHeader>
@@ -779,10 +791,10 @@ export default function AdminApplications() {
                       </div>
                       {selectedApplication.businessAddress && (
                         <div className="col-span-2">
-                          <p className="text-sm font-medium text-muted-foreground">Address / Location</p>
-                          <p className="text-base">{selectedApplication.businessAddress}</p>
-                        </div>
-                      )}
+                    <p className="text-sm font-medium text-muted-foreground">Address / Location</p>
+                    <p className="text-base">{selectedApplication.businessAddress}</p>
+                  </div>
+                )}
                       {getEffectiveRole(selectedApplication) === "rider" && (selectedApplication.riderCity || selectedApplication.riderRegion) && (
                         <div className="col-span-2">
                           <p className="text-sm font-medium text-muted-foreground">Rider City / Region</p>
@@ -795,20 +807,40 @@ export default function AdminApplications() {
                           <p className="text-base capitalize">{selectedApplication.storeType}</p>
                         </div>
                       )}
-                      {selectedApplication.storeName && (
-                        <>
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">Store Name</p>
-                            <p className="text-base">{selectedApplication.storeName}</p>
-                          </div>
+                    {selectedApplication.storeName && (
+                      <>
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Store Name</p>
+                          <p className="text-base">{selectedApplication.storeName}</p>
+                        </div>
                           <div className="col-span-2">
                             <p className="text-sm font-medium text-muted-foreground">Store Description</p>
                             <p className="text-base">{selectedApplication.storeDescription || "N/A"}</p>
                           </div>
-                        </>
-                      )}
-                    </div>
+                        {selectedApplication.storeType && (
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground">Store Type</p>
+                            <p className="text-base">{selectedApplication.storeType}</p>
+                          </div>
+                        )}
+                        {selectedApplication.storeTypeMetadata && (
+                          <div className="col-span-2">
+                            <p className="text-sm font-medium text-muted-foreground">Store Metadata</p>
+                            <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
+                              {JSON.stringify(selectedApplication.storeTypeMetadata, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {(selectedApplication.riderCity || selectedApplication.riderRegion) && (
+                      <div className="col-span-2">
+                        <p className="text-sm font-medium text-muted-foreground">Rider City / Region</p>
+                        <p className="text-base">{[selectedApplication.riderCity, selectedApplication.riderRegion].filter(Boolean).join(" / ")}</p>
+                      </div>
+                    )}
                   </div>
+                </div>
 
                   {/* Profile Picture */}
                   {selectedApplication.profileImage && (
@@ -845,6 +877,7 @@ export default function AdminApplications() {
                                 className="w-full h-auto rounded object-contain"
                               />
                             </div>
+                            <p className="text-xs text-muted-foreground mt-2 break-all">{selectedApplication.ghanaCardFront}</p>
                           </div>
                         )}
                         {selectedApplication.ghanaCardBack && (
@@ -857,6 +890,7 @@ export default function AdminApplications() {
                                 className="w-full h-auto rounded object-contain"
                               />
                             </div>
+                            <p className="text-xs text-muted-foreground mt-2 break-all">{selectedApplication.ghanaCardBack}</p>
                           </div>
                         )}
                       </div>
@@ -951,6 +985,11 @@ export default function AdminApplications() {
                     </div>
                   )}
                 </div>
+                {detailsLoading && (
+                  <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] flex items-center justify-center">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                )}
               </>
             )}
           </DialogContent>

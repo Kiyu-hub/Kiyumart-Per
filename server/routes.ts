@@ -1017,6 +1017,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
+      // Email is immutable on authenticated role-application updates.
+      if (typeof req.body?.email === "string" && req.body.email.trim() && req.body.email.trim() !== user.email) {
+        return res.status(400).json({ error: "Email cannot be changed in role application. Update profile email separately." });
+      }
+
       const currentRole = String(user.role || "");
       const currentRequestedRole = String((user as any).requestedRole || "").toLowerCase();
       const currentApplicationStatus = String((user as any).applicationStatus || "").toLowerCase();

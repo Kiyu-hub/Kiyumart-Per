@@ -35,7 +35,7 @@ interface MenuItem {
   icon: React.ElementType;
   label: string;
   id: string;
-  badge?: number | "dynamic";
+  badge?: number | "dynamic" | "applications_dynamic";
   separator?: boolean;
 }
 
@@ -66,7 +66,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: UserCog, label: "Sellers", id: "sellers" },
     { icon: Truck, label: "Riders", id: "riders" },
     { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment" },
-    { icon: Ticket, label: "Applications", id: "applications" },
+    { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic" },
     { icon: Shield, label: "Permissions", id: "permissions" },
     { icon: MapPin, label: "Delivery Zones", id: "zones" },
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart", separator: true },
@@ -176,6 +176,27 @@ export default function DashboardSidebar({
 
   const notificationCount = notificationData?.count || 0;
 
+  const { data: applicationBadgeData } = useQuery<{ count: number }>({
+    queryKey: ["/api/sidebar/pending-applications-count"],
+    queryFn: async () => {
+      if (normalizedRole !== "admin" && normalizedRole !== "super_admin") return { count: 0 };
+      const [sellerRes, riderRes] = await Promise.all([
+        fetch("/api/users?role=seller&isApproved=false&applicationStatus=pending", { credentials: "include" }),
+        fetch("/api/users?role=rider&isApproved=false&applicationStatus=pending", { credentials: "include" }),
+      ]);
+      if (!sellerRes.ok || !riderRes.ok) return { count: 0 };
+      const [sellers, riders] = await Promise.all([sellerRes.json(), riderRes.json()]);
+      const sellerCount = Array.isArray(sellers) ? sellers.length : 0;
+      const riderCount = Array.isArray(riders) ? riders.length : 0;
+      return { count: sellerCount + riderCount };
+    },
+    enabled: normalizedRole === "admin" || normalizedRole === "super_admin",
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
+  const pendingApplicationsCount = applicationBadgeData?.count || 0;
+
   // Ensure we have the current user available for the avatar even if parent hasn't passed it yet
   const { data: currentUser } = useQuery<CurrentUserPayload>({
     queryKey: ["/api/auth/me"],
@@ -223,6 +244,13 @@ export default function DashboardSidebar({
         {visibleItems.map((item, index) => {
           const Icon = item.icon;
           const isActive = activeItem === item.id;
+          const badgeValue = item.badge === "dynamic"
+            ? (notificationCount > 0 ? (notificationCount > 9 ? "9+" : String(notificationCount)) : null)
+            : item.badge === "applications_dynamic"
+              ? (pendingApplicationsCount > 0 ? (pendingApplicationsCount > 99 ? "99+" : String(pendingApplicationsCount)) : null)
+              : typeof item.badge === "number"
+                ? String(item.badge)
+                : null;
 
           return (
             <div key={item.id}>
@@ -241,9 +269,9 @@ export default function DashboardSidebar({
               >
                 <Icon className="h-5 w-5" />
                 <span className="flex-1 text-left">{item.label}</span>
-                {item.badge && (item.badge !== "dynamic" || notificationCount > 0) && (
+                {badgeValue && (
                   <span className="bg-destructive text-destructive-foreground text-xs rounded-full px-2 py-0.5">
-                    {item.badge === "dynamic" ? (notificationCount > 9 ? "9+" : notificationCount) : item.badge}
+                    {badgeValue}
                   </span>
                 )}
               </button>
