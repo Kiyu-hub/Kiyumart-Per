@@ -161,10 +161,14 @@ export default function BecomeSellerPage() {
 
   const applyMutation = useMutation({
     mutationFn: async (data: BecomeSellerFormData) => {
-      return apiRequest("POST", "/api/applications/seller", {
+      const payload = {
         ...data,
         role: "seller",
-      });
+      };
+      if (isLoggedIn) {
+        return apiRequest("POST", "/api/users/apply", payload);
+      }
+      return apiRequest("POST", "/api/applications/seller", payload);
     },
     onSuccess: () => {
       toast({

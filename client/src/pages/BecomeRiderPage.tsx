@@ -193,7 +193,7 @@ export default function BecomeRiderPage() {
         if (data.licenseNumber?.trim()) vehicleInfo.license = data.licenseNumber.trim();
       }
       
-      return apiRequest("POST", "/api/applications/rider", {
+      const payload = {
         name: data.name,
         email: data.email,
         phone: data.phone,
@@ -207,7 +207,12 @@ export default function BecomeRiderPage() {
         riderCity: data.riderCity,
         riderRegion: data.riderRegion,
         vehicleInfo,
-      });
+      };
+
+      if (isLoggedIn) {
+        return apiRequest("POST", "/api/users/apply", payload);
+      }
+      return apiRequest("POST", "/api/applications/rider", payload);
     },
     onSuccess: () => {
       toast({
@@ -288,16 +293,6 @@ export default function BecomeRiderPage() {
                   Ensure all information matches exactly as it appears on your Ghana Card for verification purposes.
                 </AlertDescription>
               </Alert>
-
-              {isLoggedIn && (
-                <Alert className="mb-6 border-green-500/20 bg-green-500/5">
-                  <AlertCircle className="h-4 w-4 text-green-600" />
-                  <AlertDescription className="text-sm">
-                    <strong>Welcome, {user?.name}!</strong> We've pre-filled your details from your account. 
-                    Just complete the vehicle information and verification documents below.
-                  </AlertDescription>
-                </Alert>
-              )}
 
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">

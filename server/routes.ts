@@ -970,15 +970,153 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: `Your ${role} application is already pending` });
       }
 
-      // Update user's role and mark application as pending
-      const updated = await storage.updateUser(user.id, {
+      const updateData: Record<string, unknown> = {
         role,
         isApproved: false,
         applicationStatus: 'pending' as any,
         interviewScheduledAt: null,
         interviewScheduledBy: null,
         rejectionReason: null,
-      });
+      };
+
+      if (typeof req.body?.name === "string" && req.body.name.trim()) {
+        updateData.name = req.body.name.trim();
+      }
+      if (typeof req.body?.phone === "string" && req.body.phone.trim()) {
+        updateData.phone = req.body.phone.trim();
+      }
+
+      if (role === "seller") {
+        const sellerStoreType = typeof req.body?.storeType === "string" ? req.body.storeType : user.storeType;
+        const sellerStoreTypeMetadata = req.body?.storeTypeMetadata ?? user.storeTypeMetadata ?? {};
+        const sellerStoreName = typeof req.body?.storeName === "string" ? req.body.storeName.trim() : user.storeName;
+        const sellerStoreDescription = typeof req.body?.storeDescription === "string"
+          ? req.body.storeDescription.trim()
+          : user.storeDescription;
+        const sellerBusinessAddress = typeof req.body?.businessAddress === "string"
+          ? req.body.businessAddress.trim()
+          : user.businessAddress;
+        const sellerNationalIdCard = typeof req.body?.nationalIdCard === "string"
+          ? req.body.nationalIdCard.trim()
+          : user.nationalIdCard;
+        const sellerProfileImage = typeof req.body?.profileImage === "string" ? req.body.profileImage : user.profileImage;
+        const sellerCardFront = typeof req.body?.ghanaCardFront === "string" ? req.body.ghanaCardFront : (user as any).ghanaCardFront;
+        const sellerCardBack = typeof req.body?.ghanaCardBack === "string" ? req.body.ghanaCardBack : (user as any).ghanaCardBack;
+
+        if (!sellerStoreType || !STORE_TYPES.includes(sellerStoreType as StoreType)) {
+          return res.status(400).json({ error: "Store type is required" });
+        }
+        try {
+          const storeTypeSchema = getStoreTypeSchema(sellerStoreType as StoreType);
+          storeTypeSchema.parse(sellerStoreTypeMetadata || {});
+        } catch (validationError: any) {
+          const errors = validationError.errors?.map((e: any) => ({
+            field: e.path.join('.'),
+            message: e.message
+          }));
+          return res.status(400).json({
+            error: "Invalid or missing product information",
+            details: errors
+          });
+        }
+        if (!sellerStoreName || String(sellerStoreName).length < 3) {
+          return res.status(400).json({ error: "Store name must be at least 3 characters" });
+        }
+        if (!sellerStoreDescription || String(sellerStoreDescription).length < 10) {
+          return res.status(400).json({ error: "Please provide a detailed store description" });
+        }
+        if (!sellerBusinessAddress || String(sellerBusinessAddress).length < 5) {
+          return res.status(400).json({ error: "Business address is required" });
+        }
+        if (!sellerNationalIdCard || String(sellerNationalIdCard).length < 10) {
+          return res.status(400).json({ error: "Ghana Card number is required" });
+        }
+        if (!sellerProfileImage || !sellerCardFront || !sellerCardBack) {
+          return res.status(400).json({ error: "Profile and Ghana Card images are required" });
+        }
+
+        updateData.storeType = sellerStoreType;
+        updateData.storeTypeMetadata = sellerStoreTypeMetadata;
+        updateData.storeName = sellerStoreName;
+        updateData.storeDescription = sellerStoreDescription;
+        updateData.businessAddress = sellerBusinessAddress;
+        updateData.nationalIdCard = sellerNationalIdCard;
+        updateData.profileImage = sellerProfileImage;
+        updateData.ghanaCardFront = sellerCardFront;
+        updateData.ghanaCardBack = sellerCardBack;
+      } else if (role === "rider") {
+        const riderBusinessAddress = typeof req.body?.businessAddress === "string"
+          ? req.body.businessAddress.trim()
+          : user.businessAddress;
+        const riderNationalIdCard = typeof req.body?.nationalIdCard === "string"
+          ? req.body.nationalIdCard.trim()
+          : user.nationalIdCard;
+        const riderProfileImage = typeof req.body?.profileImage === "string" ? req.body.profileImage : user.profileImage;
+        const riderCardFront = typeof req.body?.ghanaCardFront === "string" ? req.body.ghanaCardFront : (user as any).ghanaCardFront;
+        const riderCardBack = typeof req.body?.ghanaCardBack === "string" ? req.body.ghanaCardBack : (user as any).ghanaCardBack;
+        const riderCity = typeof req.body?.riderCity === "string" ? req.body.riderCity.trim() : ((user as any).riderCity || "");
+        const riderRegion = typeof req.body?.riderRegion === "string" ? req.body.riderRegion.trim() : ((user as any).riderRegion || "");
+        const riderVehicleInfoRaw = req.body?.vehicleInfo ?? (user as any).vehicleInfo;
+
+        if (!riderBusinessAddress || String(riderBusinessAddress).length < 5) {
+          return res.status(400).json({ error: "Address/Location is required" });
+        }
+        if (!riderNationalIdCard || String(riderNationalIdCard).length < 10) {
+          return res.status(400).json({ error: "Ghana Card number is required" });
+        }
+        if (!riderProfileImage || !riderCardFront || !riderCardBack) {
+          return res.status(400).json({ error: "Profile and Ghana Card images are required" });
+        }
+        if (!riderCity || riderCity.length < 2) {
+          return res.status(400).json({ error: "City is required for rider applications" });
+        }
+        if (!riderRegion || riderRegion.length < 2) {
+          return res.status(400).json({ error: "Region is required for rider applications" });
+        }
+
+        const parsedVehicle = vehicleInfoSchema.safeParse(riderVehicleInfoRaw);
+        if (!parsedVehicle.success) {
+          return res.status(400).json({
+            error: "Invalid vehicle information",
+            details: parsedVehicle.error.issues
+          });
+        }
+
+        const { type, plateNumber, license, color } = parsedVehicle.data;
+        if (type === "car") {
+          if (!plateNumber) return res.status(400).json({ error: "Plate number is required for car riders" });
+          if (!license) return res.status(400).json({ error: "Driver's license is required for car riders" });
+          if (!color) return res.status(400).json({ error: "Vehicle color is required for car riders" });
+        } else if (type === "motorcycle") {
+          if (!plateNumber) return res.status(400).json({ error: "Plate number is required for motorcycle riders" });
+          if (!license) return res.status(400).json({ error: "Driver's license is required for motorcycle riders" });
+        }
+
+        updateData.businessAddress = riderBusinessAddress;
+        updateData.nationalIdCard = riderNationalIdCard;
+        updateData.profileImage = riderProfileImage;
+        updateData.ghanaCardFront = riderCardFront;
+        updateData.ghanaCardBack = riderCardBack;
+        updateData.riderCity = riderCity;
+        updateData.riderRegion = riderRegion;
+        updateData.vehicleInfo = parsedVehicle.data as any;
+
+        // Best-effort zone mapping from rider city/region
+        const zones = await storage.getDeliveryZones();
+        const city = riderCity.toLowerCase().trim();
+        const region = riderRegion.toLowerCase().trim();
+        const matchedCityZone = zones.find((z: any) =>
+          String(z.city || z.name || "").toLowerCase().trim() === city
+        );
+        const matchedRegionZone = !matchedCityZone
+          ? zones.find((z: any) => String(z.region || z.name || "").toLowerCase().trim() === region)
+          : null;
+        if (matchedCityZone?.id) updateData.deliveryZoneId = matchedCityZone.id;
+        else if (matchedRegionZone?.id) updateData.deliveryZoneId = matchedRegionZone.id;
+      }
+
+      // Update user's role, application status, and submitted profile details.
+      const updated = await storage.updateUser(user.id, updateData as any);
 
       if (!updated) return res.status(500).json({ error: 'Failed to submit application' });
 
