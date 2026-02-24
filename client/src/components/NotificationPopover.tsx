@@ -200,7 +200,12 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
         break;
       case "user":
         if (isAdmin) {
-          navigate("/admin/users");
+          const role = String(metadata?.role || "").toLowerCase();
+          if ((role === "seller" || role === "rider") && metadata?.userId) {
+            navigate(`/admin/applications?userId=${metadata.userId}&role=${role}`);
+          } else {
+            navigate("/admin/users");
+          }
         }
         break;
       case "message":

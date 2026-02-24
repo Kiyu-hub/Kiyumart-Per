@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -20,6 +20,7 @@ interface Application {
   email: string;
   phone: string | null;
   role: string;
+  requestedRole?: string | null;
   isApproved: boolean;
   applicationStatus?: "pending" | "interview_scheduled" | "approved" | "rejected";
   rejectionReason?: string | null;
@@ -30,6 +31,11 @@ interface Application {
   ghanaCardBack?: string;
   nationalIdCard?: string;
   businessAddress?: string;
+  riderCity?: string | null;
+  riderRegion?: string | null;
+  deliveryZoneId?: string | null;
+  storeType?: string | null;
+  storeTypeMetadata?: Record<string, any> | null;
   storeName?: string;
   storeDescription?: string;
   vehicleInfo?: {
@@ -41,7 +47,7 @@ interface Application {
 }
 
 export default function AdminApplications() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
@@ -50,6 +56,24 @@ export default function AdminApplications() {
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
   const [interviewDateTime, setInterviewDateTime] = useState("");
+  const [activeTab, setActiveTab] = useState<"sellers" | "riders" | "interview" | "rejected">("sellers");
+  const deepLinkHandledRef = useRef(false);
+
+  const queryParams = useMemo(() => {
+    const query = location.includes("?") ? location.split("?")[1] : "";
+    const params = new URLSearchParams(query);
+    return {
+      userId: params.get("userId") || "",
+      role: String(params.get("role") || "").toLowerCase(),
+    };
+  }, [location]);
+
+  const getEffectiveRole = (application: Application): "seller" | "rider" => {
+    const requested = String(application.requestedRole || "").toLowerCase();
+    if (requested === "seller" || requested === "rider") return requested;
+    const current = String(application.role || "").toLowerCase();
+    return current === "rider" ? "rider" : "seller";
+  };
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -183,6 +207,44 @@ export default function AdminApplications() {
     setViewDetailsOpen(true);
   };
 
+  useEffect(() => {
+    if (queryParams.role === "seller") setActiveTab("sellers");
+    if (queryParams.role === "rider") setActiveTab("riders");
+  }, [queryParams.role]);
+
+  useEffect(() => {
+    deepLinkHandledRef.current = false;
+  }, [queryParams.userId]);
+
+  useEffect(() => {
+    if (!queryParams.userId || deepLinkHandledRef.current) return;
+
+    const allBuckets: Array<{ tab: "sellers" | "riders" | "interview" | "rejected"; items: Application[] }> = [
+      { tab: "sellers", items: pendingSellerApplications },
+      { tab: "riders", items: pendingRiderApplications },
+      { tab: "interview", items: [...interviewSellerApplications, ...interviewRiderApplications] },
+      { tab: "rejected", items: [...rejectedSellerApplications, ...rejectedRiderApplications] },
+    ];
+
+    for (const bucket of allBuckets) {
+      const found = bucket.items.find((app) => app.id === queryParams.userId);
+      if (found) {
+        deepLinkHandledRef.current = true;
+        setActiveTab(bucket.tab);
+        openDetails(found);
+        return;
+      }
+    }
+  }, [
+    queryParams.userId,
+    pendingSellerApplications,
+    pendingRiderApplications,
+    interviewSellerApplications,
+    interviewRiderApplications,
+    rejectedSellerApplications,
+    rejectedRiderApplications,
+  ]);
+
   const openRejectDialog = (application: Application) => {
     setSelectedApplication(application);
     setRejectDialogOpen(true);
@@ -239,6 +301,7 @@ export default function AdminApplications() {
     status: "pending" | "interview_scheduled" | "rejected";
   }) => {
     const isActionable = status === "pending" || status === "interview_scheduled";
+    const effectiveRole = getEffectiveRole(application);
     return (
       <Card className="p-4 hover:shadow-md transition-shadow" data-testid={`card-${type}-${application.id}`}>
         <div className="flex items-start gap-4">
@@ -293,6 +356,12 @@ export default function AdminApplications() {
                 <p className="text-sm text-muted-foreground flex items-center gap-2" data-testid={`text-vehicle-${application.id}`}>
                   <Car className="h-3 w-3" />
                   <span className="font-medium">Vehicle:</span> {application.vehicleInfo.type}
+                </p>
+              )}
+              {effectiveRole === "rider" && (application.riderCity || application.riderRegion) && (
+                <p className="text-sm text-muted-foreground flex items-center gap-2" data-testid={`text-rider-zone-${application.id}`}>
+                  <MapPin className="h-3 w-3" />
+                  <span className="font-medium">City/Region:</span> {[application.riderCity, application.riderRegion].filter(Boolean).join(" / ")}
                 </p>
               )}
               {status === "interview_scheduled" && application.interviewScheduledAt && (
@@ -391,7 +460,7 @@ export default function AdminApplications() {
           </div>
         </div>
 
-        <Tabs defaultValue="sellers" className="w-full">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
           <TabsList className="grid w-full max-w-4xl grid-cols-4">
             <TabsTrigger value="sellers" data-testid="tab-sellers">
               Pending Sellers ({pendingSellerApplications.length})
@@ -645,7 +714,7 @@ export default function AdminApplications() {
               <>
                 <DialogHeader>
                   <DialogTitle className="text-2xl flex items-center gap-2">
-                    {selectedApplication.role === "seller" ? (
+                    {getEffectiveRole(selectedApplication) === "seller" ? (
                       <Store className="h-6 w-6 text-blue-500" />
                     ) : (
                       <Bike className="h-6 w-6 text-orange-500" />
@@ -653,7 +722,7 @@ export default function AdminApplications() {
                     {selectedApplication.name}
                   </DialogTitle>
                   <DialogDescription>
-                    {selectedApplication.role === "seller" ? "Seller" : "Delivery Rider"} Application Details
+                    {getEffectiveRole(selectedApplication) === "seller" ? "Seller" : "Delivery Rider"} Application Details
                   </DialogDescription>
                 </DialogHeader>
 
@@ -704,10 +773,26 @@ export default function AdminApplications() {
                         <p className="text-sm font-medium text-muted-foreground">Ghana Card Number</p>
                         <p className="text-base">{selectedApplication.nationalIdCard || "N/A"}</p>
                       </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Requested Role</p>
+                        <p className="text-base capitalize">{getEffectiveRole(selectedApplication)}</p>
+                      </div>
                       {selectedApplication.businessAddress && (
                         <div className="col-span-2">
                           <p className="text-sm font-medium text-muted-foreground">Address / Location</p>
                           <p className="text-base">{selectedApplication.businessAddress}</p>
+                        </div>
+                      )}
+                      {getEffectiveRole(selectedApplication) === "rider" && (selectedApplication.riderCity || selectedApplication.riderRegion) && (
+                        <div className="col-span-2">
+                          <p className="text-sm font-medium text-muted-foreground">Rider City / Region</p>
+                          <p className="text-base">{[selectedApplication.riderCity, selectedApplication.riderRegion].filter(Boolean).join(" / ")}</p>
+                        </div>
+                      )}
+                      {getEffectiveRole(selectedApplication) === "seller" && selectedApplication.storeType && (
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Store Type</p>
+                          <p className="text-base capitalize">{selectedApplication.storeType}</p>
                         </div>
                       )}
                       {selectedApplication.storeName && (

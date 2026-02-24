@@ -290,7 +290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "user",
           `New ${requestedRole} registration`,
           `${user.name} (${user.email}) has registered as a ${requestedRole}`,
-          { userId: user.id, role: requestedRole }
+          { userId: user.id, role: requestedRole, link: `/admin/applications?userId=${user.id}&role=${requestedRole}` }
         );
       }
 
@@ -1215,7 +1215,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Notify admins about new application
       try {
-        await notifyAdmins('user', `New ${role} application`, `${updated.name} (${updated.email}) has applied to become a ${role}`, { userId: updated.id, role });
+        await notifyAdmins(
+          'user',
+          `New ${role} application`,
+          `${updated.name} (${updated.email}) has applied to become a ${role}`,
+          { userId: updated.id, role, link: `/admin/applications?userId=${updated.id}&role=${role}` },
+        );
       } catch (notifyErr) {
         console.error('[APPLY] notifyAdmins failed', notifyErr);
       }
@@ -1968,7 +1973,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await notifyAdmins(
         "user",
         `New seller application`,
-        `${userData.name} has applied to become a seller`
+        `${userData.name} has applied to become a seller`,
+        { userId: newUser.id, role: "seller", link: `/admin/applications?userId=${newUser.id}&role=seller` },
       );
 
       const { password: _, ...userWithoutPassword } = newUser;
@@ -2099,7 +2105,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await notifyAdmins(
         "user",
         `New rider application`,
-        `${userData.name} has applied to become a delivery rider`
+        `${userData.name} has applied to become a delivery rider`,
+        { userId: newUser.id, role: "rider", link: `/admin/applications?userId=${newUser.id}&role=rider` },
       );
 
       const { password: _, ...userWithoutPassword } = newUser;
