@@ -78,6 +78,16 @@ export default function BecomeRiderPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isLoggedIn = !!user;
+  const currentRole = String(user?.role || "").toLowerCase();
+  const currentApplicationStatus = String((user as any)?.applicationStatus || "").toLowerCase();
+  const sameRoleAlreadySubmitted =
+    isLoggedIn &&
+    currentRole === "rider" &&
+    ((user?.isApproved ?? false) || ["pending", "interview_scheduled", "approved"].includes(currentApplicationStatus));
+  const blockedByOtherRole =
+    isLoggedIn &&
+    currentRole === "seller" &&
+    ((user?.isApproved ?? false) || ["pending", "interview_scheduled", "approved"].includes(currentApplicationStatus));
   const [uploading, setUploading] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState<string>("");
   const [cardFrontPreview, setCardFrontPreview] = useState<string>("");
@@ -210,11 +220,23 @@ export default function BecomeRiderPage() {
       };
 
       if (isLoggedIn) {
-        return apiRequest("POST", "/api/users/apply", payload);
+        const res = await apiRequest("POST", "/api/users/apply", payload);
+        return res.json();
       }
-      return apiRequest("POST", "/api/applications/rider", payload);
+      const res = await apiRequest("POST", "/api/applications/rider", payload);
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (response: any) => {
+      if (response?.alreadyApplied) {
+        toast({
+          title: "Application Status",
+          description:
+            response?.userMessage ||
+            "Your application to become a rider has been submitted. An admin will review and approve your application shortly.",
+          duration: 8000,
+        });
+        return;
+      }
       toast({
         title: "Application Submitted Successfully!",
         description: "Thank you for applying! We will review your application and get back to you within 72 hours via email.",
@@ -234,6 +256,21 @@ export default function BecomeRiderPage() {
   });
 
   const onSubmit = (data: BecomeRiderFormData) => {
+    if (blockedByOtherRole) {
+      toast({
+        title: "Application blocked",
+        description: "You can only apply to one role. Your account already has a seller application/profile.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (sameRoleAlreadySubmitted) {
+      toast({
+        title: "Application Status",
+        description: "Your application to become a rider has been submitted. An admin will review and approve your application shortly.",
+      });
+      return;
+    }
     if (data.vehicleType === "car" && (!data.vehicleNumber || !data.licenseNumber || !data.vehicleColor)) {
       toast({
         title: "Missing Information",
@@ -293,6 +330,24 @@ export default function BecomeRiderPage() {
                   Ensure all information matches exactly as it appears on your Ghana Card for verification purposes.
                 </AlertDescription>
               </Alert>
+
+              {sameRoleAlreadySubmitted && (
+                <Alert className="mb-6 border-blue-500/20 bg-blue-500/5">
+                  <AlertCircle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-sm">
+                    Your application to become a rider has been submitted. An admin will review and approve your application shortly.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {blockedByOtherRole && (
+                <Alert className="mb-6 border-amber-500/20 bg-amber-500/5">
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-sm">
+                    You can only apply to one role. Your account already has a seller application/profile.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -639,7 +694,7 @@ export default function BecomeRiderPage() {
                     </Button>
                     <Button
                       type="submit"
-                      disabled={applyMutation.isPending || uploading !== null}
+                      disabled={applyMutation.isPending || uploading !== null || sameRoleAlreadySubmitted || blockedByOtherRole}
                       data-testid="button-submit"
                     >
                       {(applyMutation.isPending || uploading) && (

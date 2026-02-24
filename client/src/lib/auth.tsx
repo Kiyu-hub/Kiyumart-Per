@@ -7,6 +7,9 @@ interface User {
   email: string;
   name: string;
   role: string;
+  applicationStatus?: "pending" | "interview_scheduled" | "approved" | "rejected";
+  interviewScheduledAt?: string | null;
+  rejectionReason?: string | null;
   phone?: string;
   profileImage?: string;
   storeName?: string;

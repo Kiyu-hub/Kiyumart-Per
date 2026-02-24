@@ -962,12 +962,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
-      if (user.role === role && user.isApproved) {
-        return res.status(400).json({ error: `You are already an approved ${role}` });
+      const currentRole = String(user.role || "");
+      const currentApplicationStatus = String((user as any).applicationStatus || "").toLowerCase();
+      const hasActiveApplication = ["pending", "interview_scheduled"].includes(currentApplicationStatus);
+      const roleIsApplicationRole = currentRole === "seller" || currentRole === "rider";
+
+      if (roleIsApplicationRole && currentRole !== role) {
+        return res.status(409).json({
+          error: `You can only apply for one role. Your current application/account role is ${currentRole}.`,
+          userMessage: `You can only apply to one role. You already applied as ${currentRole}.`,
+          currentRole,
+          requestedRole: role,
+          applicationStatus: currentApplicationStatus || null,
+        });
       }
 
-      if (user.applicationStatus === 'pending' && user.role === role) {
-        return res.status(400).json({ error: `Your ${role} application is already pending` });
+      if (user.role === role && user.isApproved) {
+        return res.status(200).json({
+          success: true,
+          alreadyApplied: true,
+          role,
+          applicationStatus: "approved",
+          userMessage: `You are already an approved ${role}.`,
+        });
+      }
+
+      if (user.role === role && hasActiveApplication) {
+        return res.status(200).json({
+          success: true,
+          alreadyApplied: true,
+          role,
+          applicationStatus: currentApplicationStatus,
+          userMessage: `Your application to become a ${role} has been submitted. An admin will review and approve your application shortly.`,
+        });
       }
 
       const updateData: Record<string, unknown> = {
@@ -1836,7 +1863,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const existingUser = await storage.getUserByEmail(userData.email);
       if (existingUser) {
-        return res.status(400).json({ error: "Email already registered" });
+        const existingRole = String(existingUser.role || "");
+        const existingStatus = String((existingUser as any).applicationStatus || "").toLowerCase();
+        if (existingRole === "seller" || existingRole === "rider") {
+          if (existingRole !== "seller") {
+            return res.status(409).json({
+              error: `You can only apply to one role. This account already applied as ${existingRole}.`,
+              userMessage: `You can only apply to one role. This account already applied as ${existingRole}.`,
+            });
+          }
+          if (["pending", "interview_scheduled", "approved"].includes(existingStatus) || (existingUser as any).isApproved) {
+            return res.status(200).json({
+              success: true,
+              alreadyApplied: true,
+              role: "seller",
+              applicationStatus: existingStatus || ((existingUser as any).isApproved ? "approved" : null),
+              userMessage: "Your application to become a seller has been submitted. An admin will review and approve your application shortly.",
+            });
+          }
+        }
+        return res.status(400).json({ error: "Email already registered. Please log in to continue your application." });
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -1871,7 +1917,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const existingUser = await storage.getUserByEmail(rawUserData.email);
       if (existingUser) {
-        return res.status(400).json({ error: "Email already registered" });
+        const existingRole = String(existingUser.role || "");
+        const existingStatus = String((existingUser as any).applicationStatus || "").toLowerCase();
+        if (existingRole === "seller" || existingRole === "rider") {
+          if (existingRole !== "rider") {
+            return res.status(409).json({
+              error: `You can only apply to one role. This account already applied as ${existingRole}.`,
+              userMessage: `You can only apply to one role. This account already applied as ${existingRole}.`,
+            });
+          }
+          if (["pending", "interview_scheduled", "approved"].includes(existingStatus) || (existingUser as any).isApproved) {
+            return res.status(200).json({
+              success: true,
+              alreadyApplied: true,
+              role: "rider",
+              applicationStatus: existingStatus || ((existingUser as any).isApproved ? "approved" : null),
+              userMessage: "Your application to become a rider has been submitted. An admin will review and approve your application shortly.",
+            });
+          }
+        }
+        return res.status(400).json({ error: "Email already registered. Please log in to continue your application." });
       }
 
       // Build properly typed user data

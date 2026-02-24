@@ -54,6 +54,16 @@ export default function BecomeSellerPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isLoggedIn = !!user;
+  const currentRole = String(user?.role || "").toLowerCase();
+  const currentApplicationStatus = String((user as any)?.applicationStatus || "").toLowerCase();
+  const sameRoleAlreadySubmitted =
+    isLoggedIn &&
+    currentRole === "seller" &&
+    ((user?.isApproved ?? false) || ["pending", "interview_scheduled", "approved"].includes(currentApplicationStatus));
+  const blockedByOtherRole =
+    isLoggedIn &&
+    currentRole === "rider" &&
+    ((user?.isApproved ?? false) || ["pending", "interview_scheduled", "approved"].includes(currentApplicationStatus));
   const [uploading, setUploading] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState<string>("");
   const [cardFrontPreview, setCardFrontPreview] = useState<string>("");
@@ -166,11 +176,23 @@ export default function BecomeSellerPage() {
         role: "seller",
       };
       if (isLoggedIn) {
-        return apiRequest("POST", "/api/users/apply", payload);
+        const res = await apiRequest("POST", "/api/users/apply", payload);
+        return res.json();
       }
-      return apiRequest("POST", "/api/applications/seller", payload);
+      const res = await apiRequest("POST", "/api/applications/seller", payload);
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (response: any) => {
+      if (response?.alreadyApplied) {
+        toast({
+          title: "Application Status",
+          description:
+            response?.userMessage ||
+            "Your application to become a seller has been submitted. An admin will review and approve your application shortly.",
+          duration: 8000,
+        });
+        return;
+      }
       toast({
         title: "Application Submitted Successfully!",
         description: "Thank you for applying! We will review your application and get back to you within 72 hours via email.",
@@ -190,6 +212,21 @@ export default function BecomeSellerPage() {
   });
 
   const onSubmit = (data: BecomeSellerFormData) => {
+    if (blockedByOtherRole) {
+      toast({
+        title: "Application blocked",
+        description: "You can only apply to one role. Your account already has a rider application/profile.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (sameRoleAlreadySubmitted) {
+      toast({
+        title: "Application Status",
+        description: "Your application to become a seller has been submitted. An admin will review and approve your application shortly.",
+      });
+      return;
+    }
     if (!selectedStoreType) {
       toast({
         title: "Store Type Required",
@@ -273,6 +310,24 @@ export default function BecomeSellerPage() {
                   <AlertDescription className="text-sm">
                     <strong>Welcome, {user?.name}!</strong> We've pre-filled your details from your account. 
                     Just complete the store information and verification documents below.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {sameRoleAlreadySubmitted && (
+                <Alert className="mb-6 border-blue-500/20 bg-blue-500/5">
+                  <AlertCircle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-sm">
+                    Your application to become a seller has been submitted. An admin will review and approve your application shortly.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {blockedByOtherRole && (
+                <Alert className="mb-6 border-amber-500/20 bg-amber-500/5">
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-sm">
+                    You can only apply to one role. Your account already has a rider application/profile.
                   </AlertDescription>
                 </Alert>
               )}
@@ -695,7 +750,7 @@ export default function BecomeSellerPage() {
                     </Button>
                     <Button
                       type="submit"
-                      disabled={applyMutation.isPending || uploading !== null}
+                      disabled={applyMutation.isPending || uploading !== null || sameRoleAlreadySubmitted || blockedByOtherRole}
                       data-testid="button-submit"
                     >
                       {(applyMutation.isPending || uploading) && (
