@@ -721,7 +721,7 @@ export default function AdminApplications() {
 
         {/* Application Details Dialog */}
         <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
-          <DialogContent className="relative max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="relative w-[95vw] max-w-5xl max-h-[88vh] overflow-y-auto">
             {selectedApplication && (
               <>
                 <DialogHeader>
@@ -768,168 +768,155 @@ export default function AdminApplications() {
                       <User className="h-5 w-5" />
                       Personal Information
                     </h3>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <p className="text-sm font-medium text-muted-foreground">Full Name</p>
-                        <p className="text-base">{selectedApplication.name}</p>
+                        <p className="text-base">{selectedApplication.name || "N/A"}</p>
                       </div>
                       <div>
                         <p className="text-sm font-medium text-muted-foreground">Email</p>
-                        <p className="text-base">{selectedApplication.email}</p>
+                        <p className="text-base">{selectedApplication.email || "N/A"}</p>
                       </div>
                       <div>
                         <p className="text-sm font-medium text-muted-foreground">Phone</p>
                         <p className="text-base">{selectedApplication.phone || "N/A"}</p>
                       </div>
                       <div>
+                        <p className="text-sm font-medium text-muted-foreground">Requested Role</p>
+                        <p className="text-base capitalize">{getEffectiveRole(selectedApplication)}</p>
+                      </div>
+                      <div>
                         <p className="text-sm font-medium text-muted-foreground">Ghana Card Number</p>
                         <p className="text-base">{selectedApplication.nationalIdCard || "N/A"}</p>
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-muted-foreground">Requested Role</p>
-                        <p className="text-base capitalize">{getEffectiveRole(selectedApplication)}</p>
+                        <p className="text-sm font-medium text-muted-foreground">Application Status</p>
+                        <p className="text-base capitalize">{selectedApplication.applicationStatus || "N/A"}</p>
                       </div>
-                      {selectedApplication.businessAddress && (
-                        <div className="col-span-2">
-                    <p className="text-sm font-medium text-muted-foreground">Address / Location</p>
-                    <p className="text-base">{selectedApplication.businessAddress}</p>
-                  </div>
-                )}
-                      {getEffectiveRole(selectedApplication) === "rider" && (selectedApplication.riderCity || selectedApplication.riderRegion) && (
-                        <div className="col-span-2">
-                          <p className="text-sm font-medium text-muted-foreground">Rider City / Region</p>
-                          <p className="text-base">{[selectedApplication.riderCity, selectedApplication.riderRegion].filter(Boolean).join(" / ")}</p>
-                        </div>
-                      )}
-                      {getEffectiveRole(selectedApplication) === "seller" && selectedApplication.storeType && (
-                        <div>
-                          <p className="text-sm font-medium text-muted-foreground">Store Type</p>
-                          <p className="text-base capitalize">{selectedApplication.storeType}</p>
-                        </div>
-                      )}
-                    {selectedApplication.storeName && (
-                      <>
-                        <div>
-                          <p className="text-sm font-medium text-muted-foreground">Store Name</p>
-                          <p className="text-base">{selectedApplication.storeName}</p>
-                        </div>
-                          <div className="col-span-2">
-                            <p className="text-sm font-medium text-muted-foreground">Store Description</p>
-                            <p className="text-base">{selectedApplication.storeDescription || "N/A"}</p>
-                          </div>
-                        {selectedApplication.storeType && (
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">Store Type</p>
-                            <p className="text-base">{selectedApplication.storeType}</p>
-                          </div>
-                        )}
-                        {selectedApplication.storeTypeMetadata && (
-                          <div className="col-span-2">
-                            <p className="text-sm font-medium text-muted-foreground">Store Metadata</p>
-                            <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                              {JSON.stringify(selectedApplication.storeTypeMetadata, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {(selectedApplication.riderCity || selectedApplication.riderRegion) && (
-                      <div className="col-span-2">
-                        <p className="text-sm font-medium text-muted-foreground">Rider City / Region</p>
-                        <p className="text-base">{[selectedApplication.riderCity, selectedApplication.riderRegion].filter(Boolean).join(" / ")}</p>
+                      <div className="md:col-span-2">
+                        <p className="text-sm font-medium text-muted-foreground">Address / Location</p>
+                        <p className="text-base">{selectedApplication.businessAddress || "N/A"}</p>
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                  {/* Profile Picture */}
-                  {selectedApplication.profileImage && (
-                    <div>
-                      <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                        <User className="h-5 w-5" />
-                        Profile Photo
-                      </h3>
-                      <div className="bg-muted rounded-lg p-4 inline-block">
-                        <img 
-                          src={selectedApplication.profileImage} 
-                          alt="Profile" 
-                          className="w-48 h-48 rounded-lg object-cover border-2 border-border"
-                        />
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Rider City</p>
+                        <p className="text-base">{selectedApplication.riderCity || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Rider Region</p>
+                        <p className="text-base">{selectedApplication.riderRegion || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Store Name</p>
+                        <p className="text-base">{selectedApplication.storeName || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Store Type</p>
+                        <p className="text-base">{selectedApplication.storeType || "N/A"}</p>
+                      </div>
+                      <div className="md:col-span-2">
+                        <p className="text-sm font-medium text-muted-foreground">Store Description</p>
+                        <p className="text-base">{selectedApplication.storeDescription || "N/A"}</p>
+                      </div>
+                      <div className="md:col-span-2">
+                        <p className="text-sm font-medium text-muted-foreground">Store Metadata</p>
+                        <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
+                          {selectedApplication.storeTypeMetadata
+                            ? JSON.stringify(selectedApplication.storeTypeMetadata, null, 2)
+                            : "N/A"}
+                        </pre>
                       </div>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Profile Picture */}
+                  <div>
+                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                      <User className="h-5 w-5" />
+                      Profile Photo
+                    </h3>
+                    {selectedApplication.profileImage ? (
+                      <div className="bg-muted rounded-lg p-4 inline-block">
+                        <img
+                          src={selectedApplication.profileImage}
+                          alt="Profile"
+                          className="w-48 h-48 rounded-lg object-cover border-2 border-border"
+                        />
+                        <p className="text-xs text-muted-foreground mt-2 break-all">{selectedApplication.profileImage}</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">N/A</p>
+                    )}
+                  </div>
 
                   {/* Ghana Card Images */}
-                  {(selectedApplication.ghanaCardFront || selectedApplication.ghanaCardBack) && (
-                    <div>
-                      <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                        <CreditCard className="h-5 w-5" />
-                        Ghana Card Verification
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {selectedApplication.ghanaCardFront && (
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground mb-2">Front</p>
+                  <div>
+                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                      <CreditCard className="h-5 w-5" />
+                      Ghana Card Verification
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground mb-2">Front</p>
+                        {selectedApplication.ghanaCardFront ? (
+                          <>
                             <div className="bg-muted rounded-lg p-2">
-                              <img 
-                                src={selectedApplication.ghanaCardFront} 
-                                alt="Ghana Card Front" 
+                              <img
+                                src={selectedApplication.ghanaCardFront}
+                                alt="Ghana Card Front"
                                 className="w-full h-auto rounded object-contain"
                               />
                             </div>
                             <p className="text-xs text-muted-foreground mt-2 break-all">{selectedApplication.ghanaCardFront}</p>
-                          </div>
+                          </>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">N/A</p>
                         )}
-                        {selectedApplication.ghanaCardBack && (
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground mb-2">Back</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground mb-2">Back</p>
+                        {selectedApplication.ghanaCardBack ? (
+                          <>
                             <div className="bg-muted rounded-lg p-2">
-                              <img 
-                                src={selectedApplication.ghanaCardBack} 
-                                alt="Ghana Card Back" 
+                              <img
+                                src={selectedApplication.ghanaCardBack}
+                                alt="Ghana Card Back"
                                 className="w-full h-auto rounded object-contain"
                               />
                             </div>
                             <p className="text-xs text-muted-foreground mt-2 break-all">{selectedApplication.ghanaCardBack}</p>
-                          </div>
+                          </>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">N/A</p>
                         )}
                       </div>
                     </div>
-                  )}
+                  </div>
 
                   {/* Vehicle Information (for riders) */}
-                  {selectedApplication.vehicleInfo && (
-                    <div>
-                      <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                        <Car className="h-5 w-5" />
-                        Vehicle Information
-                      </h3>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-sm font-medium text-muted-foreground">Vehicle Type</p>
-                          <p className="text-base capitalize">{selectedApplication.vehicleInfo.type}</p>
-                        </div>
-                        {selectedApplication.vehicleInfo.plateNumber && (
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">Plate Number</p>
-                            <p className="text-base">{selectedApplication.vehicleInfo.plateNumber}</p>
-                          </div>
-                        )}
-                        {selectedApplication.vehicleInfo.license && (
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">License Number</p>
-                            <p className="text-base">{selectedApplication.vehicleInfo.license}</p>
-                          </div>
-                        )}
-                        {selectedApplication.vehicleInfo.color && (
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">Vehicle Color</p>
-                            <p className="text-base">{selectedApplication.vehicleInfo.color}</p>
-                          </div>
-                        )}
+                  <div>
+                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                      <Car className="h-5 w-5" />
+                      Vehicle Information
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Vehicle Type</p>
+                        <p className="text-base capitalize">{selectedApplication.vehicleInfo?.type || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Plate Number</p>
+                        <p className="text-base">{selectedApplication.vehicleInfo?.plateNumber || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">License Number</p>
+                        <p className="text-base">{selectedApplication.vehicleInfo?.license || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Vehicle Color</p>
+                        <p className="text-base">{selectedApplication.vehicleInfo?.color || "N/A"}</p>
                       </div>
                     </div>
-                  )}
+                  </div>
 
                   {/* Action Buttons */}
                   {(selectedApplication.applicationStatus === "pending" || selectedApplication.applicationStatus === "interview_scheduled") && (
