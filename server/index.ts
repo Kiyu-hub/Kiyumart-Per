@@ -224,6 +224,14 @@ app.use(express.urlencoded({ limit: '10mb', extended: false }));
 app.use(cookieParser());
 
 (async () => {
+  // Backward-compatible schema self-heal for environments missing latest migration.
+  try {
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS requested_role user_role`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS users_requested_role_idx ON users(requested_role)`);
+  } catch (e: any) {
+    console.warn("[STARTUP] Could not ensure users.requested_role compatibility:", e?.message || String(e));
+  }
+
   // Validate frontend URL on startup
   try {
     const { validateFrontendUrlOnStartup } = await import('./frontendUrlResolver');
