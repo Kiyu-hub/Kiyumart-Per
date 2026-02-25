@@ -459,7 +459,7 @@ export default function OrderTracking() {
                                   title=""
                                   description={
                                     normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
-                                      ? "Show this QR code to the seller when collecting your order"
+                                      ? "Show this QR code to the pickup station agent when collecting your order"
                                       : "Show this QR code to the delivery rider to confirm receipt"
                                   }
                                 />
@@ -478,7 +478,7 @@ export default function OrderTracking() {
                                 )}
                                 <p className="text-xs text-muted-foreground mt-3 max-w-md">
                                   {normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
-                                    ? "At store pickup, present either this QR code or your Pickup OTP to the seller for confirmation."
+                                    ? "At store pickup, present either this QR code or your Pickup OTP to the pickup station agent for confirmation."
                                     : "At delivery, show either this QR code or your Delivery OTP to the rider to confirm receipt."}
                                 </p>
                               </div>

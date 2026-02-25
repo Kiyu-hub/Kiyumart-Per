@@ -243,7 +243,7 @@ export default function PaymentSuccess() {
                   )}
                   <p className="text-xs text-muted-foreground mt-3 max-w-md">
                     {isPickupOrder
-                      ? "When collecting from store, show either this QR code or your Pickup OTP to the seller."
+                      ? "When collecting from store, show either this QR code or your Pickup OTP to the pickup station agent."
                       : "When your rider arrives, share either this QR code or your Delivery OTP to confirm order handover."}
                   </p>
                 </div>
