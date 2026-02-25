@@ -16,7 +16,12 @@ const db = (() => {
   if (useNeon) {
     // Configure WebSocket for Neon serverless in Node.js environment
     neonConfig.webSocketConstructor = ws;
-    const pool = new NeonPool({ connectionString });
+    const pool = new NeonPool({ 
+      connectionString,
+      max: 20, // Maximum number of connections in the pool
+      idleTimeoutMillis: 30000, // How long a connection can be idle before being closed
+      connectionTimeoutMillis: 10000, // How long to wait when connecting a new client
+    });
     return drizzleNeon(pool, { schema });
   }
 
@@ -26,6 +31,9 @@ const db = (() => {
   const pool = new PgPool({
     connectionString,
     ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+    max: 20, // Maximum number of connections in the pool
+    idleTimeoutMillis: 30000, // How long a connection can be idle before being closed
+    connectionTimeoutMillis: 10000, // How long to wait when connecting a new client
   });
   return drizzlePg(pool, { schema });
 })();

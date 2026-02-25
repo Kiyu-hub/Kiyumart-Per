@@ -222,14 +222,52 @@ export interface IStorage {
 }
 
 export class DbStorage implements IStorage {
+  // Helper method for database operations with retry logic
+  private async executeDbOperation<T>(
+    operation: () => Promise<T>,
+    operationName: string,
+    maxRetries: number = 3
+  ): Promise<T> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error: unknown) {
+        const normalizedError = error instanceof Error ? error : new Error(String(error));
+        lastError = normalizedError;
+        console.warn(
+          `Database operation ${operationName} failed (attempt ${attempt}/${maxRetries}):`,
+          normalizedError.message
+        );
+        
+        if (attempt < maxRetries) {
+          // Exponential backoff: 1s, 2s, 4s
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    const finalError = lastError ?? new Error(`Database operation ${operationName} failed`);
+    console.error(`Database operation ${operationName} failed after ${maxRetries} attempts:`, finalError);
+    throw finalError;
+  }
+
   // User operations
   async getUser(id: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    const result = await this.executeDbOperation(
+      () => db.select().from(users).where(eq(users.id, id)).limit(1),
+      'getUser'
+    );
     return result[0];
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    const result = await this.executeDbOperation(
+      () => db.select().from(users).where(eq(users.email, email)).limit(1),
+      'getUserByEmail'
+    );
     return result[0];
   }
 
