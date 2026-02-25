@@ -167,8 +167,8 @@ export default function Notifications() {
     }
   };
 
-  const handleDelete = (notificationId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDelete = (notificationId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     deleteNotificationMutation.mutate(notificationId);
   };
 
@@ -381,7 +381,7 @@ export default function Notifications() {
                 <Button
                   variant="destructive"
                   onClick={() => {
-                    handleDelete(selectedNotification.id, {} as any);
+                    handleDelete(selectedNotification.id);
                     setPreviewOpen(false);
                   }}
                   data-testid="button-delete-preview"
