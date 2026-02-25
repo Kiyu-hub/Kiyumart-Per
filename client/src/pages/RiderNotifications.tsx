@@ -176,7 +176,7 @@ export default function RiderNotifications() {
             {notifications.map((notification) => (
               <Card
                 key={notification.id}
-                className={`p-4 cursor-pointer hover:shadow-md transition-all ${!notification.isRead ? "border-l-4 border-l-primary bg-muted/50" : ""}`}
+                className={`p-4 cursor-pointer hover:shadow-md hover:bg-emerald-500/10 transition-all ${!notification.isRead ? "border-l-4 border-l-emerald-500 bg-emerald-500/5" : ""}`}
                 onClick={() => handleNotificationClick(notification)}
                 data-testid={`card-notification-${notification.id}`}
               >
@@ -191,7 +191,7 @@ export default function RiderNotifications() {
                           {notification.title}
                         </h3>
                         {!notification.isRead && (
-                          <Badge variant="default" className="text-xs">New</Badge>
+                          <Badge className="text-xs bg-emerald-500 text-white">New</Badge>
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground mb-2 line-clamp-2">{notification.message}</p>
@@ -205,7 +205,7 @@ export default function RiderNotifications() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-8 w-8 hover:bg-emerald-500/15 hover:text-emerald-600"
                         onClick={() => markAsReadMutation.mutate(notification.id)}
                         data-testid={`button-mark-read-${notification.id}`}
                         title="Mark as read"

@@ -267,7 +267,7 @@ export default function Notifications() {
                 <Card
                   key={notification.id}
                   className={`hover:shadow-md transition-all cursor-pointer ${
-                    !notification.isRead ? "border-primary bg-primary/5" : "border-border"
+                    !notification.isRead ? "border-emerald-500 bg-emerald-500/5" : "border-border hover:bg-emerald-500/10"
                   }`}
                   onClick={() => handleNotificationClick(notification)}
                   data-testid={`card-notification-${notification.id}`}
@@ -283,7 +283,7 @@ export default function Notifications() {
                             {notification.title}
                           </h3>
                           {!notification.isRead && (
-                            <Badge variant="default" className="shrink-0 text-xs">
+                            <Badge className="shrink-0 text-xs bg-emerald-500 text-white">
                               New
                             </Badge>
                           )}
@@ -318,6 +318,7 @@ export default function Notifications() {
                               markAsReadMutation.mutate(notification.id);
                             }}
                             data-testid={`button-mark-read-${notification.id}`}
+                            className="hover:bg-emerald-500/15 hover:text-emerald-600"
                           >
                             <Check className="h-4 w-4" />
                           </Button>

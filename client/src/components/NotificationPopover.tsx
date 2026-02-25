@@ -141,7 +141,7 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
       case "payout":
         return "bg-emerald-500 text-white";
       case "system":
-        return "bg-red-500 text-white";
+        return "bg-emerald-500 text-white";
       default:
         return "bg-gray-500 text-white";
     }
@@ -324,8 +324,8 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
                     key={notification.id}
                     onClick={(e) => handleNotificationClick(notification, e)}
                     className={cn(
-                      "flex items-start gap-3 p-3 hover:bg-accent cursor-pointer transition-colors",
-                      !notification.isRead && "bg-primary/5 border-l-2 border-l-primary"
+                      "flex items-start gap-3 p-3 hover:bg-emerald-500/10 cursor-pointer transition-colors",
+                      !notification.isRead && "bg-emerald-500/5 border-l-2 border-l-emerald-500"
                     )}
                     data-testid={`notification-item-${notification.id}`}
                   >
@@ -344,7 +344,7 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
                           {notification.title}
                         </p>
                         {!notification.isRead && (
-                          <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 mt-1.5" />
                         )}
                       </div>
                         <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
@@ -361,7 +361,7 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6"
+                          className="h-6 w-6 hover:bg-emerald-500/15 hover:text-emerald-600"
                           onClick={(e) => handleMarkReadClick(notification.id, e)}
                           title="Mark as read"
                         >
