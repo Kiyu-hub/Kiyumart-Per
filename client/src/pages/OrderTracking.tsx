@@ -476,6 +476,11 @@ export default function OrderTracking() {
                                     Delivery OTP: {order.deliveryOtp}
                                   </p>
                                 )}
+                                <p className="text-xs text-muted-foreground mt-3 max-w-md">
+                                  {normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
+                                    ? "At store pickup, present either this QR code or your Pickup OTP to the seller for confirmation."
+                                    : "At delivery, show either this QR code or your Delivery OTP to the rider to confirm receipt."}
+                                </p>
                               </div>
                             </div>
                           </div>

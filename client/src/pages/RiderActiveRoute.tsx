@@ -244,7 +244,10 @@ export default function RiderActiveRoute() {
                         Complete Delivery
                       </h3>
                       <p className="text-sm text-muted-foreground">
-                        Scan the customer's QR code to confirm delivery
+                        Confirm delivery using either customer QR code scan or customer OTP
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Ask customer for one method only: scan QR from their order screen or enter their 6-digit OTP.
                       </p>
                     </div>
                     <DeliveryQRScanner

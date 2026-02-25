@@ -241,6 +241,11 @@ export default function PaymentSuccess() {
                   {!isPickupOrder && order.deliveryOtp && (
                     <p className="text-sm font-semibold mt-3">Delivery OTP: {order.deliveryOtp}</p>
                   )}
+                  <p className="text-xs text-muted-foreground mt-3 max-w-md">
+                    {isPickupOrder
+                      ? "When collecting from store, show either this QR code or your Pickup OTP to the seller."
+                      : "When your rider arrives, share either this QR code or your Delivery OTP to confirm order handover."}
+                  </p>
                 </div>
               </div>
             </CardContent>
