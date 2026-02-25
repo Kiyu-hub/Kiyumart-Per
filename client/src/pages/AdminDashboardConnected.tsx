@@ -298,7 +298,7 @@ export default function AdminDashboardConnected() {
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : analytics ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-6">
                   <MetricCard
                     title="Total Revenue"
                     value={formatPrice(analytics.totalRevenue || 0)}
