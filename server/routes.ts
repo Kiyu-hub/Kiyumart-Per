@@ -4166,13 +4166,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const normalizeOtp = (value: unknown): string => String(value ?? "").replace(/\D/g, "").trim();
   const isPrivilegedOpsRole = (role?: string | null) => role === "admin" || role === "super_admin";
-  const mapOrderStatusForViewerRole = (status?: string | null, viewerRole?: string | null) => {
-    const canonicalStatus = canonicalizeOrderStatus(status || "");
-    if (canonicalStatus === "searching_rider" && !isPrivilegedOpsRole(viewerRole)) {
-      return "processing";
+  const normalizePaymentStatus = (value?: string | null) => (value || "").toLowerCase().trim();
+  const isPaidPaymentStatus = (value?: string | null) =>
+    ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+  const isPickupMethod = (value?: string | null) => (value || "").toLowerCase().trim() === "pickup";
+  const resolveVisibleOrderStateForRole = (
+    orderLike: { status?: string | null; paymentStatus?: string | null; deliveryMethod?: string | null },
+    viewerRole?: string | null
+  ): { status: string; hidden: boolean } => {
+    const canonicalStatus = canonicalizeOrderStatus(orderLike?.status || "");
+    const paid = isPaidPaymentStatus(orderLike?.paymentStatus);
+    const pickup = isPickupMethod(orderLike?.deliveryMethod);
+
+    if (isPrivilegedOpsRole(viewerRole)) return { status: canonicalStatus, hidden: false };
+
+    if (viewerRole === "seller") {
+      if (!paid) return { status: canonicalStatus, hidden: true };
+      if (canonicalStatus === "searching_rider") return { status: "ready", hidden: false };
+      if (["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes(canonicalStatus)) {
+        return { status: "in_transit", hidden: false };
+      }
+      if (["delivered", "completed"].includes(canonicalStatus)) return { status: "completed", hidden: false };
+      return { status: canonicalStatus, hidden: false };
     }
-    return canonicalStatus;
+
+    if (viewerRole === "rider") {
+      if (!paid || pickup) return { status: canonicalStatus, hidden: true };
+      if (["searching_rider", "created", "confirmed", "processing", "ready"].includes(canonicalStatus)) {
+        return { status: canonicalStatus, hidden: true };
+      }
+      if (["delivered", "completed"].includes(canonicalStatus)) return { status: "completed", hidden: false };
+      return { status: canonicalStatus, hidden: false };
+    }
+
+    if (viewerRole === "buyer") {
+      if (!paid) return { status: "pending", hidden: false };
+      if (pickup) {
+        if (["delivered", "completed"].includes(canonicalStatus)) return { status: "delivered", hidden: false };
+        return { status: canonicalStatus, hidden: false };
+      }
+      if (["searching_rider", "assigned", "rider_arrived", "ready", "confirmed", "processing"].includes(canonicalStatus)) {
+        return { status: "processing", hidden: false };
+      }
+      if (["picked_up", "in_transit", "en_route"].includes(canonicalStatus)) return { status: "en_route", hidden: false };
+      if (["delivered", "completed"].includes(canonicalStatus)) return { status: "delivered", hidden: false };
+      return { status: canonicalStatus, hidden: false };
+    }
+
+    if (canonicalStatus === "searching_rider") return { status: "processing", hidden: false };
+    return { status: canonicalStatus, hidden: false };
   };
+  const mapOrderStatusForViewerRole = (
+    orderLike: { status?: string | null; paymentStatus?: string | null; deliveryMethod?: string | null },
+    viewerRole?: string | null
+  ) => resolveVisibleOrderStateForRole(orderLike, viewerRole).status;
 
   const sanitizeOrderVerificationSecrets = (order: any, viewer: { id: string; role: string }) => {
     const isAdminViewer = viewer.role === "admin" || viewer.role === "super_admin";
@@ -4645,7 +4692,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const viewerRole = user?.role || fallbackRole;
         io.to(userId).emit("order_status_updated", {
           ...payload,
-          status: mapOrderStatusForViewerRole(canonicalStatus, viewerRole),
+          status: mapOrderStatusForViewerRole(
+            {
+              status: canonicalStatus,
+              paymentStatus: order.paymentStatus,
+              deliveryMethod: order.deliveryMethod,
+            },
+            viewerRole
+          ),
         });
       })
     );
@@ -4657,7 +4711,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     [...admins, ...superAdmins].forEach((adminUser) => {
       const adminPayload = {
         ...payload,
-        status: mapOrderStatusForViewerRole(canonicalStatus, adminUser.role),
+        status: mapOrderStatusForViewerRole(
+          {
+            status: canonicalStatus,
+            paymentStatus: order.paymentStatus,
+            deliveryMethod: order.deliveryMethod,
+          },
+          adminUser.role
+        ),
       };
       io.to(adminUser.id).emit("order_status_updated", adminPayload);
       io.to(adminUser.id).emit("admin_order_status_updated", adminPayload);
@@ -5117,10 +5178,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/orders", requireAuth, requireRoleFeature("orders.view"), async (req: AuthRequest, res) => {
     try {
-      const normalizePaymentStatus = (value?: string | null) => (value || "").toLowerCase().trim();
-      const isPaidPaymentStatus = (value?: string | null) =>
-        ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
-
       const userRole = req.user!.role as "admin" | "super_admin" | "buyer" | "seller" | "rider" | "agent";
       // Allow context override: buyers can shop, sellers/riders/agents can view purchases vs their work orders
       const context = (req.query.context as string) || userRole;
@@ -5136,18 +5193,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         orders = await storage.getOrdersByUser(req.user!.id, filterRole);
       }
 
-      // Payment state normalization: paid orders must not remain pending.
-      // Self-heal stale records and normalize response immediately.
-      const stalePaidPending = orders.filter((o: any) => isPaidPaymentStatus(o.paymentStatus) && (o.status || "").toLowerCase().trim() === "pending");
-      if (stalePaidPending.length > 0) {
-        // Read path must not write status changes directly; return canonicalized response.
-        orders = orders.map((o: any) =>
-          isPaidPaymentStatus(o.paymentStatus) && (o.status || "").toLowerCase().trim() === "pending"
-            ? { ...o, status: "processing" }
-            : o
-        );
-      }
-      
       // Enrich orders with buyer contact fields for list/detail UIs.
       const buyerIds = Array.from(new Set(orders.map((o) => o.buyerId).filter(Boolean)));
       const buyersById = new Map<string, any>();
@@ -5159,14 +5204,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       // Fetch order items with product names for each order
-      const ordersWithItems = await Promise.all(
+      const ordersWithItemsRaw = await Promise.all(
         orders.map(async (order) => {
           const items = await storage.getOrderItems(order.id);
           const buyer = buyersById.get(order.buyerId);
           const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
+          const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
           return {
             ...securedOrder,
-            status: mapOrderStatusForViewerRole(order.status, req.user!.role),
+            status: visible.status,
+            _hiddenForViewer: visible.hidden,
             totalAmount: order.total,
             items,
             buyer: buyer
@@ -5180,6 +5227,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
         })
       );
+      const ordersWithItems = ordersWithItemsRaw
+        .filter((o: any) => !o._hiddenForViewer)
+        .map(({ _hiddenForViewer, ...rest }: any) => rest);
       
       res.json(ordersWithItems);
     } catch (error: any) {
@@ -5189,10 +5239,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/orders/:id", requireAuth, requireRoleFeature("orders.view"), async (req: AuthRequest, res) => {
     try {
-      const normalizePaymentStatus = (value?: string | null) => (value || "").toLowerCase().trim();
-      const isPaidPaymentStatus = (value?: string | null) =>
-        ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
-
       let order = await storage.getOrder(req.params.id);
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
@@ -5204,9 +5250,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const finalOrder = {
         ...(order as NonNullable<typeof order>),
-        status: mapOrderStatusForViewerRole((order as any).status, req.user!.role),
+        status: mapOrderStatusForViewerRole(order as any, req.user!.role),
       };
       const securedOrder = sanitizeOrderVerificationSecrets(finalOrder, req.user!);
+      const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
       
       // Enforce stakeholder access for order detail reads.
       const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
@@ -5217,6 +5264,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!isAdmin && !isStakeholder) {
         return res.status(403).json({ error: "Unauthorized to view this order" });
+      }
+      if (!isAdmin && visible.hidden) {
+        return res.status(404).json({ error: "Order not found" });
       }
 
       let riderInfo: any = securedOrder.riderId
@@ -5488,7 +5538,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { userId: updatedOrder.riderId, label: "rider" },
       ].filter((r) => Boolean(r.userId));
       for (const recipient of recipients) {
-        const recipientStatus = mapOrderStatusForViewerRole(canonicalStatus, recipient.label);
+        const recipientStatus = mapOrderStatusForViewerRole(
+          {
+            status: canonicalStatus,
+            paymentStatus: updatedOrder.paymentStatus,
+            deliveryMethod: updatedOrder.deliveryMethod,
+          },
+          recipient.label
+        );
         await storage.createNotification({
           userId: recipient.userId!,
           type: "order",
@@ -5517,7 +5574,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      res.json(updatedOrder);
+      res.json({
+        ...updatedOrder,
+        status: mapOrderStatusForViewerRole(updatedOrder as any, req.user!.role),
+      });
     } catch (error: any) {
       console.error("Error updating order status:", error);
       
@@ -5704,7 +5764,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json({
         ...updated,
-        status: mapOrderStatusForViewerRole((updated as any)?.status, req.user!.role),
+        status: mapOrderStatusForViewerRole((updated as any) || {}, req.user!.role),
       });
     } catch (error: any) {
       res.status((error as any)?.code || 400).json({ error: error.message });
@@ -5769,7 +5829,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Order ${orderId} delivered by rider ${riderId} via unified completion flow`);
       res.json({
         ...updatedOrder,
-        status: mapOrderStatusForViewerRole(updatedOrder.status, req.user!.role),
+        status: mapOrderStatusForViewerRole(updatedOrder as any, req.user!.role),
       });
     } catch (error: any) {
       console.error("Error completing delivery:", error);
@@ -6267,8 +6327,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
         .map((entry) => ({
           ...entry,
-          fromStatus: entry.fromStatus ? mapOrderStatusForViewerRole(entry.fromStatus, req.user!.role) : null,
-          toStatus: mapOrderStatusForViewerRole(entry.toStatus, req.user!.role),
+          fromStatus: entry.fromStatus
+            ? mapOrderStatusForViewerRole(
+                {
+                  status: entry.fromStatus,
+                  paymentStatus: order.paymentStatus,
+                  deliveryMethod: order.deliveryMethod,
+                },
+                req.user!.role
+              )
+            : null,
+          toStatus: mapOrderStatusForViewerRole(
+            {
+              status: entry.toStatus,
+              paymentStatus: order.paymentStatus,
+              deliveryMethod: order.deliveryMethod,
+            },
+            req.user!.role
+          ),
         }));
 
       res.json(chronological);
