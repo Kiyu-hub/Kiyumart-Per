@@ -2000,11 +2000,16 @@ export class DbStorage implements IStorage {
   async getAnalytics(userId?: string, role?: string): Promise<any> {
     // Basic analytics - can be expanded
     const result: any = {};
+    const normalizedRole = (() => {
+      const raw = (role || "").toLowerCase().trim();
+      if (raw === "superadmin") return "super_admin";
+      return raw;
+    })();
     // payment_status can be enum/text depending on DB state, so cast to text before lower()
     const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
     const completedRevenueFilter = and(eq(orders.status, "completed"), paidStatusFilter);
     
-    if (role === "admin" || role === "super_admin" || !userId) {
+    if (normalizedRole === "admin" || normalizedRole === "super_admin" || !userId) {
       // Keep order counts aligned with DB totals and calculate revenue from paid states only.
       const totalOrders = await db.select({ count: sql<number>`count(*)` })
         .from(orders);
@@ -2031,7 +2036,7 @@ export class DbStorage implements IStorage {
       result.totalReceivedMoney = Number(totalReceivedMoney[0]?.sum ?? 0);
       result.totalUsers = Number(totalUsers[0]?.count ?? 0);
       result.totalProducts = Number(totalProducts[0]?.count ?? 0);
-    } else if (role === "seller") {
+    } else if (normalizedRole === "seller") {
       const totalSellerOrders = await db.select({ count: sql<number>`count(*)` })
         .from(orders)
         .where(eq(orders.sellerId, userId));
