@@ -265,8 +265,8 @@ Environment execution rule:
   - `POST /api/orders/:id/confirm-rider-assignment`
 - Added assignment policy visibility endpoint:
   - `GET /api/orders/policy`
-- Added dual verification (QR + OTP) backend enforcement:
-  - `POST /api/orders/:id/complete-delivery` now requires both `qrCode` and `otp`
+- Added flexible verification (QR or OTP) backend enforcement:
+  - `POST /api/orders/:id/complete-delivery` accepts either `qrCode` or `otp` (or both)
   - `POST /api/orders/:id/verify-rider-pickup` (seller/admin/super_admin)
   - `POST /api/orders/:id/verify-customer-pickup` (seller/admin/super_admin)
 - Added order-level OTP fields and migration:

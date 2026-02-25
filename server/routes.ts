@@ -5698,18 +5698,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Complete delivery with dual verification (rider scans buyer QR and enters OTP)
   app.post("/api/orders/:id/complete-delivery", requireAuth, requireRole("rider"), requireRoleFeature("deliveries.manage"), async (req: AuthRequest, res) => {
     try {
-      const { qrCode, otp } = req.body;
+      const qrCode = String(req.body?.qrCode || "").trim();
+      const otp = req.body?.otp;
       const orderId = req.params.id;
       const riderId = req.user!.id;
       const normalizedOtp = normalizeOtp(otp);
 
-      if (!qrCode) {
-        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=missing_qr`);
-        return res.status(400).json({ error: "QR code is required" });
-      }
-      if (!normalizedOtp) {
-        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=missing_otp`);
-        return res.status(400).json({ error: "OTP is required" });
+      if (!qrCode && !normalizedOtp) {
+        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=missing_qr_and_otp`);
+        return res.status(400).json({ error: "Provide at least one verification method: QR code or OTP" });
       }
 
       const order = await storage.getOrder(orderId);
@@ -5724,18 +5721,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Verify QR code matches
-      if (order.qrCode !== qrCode) {
+      const isQrValid = qrCode ? order.qrCode === qrCode : false;
+      const isOtpValid = normalizedOtp ? normalizeOtp((order as any).deliveryOtp) === normalizedOtp : false;
+      if (qrCode && !isQrValid) {
         console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=invalid_qr`);
-        return res.status(400).json({ 
-          error: "Invalid QR code",
-          details: "The scanned QR code does not match this order."
-        });
       }
-      if (normalizeOtp((order as any).deliveryOtp) !== normalizedOtp) {
+      if (normalizedOtp && !isOtpValid) {
         console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=invalid_otp`);
+      }
+      if (!isQrValid && !isOtpValid) {
         return res.status(400).json({
-          error: "Invalid OTP",
-          details: "The OTP does not match this delivery order.",
+          error: "Invalid verification",
+          details: "Provided QR/OTP does not match this delivery order.",
         });
       }
       const updatedOrder = await finalizeRiderDelivery(orderId, riderId, "qr_delivery_verified");
@@ -5762,9 +5759,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const actorRole = req.user!.role;
         const actorId = req.user!.id;
 
-        if (!riderId || !qrCode || !otp) {
+        if (!riderId || (!qrCode && !otp)) {
           console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=missing_payload`);
-          return res.status(400).json({ error: "riderId, qrCode, and otp are required" });
+          return res.status(400).json({ error: "riderId and one verification method (qrCode or otp) are required" });
         }
 
         const order = await storage.getOrder(orderId);
@@ -5782,13 +5779,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=rider_mismatch`);
           return res.status(409).json({ error: "Rider does not match the assigned delivery rider" });
         }
-        if ((order as any).qrCode !== qrCode) {
+        const isQrValid = qrCode ? (order as any).qrCode === qrCode : false;
+        const isOtpValid = otp ? normalizeOtp((order as any).pickupOtp) === otp : false;
+        if (qrCode && !isQrValid) {
           console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=invalid_qr`);
-          return res.status(400).json({ error: "Invalid QR code" });
         }
-        if (normalizeOtp((order as any).pickupOtp) !== otp) {
+        if (otp && !isOtpValid) {
           console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=invalid_otp`);
-          return res.status(400).json({ error: "Invalid OTP" });
+        }
+        if (!isQrValid && !isOtpValid) {
+          return res.status(400).json({ error: "Invalid verification (QR/OTP mismatch)" });
         }
 
         const current = canonicalizeOrderStatus(order.status);
@@ -5819,9 +5819,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const actorRole = req.user!.role;
         const actorId = req.user!.id;
 
-        if (!qrCode || !otp) {
+        if (!qrCode && !otp) {
           console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=missing_payload`);
-          return res.status(400).json({ error: "qrCode and otp are required" });
+          return res.status(400).json({ error: "Provide at least one verification method: qrCode or otp" });
         }
 
         const order = await storage.getOrder(orderId);
@@ -5835,13 +5835,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=wrong_delivery_method method=${order.deliveryMethod}`);
           return res.status(409).json({ error: "Customer pickup verification is only valid for pickup orders" });
         }
-        if ((order as any).qrCode !== qrCode) {
+        const isQrValid = qrCode ? (order as any).qrCode === qrCode : false;
+        const isOtpValid = otp ? normalizeOtp((order as any).pickupOtp) === otp : false;
+        if (qrCode && !isQrValid) {
           console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=invalid_qr`);
-          return res.status(400).json({ error: "Invalid QR code" });
         }
-        if (normalizeOtp((order as any).pickupOtp) !== otp) {
+        if (otp && !isOtpValid) {
           console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=invalid_otp`);
-          return res.status(400).json({ error: "Invalid OTP" });
+        }
+        if (!isQrValid && !isOtpValid) {
+          return res.status(400).json({ error: "Invalid verification (QR/OTP mismatch)" });
         }
 
         const updated = await storage.applyOrderStatusTransition(orderId, "completed", actorId, actorRole, "seller_customer_pickup_qr_otp_verified");

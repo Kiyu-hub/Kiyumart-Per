@@ -117,18 +117,22 @@ export default function DeliveryQRScanner({
     // Stop scanning first
     await stopScanner();
     const normalizedOtp = deliveryOtp.replace(/\D/g, "").trim();
-    if (!normalizedOtp) {
+    completeDeliveryMutation.mutate({ qrCode: scannedCode, otp: normalizedOtp || "" });
+  };
+
+  const completeWithOtpOnly = () => {
+    const normalizedOtp = deliveryOtp.replace(/\D/g, "").trim();
+    if (normalizedOtp.length !== 6) {
       setScanResult('error');
-      setErrorMessage("Enter customer OTP before scanning QR.");
+      setErrorMessage("Enter a valid 6-digit OTP to verify without QR.");
       toast({
         title: "OTP Required",
-        description: "Enter the customer OTP to complete verification.",
+        description: "Enter a valid 6-digit OTP.",
         variant: "destructive",
       });
       return;
     }
-
-    completeDeliveryMutation.mutate({ qrCode: scannedCode, otp: normalizedOtp });
+    completeDeliveryMutation.mutate({ qrCode: "", otp: normalizedOtp });
   };
 
   // Cleanup on unmount
@@ -220,7 +224,7 @@ export default function DeliveryQRScanner({
         {!scanResult && (
           <div className="space-y-3">
             <div className="max-w-sm mx-auto">
-              <label className="text-sm font-medium mb-2 block">Customer OTP</label>
+              <label className="text-sm font-medium mb-2 block">Customer OTP (Optional)</label>
               <Input
                 inputMode="numeric"
                 maxLength={6}
@@ -232,7 +236,7 @@ export default function DeliveryQRScanner({
             </div>
             <div className="flex justify-center gap-4">
             {!isScanning ? (
-              <Button onClick={startScanner} className="gap-2" disabled={deliveryOtp.replace(/\D/g, "").length !== 6}>
+              <Button onClick={startScanner} className="gap-2">
                 <Camera className="h-4 w-4" />
                 Start Scanning
               </Button>
@@ -242,6 +246,11 @@ export default function DeliveryQRScanner({
                 Stop Scanning
               </Button>
             )}
+              {!isScanning && (
+                <Button onClick={completeWithOtpOnly} variant="outline" className="gap-2">
+                  Verify with OTP Only
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -256,7 +265,7 @@ export default function DeliveryQRScanner({
 
         {/* Instructions */}
         <div className="text-center text-sm text-muted-foreground">
-          <p>Ask the buyer for the 6-digit OTP, then scan their order QR code.</p>
+          <p>Use either the buyer QR code or the 6-digit OTP to verify delivery.</p>
         </div>
       </CardContent>
     </Card>
