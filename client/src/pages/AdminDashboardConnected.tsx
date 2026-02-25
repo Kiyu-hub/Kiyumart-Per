@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 interface Analytics {
   totalOrders: number;
   totalRevenue: number;
+  totalReceivedMoney?: number;
   totalUsers: number;
 }
 
@@ -283,12 +284,18 @@ export default function AdminDashboardConnected() {
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : analytics ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                   <MetricCard
                     title="Total Revenue"
                     value={formatPrice(analytics.totalRevenue || 0)}
                     icon={DollarSign}
                     change={12.5}
+                  />
+                  <MetricCard
+                    title="Total Received Money"
+                    value={formatPrice(analytics.totalReceivedMoney || 0)}
+                    icon={Wallet}
+                    change={9.4}
                   />
                   <MetricCard
                     title="Total Orders"

@@ -2340,7 +2340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/products/:id/status", requireAuth, requireRole("admin"), requirePermission("manage_products"), async (req: AuthRequest, res) => {
+  app.patch("/api/products/:id/status", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_products"), async (req: AuthRequest, res) => {
     try {
       const product = await storage.getProduct(req.params.id);
       if (!product) {
@@ -2934,7 +2934,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Multi-Vendor Banner Management ============
   // Banner Collections (Admin only)
-  app.post("/api/admin/banner-collections", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
+  app.post("/api/admin/banner-collections", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const validatedData = insertBannerCollectionSchema.parse(req.body);
       const collection = await storage.createBannerCollection(validatedData);
@@ -2944,7 +2944,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/banner-collections", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
+  app.get("/api/admin/banner-collections", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const collections = await storage.getBannerCollections();
       res.json(collections);
@@ -2953,7 +2953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/banner-collections/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
+  app.get("/api/admin/banner-collections/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const collection = await storage.getBannerCollection(req.params.id);
       if (!collection) {
@@ -2965,7 +2965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/banner-collections/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
+  app.patch("/api/admin/banner-collections/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const updated = await storage.updateBannerCollection(req.params.id, req.body);
       if (!updated) {
@@ -2977,7 +2977,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/banner-collections/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
+  app.delete("/api/admin/banner-collections/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       await storage.deleteBannerCollection(req.params.id);
       res.json({ success: true });
@@ -2987,7 +2987,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Marketplace Banners (Admin only)
-  app.post("/api/admin/marketplace-banners", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), upload.single("image"), async (req, res) => {
+  app.post("/api/admin/marketplace-banners", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), upload.single("image"), async (req, res) => {
     try {
       let imageUrl = req.body.imageUrl;
       
@@ -3023,7 +3023,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/marketplace-banners", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
+  app.get("/api/admin/marketplace-banners", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const { collectionId } = req.query;
       const banners = await storage.getMarketplaceBanners(collectionId as string);
@@ -3033,7 +3033,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
+  app.get("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const banner = await storage.getMarketplaceBanner(req.params.id);
       if (!banner) {
@@ -3045,7 +3045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), upload.single("image"), async (req, res) => {
+  app.patch("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), upload.single("image"), async (req, res) => {
     try {
       const updateData: any = { ...req.body };
       
@@ -3073,7 +3073,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
+  app.delete("/api/admin/marketplace-banners/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       await storage.deleteMarketplaceBanner(req.params.id);
       res.json({ success: true });
@@ -3082,7 +3082,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/marketplace-banners/reorder", requireAuth, requireRole("admin"), requirePermission("manage_promotions"), async (req, res) => {
+  app.post("/api/admin/marketplace-banners/reorder", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const { bannerIds } = req.body;
       if (!Array.isArray(bannerIds)) {
@@ -4009,7 +4009,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin seed for marketplace setup (Development only)
-  app.post("/api/seed/marketplace-setup", requireAuth, requireRole("admin"), async (req: AuthRequest, res) => {
+  app.post("/api/seed/marketplace-setup", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       // Reject seed endpoints in production
       if (process.env.NODE_ENV === 'production') {
@@ -10512,7 +10512,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // ============ Category Fields Routes (Admin Only) ============
-  app.post("/api/category-fields", requireAuth, requireRole("admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
+  app.post("/api/category-fields", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const field = await storage.createCategoryField(req.body);
       res.json(field);
@@ -10531,7 +10531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/category-fields/:id", requireAuth, requireRole("admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
+  app.patch("/api/category-fields/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const field = await storage.updateCategoryField(req.params.id, req.body);
       if (!field) {
@@ -10543,7 +10543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/category-fields/:id", requireAuth, requireRole("admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
+  app.delete("/api/category-fields/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const success = await storage.deleteCategoryField(req.params.id);
       if (!success) {
@@ -10556,7 +10556,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Store Routes ============
-  app.post("/api/stores", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_stores"), async (req: AuthRequest, res) => {
+  app.post("/api/stores", requireAuth, requireRole("admin", "super_admin", "seller"), requirePermissionIfAdmin("manage_stores"), async (req: AuthRequest, res) => {
     try {
       const storeData = {
         ...req.body,
@@ -10652,7 +10652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/stores/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_stores"), async (req: AuthRequest, res) => {
+  app.patch("/api/stores/:id", requireAuth, requireRole("admin", "super_admin", "seller"), requirePermissionIfAdmin("manage_stores"), async (req: AuthRequest, res) => {
     try {
       const store = await storage.getStore(req.params.id);
       if (!store) {
@@ -10671,7 +10671,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/stores/:id", requireAuth, requireRole("admin"), requirePermission("manage_stores"), async (req: AuthRequest, res) => {
+  app.delete("/api/stores/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_stores"), async (req: AuthRequest, res) => {
     try {
       const success = await storage.deleteStore(req.params.id);
       if (!success) {

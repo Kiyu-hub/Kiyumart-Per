@@ -1,6 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
+import { useAuth } from "@/lib/auth";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +16,15 @@ import {
 } from "lucide-react";
 
 export default function AdminPlatformEarnings() {
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
+      navigate("/auth");
+    }
+  }, [authLoading, isAuthenticated, navigate, user]);
+
   const { data: summary, isLoading: sLoading, refetch: refetchSummary } = useQuery({ 
     queryKey: ["/api/admin/finance-summary"], 
     queryFn: async () => { const r = await fetch('/api/admin/finance-summary'); return r.json(); },
@@ -101,9 +112,17 @@ export default function AdminPlatformEarnings() {
 
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-GH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+  if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   if (sLoading || eLoading || tLoading) {
     return (
-      <DashboardLayout role="admin" showBackButton>
+      <DashboardLayout role={user.role as "admin" | "super_admin"} showBackButton>
         <div className="min-h-screen flex items-center justify-center">
           <div className="text-center">
             <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
@@ -116,7 +135,7 @@ export default function AdminPlatformEarnings() {
 
   if (earningsError) {
     return (
-      <DashboardLayout role="admin" showBackButton>
+      <DashboardLayout role={user.role as "admin" | "super_admin"} showBackButton>
         <div className="p-8">
           <Card className="max-w-2xl mx-auto">
             <CardHeader><CardTitle className="text-destructive">Error Loading Data</CardTitle></CardHeader>
@@ -131,7 +150,7 @@ export default function AdminPlatformEarnings() {
   }
 
   return (
-    <DashboardLayout role="admin" showBackButton>
+    <DashboardLayout role={user.role as "admin" | "super_admin"} showBackButton>
       <div className="p-6 lg:p-8 space-y-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>

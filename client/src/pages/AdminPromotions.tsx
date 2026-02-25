@@ -14,9 +14,19 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Clock, Plus, Trash2, Check, Loader2, Upload, Store, ShoppingBag, Filter, RotateCcw } from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { useLocation } from "wouter";
 
 export default function AdminPromotions() {
   const { toast } = useToast();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
+      navigate("/auth");
+    }
+  }, [authLoading, isAuthenticated, navigate, user]);
   const { data: stores = [] } = useQuery<any[]>({
     queryKey: ['/api/stores'],
     queryFn: async () => {
@@ -234,8 +244,16 @@ export default function AdminPromotions() {
     });
   };
 
+  if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
-    <DashboardLayout role="admin">
+    <DashboardLayout role={user.role as "admin" | "super_admin"}>
       <div className="p-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold">Promotional Ads</h1>

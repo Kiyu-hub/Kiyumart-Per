@@ -2016,6 +2016,10 @@ export class DbStorage implements IStorage {
       const totalRevenue = await db.select({ sum: sql<number>`sum(${orders.total})` })
         .from(orders)
         .where(completedRevenueFilter);
+
+      const totalReceivedMoney = await db.select({ sum: sql<number>`sum(${orders.total})` })
+        .from(orders)
+        .where(paidStatusFilter);
       
       const totalUsers = await db.select({ count: sql<number>`count(*)` }).from(users);
       const totalProducts = await db.select({ count: sql<number>`count(*)` }).from(products);
@@ -2024,6 +2028,7 @@ export class DbStorage implements IStorage {
       result.paidOrders = Number(completedOrders[0]?.count ?? 0);
       result.completedOrders = Number(completedOrders[0]?.count ?? 0);
       result.totalRevenue = Number(totalRevenue[0]?.sum ?? 0);
+      result.totalReceivedMoney = Number(totalReceivedMoney[0]?.sum ?? 0);
       result.totalUsers = Number(totalUsers[0]?.count ?? 0);
       result.totalProducts = Number(totalProducts[0]?.count ?? 0);
     } else if (role === "seller") {
@@ -2046,11 +2051,19 @@ export class DbStorage implements IStorage {
           eq(orders.status, "completed"),
           paidStatusFilter
         ));
+
+      const sellerReceivedMoney = await db.select({ sum: sql<number>`sum(${orders.total})` })
+        .from(orders)
+        .where(and(
+          eq(orders.sellerId, userId),
+          paidStatusFilter
+        ));
       
       result.totalOrders = Number(totalSellerOrders[0]?.count ?? 0);
       result.paidOrders = Number(completedSellerOrders[0]?.count ?? 0);
       result.completedOrders = Number(completedSellerOrders[0]?.count ?? 0);
       result.totalRevenue = Number(sellerRevenue[0]?.sum ?? 0);
+      result.totalReceivedMoney = Number(sellerReceivedMoney[0]?.sum ?? 0);
     }
     
     return result;
