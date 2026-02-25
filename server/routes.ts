@@ -101,7 +101,13 @@ function decodeAttachmentNotificationPreview(rawMessage: string): string | null 
   return senderPrefix ? `${senderPrefix}: ${attachmentLabel}` : attachmentLabel;
 }
 
-type RiderAssignmentAttemptStatus = "offered" | "accepted" | "rejected" | "timed_out" | "failed";
+type RiderAssignmentAttemptStatus =
+  | "offered"
+  | "accepted"
+  | "accepted_pending_admin"
+  | "rejected"
+  | "timed_out"
+  | "failed";
 
 type RiderAssignmentAttempt = {
   riderId: string;
@@ -4133,6 +4139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     currentRadiusIndex: number;
     attemptedRiderIds: string[];
     currentRiderId: string | null;
+    acceptedRiderId: string | null;
     expiresAt: string | null;
     timer: NodeJS.Timeout | null;
     startedAt: string;
@@ -4140,6 +4147,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const pendingRiderAssignments = new Map<string, PendingRiderAssignment>();
+  const isManualAssignmentConfirmationRequired =
+    String(process.env.RIDER_ASSIGNMENT_MANUAL_CONFIRM || "false").toLowerCase().trim() === "true";
 
   let assignRiderToOrder: (params: {
     orderId: string;
@@ -4447,6 +4456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       currentRadiusIndex: 0,
       attemptedRiderIds: [],
       currentRiderId: null,
+      acceptedRiderId: null,
       expiresAt: null,
       timer: null,
       startedAt: new Date().toISOString(),
@@ -4508,6 +4518,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     pending.expiresAt = null;
 
     if (action === "accept") {
+      if (isManualAssignmentConfirmationRequired) {
+        pending.acceptedRiderId = riderId;
+        if (activeAttempt) {
+          activeAttempt.status = "accepted_pending_admin";
+          activeAttempt.reason = "Awaiting admin confirmation";
+        }
+
+        const order = await storage.getOrder(orderId);
+        if (order) {
+          const [admins, superAdmins] = await Promise.all([
+            storage.getUsersByRole("admin"),
+            storage.getUsersByRole("super_admin"),
+          ]);
+          const payload = {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            riderId,
+            riderName: activeAttempt?.riderName || "Rider",
+            acceptedAt: new Date().toISOString(),
+            manualConfirmationRequired: true,
+          };
+          [...admins, ...superAdmins].forEach((adminUser: any) => {
+            io.to(adminUser.id).emit("order_rider_acceptance_pending_confirmation", payload);
+          });
+          await Promise.all(
+            [...admins, ...superAdmins]
+              .filter((adminUser: any) => adminUser?.isActive)
+              .map((adminUser: any) =>
+                storage.createNotification({
+                  userId: adminUser.id,
+                  type: "order",
+                  title: "Rider Awaiting Confirmation",
+                  message: `Rider accepted order #${order.orderNumber}. Confirm assignment to proceed.`,
+                  metadata: {
+                    orderId: order.id,
+                    orderNumber: order.orderNumber,
+                    riderId,
+                    link: `/admin/manual-rider-assignment?orderId=${order.id}`,
+                  } as any,
+                })
+              )
+          );
+        }
+
+        return {
+          success: true,
+          status: "pending_admin_confirmation",
+          orderId,
+          riderId,
+        };
+      }
+
       clearPendingRiderAssignment(orderId);
       return assignRiderToOrder({
         orderId,
@@ -5428,6 +5490,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       throw error;
     }
 
+    if (isManualAssignmentConfirmationRequired && actorRole === "seller") {
+      const error = new Error("Manual assignment confirmation is restricted to admin and super admin");
+      (error as any).code = 403;
+      throw error;
+    }
+
     const order = await storage.getOrder(orderId);
     if (!order) {
       const error = new Error("Order not found");
@@ -5530,6 +5598,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post(
+    "/api/orders/:id/confirm-rider-assignment",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("manage_orders"),
+    async (req: AuthRequest, res) => {
+      try {
+        const orderId = req.params.id;
+        const pending = pendingRiderAssignments.get(orderId);
+        const requestedRiderId = String(req.body?.riderId || "").trim();
+        const riderId = requestedRiderId || pending?.acceptedRiderId || "";
+        if (!riderId) {
+          return res.status(400).json({ error: "No rider available for confirmation" });
+        }
+
+        const updatedOrder = await assignRiderToOrder({
+          orderId,
+          riderId,
+          actorId: req.user!.id,
+          actorRole: req.user!.role,
+        });
+
+        return res.json({
+          success: true,
+          manualConfirmationRequired: isManualAssignmentConfirmationRequired,
+          order: updatedOrder,
+        });
+      } catch (error: any) {
+        return res.status((error as any)?.code || 400).json({ error: error.message });
+      }
+    }
+  );
+
   app.post("/api/orders/:id/start-rider-matching", requireAuth, requireRole("admin", "super_admin", "seller"), requirePermissionIfAdmin("manage_orders"), async (req: AuthRequest, res) => {
     try {
       const updated = await startRiderMatching(
@@ -5592,6 +5693,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error completing delivery:", error);
       res.status((error as any)?.code || 400).json({ error: error.message });
     }
+  });
+
+  app.get("/api/orders/policy", requireAuth, async (_req: AuthRequest, res) => {
+    res.json({
+      assignment: {
+        manualConfirmationRequired: isManualAssignmentConfirmationRequired,
+        mode: isManualAssignmentConfirmationRequired ? "admin_confirm" : "rider_accept_auto_assign",
+      },
+      tracking: {
+        gpsBroadcastSourceOfTruth: "backend",
+        expectedUpdateIntervalSeconds: "3-5",
+      },
+    });
   });
 
   app.get("/api/riders/available", requireAuth, requireRole("admin", "seller", "super_admin"), requirePermissionIfAdmin("manage_orders"), async (req, res) => {
@@ -6464,6 +6578,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       currentCandidateIndex: entry.currentCandidateIndex,
       currentRadiusKm: entry.currentRadiusKm,
       candidateCount: entry.candidates.length,
+      acceptedRiderId: entry.acceptedRiderId,
+      manualConfirmationRequired: isManualAssignmentConfirmationRequired,
       attempts: entry.attempts,
       lastError: entry.lastError || null,
     }));

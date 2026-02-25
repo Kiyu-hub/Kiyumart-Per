@@ -1,4 +1,4 @@
-# Uber-Grade Platform Master TODO (Non-Breaking, 0-Cost)
+﻿# Uber-Grade Platform Master TODO (Non-Breaking, 0-Cost)
 
 ## 0. Audit + Push Integrity (Completed)
 - [x] Verify local vs remote head (`main == origin/main`).
@@ -21,10 +21,10 @@
 - [ ] Ensure buyer UI hides delivery-only states for pickup method.
 
 ## 3. Rider Matching Orchestration (Uber-like + Manual Confirm)
-- [ ] Keep distance-first + zone-aware candidate discovery in backend.
-- [ ] Ensure proposal dialog for Admin/Super Admin confirmation before `ASSIGNED`.
-- [ ] Prevent silent auto-assign when policy is set to manual-confirm mode.
-- [ ] Add explicit feature flag: `assignment.manualConfirmRequired`.
+- [x] Keep distance-first + zone-aware candidate discovery in backend.
+- [x] Ensure proposal dialog/event path for Admin/Super Admin confirmation before `ASSIGNED`.
+- [x] Prevent silent auto-assign when policy is set to manual-confirm mode.
+- [x] Add explicit feature flag: `RIDER_ASSIGNMENT_MANUAL_CONFIRM=true`.
 
 ## 4. Verification Security (QR + OTP, Dual Gate)
 - [ ] Seller -> Rider pickup verification requires both QR and OTP.
@@ -38,7 +38,7 @@
 - [ ] Add regression tests for Customer/Seller/Rider/Admin/Super Admin state visibility.
 
 ## 6. Real-Time Guarantees (Keep Existing Infra)
-- [ ] Confirm rider GPS publish cadence remains 3–5s (no regression).
+- [ ] Confirm rider GPS publish cadence remains 3-5s (no regression).
 - [ ] Ensure same location stream is consumed by Customer/Admin/Super Admin.
 - [ ] Add runtime monitor for stale GPS (>15s).
 
@@ -72,7 +72,7 @@
 ## 11. Analytics Consistency
 - [x] Super Admin dashboard shows `Total Received Money` (paid-state based).
 - [ ] Propagate `Total Received Money` metric to all Super Admin analytics surfaces (`/admin/analytics`, `/admin/platform-earnings`, orders analytics widgets).
-- [ ] Ensure all analytics cards are overflow-safe responsive layouts.
+- [x] Ensure all analytics cards are overflow-safe responsive layouts.
 - [ ] Ensure all analytics values are backend-authoritative and currency-consistent (GHS).
 
 ## 12. Documentation and Evidence

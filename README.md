@@ -252,6 +252,27 @@ Environment execution rule:
 - Full audit report:
   - [docs/order-process-ecommerce-fulfillment-audit.md](./docs/order-process-ecommerce-fulfillment-audit.md)
 
+## Uber-Grade Orchestration Update (February 25, 2026)
+
+- Added master implementation tracker:
+  - [docs/uber-grade-system-master-checklist.md](./docs/uber-grade-system-master-checklist.md)
+- Added feature-flagged manual assignment confirmation mode (non-breaking, reversible):
+  - `RIDER_ASSIGNMENT_MANUAL_CONFIRM=true`
+  - When enabled:
+    - Rider acceptance no longer auto-assigns.
+    - Admin/Super Admin must explicitly confirm assignment.
+- Added manual confirmation endpoint:
+  - `POST /api/orders/:id/confirm-rider-assignment`
+- Added assignment policy visibility endpoint:
+  - `GET /api/orders/policy`
+- Extended active assignment monitoring payload for dashboards:
+  - `acceptedRiderId`
+  - `manualConfirmationRequired`
+- Preserved existing infrastructure guarantees:
+  - Existing rider app flow unchanged unless feature flag is enabled.
+  - Existing map/GPS stream logic unchanged.
+  - No paid services introduced.
+
 ---
 
 ## ✨ Features
