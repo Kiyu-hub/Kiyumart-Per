@@ -30,12 +30,15 @@ interface ActiveDelivery {
 }
 
 const COMMUNICATION_ACTIVE_STATUSES = new Set([
+  "ready",
   "searching_rider",
   "assigned",
   "rider_arrived",
   "picked_up",
   "in_transit",
   "en_route",
+  "delivering",
+  "arrived",
 ]);
 
 export default function RiderActiveRoute() {

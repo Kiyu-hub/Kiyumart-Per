@@ -21,6 +21,9 @@ interface Order {
   status: string;
   deliveryMethod?: "pickup" | "bus" | "rider" | string;
   deliveryAddress: string;
+  qrCode?: string | null;
+  deliveryOtp?: string | null;
+  pickupOtp?: string | null;
   createdAt: string;
 }
 
@@ -228,9 +231,17 @@ export default function PaymentSuccess() {
 
               <Separator />
 
-              {/* QR Code */}
+              {/* Verification QR/OTP */}
               <div className="flex justify-center">
-                <QRCodeDisplay value={order.orderNumber} />
+                <div className="text-center">
+                  <QRCodeDisplay value={order.qrCode || order.orderNumber} />
+                  {isPickupOrder && order.pickupOtp && (
+                    <p className="text-sm font-semibold mt-3">Pickup OTP: {order.pickupOtp}</p>
+                  )}
+                  {!isPickupOrder && order.deliveryOtp && (
+                    <p className="text-sm font-semibold mt-3">Delivery OTP: {order.deliveryOtp}</p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>

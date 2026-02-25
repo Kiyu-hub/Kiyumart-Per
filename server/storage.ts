@@ -22,6 +22,8 @@ import {
 } from "@shared/schema";
 import { eq, and, desc, sql, lte, gte, or, isNull, isNotNull } from "drizzle-orm";
 
+const generateNumericOtp = (): string => String(Math.floor(100000 + Math.random() * 900000));
+
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
@@ -334,11 +336,15 @@ export class DbStorage implements IStorage {
   ): Promise<Order> {
     const orderNumber = `ORD-${Date.now()}`;
     const qrCode = `${orderNumber}-${order.buyerId}`;
+    const deliveryOtp = generateNumericOtp();
+    const pickupOtp = generateNumericOtp();
     
     const [newOrder] = await db.insert(orders).values({
       ...order,
       orderNumber,
       qrCode,
+      deliveryOtp,
+      pickupOtp,
     }).returning();
 
     for (const item of items) {
@@ -380,6 +386,8 @@ export class DbStorage implements IStorage {
       for (const sellerGroup of itemsBySeller) {
         const orderNumber = `ORD-${Date.now()}-${sellerGroup.sellerId.slice(0, 8)}`;
         const qrCode = `${orderNumber}-${baseOrderData.buyerId}`;
+        const deliveryOtp = generateNumericOtp();
+        const pickupOtp = generateNumericOtp();
 
         const [newOrder] = await tx.insert(orders).values({
           ...baseOrderData,
@@ -388,6 +396,8 @@ export class DbStorage implements IStorage {
           checkoutSessionId: sessionId,
           orderNumber,
           qrCode,
+          deliveryOtp,
+          pickupOtp,
           subtotal: sellerGroup.subtotal.toFixed(2),
           deliveryFee: sellerGroup.deliveryFee.toFixed(2),
           processingFee: sellerGroup.processingFee.toFixed(2),

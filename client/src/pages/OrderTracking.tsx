@@ -30,6 +30,8 @@ interface Order {
   deliveryLatitude?: string;
   deliveryLongitude?: string;
   qrCode: string;
+  deliveryOtp?: string | null;
+  pickupOtp?: string | null;
   createdAt: string;
   deliveredAt?: string;
   updatedAt?: string;
@@ -442,20 +444,38 @@ export default function OrderTracking() {
                           </div>
                         )}
 
-                        {/* QR Code */}
+                        {/* Verification Codes */}
                         {order.status !== "cancelled" && order.qrCode && (
                           <div className="pt-4 border-t">
-                            <p className="text-sm font-medium mb-3">Delivery Confirmation QR Code</p>
+                            <p className="text-sm font-medium mb-3">
+                              {normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
+                                ? "Pickup Verification QR Code"
+                                : "Delivery Confirmation QR Code"}
+                            </p>
                             <div className="flex justify-center bg-muted/30 p-6 rounded-lg">
                               <div className="text-center">
                                 <QRCodeDisplay
                                   value={order.qrCode}
                                   title=""
-                                  description="Show this QR code to the delivery rider to confirm receipt"
+                                  description={
+                                    normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
+                                      ? "Show this QR code to the seller when collecting your order"
+                                      : "Show this QR code to the delivery rider to confirm receipt"
+                                  }
                                 />
                                 <p className="text-xs text-muted-foreground mt-2" data-testid={`text-qr-value-${order.id}`}>
                                   {order.qrCode}
                                 </p>
+                                {normalizeDeliveryMethod(order.deliveryMethod) === "pickup" && order.pickupOtp && (
+                                  <p className="text-sm font-semibold mt-3" data-testid={`text-pickup-otp-${order.id}`}>
+                                    Pickup OTP: {order.pickupOtp}
+                                  </p>
+                                )}
+                                {normalizeDeliveryMethod(order.deliveryMethod) !== "pickup" && order.deliveryOtp && (
+                                  <p className="text-sm font-semibold mt-3" data-testid={`text-delivery-otp-${order.id}`}>
+                                    Delivery OTP: {order.deliveryOtp}
+                                  </p>
+                                )}
                               </div>
                             </div>
                           </div>

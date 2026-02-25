@@ -39,13 +39,13 @@ export default defineConfig({
     proxy: {
       // Forward API requests to backend to keep client-server origin consistent in dev
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:5001',
         changeOrigin: true,
         secure: false,
       },
       // Socket / HMR proxies if needed
       '/socket.io': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:5001',
         ws: true,
         changeOrigin: true,
       }

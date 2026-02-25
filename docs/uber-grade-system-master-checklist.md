@@ -27,10 +27,10 @@
 - [x] Add explicit feature flag: `RIDER_ASSIGNMENT_MANUAL_CONFIRM=true`.
 
 ## 4. Verification Security (QR + OTP, Dual Gate)
-- [ ] Seller -> Rider pickup verification requires both QR and OTP.
-- [ ] Rider -> Customer dropoff verification requires both QR and OTP.
-- [ ] Seller -> Customer pickup verification requires both QR and OTP.
-- [ ] Add denial logs for invalid actor/order/proximity.
+- [x] Seller -> Rider pickup verification requires both QR and OTP.
+- [x] Rider -> Customer dropoff verification requires both QR and OTP.
+- [x] Seller -> Customer pickup verification requires both QR and OTP.
+- [x] Add denial logs for invalid actor/order/proximity.
 
 ## 5. Role Visibility Matrix Enforcement
 - [ ] Implement one backend visibility resolver by role + state + fulfillment method.
@@ -66,7 +66,7 @@
 - [ ] Live map/route block.
 - [ ] State-driven action buttons (backend-authoritative).
 - [ ] Chat + call controls.
-- [ ] OTP/QR verification scanner.
+- [x] OTP/QR verification scanner.
 - [ ] Empty/error/offline recovery states.
 
 ## 11. Analytics Consistency

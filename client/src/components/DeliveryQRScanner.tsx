@@ -3,6 +3,7 @@ import { Html5Qrcode } from "html5-qrcode";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { 
   QrCode, 
   Camera, 
@@ -19,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 interface DeliveryQRScannerProps {
   orderId: string;
   orderNumber: string;
-  expectedQRCode: string;
+  expectedQRCode?: string;
   onScanSuccess?: () => void;
   onScanError?: (error: string) => void;
 }
@@ -27,20 +28,21 @@ interface DeliveryQRScannerProps {
 export default function DeliveryQRScanner({ 
   orderId, 
   orderNumber, 
-  expectedQRCode,
+  expectedQRCode: _expectedQRCode,
   onScanSuccess,
   onScanError 
 }: DeliveryQRScannerProps) {
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<'success' | 'error' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [deliveryOtp, setDeliveryOtp] = useState("");
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
 
   // Mutation to complete delivery
   const completeDeliveryMutation = useMutation({
-    mutationFn: async (qrCode: string) => {
-      return apiRequest("POST", `/api/orders/${orderId}/complete-delivery`, { qrCode });
+    mutationFn: async (payload: { qrCode: string; otp: string }) => {
+      return apiRequest("POST", `/api/orders/${orderId}/complete-delivery`, payload);
     },
     onSuccess: () => {
       setScanResult('success');
@@ -114,20 +116,19 @@ export default function DeliveryQRScanner({
   const handleScan = async (scannedCode: string) => {
     // Stop scanning first
     await stopScanner();
-
-    // Verify the QR code matches
-    if (scannedCode === expectedQRCode) {
-      completeDeliveryMutation.mutate(scannedCode);
-    } else {
+    const normalizedOtp = deliveryOtp.replace(/\D/g, "").trim();
+    if (!normalizedOtp) {
       setScanResult('error');
-      setErrorMessage("QR code does not match this order. Please scan the correct code.");
+      setErrorMessage("Enter customer OTP before scanning QR.");
       toast({
-        title: "Invalid QR Code",
-        description: "This QR code does not match the delivery order.",
+        title: "OTP Required",
+        description: "Enter the customer OTP to complete verification.",
         variant: "destructive",
       });
-      onScanError?.("QR code mismatch");
+      return;
     }
+
+    completeDeliveryMutation.mutate({ qrCode: scannedCode, otp: normalizedOtp });
   };
 
   // Cleanup on unmount
@@ -217,9 +218,21 @@ export default function DeliveryQRScanner({
 
         {/* Control Buttons */}
         {!scanResult && (
-          <div className="flex justify-center gap-4">
+          <div className="space-y-3">
+            <div className="max-w-sm mx-auto">
+              <label className="text-sm font-medium mb-2 block">Customer OTP</label>
+              <Input
+                inputMode="numeric"
+                maxLength={6}
+                value={deliveryOtp}
+                onChange={(event) => setDeliveryOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="Enter 6-digit OTP"
+                data-testid="input-delivery-otp"
+              />
+            </div>
+            <div className="flex justify-center gap-4">
             {!isScanning ? (
-              <Button onClick={startScanner} className="gap-2">
+              <Button onClick={startScanner} className="gap-2" disabled={deliveryOtp.replace(/\D/g, "").length !== 6}>
                 <Camera className="h-4 w-4" />
                 Start Scanning
               </Button>
@@ -229,6 +242,7 @@ export default function DeliveryQRScanner({
                 Stop Scanning
               </Button>
             )}
+            </div>
           </div>
         )}
 
@@ -242,7 +256,7 @@ export default function DeliveryQRScanner({
 
         {/* Instructions */}
         <div className="text-center text-sm text-muted-foreground">
-          <p>Ask the buyer to show their order QR code from their order confirmation.</p>
+          <p>Ask the buyer for the 6-digit OTP, then scan their order QR code.</p>
         </div>
       </CardContent>
     </Card>

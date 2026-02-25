@@ -4164,6 +4164,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return Number.isFinite(parsed) ? parsed : null;
   };
 
+  const normalizeOtp = (value: unknown): string => String(value ?? "").replace(/\D/g, "").trim();
+
+  const sanitizeOrderVerificationSecrets = (order: any, viewer: { id: string; role: string }) => {
+    const isAdminViewer = viewer.role === "admin" || viewer.role === "super_admin";
+    const isBuyerViewer = order?.buyerId === viewer.id;
+    const isSellerViewer = order?.sellerId === viewer.id;
+    const isRiderViewer = order?.riderId && order.riderId === viewer.id;
+    const sanitized = { ...order } as any;
+
+    if (isAdminViewer) {
+      return sanitized;
+    }
+
+    if (isBuyerViewer) {
+      return sanitized;
+    }
+
+    if (isSellerViewer) {
+      sanitized.deliveryOtp = null;
+      return sanitized;
+    }
+
+    if (isRiderViewer) {
+      sanitized.deliveryOtp = null;
+      sanitized.pickupOtp = null;
+      sanitized.qrCode = null;
+      return sanitized;
+    }
+
+    sanitized.deliveryOtp = null;
+    sanitized.pickupOtp = null;
+    sanitized.qrCode = null;
+    return sanitized;
+  };
+
   const haversineDistanceKm = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
     const toRad = (deg: number) => (deg * Math.PI) / 180;
     const earthRadiusKm = 6371;
@@ -5107,8 +5142,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         orders.map(async (order) => {
           const items = await storage.getOrderItems(order.id);
           const buyer = buyersById.get(order.buyerId);
+          const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
           return {
-            ...order,
+            ...securedOrder,
             status: canonicalizeOrderStatus(order.status),
             totalAmount: order.total,
             items,
@@ -5149,21 +5185,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(order as NonNullable<typeof order>),
         status: canonicalizeOrderStatus((order as any).status),
       };
+      const securedOrder = sanitizeOrderVerificationSecrets(finalOrder, req.user!);
       
       // Enforce stakeholder access for order detail reads.
       const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
-      const isBuyer = req.user!.id === finalOrder.buyerId;
-      const isSeller = req.user!.id === finalOrder.sellerId;
-      const isRider = !!finalOrder.riderId && req.user!.id === finalOrder.riderId;
+      const isBuyer = req.user!.id === securedOrder.buyerId;
+      const isSeller = req.user!.id === securedOrder.sellerId;
+      const isRider = !!securedOrder.riderId && req.user!.id === securedOrder.riderId;
       const isStakeholder = isBuyer || isSeller || isRider;
 
       if (!isAdmin && !isStakeholder) {
         return res.status(403).json({ error: "Unauthorized to view this order" });
       }
 
-      let riderInfo: any = finalOrder.riderId
+      let riderInfo: any = securedOrder.riderId
         ? {
-            id: finalOrder.riderId,
+            id: securedOrder.riderId,
             name: "Assigned Rider",
             phone: null,
             vehicleType: null,
@@ -5171,8 +5208,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             rating: null,
           }
         : null;
-      if (finalOrder.riderId) {
-        const rider = await storage.getUser(finalOrder.riderId);
+      if (securedOrder.riderId) {
+        const rider = await storage.getUser(securedOrder.riderId);
         if (rider) {
           riderInfo = {
             id: rider.id,
@@ -5192,7 +5229,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Return order with complete customer info (authorized)
         res.json({
-          ...finalOrder,
+          ...securedOrder,
           riderInfo,
           customerInfo: buyer ? {
             name: buyer.name,
@@ -5204,7 +5241,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         // Return order with rider metadata but without customer PII.
         res.json({
-          ...finalOrder,
+          ...securedOrder,
           riderInfo,
         });
       }
@@ -5658,15 +5695,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Complete delivery with QR code verification (rider scans buyer's QR code)
+  // Complete delivery with dual verification (rider scans buyer QR and enters OTP)
   app.post("/api/orders/:id/complete-delivery", requireAuth, requireRole("rider"), requireRoleFeature("deliveries.manage"), async (req: AuthRequest, res) => {
     try {
-      const { qrCode } = req.body;
+      const { qrCode, otp } = req.body;
       const orderId = req.params.id;
       const riderId = req.user!.id;
+      const normalizedOtp = normalizeOtp(otp);
 
       if (!qrCode) {
+        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=missing_qr`);
         return res.status(400).json({ error: "QR code is required" });
+      }
+      if (!normalizedOtp) {
+        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=missing_otp`);
+        return res.status(400).json({ error: "OTP is required" });
       }
 
       const order = await storage.getOrder(orderId);
@@ -5676,14 +5719,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify the rider is assigned to this order
       if (order.riderId !== riderId) {
+        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=not_assigned`);
         return res.status(403).json({ error: "You are not assigned to this delivery" });
       }
 
       // Verify QR code matches
       if (order.qrCode !== qrCode) {
+        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=invalid_qr`);
         return res.status(400).json({ 
           error: "Invalid QR code",
           details: "The scanned QR code does not match this order."
+        });
+      }
+      if (normalizeOtp((order as any).deliveryOtp) !== normalizedOtp) {
+        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=invalid_otp`);
+        return res.status(400).json({
+          error: "Invalid OTP",
+          details: "The OTP does not match this delivery order.",
         });
       }
       const updatedOrder = await finalizeRiderDelivery(orderId, riderId, "qr_delivery_verified");
@@ -5694,6 +5746,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status((error as any)?.code || 400).json({ error: error.message });
     }
   });
+
+  // Seller verifies assigned rider pickup using QR + OTP before handoff.
+  app.post(
+    "/api/orders/:id/verify-rider-pickup",
+    requireAuth,
+    requireRole("seller", "admin", "super_admin"),
+    requirePermissionIfAdmin("manage_orders"),
+    async (req: AuthRequest, res) => {
+      try {
+        const orderId = req.params.id;
+        const riderId = String(req.body?.riderId || "").trim();
+        const qrCode = String(req.body?.qrCode || "").trim();
+        const otp = normalizeOtp(req.body?.otp);
+        const actorRole = req.user!.role;
+        const actorId = req.user!.id;
+
+        if (!riderId || !qrCode || !otp) {
+          console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=missing_payload`);
+          return res.status(400).json({ error: "riderId, qrCode, and otp are required" });
+        }
+
+        const order = await storage.getOrder(orderId);
+        if (!order) return res.status(404).json({ error: "Order not found" });
+
+        if (actorRole === "seller" && order.sellerId !== actorId) {
+          console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=not_owner`);
+          return res.status(403).json({ error: "Unauthorized to verify this order pickup" });
+        }
+        if (order.deliveryMethod !== "rider") {
+          console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=wrong_delivery_method method=${order.deliveryMethod}`);
+          return res.status(409).json({ error: "Rider pickup verification is only valid for rider deliveries" });
+        }
+        if (order.riderId !== riderId) {
+          console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=rider_mismatch`);
+          return res.status(409).json({ error: "Rider does not match the assigned delivery rider" });
+        }
+        if ((order as any).qrCode !== qrCode) {
+          console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=invalid_qr`);
+          return res.status(400).json({ error: "Invalid QR code" });
+        }
+        if (normalizeOtp((order as any).pickupOtp) !== otp) {
+          console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=invalid_otp`);
+          return res.status(400).json({ error: "Invalid OTP" });
+        }
+
+        const current = canonicalizeOrderStatus(order.status);
+        if (current === "assigned") {
+          await storage.applyOrderStatusTransition(orderId, "rider_arrived", actorId, actorRole, "seller_verified_rider_at_pickup");
+        }
+        const updated = await storage.applyOrderStatusTransition(orderId, "picked_up", actorId, actorRole, "seller_pickup_qr_otp_verified");
+        if (!updated) return res.status(404).json({ error: "Order not found" });
+        await emitOrderStatusUpdateToStakeholders(updated, "picked_up");
+        return res.json({ success: true, order: updated });
+      } catch (error: any) {
+        return res.status((error as any)?.code || 400).json({ error: error.message });
+      }
+    }
+  );
+
+  // Seller verifies customer pickup (store pickup flow) using QR + OTP.
+  app.post(
+    "/api/orders/:id/verify-customer-pickup",
+    requireAuth,
+    requireRole("seller", "admin", "super_admin"),
+    requirePermissionIfAdmin("manage_orders"),
+    async (req: AuthRequest, res) => {
+      try {
+        const orderId = req.params.id;
+        const qrCode = String(req.body?.qrCode || "").trim();
+        const otp = normalizeOtp(req.body?.otp);
+        const actorRole = req.user!.role;
+        const actorId = req.user!.id;
+
+        if (!qrCode || !otp) {
+          console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=missing_payload`);
+          return res.status(400).json({ error: "qrCode and otp are required" });
+        }
+
+        const order = await storage.getOrder(orderId);
+        if (!order) return res.status(404).json({ error: "Order not found" });
+
+        if (actorRole === "seller" && order.sellerId !== actorId) {
+          console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=not_owner`);
+          return res.status(403).json({ error: "Unauthorized to verify this pickup" });
+        }
+        if (order.deliveryMethod !== "pickup") {
+          console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=wrong_delivery_method method=${order.deliveryMethod}`);
+          return res.status(409).json({ error: "Customer pickup verification is only valid for pickup orders" });
+        }
+        if ((order as any).qrCode !== qrCode) {
+          console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=invalid_qr`);
+          return res.status(400).json({ error: "Invalid QR code" });
+        }
+        if (normalizeOtp((order as any).pickupOtp) !== otp) {
+          console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=invalid_otp`);
+          return res.status(400).json({ error: "Invalid OTP" });
+        }
+
+        const updated = await storage.applyOrderStatusTransition(orderId, "completed", actorId, actorRole, "seller_customer_pickup_qr_otp_verified");
+        if (!updated) return res.status(404).json({ error: "Order not found" });
+        await emitOrderStatusUpdateToStakeholders(updated, "completed");
+        return res.json({ success: true, order: updated });
+      } catch (error: any) {
+        return res.status((error as any)?.code || 400).json({ error: error.message });
+      }
+    }
+  );
 
   app.get("/api/orders/policy", requireAuth, async (_req: AuthRequest, res) => {
     res.json({
@@ -5837,7 +5996,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(orders.riderId, riderId),
-            sql`lower(cast(${orders.status} as text)) in ('processing','ready','confirmed','searching_rider','assigned','rider_arrived','picked_up','in_transit','en_route')`
+            sql`lower(cast(${orders.status} as text)) in ('processing','ready','confirmed','searching_rider','assigned','rider_arrived','picked_up','in_transit','en_route','delivering')`
           )
         )
         .orderBy(desc(orders.createdAt))

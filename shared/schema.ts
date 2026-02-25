@@ -366,6 +366,8 @@ export const orders = pgTable("orders", {
   paymentStatus: paymentStatusEnum("payment_status").default("pending"),
   paymentReference: text("payment_reference"),
   qrCode: text("qr_code"),
+  deliveryOtp: varchar("delivery_otp", { length: 6 }),
+  pickupOtp: varchar("pickup_otp", { length: 6 }),
   estimatedDelivery: timestamp("estimated_delivery"),
   deliveredAt: timestamp("delivered_at"),
   createdAt: timestamp("created_at").defaultNow(),
