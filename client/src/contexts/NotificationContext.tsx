@@ -209,6 +209,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       type?: "default" | "success" | "error" | "warning";
     }) => {
       console.log("📬 General notification:", data);
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
       
       toast({
         title: data.title,

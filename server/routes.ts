@@ -9681,7 +9681,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       for (const recipient of recipients) {
-        if (!recipient?.isActive) continue;
+        // Legacy rows may have null isActive; only skip explicitly disabled users.
+        if (recipient?.isActive === false) continue;
 
         if (recipient.role === "admin") {
           const allowed = await hasAdminPermission(recipient.id, options?.requiredAdminPermission);
