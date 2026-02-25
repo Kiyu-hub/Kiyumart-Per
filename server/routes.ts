@@ -290,15 +290,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Don't fail signup if welcome message fails
       }
 
-      // Notify admins about new seller/rider registration
-      if (requestedRole === "seller" || requestedRole === "rider") {
-        await notifyAdmins(
-          "user",
-          `New ${requestedRole} registration`,
-          `${user.name} (${user.email}) has registered as a ${requestedRole}`,
-          { userId: user.id, role: requestedRole, link: `/admin/applications?userId=${user.id}&role=${requestedRole}` }
-        );
-      }
+      // Notify operations users about new signup.
+      await notifyAdmins(
+        "user",
+        "New User Signup",
+        `${user.name} has created an account (${requestedRole}).`,
+        {
+          userId: user.id,
+          role: requestedRole,
+          link:
+            requestedRole === "seller" || requestedRole === "rider"
+              ? `/admin/applications?userId=${user.id}&role=${requestedRole}`
+              : "/admin/users",
+        },
+        {
+          requiredAdminPermission: "manage_users",
+          includeAgents: true,
+          requiredAgentFeature: "users.view",
+        }
+      );
 
       const token = generateToken(user);
       const { password, ...userWithoutPassword } = user;
@@ -1231,6 +1241,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `New ${role} application`,
           `${updated.name} (${updated.email}) has applied to become a ${role}`,
           { userId: updated.id, role, link: `/admin/applications?userId=${updated.id}&role=${role}` },
+          {
+            requiredAdminPermission: "manage_users",
+            includeAgents: true,
+            requiredAgentFeature: "users.view",
+          }
         );
       } catch (notifyErr) {
         console.error('[APPLY] notifyAdmins failed', notifyErr);
@@ -1986,6 +2001,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         `New seller application`,
         `${userData.name} has applied to become a seller`,
         { userId: newUser.id, role: "seller", link: `/admin/applications?userId=${newUser.id}&role=seller` },
+        {
+          requiredAdminPermission: "manage_users",
+          includeAgents: true,
+          requiredAgentFeature: "users.view",
+        }
       );
 
       const { password: _, ...userWithoutPassword } = newUser;
@@ -2118,6 +2138,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         `New rider application`,
         `${userData.name} has applied to become a delivery rider`,
         { userId: newUser.id, role: "rider", link: `/admin/applications?userId=${newUser.id}&role=rider` },
+        {
+          requiredAdminPermission: "manage_users",
+          includeAgents: true,
+          requiredAgentFeature: "users.view",
+        }
       );
 
       const { password: _, ...userWithoutPassword } = newUser;
@@ -2228,7 +2253,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "product",
         "New product added",
         `A seller added a new product: ${product.name}`,
-        { productId: product.id, sellerId: req.user!.id }
+        { productId: product.id, sellerId: req.user!.id },
+        {
+          requiredAdminPermission: "manage_products",
+          includeAgents: true,
+          requiredAgentFeature: "products.viewAll",
+        }
       );
 
       res.json(product);
@@ -2280,7 +2310,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "product",
         "Product created by admin",
         `An admin added a product for seller ${seller.email}: ${product.name}`,
-        { productId: product.id, sellerId }
+        { productId: product.id, sellerId },
+        {
+          requiredAdminPermission: "manage_products",
+          includeAgents: true,
+          requiredAgentFeature: "products.viewAll",
+        }
       );
 
       res.json(product);
@@ -2670,7 +2705,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "review",
         "New review posted",
         `A customer posted a ${validatedData.rating}-star review${product ? ` for ${product.name}` : ''}`,
-        { reviewId: review.id, productId: validatedData.productId, userId: req.user!.id, link: `/product/${validatedData.productId}?reviewId=${review.id}` }
+        { reviewId: review.id, productId: validatedData.productId, userId: req.user!.id, link: `/product/${validatedData.productId}?reviewId=${review.id}` },
+        {
+          requiredAdminPermission: "manage_reviews",
+        }
       );
       
       res.json(review);
@@ -5156,8 +5194,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       // Rider matching starts only after payment verification to keep assignment deterministic.
       
-      // NOTE: Order notification will be sent after successful payment verification
-      // See /api/payments/verify/:reference endpoint
+      // Notify operations users as soon as an order is created (pending payment),
+      // then follow with payment-confirmed notification once paid.
+      try {
+        const orderNumbers = createdOrders.map((o: any) => `#${o.orderNumber}`).join(", ");
+        await notifyAdmins(
+          "order",
+          "New Order Created",
+          `${createdOrders.length} order(s) created by ${req.user!.email}: ${orderNumbers}.`,
+          {
+            buyerId: req.user!.id,
+            orderIds: createdOrders.map((o: any) => o.id),
+            orderNumbers,
+            deliveryMethod: normalizedDeliveryMethod,
+            link: "/admin/orders",
+          },
+          {
+            requiredAdminPermission: "manage_orders",
+            includeAgents: true,
+            requiredAgentFeature: "orders.view",
+          }
+        );
+      } catch (opsNotifyErr) {
+        console.error("[ORDERS] Could not send ops notification for created order:", opsNotifyErr);
+      }
       
       // Return response: single order for single-vendor (backward compatible)
       // or first order + session info for multi-vendor
@@ -9144,6 +9204,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (data.data.status === "success") {
         await startRiderMatchingForPaidOrders(orders.map((o: any) => o.id));
+        try {
+          const orderNumbers = orders.map((o: any) => `#${o.orderNumber}`).join(", ");
+          const totalPaid = (Number(data.data.amount || 0) / 100).toFixed(2);
+          await notifyAdmins(
+            "order",
+            "New Paid Order",
+            `Payment confirmed for ${orders.length} order(s): ${orderNumbers}. Total: ${data.data.currency} ${totalPaid}.`,
+            {
+              reference,
+              orderIds: orders.map((o: any) => o.id),
+              orderNumbers,
+              link: "/admin/orders",
+            },
+            {
+              requiredAdminPermission: "manage_orders",
+              includeAgents: true,
+              requiredAgentFeature: "orders.view",
+            }
+          );
+        } catch (opsNotifyErr) {
+          console.error("[VERIFY] Could not send ops notification for paid order:", opsNotifyErr);
+        }
       }
 
       const transaction = await storage.getTransactionByReference(reference);
@@ -9227,7 +9309,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (retries > 5) {
             // Notify admins of repeated webhook retries for same reference
             try {
-              await notifyAdmins('payment_webhook_retries', 'Repeated webhook retries', `Paystack reference ${reference} has ${retries} webhook attempts`, { reference, retries });
+              await notifyAdmins(
+                'payment_webhook_retries',
+                'Repeated webhook retries',
+                `Paystack reference ${reference} has ${retries} webhook attempts`,
+                { reference, retries, link: "/admin/orders" },
+                {
+                  requiredAdminPermission: "manage_orders",
+                  includeAgents: true,
+                  requiredAgentFeature: "orders.view",
+                }
+              );
             } catch (notifyErr) {
               console.error('[WEBHOOK] notifyAdmins failed', notifyErr);
             }
@@ -9238,7 +9330,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const { processPaystackChargeSuccess } = await import('./payments');
             await processPaystackChargeSuccess(data, storage, io);
-            await startRiderMatchingForPaidOrders(extractOrderIdsFromPaymentPayload(data));
+            const paidOrderIds = extractOrderIdsFromPaymentPayload(data);
+            await startRiderMatchingForPaidOrders(paidOrderIds);
+            try {
+              const orderListLabel = paidOrderIds.length > 0 ? paidOrderIds.join(", ") : "unknown";
+              const paidAmount = (Number(data?.amount || 0) / 100).toFixed(2);
+              await notifyAdmins(
+                "order",
+                "New Paid Order",
+                `Webhook confirmed payment for order(s): ${orderListLabel}. Total: ${data?.currency || "GHS"} ${paidAmount}.`,
+                {
+                  reference,
+                  orderIds: paidOrderIds,
+                  link: "/admin/orders",
+                },
+                {
+                  requiredAdminPermission: "manage_orders",
+                  includeAgents: true,
+                  requiredAgentFeature: "orders.view",
+                }
+              );
+            } catch (opsNotifyErr) {
+              console.error("[WEBHOOK] Could not send ops notification for paid order:", opsNotifyErr);
+            }
             console.log('[WEBHOOK] Payment processed successfully (charge.success)');
 
             // Mark idempotency record used (associate with reference)
@@ -9502,17 +9616,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Socket.IO for Real-time Chat ============
   const userSockets = new Map<string, string>();
 
-  // Helper function to send notifications to all admins and super_admins
-  async function notifyAdmins(type: string, title: string, message: string, metadata?: Record<string, any>) {
+  // Helper function to send operations notifications with permission-aware audience filtering.
+  async function notifyAdmins(
+    type: string,
+    title: string,
+    message: string,
+    metadata?: Record<string, any>,
+    options?: {
+      requiredAdminPermission?:
+        | "manage_users"
+        | "manage_products"
+        | "manage_orders"
+        | "manage_stores"
+        | "manage_categories"
+        | "manage_platform_settings"
+        | "view_analytics"
+        | "manage_promotions"
+        | "manage_reviews";
+      includeAgents?: boolean;
+      requiredAgentFeature?: string;
+    }
+  ) {
     try {
       const admins = await storage.getUsersByRole("admin");
       const superAdmins = await storage.getUsersByRole("super_admin");
-      const allAdmins = [...admins, ...superAdmins];
-      
-      for (const admin of allAdmins) {
+      const agents = options?.includeAgents ? await storage.getUsersByRole("agent") : [];
+      const recipients = [...admins, ...superAdmins, ...agents];
+      const adminPermissionCache = new Map<string, any>();
+
+      const hasAdminPermission = async (adminId: string, permission?: string) => {
+        if (!permission) return true;
+        if (!adminPermissionCache.has(adminId)) {
+          const [permissionsRow] = await db
+            .select()
+            .from(adminPermissions)
+            .where(eq(adminPermissions.userId, adminId))
+            .limit(1);
+          adminPermissionCache.set(adminId, permissionsRow || null);
+        }
+        const row = adminPermissionCache.get(adminId);
+        if (!row) return false;
+        switch (permission) {
+          case "manage_users":
+            return row.canManageUsers === true;
+          case "manage_products":
+            return row.canManageProducts === true;
+          case "manage_orders":
+            return row.canManageOrders === true;
+          case "manage_stores":
+            return row.canManageStores === true;
+          case "manage_categories":
+            return row.canManageCategories === true;
+          case "manage_platform_settings":
+            return row.canManagePlatformSettings === true;
+          case "view_analytics":
+            return row.canViewAnalytics === true;
+          case "manage_promotions":
+            return row.canManagePromotions === true;
+          case "manage_reviews":
+            return row.canManageReviews === true;
+          default:
+            return false;
+        }
+      };
+
+      for (const recipient of recipients) {
+        if (!recipient?.isActive) continue;
+
+        if (recipient.role === "admin") {
+          const allowed = await hasAdminPermission(recipient.id, options?.requiredAdminPermission);
+          if (!allowed) continue;
+        } else if (recipient.role === "agent") {
+          const requiredFeature = options?.requiredAgentFeature || "support.view";
+          const features = await resolveRoleFeatures(recipient.role);
+          if (features[requiredFeature] !== true) continue;
+        } else if (recipient.role !== "super_admin") {
+          continue;
+        }
+
         // Save notification to database
         await storage.createNotification({
-          userId: admin.id,
+          userId: recipient.id,
           type: type as any,
           title,
           message,
@@ -9520,8 +9704,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         
         // Send real-time notification via Socket.IO
-        if (admin.id) {
-          io.to(admin.id).emit("notification", {
+        if (recipient.id) {
+          io.to(recipient.id).emit("notification", {
             title,
             message,
             type: "default",
