@@ -26,10 +26,10 @@
 - [x] Prevent silent auto-assign when policy is set to manual-confirm mode.
 - [x] Add explicit feature flag: `RIDER_ASSIGNMENT_MANUAL_CONFIRM=true`.
 
-## 4. Verification Security (QR + OTP, Dual Gate)
-- [x] Seller -> Rider pickup verification requires both QR and OTP.
-- [x] Rider -> Customer dropoff verification requires both QR and OTP.
-- [x] Seller -> Customer pickup verification requires both QR and OTP.
+## 4. Verification Security (QR / OTP Flexible Gate)
+- [x] Seller -> Rider pickup verification accepts QR or OTP (or both).
+- [x] Rider -> Customer dropoff verification accepts QR or OTP (or both).
+- [x] Seller -> Customer pickup verification accepts QR or OTP (or both).
 - [x] Add denial logs for invalid actor/order/proximity.
 
 ## 5. Role Visibility Matrix Enforcement
