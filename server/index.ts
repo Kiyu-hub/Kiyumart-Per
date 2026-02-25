@@ -49,8 +49,10 @@ app.use((req, res, next) => {
 
 // CORS configuration for separated frontend/backend
 const allowedOrigins = [
+  'http://localhost:5000',
   'http://localhost:5001',
   'http://localhost:5173',
+  'http://127.0.0.1:5000',
   'http://127.0.0.1:5001',
   'http://127.0.0.1:5173',
   process.env.FRONTEND_URL,
@@ -441,11 +443,11 @@ app.use(cookieParser());
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5001 if not specified.
+  // ALWAYS serve the app on the port specified in the environment variable PORT.
+  // Default to 5000 for local development.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5001', 10);
+  const port = parseInt(process.env.PORT || '5000', 10);
   const host = process.env.HOST || '0.0.0.0';
   server.on("error", (err: any) => {
     if (err?.code === "EADDRINUSE") {
