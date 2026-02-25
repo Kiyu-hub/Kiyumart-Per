@@ -34,7 +34,12 @@ export default function Notifications() {
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const { data: notifications = [], isLoading } = useQuery<Notification[]>({
-    queryKey: ["/api/notifications"],
+    queryKey: ["/api/notifications", user?.id],
+    queryFn: async () => {
+      const res = await fetch("/api/notifications?limit=500", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch notifications");
+      return res.json();
+    },
     enabled: !!user,
   });
 

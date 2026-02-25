@@ -1823,7 +1823,7 @@ export class DbStorage implements IStorage {
     return newNotification;
   }
 
-  async getNotificationsByUser(userId: string, limit: number = 50): Promise<Notification[]> {
+  async getNotificationsByUser(userId: string, limit: number = 500): Promise<Notification[]> {
     return db.select()
       .from(notifications)
       .where(eq(notifications.userId, userId))

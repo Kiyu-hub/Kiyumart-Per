@@ -34,7 +34,12 @@ export default function AgentNotifications() {
   }, [isAuthenticated, authLoading, user, navigate]);
 
   const { data: notifications = [], isLoading } = useQuery<Notification[]>({
-    queryKey: ["/api/notifications"],
+    queryKey: ["/api/notifications", user?.id],
+    queryFn: async () => {
+      const res = await fetch("/api/notifications?limit=500", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch notifications");
+      return res.json();
+    },
     enabled: isAuthenticated && user?.role === "agent",
   });
 
@@ -43,7 +48,7 @@ export default function AgentNotifications() {
       return apiRequest("PATCH", `/api/notifications/${id}/read`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications", user?.id] });
     },
   });
 
@@ -52,7 +57,7 @@ export default function AgentNotifications() {
       return apiRequest("DELETE", `/api/notifications/${id}`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications", user?.id] });
       toast({
         title: "Notification deleted",
         description: "The notification has been removed",
@@ -65,7 +70,7 @@ export default function AgentNotifications() {
       return apiRequest("PATCH", "/api/notifications/mark-all-read", {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications", user?.id] });
       toast({
         title: "All marked as read",
         description: "All notifications have been marked as read",

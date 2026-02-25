@@ -60,13 +60,18 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
   const { data: notifications = [], isLoading } = useQuery<Notification[]>({
-    queryKey: ["/api/notifications"],
+    queryKey: ["/api/notifications", user?.id],
+    queryFn: async () => {
+      const res = await fetch("/api/notifications?limit=500", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch notifications");
+      return res.json();
+    },
     enabled: !!user && isAuthenticated,
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
   });
 
   const { data: unreadCount = 0 } = useQuery<number>({
-    queryKey: ["/api/notifications/unread-count"],
+    queryKey: ["/api/notifications/unread-count", user?.id],
     queryFn: async () => {
       const res = await fetch("/api/notifications/unread-count", { credentials: "include" });
       if (!res.ok) return 0;
@@ -248,7 +253,7 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
     markAsReadMutation.mutate(notificationId);
   };
 
-  const recentNotifications = notifications.slice(0, 10); // Show only 10 most recent
+  const recentNotifications = notifications.slice(0, 50);
   const hasUnread = notifications.some(n => !n.isRead);
 
   if (!isAuthenticated) return null;

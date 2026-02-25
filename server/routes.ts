@@ -11698,7 +11698,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Notification Routes ============
   app.get("/api/notifications", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const parsedLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 500;
+      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 1000)) : 500;
       const notifications = await storage.getNotificationsByUser(req.user!.id, limit);
       res.json(notifications);
     } catch (error: any) {

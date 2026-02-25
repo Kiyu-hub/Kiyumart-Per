@@ -38,7 +38,7 @@ export default function RiderNotifications() {
   const { data: notifications = [], isLoading } = useQuery<Notification[]>({
     queryKey: ["/api/notifications", user?.id],
     queryFn: async () => {
-      const res = await fetch("/api/notifications", { credentials: "include" });
+      const res = await fetch("/api/notifications?limit=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch notifications");
       return res.json();
     },
