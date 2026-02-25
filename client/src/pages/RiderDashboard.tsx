@@ -228,6 +228,7 @@ export default function RiderDashboard() {
                     </div>
                     <OrderStatusTimeline
                       currentStatus={currentOrder.status}
+                      deliveryMethod={currentOrder.deliveryMethod}
                       createdAt={currentOrder.createdAt}
                       updatedAt={currentOrder.updatedAt || undefined}
                       deliveredAt={currentOrder.deliveredAt || undefined}

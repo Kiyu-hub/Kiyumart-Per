@@ -371,6 +371,7 @@ export default function OrderTracking() {
                           <h3 className="text-sm font-medium mb-4">Order Progress</h3>
                           <OrderStatusTimeline 
                             currentStatus={order.status}
+                            deliveryMethod={order.deliveryMethod}
                             createdAt={order.createdAt}
                             updatedAt={order.updatedAt}
                             deliveredAt={order.deliveredAt}

@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 
 interface OrderStatusTimelineProps {
   currentStatus: string;
+  deliveryMethod?: string;
   createdAt?: string;
   updatedAt?: string;
   deliveredAt?: string;
@@ -18,33 +19,52 @@ const normalizeStatus = (status?: string) => {
   return s || "pending";
 };
 
-const toCustomerTimelineStatus = (status?: string) => {
+const toCustomerTimelineStatus = (status?: string, deliveryMethod?: string) => {
   const s = normalizeStatus(status);
+  const isPickup = (deliveryMethod || "").toLowerCase().trim() === "pickup";
   if (s === "cancelled" || s === "disputed") return s;
   if (["pending"].includes(s)) return "pending";
+  if (isPickup) {
+    if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return s === "ready" ? "ready_for_pickup" : "processing";
+    if (["picked_up", "in_transit", "en_route"].includes(s)) return "ready_for_pickup";
+    if (["delivered", "completed"].includes(s)) return "delivered";
+    return "pending";
+  }
   if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
   if (["picked_up", "in_transit", "en_route"].includes(s)) return "en_route";
   if (["delivered", "completed"].includes(s)) return "delivered";
   return "pending";
 };
 
-const statusSteps = [
+const deliveryStatusSteps = [
   { key: "pending", label: "Order Placed", icon: Clock },
   { key: "processing", label: "Preparing Delivery", icon: Package },
   { key: "en_route", label: "On the Way", icon: Truck },
   { key: "delivered", label: "Delivered", icon: CheckCircle2 },
 ];
 
-const statusOrder = ["pending", "processing", "en_route", "delivered"];
+const pickupStatusSteps = [
+  { key: "pending", label: "Order Placed", icon: Clock },
+  { key: "processing", label: "Preparing Order", icon: Package },
+  { key: "ready_for_pickup", label: "Ready for Pickup", icon: Truck },
+  { key: "delivered", label: "Completed", icon: CheckCircle2 },
+];
+
+const deliveryStatusOrder = ["pending", "processing", "en_route", "delivered"];
+const pickupStatusOrder = ["pending", "processing", "ready_for_pickup", "delivered"];
 
 export default function OrderStatusTimeline({ 
   currentStatus, 
+  deliveryMethod,
   createdAt, 
   updatedAt,
   deliveredAt,
   className 
 }: OrderStatusTimelineProps) {
-  const normalizedStatus = toCustomerTimelineStatus(currentStatus);
+  const isPickup = (deliveryMethod || "").toLowerCase().trim() === "pickup";
+  const normalizedStatus = toCustomerTimelineStatus(currentStatus, deliveryMethod);
+  const statusSteps = isPickup ? pickupStatusSteps : deliveryStatusSteps;
+  const statusOrder = isPickup ? pickupStatusOrder : deliveryStatusOrder;
   // Handle cancelled and disputed separately
   const isCancelled = normalizedStatus === "cancelled";
   const isDisputed = normalizedStatus === "disputed";
