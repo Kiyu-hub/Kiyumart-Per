@@ -191,7 +191,17 @@ export default function RealTimeRiderMap() {
   // Assign rider mutation
   const assignRiderMutation = useMutation({
     mutationFn: async ({ orderId, riderId }: { orderId: string; riderId: string }) => {
-      return apiRequest("POST", `/api/orders/${orderId}/assign-rider`, { riderId });
+      try {
+        // Primary path used by admin/super-admin order operations.
+        return await apiRequest("PATCH", `/api/orders/${orderId}/assign-rider`, { riderId });
+      } catch (primaryErr: any) {
+        const message = String(primaryErr?.message || "");
+        // Backward-compatible fallback for environments still using legacy POST route.
+        if (message.includes("404") || message.includes("405")) {
+          return apiRequest("POST", `/api/orders/${orderId}/assign-rider`, { riderId });
+        }
+        throw primaryErr;
+      }
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Rider assigned successfully" });
