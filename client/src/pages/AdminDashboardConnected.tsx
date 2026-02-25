@@ -236,6 +236,14 @@ export default function AdminDashboardConnected() {
   });
 
   const riderMap = new Map(Array.isArray(riders) ? riders.map(r => [r.id, r]) : []);
+  const normalizePaymentStatus = (value?: string) => {
+    const s = (value || "").toLowerCase().trim();
+    if (s === "payment_pending") return "pending";
+    if (s === "payment_failed") return "failed";
+    if (s === "completed" || s === "paid" || s === "success") return "paid";
+    return s || "pending";
+  };
+  const isPaidPaymentStatus = (value?: string) => normalizePaymentStatus(value) === "paid";
 
   if (authLoading || !isAuthenticated || (user?.role !== "super_admin" && user?.role !== "admin")) {
     return (
@@ -253,6 +261,12 @@ export default function AdminDashboardConnected() {
   const buyerMap = new Map(Array.isArray(buyers) ? buyers.map(b => [b.id, b]) : []);
 
   const deliveredCount = orders.filter(o => normalizeOrderStatus(o.status) === "delivered").length;
+  const paidMoneyFromOrders = orders
+    .filter((o) => isPaidPaymentStatus((o as any).paymentStatus))
+    .reduce((sum, o) => sum + Number.parseFloat((o as any).total || "0"), 0);
+  const totalReceivedMoney = typeof analytics?.totalReceivedMoney === "number"
+    ? analytics.totalReceivedMoney
+    : paidMoneyFromOrders;
 
   return (
     <div className="flex h-screen bg-background">
@@ -293,7 +307,7 @@ export default function AdminDashboardConnected() {
                   />
                   <MetricCard
                     title="Total Received Money"
-                    value={formatPrice(analytics.totalReceivedMoney || 0)}
+                    value={formatPrice(totalReceivedMoney || 0)}
                     icon={Wallet}
                     change={9.4}
                   />
