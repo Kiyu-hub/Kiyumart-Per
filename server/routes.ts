@@ -1420,6 +1420,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Email already exists" });
       }
 
+      // Platform policy: exactly one super admin account.
+      if (validatedData.role === "super_admin") {
+        const existingSuperAdmins = await storage.getUsersByRole("super_admin");
+        if (existingSuperAdmins.length > 0) {
+          return res.status(400).json({
+            error: "Only one super admin account is allowed on this platform",
+          });
+        }
+      }
+
       const hashedPassword = await hashPassword(validatedData.password);
       
       // Build user data with role-specific fields
@@ -1667,6 +1677,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (typeof updateData.role === "string") {
         updateData.role = normalizedRequestedRole;
+      }
+
+      if (normalizedRequestedRole === "super_admin" && roleChanged) {
+        const existingSuperAdmins = await storage.getUsersByRole("super_admin");
+        const otherSuperAdmin = existingSuperAdmins.find((u: any) => String(u.id) !== String(req.params.id));
+        if (otherSuperAdmin) {
+          return res.status(400).json({
+            error: "Only one super admin account is allowed on this platform",
+          });
+        }
       }
 
       if (updateData.storeType && !STORE_TYPES.includes(updateData.storeType)) {
@@ -3697,6 +3717,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const created = [];
       for (const user of testUsers) {
         try {
+          if (user.role === "super_admin") {
+            const existingSuperAdmins = await storage.getUsersByRole("super_admin");
+            if (existingSuperAdmins.length > 0) {
+              created.push({ email: user.email, role: user.role, status: "skipped (single super admin policy)" });
+              continue;
+            }
+          }
           const newUser = await storage.createUser(user as any);
           created.push({ email: user.email, role: user.role });
           
@@ -7125,7 +7152,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/messages", requireAuth, requireRoleFeature("messages.send"), async (req: AuthRequest, res) => {
     try {
-      // Ensure IDs are strings for consistent socket room matching
       const senderId = String(req.user!.id);
       const receiverId = String(req.body.receiverId);
 
@@ -7133,69 +7159,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!permission.allowed) {
         return res.status(403).json({ error: permission.reason });
       }
-      
-      const messageData = {
-        senderId,
-        receiverId,
-        message: req.body.message,
-        messageType: req.body.messageType || "text",
-        status: "sent" as const,
-        isRead: false,
-      };
 
-      const message = await storage.createMessage(messageData);
-      
-      console.log(`📤 Message sent from ${senderId} to ${receiverId}`);
-      
-      // Sender gets immediate local echo; receiver delivery uses retry-aware queue.
-      io.to(senderId).emit("new_message", message);
-      await messageDeliveryService.queueMessage({
-        id: message.id,
-        senderId,
-        receiverId,
-        message: message.message,
-        messageType: (message.messageType as any) || "text",
-        mediaUrl: (message as any).mediaUrl || undefined,
-        emitSenderAck: false,
-      });
-      
       const receiver = await storage.getUser(receiverId);
       const sender = await storage.getUser(senderId);
-      
-      // Create notification for the receiver only (never notify sender for own outgoing message)
-      if (receiver && receiver.id !== senderId) {
-        const rawMessage = (message.message || "").trim();
-        const messagePreview = decodeAttachmentNotificationPreview(rawMessage) || rawMessage;
-        const actor = resolveMessageNotificationActor(receiver as any, sender as any);
-        const notificationBody = messagePreview || `You have a new message from ${actor.bodySenderName}`;
-        await storage.createNotification({
-          userId: receiver.id,
-          type: "message",
-          title: `New message from ${actor.titleSenderName}`,
-          message: notificationBody,
-          metadata: {
-            messageId: message.id,
-            senderId: actor.senderIdMetadata,
-            senderRole: actor.senderRoleMetadata,
-            preview: messagePreview,
-          } as any,
-        });
-        
-        // Also emit a notification event to the receiver's socket room
-        io.to(receiverId).emit("notification", {
-          type: "message",
-          title: `New message from ${actor.titleSenderName}`,
-          message: notificationBody,
-          data: {
-            messageId: message.id,
-            senderId: actor.senderIdMetadata,
-            senderRole: actor.senderRoleMetadata,
-            preview: messagePreview,
-          },
-        });
+      const senderRole = String(sender?.role || "").toLowerCase();
+      const receiverRole = String(receiver?.role || "").toLowerCase();
+      const isRiderToPrivilegedSupport =
+        senderRole === "rider" && (receiverRole === "agent" || receiverRole === "admin" || receiverRole === "super_admin");
+
+      let recipientIds = [receiverId];
+      if (isRiderToPrivilegedSupport) {
+        const [admins, superAdmins, agents] = await Promise.all([
+          storage.getUsersByRole("admin"),
+          storage.getUsersByRole("super_admin"),
+          storage.getUsersByRole("agent"),
+        ]);
+        const supportIds = [...admins, ...superAdmins, ...agents]
+          .filter((u, idx, arr) => Boolean(u?.isActive) && u.id !== senderId && arr.findIndex((x) => x.id === u.id) === idx)
+          .map((u) => String(u.id));
+        if (supportIds.length > 0) recipientIds = supportIds;
       }
-      
-      res.json(message);
+
+      const createdMessages = await Promise.all(
+        recipientIds.map((targetReceiverId) =>
+          storage.createMessage({
+            senderId,
+            receiverId: targetReceiverId,
+            message: req.body.message,
+            messageType: req.body.messageType || "text",
+          })
+        )
+      );
+      const primaryMessage = createdMessages.find((m: any) => String(m.receiverId) === receiverId) || createdMessages[0];
+
+      io.to(senderId).emit("new_message", primaryMessage);
+      await Promise.all(
+        createdMessages.map((msg) =>
+          messageDeliveryService.queueMessage({
+            id: msg.id,
+            senderId,
+            receiverId: String((msg as any).receiverId),
+            message: msg.message,
+            messageType: (msg.messageType as any) || "text",
+            mediaUrl: (msg as any).mediaUrl || undefined,
+            emitSenderAck: false,
+          })
+        )
+      );
+
+      const rawMessage = (primaryMessage.message || "").trim();
+      const messagePreview = decodeAttachmentNotificationPreview(rawMessage) || rawMessage;
+      const actor = resolveMessageNotificationActor(receiver as any, sender as any);
+      const notificationBody = messagePreview || `You have a new message from ${actor.bodySenderName}`;
+
+      await Promise.all(
+        recipientIds.map(async (targetReceiverId, idx) => {
+          if (String(targetReceiverId) === senderId) return;
+          const msgForRecipient = createdMessages[idx] || primaryMessage;
+          await storage.createNotification({
+            userId: targetReceiverId,
+            type: "message",
+            title: `New message from ${actor.titleSenderName}`,
+            message: notificationBody,
+            metadata: {
+              messageId: msgForRecipient.id,
+              senderId: actor.senderIdMetadata,
+              senderRole: actor.senderRoleMetadata,
+              preview: messagePreview,
+            } as any,
+          });
+
+          io.to(targetReceiverId).emit("notification", {
+            type: "message",
+            title: `New message from ${actor.titleSenderName}`,
+            message: notificationBody,
+            data: {
+              messageId: msgForRecipient.id,
+              senderId: actor.senderIdMetadata,
+              senderRole: actor.senderRoleMetadata,
+              preview: messagePreview,
+            },
+          });
+        })
+      );
+
+      res.json(primaryMessage);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -10844,8 +10892,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Real-time message sending handler
     socket.on("new_message", async ({ receiverId, message }) => {
       try {
-        const senderId = socket.data.userId; // Authenticated user from middleware
-        
+        const senderId = socket.data.userId;
+
         if (!receiverId || !message?.trim()) {
           socket.emit("error", { message: "Receiver ID and message are required" });
           return;
@@ -10857,73 +10905,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
-        // Create message in database
         const { db } = await import("../db/index");
         const { chatMessages } = await import("@shared/schema");
-        
-        const [newMessage] = await db.insert(chatMessages).values({
-          senderId,
-          receiverId,
-          message: message.trim(),
-          status: 'sent',
-          isRead: false
-        }).returning();
+        const [receiverUser, senderUser] = await Promise.all([
+          storage.getUser(receiverId),
+          storage.getUser(senderId),
+        ]);
 
-        console.debug(`✅ New message from ${senderId} to ${receiverId}: ${newMessage.id}`);
+        const senderRole = String(senderUser?.role || "").toLowerCase();
+        const receiverRole = String(receiverUser?.role || "").toLowerCase();
+        const isRiderToPrivilegedSupport =
+          senderRole === "rider" && (receiverRole === "agent" || receiverRole === "admin" || receiverRole === "super_admin");
 
-        await messageDeliveryService.queueMessage({
-          id: newMessage.id,
-          senderId: newMessage.senderId,
-          receiverId: newMessage.receiverId,
-          message: newMessage.message,
-          messageType: "text",
-          emitSenderAck: false,
-        });
+        let recipientIds = [receiverId];
+        if (isRiderToPrivilegedSupport) {
+          const [admins, superAdmins, agents] = await Promise.all([
+            storage.getUsersByRole("admin"),
+            storage.getUsersByRole("super_admin"),
+            storage.getUsersByRole("agent"),
+          ]);
+          const supportIds = [...admins, ...superAdmins, ...agents]
+            .filter((u, idx, arr) => Boolean(u?.isActive) && u.id !== senderId && arr.findIndex((x) => x.id === u.id) === idx)
+            .map((u) => String(u.id));
+          if (supportIds.length > 0) recipientIds = supportIds;
+        }
 
-        // Acknowledge to sender
+        const createdMessages = await Promise.all(
+          recipientIds.map(async (targetReceiverId) => {
+            const [created] = await db.insert(chatMessages).values({
+              senderId,
+              receiverId: targetReceiverId,
+              message: message.trim(),
+              status: "sent",
+              isRead: false,
+            }).returning();
+            return created;
+          })
+        );
+
+        const primaryMessage = createdMessages.find((m: any) => String(m.receiverId) === receiverId) || createdMessages[0];
+
+        await Promise.all(
+          createdMessages.map((msg) =>
+            messageDeliveryService.queueMessage({
+              id: msg.id,
+              senderId: msg.senderId,
+              receiverId: msg.receiverId,
+              message: msg.message,
+              messageType: "text",
+              emitSenderAck: false,
+            })
+          )
+        );
+
         socket.emit("message_sent", {
-          id: newMessage.id,
-          tempId: message.tempId, // For optimistic UI updates
-          status: 'sent',
-          createdAt: newMessage.createdAt
+          id: primaryMessage.id,
+          tempId: message.tempId,
+          status: "sent",
+          createdAt: primaryMessage.createdAt,
         });
 
-        // Create notification for the receiver
         try {
-          const receiver = await storage.getUser(receiverId);
-          const sender = await storage.getUser(senderId);
-          
-          if (receiver) {
-            const actor = resolveMessageNotificationActor(receiver as any, sender as any);
-            // Create notification in database
-            await storage.createNotification({
-              userId: receiverId,
-              type: "message",
-              title: "New message",
-              message: `You have a new message from ${actor.bodySenderName}`,
-              metadata: {
-                messageId: newMessage.id,
-                senderId: actor.senderIdMetadata,
-                senderRole: actor.senderRoleMetadata,
-              } as any,
-            });
-            
-            // Emit notification event
-            io.to(receiverId).emit("notification", {
-              type: "message",
-              title: "New message",
-              message: `You have a new message from ${actor.bodySenderName}`,
-              data: {
-                messageId: newMessage.id,
-                senderId: actor.senderIdMetadata,
-                senderRole: actor.senderRoleMetadata,
-              },
-            });
-          }
+          const actor = resolveMessageNotificationActor(receiverUser as any, senderUser as any);
+          const notificationText = `You have a new message from ${actor.bodySenderName}`;
+          await Promise.all(
+            recipientIds.map(async (targetReceiverId, idx) => {
+              const msgForRecipient = createdMessages[idx] || primaryMessage;
+              await storage.createNotification({
+                userId: targetReceiverId,
+                type: "message",
+                title: "New message",
+                message: notificationText,
+                metadata: {
+                  messageId: msgForRecipient.id,
+                  senderId: actor.senderIdMetadata,
+                  senderRole: actor.senderRoleMetadata,
+                } as any,
+              });
+
+              io.to(targetReceiverId).emit("notification", {
+                type: "message",
+                title: "New message",
+                message: notificationText,
+                data: {
+                  messageId: msgForRecipient.id,
+                  senderId: actor.senderIdMetadata,
+                  senderRole: actor.senderRoleMetadata,
+                },
+              });
+            })
+          );
         } catch (notifyError) {
           console.error("Error creating message notification:", notifyError);
         }
-
       } catch (error) {
         console.error("Error sending message:", error);
         socket.emit("error", { message: "Failed to send message" });
@@ -12341,6 +12415,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   return httpServer;
 }
+
+
 
 
 

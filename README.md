@@ -236,6 +236,13 @@ To be the leading online marketplace platform for local businesses, connecting q
   - `Phone Call` (`tel:` fallback using buyer phone).
 - Normalized rider delivery status UX to remove duplicate `In Transit` representation in rider dashboard filtering/actions.
 - Rider messaging support-role normalization tightened for role variants (`superadmin` / `administrator`) to keep support masking consistent.
+- Rider -> support direct chat now fans out to all privileged support users (agent/admin/super_admin) at backend message creation time:
+  - all privileged users receive notification events;
+  - each privileged user receives a linked thread copy, so any of them can reply to rider messages.
+- Enforced single-super-admin platform policy in user management flows:
+  - creating a second `super_admin` is blocked;
+  - role updates that would create an additional `super_admin` are blocked;
+  - development seed flow now respects single-super-admin policy.
 
 ## Mandatory Migration Workflow (Non-Negotiable)
 
