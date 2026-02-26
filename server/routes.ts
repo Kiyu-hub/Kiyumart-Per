@@ -497,7 +497,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/profile", requireAuth, requireRoleFeature("profile.manage"), async (req: AuthRequest, res) => {
+  app.patch("/api/profile", requireAuth, async (req: AuthRequest, res) => {
     try {
       // CRITICAL FIX: Added storeType and storeTypeMetadata to allow existing sellers to complete their profiles
       const allowedFields = [

@@ -222,6 +222,7 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "promotions.manage": true,
     "reviews.manage": true,
     "analytics.view": true,
+    "profile.manage": true,
   },
   rider: {
     "orders.view": true,
