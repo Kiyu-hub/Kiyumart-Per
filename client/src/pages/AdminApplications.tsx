@@ -60,6 +60,8 @@ export default function AdminApplications() {
   const [interviewDateTime, setInterviewDateTime] = useState("");
   const [activeTab, setActiveTab] = useState<"sellers" | "riders" | "interview" | "rejected">("sellers");
   const deepLinkHandledRef = useRef(false);
+  const [rotatedImageUrls, setRotatedImageUrls] = useState<Record<string, boolean>>({});
+  const isTestingPurgeEnabled = (import.meta.env.MODE || "development") !== "production";
 
   const queryParams = useMemo(() => {
     const query = location.includes("?") ? location.split("?")[1] : "";
@@ -80,24 +82,43 @@ export default function AdminApplications() {
   const renderImageTile = (label: string, url?: string | null, testId?: string, compact = false) => {
     if (!url) {
       return (
-        <div className="rounded-lg border border-dashed p-3">
+        <div className="rounded-lg border border-dashed p-3 h-[250px] flex flex-col">
           <p className="text-sm font-medium text-muted-foreground mb-1">{label}</p>
-          <p className="text-sm text-muted-foreground">N/A</p>
+          <div className="flex-1 rounded-md border border-dashed border-border/70 bg-background/50 flex items-center justify-center">
+            <p className="text-sm text-muted-foreground">N/A</p>
+          </div>
         </div>
       );
     }
 
+    const rotateForLandscape = Boolean(rotatedImageUrls[url]);
     return (
-      <div className="rounded-lg border p-3 bg-muted/30" data-testid={testId}>
+      <div className="rounded-lg border p-3 bg-muted/30 h-[250px] flex flex-col" data-testid={testId}>
         <p className="text-sm font-medium text-muted-foreground mb-2">{label}</p>
-        <div className="rounded-md overflow-hidden border bg-background">
-          <img src={url} alt={label} className={`w-full ${compact ? "max-h-40" : "max-h-64"} object-contain`} />
+        <div className="rounded-md overflow-hidden border bg-background flex-1 min-h-0 flex items-center justify-center">
+          <img
+            src={url}
+            alt={label}
+            className={`object-contain transition-transform duration-150 ${
+              compact ? "max-h-[85%] max-w-[85%]" : "max-h-full max-w-full"
+            } ${rotateForLandscape ? "rotate-90" : ""}`}
+            style={{ imageOrientation: "from-image" as any }}
+            onLoad={(event) => {
+              const image = event.currentTarget;
+              const shouldRotate = /ghana card/i.test(label) && image.naturalHeight > image.naturalWidth;
+              setRotatedImageUrls((prev) => {
+                if (Boolean(prev[url]) === shouldRotate) return prev;
+                return { ...prev, [url]: shouldRotate };
+              });
+            }}
+          />
         </div>
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 block text-xs text-primary break-all hover:underline"
+          className="mt-2 block text-xs text-primary break-all hover:underline truncate"
+          title={url}
         >
           {url}
         </a>
@@ -387,6 +408,9 @@ export default function AdminApplications() {
 
   const purgePendingMutation = useMutation({
     mutationFn: async () => {
+      if (!isTestingPurgeEnabled) {
+        throw new Error("Clear Pending Queue is disabled in production.");
+      }
       try {
         return await requestJsonWithFallback<{ totalFound?: number; clearedApproved?: number; deletedUnapproved?: number; fallback?: boolean }>(
           "POST",
@@ -395,6 +419,9 @@ export default function AdminApplications() {
           "Clear Pending Queue",
         );
       } catch {
+        if (!isTestingPurgeEnabled) {
+          throw new Error("Clear Pending Queue is disabled in production.");
+        }
         // Legacy fallback: perform equivalent cleanup using existing user APIs.
         const buckets = await Promise.all([
           fetchApplications("/api/users?role=seller&applicationStatus=pending"),
@@ -566,6 +593,14 @@ export default function AdminApplications() {
 
   const handlePurgePendingQueue = () => {
     if (user?.role !== "super_admin") return;
+    if (!isTestingPurgeEnabled) {
+      toast({
+        title: "Disabled in Production",
+        description: "Clear Pending Queue is available for testing environments only.",
+        variant: "destructive",
+      });
+      return;
+    }
     const confirmed = window.confirm("Clear all pending seller/rider applications now? This deletes unapproved applicant accounts.");
     if (!confirmed) return;
     purgePendingMutation.mutate();
@@ -763,16 +798,21 @@ export default function AdminApplications() {
             <Button
               variant="outline"
               onClick={handlePurgePendingQueue}
-              disabled={purgePendingMutation.isPending}
+              disabled={purgePendingMutation.isPending || !isTestingPurgeEnabled}
               data-testid="button-clear-pending-queue"
               className="gap-2"
+              title={
+                isTestingPurgeEnabled
+                  ? "Testing utility to clear stale pending applications"
+                  : "Disabled in production"
+              }
             >
               {purgePendingMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Eraser className="h-4 w-4" />
               )}
-              Clear Pending Queue
+              Clear Pending Queue {isTestingPurgeEnabled ? "(Testing)" : "(Disabled)"}
             </Button>
           )}
         </div>

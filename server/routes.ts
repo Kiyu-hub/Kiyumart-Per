@@ -2277,6 +2277,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     requirePermission("manage_users"),
     async (req, res) => {
       try {
+        if (process.env.NODE_ENV === "production") {
+          return res.status(403).json({
+            error: "Clear pending queue is disabled in production environments.",
+          });
+        }
         const pendingStatuses = ["pending", "interview_scheduled"] as const;
         const roleTargets = ["seller", "rider"] as const;
 
