@@ -97,7 +97,7 @@ async function run() {
         body: JSON.stringify({
           sellerId: product.sellerId,
           deliveryMethod: "rider",
-          deliveryAddress: "QA Uber Compliance Address",
+          deliveryAddress: "QA Delivery Compliance Address",
           deliveryCity: "Accra",
           deliveryPhone: "+233500000101",
           deliveryLatitude: "5.6037000",
@@ -197,10 +197,10 @@ async function run() {
   if (failed.length > 0) {
     throw new Error(`Compliance QA failed for ${failed.length} checks`);
   }
-  console.log("PASS qa_uber_compliance");
+  console.log("PASS qa_delivery_compliance");
 }
 
 run().catch((err) => {
-  console.error("FAIL qa_uber_compliance", err);
+  console.error("FAIL qa_delivery_compliance", err);
   process.exit(1);
 });

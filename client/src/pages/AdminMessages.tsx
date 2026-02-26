@@ -903,7 +903,7 @@ export default function AdminMessages() {
                         <div
                           className={`max-w-[85%] px-3 py-2 rounded-2xl ${
                             msg.senderId === user?.id
-                              ? "bg-primary text-primary-foreground rounded-br-sm"
+                              ? "bg-emerald-700 text-white rounded-br-sm"
                               : "bg-muted rounded-bl-sm"
                           }`}
                         >
@@ -1191,8 +1191,8 @@ export default function AdminMessages() {
                             <div
                               className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${
                                 msg.senderId === user?.id
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-accent"
+                                  ? "bg-emerald-700 text-white"
+                                  : "bg-muted"
                               }`}
                             >
                               <div className="flex items-end gap-2">

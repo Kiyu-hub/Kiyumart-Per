@@ -142,7 +142,7 @@ export default function RiderMessages() {
     isTypingRef.current = false;
   }, [selectedUserId]);
 
-  // Fetch contacts (admins, sellers who have messaged)
+  // Fetch rider chat contacts (masked support + active-order stakeholders only).
   const { data: users = [], isLoading: usersLoading } = useQuery<UserData[]>({
     queryKey: ["/api/rider/message-contacts"],
     queryFn: async () => {
@@ -151,20 +151,26 @@ export default function RiderMessages() {
       return res.json();
     },
     enabled: isAuthenticated && user?.role === "rider",
+    refetchInterval: 15000,
   });
 
-  // Auto-select user when coming from notification with userId
+  // Auto-select user only when the contact is still allowed (support or active-order stakeholder).
   useEffect(() => {
     if (userIdFilter && users.length > 0 && !selectedUserId) {
       const targetUser = users.find(u => u.id === userIdFilter);
       if (targetUser) {
         setSelectedUserId(targetUser.id);
-      } else {
-        // User not in contacts, still try to open chat
-        setSelectedUserId(userIdFilter);
       }
     }
   }, [userIdFilter, users, selectedUserId]);
+
+  useEffect(() => {
+    if (!selectedUserId) return;
+    const stillAllowed = users.some((u) => u.id === selectedUserId);
+    if (!stillAllowed) {
+      setSelectedUserId(null);
+    }
+  }, [users, selectedUserId]);
 
   const { data: messages = [], isLoading: messagesLoading } = useQuery<Message[]>({
     queryKey: ["/api/messages", selectedUserId],
@@ -318,6 +324,8 @@ export default function RiderMessages() {
       case "admin":
       case "super_admin":
         return "bg-purple-500 text-white";
+      case "support_agent":
+        return "bg-emerald-600 text-white";
       case "seller":
         return "bg-green-500 text-white";
       case "buyer":
@@ -348,7 +356,7 @@ export default function RiderMessages() {
           </Button>
           <div className="flex-1">
             <h1 className="text-xl md:text-2xl font-bold">Messages</h1>
-            <p className="text-muted-foreground text-sm">Chat with support and customers</p>
+            <p className="text-muted-foreground text-sm">Chat with support and active delivery contacts</p>
           </div>
         </div>
 
@@ -395,7 +403,7 @@ export default function RiderMessages() {
                           <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
                           <div className="flex items-center gap-2">
                             <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
-                              {userData.role}
+                              {userData.role === "support_agent" ? "support" : userData.role}
                             </Badge>
                             <span className="text-[10px] text-muted-foreground">
                               {batchPresence.getPresence(userData.id).status === "online"
@@ -417,7 +425,7 @@ export default function RiderMessages() {
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-sm">{selectedUser?.name || 'Support'}</h3>
+                  <h3 className="font-semibold text-sm">{selectedUser?.name || "Support Agent"}</h3>
                   <p className={`text-xs ${selectedUserPresence.isOnline ? "text-green-600" : "text-muted-foreground"}`}>
                     {isPeerTyping
                       ? "typing..."
@@ -425,7 +433,7 @@ export default function RiderMessages() {
                       ? "Online"
                       : selectedUserPresence.presence?.lastSeen
                       ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}`
-                      : selectedUser?.role || "Unknown"}
+                      : (selectedUser?.role === "support_agent" ? "Support Agent" : selectedUser?.role || "Unknown")}
                   </p>
                 </div>
               </div>
@@ -557,7 +565,7 @@ export default function RiderMessages() {
                             <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
                             <div className="flex items-center gap-2">
                               <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
-                                {userData.role}
+                                {userData.role === "support_agent" ? "support" : userData.role}
                               </Badge>
                               <span className="text-[10px] text-muted-foreground">
                                 {batchPresence.getPresence(userData.id).status === "online"
@@ -585,7 +593,7 @@ export default function RiderMessages() {
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <h3 className="font-semibold text-lg">{selectedUser?.name || 'Support'}</h3>
+                      <h3 className="font-semibold text-lg">{selectedUser?.name || "Support Agent"}</h3>
                       <p className={`text-xs ${selectedUserPresence.isOnline ? "text-green-600" : "text-muted-foreground"}`}>
                         {isPeerTyping
                           ? "typing..."
@@ -593,7 +601,7 @@ export default function RiderMessages() {
                           ? "Online"
                           : selectedUserPresence.presence?.lastSeen
                           ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}`
-                          : selectedUser?.role || "Support"}
+                          : (selectedUser?.role === "support_agent" ? "Support Agent" : selectedUser?.role || "Support")}
                       </p>
                     </div>
                   </div>

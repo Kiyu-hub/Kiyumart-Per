@@ -5839,13 +5839,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Rider delivery completion is verification-gated and must use the dedicated QR/OTP endpoint.
-      if (normalizedStatus === "delivered" && actorRole === "rider") {
+      // Rider handoff is verification-gated and must use seller/admin QR/OTP verification endpoint.
+      if (normalizedStatus === "picked_up") {
         return res.status(409).json({
-          error: "Rider delivery completion requires verification. Use /api/orders/:id/complete-delivery with QR or OTP.",
+          error: "Rider handoff requires verification. Use /api/orders/:id/verify-rider-pickup with QR or OTP.",
         });
       }
-      
+
+      // Delivery completion is verification-gated for all actors.
+      if (normalizedStatus === "delivered") {
+        return res.status(409).json({
+          error: "Delivery completion requires verification. Use /api/orders/:id/complete-delivery with QR or OTP.",
+        });
+      }
+
       // CRITICAL: All validation, side effects, and audit trail happen INSIDE the transaction
       // in applyOrderStatusTransition() to prevent TOCTOU race conditions
       const updatedOrder = await storage.applyOrderStatusTransition(
@@ -7369,7 +7376,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get message contacts for riders (admins, agents, sellers, and buyers who have messaged)
+  // Get message contacts for riders:
+  // - Always include exactly one masked support entry ("Support Agent")
+  // - Include only active-order stakeholders (buyer/seller) for assigned deliveries
   app.get("/api/rider/message-contacts", requireAuth, requireRole("rider"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const userId = req.user!.id;
@@ -7378,6 +7387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const admins = await storage.getUsersByRole("admin");
       const superAdmins = await storage.getUsersByRole("super_admin");
       const agents = await storage.getUsersByRole("agent");
+      const supportPool = [...agents, ...admins, ...superAdmins].filter((u) => Boolean(u?.isActive));
 
       const riderOrders = await storage.getOrdersByUser(userId, "rider");
       const activeStatuses = new Set(["searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"]);
@@ -7391,7 +7401,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Array.from(activeStakeholderIds).map((id) => storage.getUser(id))
       );
 
-      const allContacts = [...admins, ...superAdmins, ...agents];
+      const allContacts: any[] = [];
+      const primarySupport = supportPool[0];
+      if (primarySupport) {
+        allContacts.push({
+          id: primarySupport.id,
+          name: "Support Agent",
+          email: "support@kiyumart.com",
+          role: "support_agent",
+          phone: null,
+          profileImage: null,
+          isActive: true,
+        });
+      }
       activeStakeholders.forEach((u) => {
         if (u && !allContacts.some((c) => c.id === u.id)) {
           allContacts.push(u);

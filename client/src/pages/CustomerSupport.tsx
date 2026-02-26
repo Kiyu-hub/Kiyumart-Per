@@ -920,7 +920,7 @@ export default function CustomerSupport() {
                               )}
                               <div
                                 className={`max-w-[80%] rounded-lg p-3 ${
-                                  isMe ? "bg-primary text-primary-foreground" : "bg-muted"
+                                  isMe ? "bg-emerald-700 text-white" : "bg-muted"
                                 }`}
                               >
                                 <div className="flex items-center gap-2 mb-1">
@@ -950,7 +950,7 @@ export default function CustomerSupport() {
                                       href={attachment.url}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className={`text-xs underline ${isMe ? "text-primary-foreground/90" : "text-primary"}`}
+                                      className={`text-xs underline ${isMe ? "text-white/90" : "text-primary"}`}
                                     >
                                       {attachment.name}
                                     </a>

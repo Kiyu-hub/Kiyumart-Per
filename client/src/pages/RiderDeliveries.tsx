@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -26,6 +27,7 @@ interface Delivery {
 export default function RiderDeliveries() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState("all");
 
   const { data: deliveries = [], isLoading } = useQuery<Delivery[]>({
@@ -156,14 +158,19 @@ export default function RiderDeliveries() {
                       </Button>
                     )}
                     {normalizeStatus(delivery.status) === "rider_arrived" && (
-                      <Button
-                        size="sm"
-                        onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "picked_up" })}
-                        disabled={updateStatusMutation.isPending}
-                        data-testid={`button-pickup-${delivery.id}`}
-                      >
-                        Mark as Picked Up
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled
+                          data-testid={`button-pickup-locked-${delivery.id}`}
+                        >
+                          Await Seller Verification
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Seller/admin must verify rider handoff with QR or OTP.
+                        </p>
+                      </div>
                     )}
                     {normalizeStatus(delivery.status) === "picked_up" && (
                       <Button
@@ -188,12 +195,11 @@ export default function RiderDeliveries() {
                     {normalizeStatus(delivery.status) === "en_route" && (
                       <Button
                         size="sm"
-                        onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "delivered" })}
-                        disabled={updateStatusMutation.isPending}
-                        data-testid={`button-deliver-${delivery.id}`}
+                        onClick={() => navigate(`/rider/route?orderId=${delivery.id}`)}
+                        data-testid={`button-complete-verified-${delivery.id}`}
                       >
                         <CheckCircle className="h-4 w-4 mr-2" />
-                        Mark as Delivered
+                        Complete with QR/OTP
                       </Button>
                     )}
                   </div>

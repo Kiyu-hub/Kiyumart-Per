@@ -150,6 +150,17 @@ function ViewOrderDialog({
     },
   });
 
+  const normalize = (value?: string) => (value || "").toLowerCase().trim();
+  const isPickupMethod = (value?: string) => {
+    const method = normalize(value);
+    return method === "pickup" || method === "store_pickup";
+  };
+  const status = normalize(orderDetails?.status);
+  const paymentStatus = normalizePaymentStatus(orderDetails?.paymentStatus);
+  const sellerActionRequired =
+    !isPickupMethod(orderDetails?.deliveryMethod) &&
+    ((paymentStatus !== "paid" && ["pending", "created", "unpaid"].includes(status)) ||
+      ["paid", "processing", "preparing", "confirmed"].includes(status));
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -180,11 +191,10 @@ function ViewOrderDialog({
                   <SelectTrigger data-testid="select-order-status">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="z-[1200]">
+                  <SelectContent>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="processing">Processing</SelectItem>
                     <SelectItem value="en_route">Out for Delivery</SelectItem>
-                    <SelectItem value="delivered">Delivered</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
@@ -217,27 +227,36 @@ function ViewOrderDialog({
             {orderDetails.deliveryMethod === "rider" && (
               <div className="border-t pt-4">
                 <p className="text-sm font-medium text-muted-foreground mb-2">Assign Rider</p>
-                <Select
-                  defaultValue={orderDetails.riderId || ""}
-                  onValueChange={(value) => assignRiderMutation.mutate(value)}
-                  disabled={assignRiderMutation.isPending || ridersLoading}
-                >
-                  <SelectTrigger data-testid="select-rider">
-                    <SelectValue placeholder={ridersLoading ? "Loading riders..." : orderDetails.riderId ? "Rider assigned" : "Select a rider"} />
-                  </SelectTrigger>
-                  <SelectContent className="z-[1200]">
-                    {availableRiders.length === 0 && !ridersLoading && (
-                      <div className="px-2 py-3 text-sm text-muted-foreground text-center">
-                        No available riders
-                      </div>
-                    )}
-                    {availableRiders.map((item) => (
-                      <SelectItem key={item.rider.id} value={item.rider.id}>
-                        {item.rider.name} ({item.activeOrderCount} active orders)
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className={sellerActionRequired ? "opacity-60 blur-[1px] pointer-events-none select-none" : ""}>
+                  <Select
+                    defaultValue={orderDetails.riderId || ""}
+                    onValueChange={(value) => assignRiderMutation.mutate(value)}
+                    disabled={sellerActionRequired || assignRiderMutation.isPending || ridersLoading}
+                  >
+                    <SelectTrigger data-testid="select-rider">
+                      <SelectValue placeholder={ridersLoading ? "Loading riders..." : orderDetails.riderId ? "Rider assigned" : "Select a rider"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableRiders.length === 0 && !ridersLoading && (
+                        <div className="px-2 py-3 text-sm text-muted-foreground text-center">
+                          No available riders
+                        </div>
+                      )}
+                      {availableRiders.map((item) => (
+                        <SelectItem key={item.rider.id} value={item.rider.id}>
+                          {item.rider.name} ({item.activeOrderCount} active orders)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {sellerActionRequired && (
+                  <div className="mt-2 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2">
+                    <p className="text-xs text-orange-200">
+                      Seller action required first. Rider assignment unlocks after seller marks the order ready for dispatch.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1115,3 +1134,5 @@ function OrdersList({
     </div>
   );
 }
+
+

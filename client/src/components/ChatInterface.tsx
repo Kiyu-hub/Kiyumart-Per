@@ -103,7 +103,7 @@ export default function ChatInterface({
               <div
                 className={`max-w-[70%] rounded-2xl px-4 py-2 ${
                   message.sender === "user"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-emerald-700 text-white"
                     : "bg-muted"
                 }`}
                 data-testid={`message-${message.id}`}
@@ -113,7 +113,7 @@ export default function ChatInterface({
                   <p
                     className={`text-xs ${
                       message.sender === "user"
-                        ? "text-primary-foreground/70"
+                        ? "text-white/70"
                         : "text-muted-foreground"
                     }`}
                   >

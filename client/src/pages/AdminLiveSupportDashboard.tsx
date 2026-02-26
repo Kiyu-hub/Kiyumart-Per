@@ -498,7 +498,7 @@ export default function AdminLiveSupportDashboard() {
                                     <div
                                       className={`max-w-[70%] rounded-lg px-3 py-2 ${
                                         isAdmin
-                                          ? 'bg-primary text-primary-foreground'
+                                          ? 'bg-emerald-700 text-white'
                                           : 'bg-muted'
                                       }`}
                                     >

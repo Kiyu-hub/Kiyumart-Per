@@ -37,7 +37,7 @@ if ($product -and $buyerToken) {
     $body = @{
       sellerId = $product.sellerId
       deliveryMethod = 'rider'
-      deliveryAddress = 'QA Uber Compliance Address'
+      deliveryAddress = 'QA Delivery Compliance Address'
       deliveryCity = 'Accra'
       deliveryPhone = '+233500000101'
       deliveryLatitude = '5.6037000'

@@ -60,7 +60,7 @@ This project has comprehensive documentation for every aspect of the platform. C
   - Real-time status propagation and notification rules
   - Revenue normalization and aggregate view strategy
 - [docs/rider-assignment-phase2.md](./docs/rider-assignment-phase2.md)
-  - Deterministic Uber-like rider matching (non-breaking)
+  - Deterministic advanced rider matching (non-breaking)
   - Sequential offer/timeout flow and admin visibility endpoints
   - Real-time tracking smoothing, deviation alerts, and edge-case handling
 - [docs/zone-soft-matching-phase2.md](./docs/zone-soft-matching-phase2.md)

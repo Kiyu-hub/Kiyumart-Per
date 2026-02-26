@@ -101,7 +101,7 @@ To be the leading online marketplace platform for local businesses, connecting q
 
 ## Phase 2 Zone Soft-Matching Update (February 21, 2026)
 
-- Upgraded rider matching to Uber-style soft-zone behavior without breaking existing zone data.
+- Upgraded rider matching to advanced soft-zone behavior without breaking existing zone data.
 - Zone is now a ranking preference signal, not a hard eligibility filter.
 - Rider matching remains backend-only and deterministic:
   - Primary: availability + Haversine distance
@@ -252,10 +252,10 @@ Environment execution rule:
 - Full audit report:
   - [docs/order-process-ecommerce-fulfillment-audit.md](./docs/order-process-ecommerce-fulfillment-audit.md)
 
-## Uber-Grade Orchestration Update (February 25, 2026)
+## Advanced Orchestration Update (February 25, 2026)
 
 - Added master implementation tracker:
-  - [docs/uber-grade-system-master-checklist.md](./docs/uber-grade-system-master-checklist.md)
+  - [docs/system-master-checklist.md](./docs/system-master-checklist.md)
 - Added feature-flagged manual assignment confirmation mode (non-breaking, reversible):
   - `RIDER_ASSIGNMENT_MANUAL_CONFIRM=true`
   - When enabled:
@@ -1422,7 +1422,7 @@ flowchart TD
   - `GET /api/delivery-tracking/:orderId` and `/history` only require auth, without strict order ownership/role checks.
 - `AdminOrders` rider assignment UI checks `deliveryMethod === "delivery"`, while schema enum is `pickup|bus|rider`.
 
-### Gap analysis vs Uber/Bolt/Yango style operations
+### Gap analysis vs industry delivery operations
 - Dispatch/routing:
   - Current: round-robin and optional manual assignment.
   - Industry: proximity/ETA, dynamic reassignment, SLA-aware dispatch.

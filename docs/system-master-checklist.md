@@ -1,4 +1,4 @@
-﻿# Uber-Grade Platform Master TODO (Non-Breaking, 0-Cost)
+# Platform Master TODO (Non-Breaking, 0-Cost)
 
 ## 0. Audit + Push Integrity (Completed)
 - [x] Verify local vs remote head (`main == origin/main`).
@@ -20,7 +20,7 @@
 - [ ] Ensure rider/admin logic is bypassed for pickup orders end-to-end.
 - [ ] Ensure buyer UI hides delivery-only states for pickup method.
 
-## 3. Rider Matching Orchestration (Uber-like + Manual Confirm)
+## 3. Rider Matching Orchestration (Advanced + Manual Confirm)
 - [x] Keep distance-first + zone-aware candidate discovery in backend.
 - [x] Ensure proposal dialog/event path for Admin/Super Admin confirmation before `ASSIGNED`.
 - [x] Prevent silent auto-assign when policy is set to manual-confirm mode.
@@ -88,3 +88,4 @@
   - Feature-flag friendly
   - 100% free/open-source
   - Non-breaking to existing rider/maps/GPS infrastructure
+

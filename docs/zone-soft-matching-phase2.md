@@ -2,7 +2,7 @@
 
 ## Scope
 
-This phase upgrades existing city/region zone usage to an Uber-style soft-zone model without replacing infrastructure, APIs, or core UI flows.
+This phase upgrades existing city/region zone usage to an advanced soft-zone model without replacing infrastructure, APIs, or core UI flows.
 
 ## Non-Breaking Guarantees
 
