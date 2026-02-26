@@ -280,12 +280,20 @@ export function requireRoleFeature(...features: string[]) {
       return res.status(401).json({ error: "Authentication required" });
     }
 
+    // Self-service safety net:
+    // Never lock authenticated users out of managing their own profile due to
+    // stale/misconfigured role-feature rows.
+    if (features.every((f) => f === "profile.manage")) {
+      return next();
+    }
+
     if (req.user.role === "super_admin") {
       return next();
     }
 
     const resolved = await resolveRoleFeatures(req.user.role);
-    const missing = features.filter((f) => resolved[f] !== true);
+    // Keep profile editing available even if role-feature configuration is stale.
+    const missing = features.filter((f) => f !== "profile.manage" && resolved[f] !== true);
     if (missing.length > 0) {
       console.warn(`[RBAC] Role feature denied user=${req.user.id} role=${req.user.role} missing=${missing.join(",")}`);
       return res.status(403).json({

@@ -338,6 +338,30 @@ export default function RiderMessages() {
     }
   };
 
+  const getPresenceMeta = (presence: { status?: "online" | "offline" | "away"; lastSeen?: string | null } | null | undefined) => {
+    const status = presence?.status ?? "offline";
+    if (status === "online") {
+      return {
+        label: "Online",
+        textClass: "text-emerald-500 font-medium",
+        dotClass: "bg-emerald-500",
+      };
+    }
+    if (status === "away") {
+      return {
+        label: "Away",
+        textClass: "text-amber-500 font-medium",
+        dotClass: "bg-amber-500",
+      };
+    }
+    const label = presence?.lastSeen ? `Last seen ${formatLastSeen(presence.lastSeen)}` : "Offline";
+    return {
+      label,
+      textClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground/60",
+    };
+  };
+
   if (authLoading) {
     return (
       <DashboardLayout role="rider">
@@ -403,25 +427,31 @@ export default function RiderMessages() {
                         }`}
                         data-testid={`rider-message-contact-${userData.id}`}
                       >
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-10 w-10">
-                            <AvatarImage src={userData.profileImage || undefined} alt={userData.name || userData.email} />
-                            <AvatarFallback>{(userData.name || "U").charAt(0).toUpperCase()}</AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
-                            <div className="flex items-center gap-2">
-                              <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
-                                {userData.role === "support_agent" ? "support" : userData.role}
-                              </Badge>
-                              <span className="text-[10px] text-muted-foreground">
-                                {batchPresence.getPresence(userData.id).status === "online"
-                                  ? "Online"
-                                  : formatLastSeen(batchPresence.getPresence(userData.id).lastSeen)}
-                              </span>
+                        {(() => {
+                          const presenceMeta = getPresenceMeta(batchPresence.getPresence(userData.id));
+                          return (
+                            <div className="flex items-center gap-3">
+                              <div className="relative">
+                                <Avatar className="h-10 w-10">
+                                  <AvatarImage src={userData.profileImage || undefined} alt={userData.name || userData.email} />
+                                  <AvatarFallback>{(userData.name || "U").charAt(0).toUpperCase()}</AvatarFallback>
+                                </Avatar>
+                                <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${presenceMeta.dotClass}`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
+                                <div className="flex items-center gap-2">
+                                  <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
+                                    {userData.role === "support_agent" ? "support" : userData.role}
+                                  </Badge>
+                                  <span className={`text-[10px] ${presenceMeta.textClass}`}>
+                                    {presenceMeta.label}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
@@ -433,20 +463,19 @@ export default function RiderMessages() {
               {selectedUser || selectedUserId ? (
                 <>
                   <div className="flex items-center gap-3 pb-4 border-b mb-4">
-                    <Avatar className="h-12 w-12">
-                      <AvatarImage src={selectedUser?.profileImage || undefined} alt={selectedUser?.name || "Support Agent"} />
-                      <AvatarFallback>{(selectedUser?.name || "S").charAt(0).toUpperCase()}</AvatarFallback>
-                    </Avatar>
+                    <div className="relative">
+                      <Avatar className="h-12 w-12">
+                        <AvatarImage src={selectedUser?.profileImage || undefined} alt={selectedUser?.name || "Support Agent"} />
+                        <AvatarFallback>{(selectedUser?.name || "S").charAt(0).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <span className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-background ${getPresenceMeta(selectedUserPresence.presence).dotClass}`} />
+                    </div>
                     <div>
                       <h3 className="font-semibold text-lg">{selectedUser?.name || "Support Agent"}</h3>
-                      <p className={`text-xs ${selectedUserPresence.isOnline ? "text-green-600" : "text-muted-foreground"}`}>
+                      <p className={`text-xs ${isPeerTyping ? "text-primary" : getPresenceMeta(selectedUserPresence.presence).textClass}`}>
                         {isPeerTyping
                           ? "typing..."
-                          : selectedUserPresence.isOnline
-                            ? "Online"
-                            : selectedUserPresence.presence?.lastSeen
-                              ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}`
-                              : selectedUser?.role || "Support"}
+                          : getPresenceMeta(selectedUserPresence.presence).label}
                       </p>
                     </div>
                   </div>

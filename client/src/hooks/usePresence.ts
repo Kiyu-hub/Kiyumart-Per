@@ -172,7 +172,7 @@ export function useHeartbeat() {
  * Format last seen timestamp for display
  */
 export function formatLastSeen(lastSeen: string | null): string {
-  if (!lastSeen) return 'Never';
+  if (!lastSeen) return 'Offline';
 
   const date = new Date(lastSeen);
   const now = new Date();
