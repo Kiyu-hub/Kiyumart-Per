@@ -8,7 +8,7 @@
 > 
 > **Version:** 1.2.0 (Strict Verification & Hardening Update)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
-> **Last Updated:** February 23, 2026
+> **Last Updated:** February 26, 2026
 > 
 > **📚 Documentation:** Start with [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md) for complete guides  
 > **🚀 Quick Start:** See [QUICK_START.md](./QUICK_START.md) to get running in 5 minutes  
@@ -26,6 +26,7 @@
 - [Rider Onboarding & Assignment Data Integrity Update (February 21, 2026)](#rider-onboarding--assignment-data-integrity-update-february-21-2026)
 - [Order Purchase to Live Tracking Audit Update (February 21, 2026)](#order-purchase-to-live-tracking-audit-update-february-21-2026)
 - [Strict Verification & Hardening Update (February 23, 2026)](#strict-verification--hardening-update-february-23-2026)
+- [Runtime Log Audit & Rider Stability Update (February 26, 2026)](#runtime-log-audit--rider-stability-update-february-26-2026)
 - [Order Fulfillment Visibility Audit Update (February 23, 2026)](#order-fulfillment-visibility-audit-update-february-23-2026)
 - [Features](#features)
 - [Documentation](#documentation)
@@ -218,6 +219,23 @@ To be the leading online marketplace platform for local businesses, connecting q
 - PASS `backend_eta_endpoint` (`source=backend_math`)
 - PASS `system_health_endpoint`
 - PASS `revenue_view_endpoints`
+
+## Runtime Log Audit & Rider Stability Update (February 26, 2026)
+
+- Completed runtime log audit against current local server logs and removed high-noise debug prints that were flooding normal request traces.
+- Removed repeated platform settings debug output from storage layer:
+  - deleted `PLAT_SETTINGS_COLUMNS` info log in `server/storage.ts`.
+- Reduced promotional homepage API log noise:
+  - removed routine success and per-row warning logs in `GET /api/homepage/promotional`;
+  - retained error logging path only for actual failures.
+- Fixed rider call initiation reliability for active-delivery customer communication:
+  - hardened backend user-id matching for chat/call permission checks (`server/routes.ts` adapter);
+  - ensured active order lookup returns the latest eligible linked order.
+- Rider active-delivery communication UI now supports both call modes:
+  - `In-App Call` (Jitsi);
+  - `Phone Call` (`tel:` fallback using buyer phone).
+- Normalized rider delivery status UX to remove duplicate `In Transit` representation in rider dashboard filtering/actions.
+- Rider messaging support-role normalization tightened for role variants (`superadmin` / `administrator`) to keep support masking consistent.
 
 ## Mandatory Migration Workflow (Non-Negotiable)
 

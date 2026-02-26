@@ -105,6 +105,13 @@ bash scripts/stop-push-daemon.sh
 - Common causes: network issues, authentication, or conflicting remote changes
 - If push fails, the commit is still created locally
 
+### Runtime logs (app/server)
+- For platform runtime debugging, use `server.log` in the project root.
+- Keep runtime logs clean by avoiding verbose success-path `console.log` in hot endpoints.
+- Keep only actionable logs by default:
+  - `console.error` for failures
+  - targeted warnings when user-impacting fallback behavior is triggered
+
 ### Daemon stops unexpectedly
 The daemon sends logs to `.git/auto-commit.log`. Check there for any error messages.
 

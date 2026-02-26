@@ -8480,20 +8480,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/homepage/promotional', async (req, res) => {
     try {
       const rows = await storage.getActivePromotionalAds();
-      console.log('[PROMO-API] Retrieved active promos:', rows.length, 'rows');
       // Enrich with store or product info for frontend display
       const enriched = await Promise.all(rows.map(async (r: any) => {
         if (r.type === 'store') {
-          const store = await storage.getStore(r.targetId).catch((err) => { console.warn('[PROMO-API] Failed to get store', r.targetId, err.message); return null; });
+          const store = await storage.getStore(r.targetId).catch(() => null);
           return { ...r, store };
         }
         if (r.type === 'product') {
-          const product = await storage.getProduct(r.targetId).catch((err) => { console.warn('[PROMO-API] Failed to get product', r.targetId, err.message); return null; });
+          const product = await storage.getProduct(r.targetId).catch(() => null);
           return { ...r, product };
         }
         return r;
       }));
-      console.log('[PROMO-API] Enriched:', enriched.length, 'items');
       res.json(enriched);
     } catch (e: any) {
       console.error('[PROMO-API] Error:', e.message);

@@ -1366,7 +1366,6 @@ export class DbStorage implements IStorage {
   async getPlatformSettings(): Promise<PlatformSettings> {
     try {
       // Return the most recently updated settings row (if multiple exist) to avoid ambiguity
-      console.info('PLAT_SETTINGS_COLUMNS', Object.keys(platformSettings));
       const result = await db.select().from(platformSettings).orderBy(desc(platformSettings.updatedAt)).limit(1);
       if (result.length === 0) {
         // Ensure reasonable defaults on first creation: Single-store by default and GHS currency
