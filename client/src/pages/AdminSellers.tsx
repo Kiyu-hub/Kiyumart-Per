@@ -582,9 +582,9 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
       }
       return res.json();
     },
-    enabled: open && !sellerData.storeBanner,
+    enabled: open,
     retry: false,
-    staleTime: 30_000,
+    staleTime: 0,
   });
 
   const normalizeBannerUrl = (value?: string | null) => {
@@ -594,9 +594,9 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
     return normalized;
   };
   const resolvedStoreBanner =
-    normalizeBannerUrl(sellerData.storeBanner) ||
     normalizeBannerUrl(sellerStore?.banner) ||
     normalizeBannerUrl(sellerStore?.logo) ||
+    normalizeBannerUrl(sellerData.storeBanner) ||
     null;
 
   const openZoom = (label: string, url: string, rotation: number) => {
@@ -1151,7 +1151,7 @@ export default function AdminSellers() {
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
-  const { data: stores = [] } = useQuery<Array<{ id: string; primarySellerId: string }>>({
+  const { data: stores = [] } = useQuery<Array<{ id: string; primarySellerId: string; name?: string; logo?: string | null; banner?: string | null }>>({
     queryKey: ["/api/stores"],
     queryFn: async () => {
       const res = await fetch("/api/stores", { credentials: "include" });
@@ -1189,8 +1189,9 @@ export default function AdminSellers() {
       ? approvedSellers 
       : allSellers;
   
-  // Create a map of sellerId to storeId for quick lookup
+  // Create quick-lookup maps by sellerId
   const sellerToStoreMap = new Map(stores.map(store => [store.primarySellerId, store.id]));
+  const sellerStoreDetailsMap = new Map(stores.map((store) => [store.primarySellerId, store]));
   
   const filteredSellers = sellers.filter(s => 
     (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
@@ -1260,8 +1261,28 @@ export default function AdminSellers() {
                 {filteredSellers.map((seller) => (
                 <Card key={seller.id} className="p-4" data-testid={`card-seller-${seller.id}`}>
                   <div className="flex items-start gap-4">
-                    <div className="bg-primary/10 p-3 rounded-full">
-                      <Store className="h-6 w-6 text-primary" />
+                    <div className="bg-primary/10 p-0 rounded-full w-12 h-12 overflow-hidden flex items-center justify-center">
+                      {(() => {
+                        const linkedStore = sellerStoreDetailsMap.get(seller.id);
+                        const sellerImage =
+                          linkedStore?.logo ||
+                          linkedStore?.banner ||
+                          seller.profileImage ||
+                          seller.storeBanner;
+                        if (sellerImage) {
+                          return (
+                            <img
+                              src={sellerImage}
+                              alt={`${seller.name} store`}
+                              className="h-full w-full object-cover"
+                              onError={(event) => {
+                                event.currentTarget.style.display = "none";
+                              }}
+                            />
+                          );
+                        }
+                        return <Store className="h-6 w-6 text-primary" />;
+                      })()}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-4">
