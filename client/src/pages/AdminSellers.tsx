@@ -945,8 +945,12 @@ export default function AdminSellers() {
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
-  // All sellers
-  const allSellers = (Array.isArray(users) ? users : []).filter((u) => u.role === "seller");
+  // All sellers (exclude rejected application records from management lists)
+  const allSellers = (Array.isArray(users) ? users : []).filter((u) => {
+    if (u.role !== "seller") return false;
+    const status = String(u.applicationStatus || "").toLowerCase();
+    return !(status === "rejected" && !u.isApproved);
+  });
   
   // Pending applications (unapproved AND active sellers only, excluding rejected ones)
   const pendingSellers = allSellers.filter((s) => {

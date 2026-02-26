@@ -700,11 +700,14 @@ export default function AdminRiders() {
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
-  // All riders
-  const allRiders = Array.isArray(riders) ? riders : [];
+  // All riders (exclude rejected application records from management lists)
+  const allRiders = (Array.isArray(riders) ? riders : []).filter((r) => {
+    const status = String(r.applicationStatus || "").toLowerCase();
+    return !(status === "rejected" && !r.isApproved);
+  });
   
   // Pending applications (unapproved active riders with pending/interview status only)
-  const pendingRiders = riders.filter((r) => {
+  const pendingRiders = allRiders.filter((r) => {
     const status = String(r.applicationStatus || "").toLowerCase();
     return r.isApproved === false && r.isActive === true && (status === "pending" || status === "interview_scheduled");
   });

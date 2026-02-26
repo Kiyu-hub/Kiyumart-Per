@@ -831,7 +831,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const roleUsers = await storage.getUsersByRole(r);
             users.push(...roleUsers);
           }
-          users = users.filter((u: any) => u.role === role || u.requestedRole === role);
+          const roleQuery = String(role || "").toLowerCase();
+          const appStatusQuery = String(applicationStatus || "").toLowerCase();
+          const includeRequestedRoleByStatus = !appStatusQuery;
+          users = users.filter((u: any) => {
+            const currentRole = String(u.role || "").toLowerCase();
+            const requestedRole = String(u.requestedRole || "").toLowerCase();
+            const appStatus = String((u as any).applicationStatus || "").toLowerCase();
+
+            if (currentRole === roleQuery) {
+              // Hide unapproved rejected application accounts from operational role management lists.
+              if (!u.isApproved && appStatus === "rejected") return false;
+              return true;
+            }
+
+            if (requestedRole === roleQuery) {
+              if (includeRequestedRoleByStatus) {
+                return appStatus === "pending" || appStatus === "interview_scheduled";
+              }
+              return true;
+            }
+
+            return false;
+          });
         } else {
           users = await storage.getUsersByRole(role as string);
         }
