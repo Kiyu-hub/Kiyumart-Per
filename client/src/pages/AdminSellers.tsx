@@ -570,6 +570,7 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
   const [zoomedImage, setZoomedImage] = useState<{ label: string; url: string } | null>(null);
   const [zoomScale, setZoomScale] = useState(1);
   const [zoomRotation, setZoomRotation] = useState(0);
+  const [bannerIndex, setBannerIndex] = useState(0);
 
   const { data: sellerStore } = useQuery<{ banner?: string | null; logo?: string | null } | null>({
     queryKey: ["/api/stores/by-seller", sellerData.id],
@@ -593,11 +594,12 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
     if (!normalized || normalized === "null" || normalized === "undefined") return null;
     return normalized;
   };
-  const resolvedStoreBanner =
-    normalizeBannerUrl(sellerStore?.banner) ||
-    normalizeBannerUrl(sellerStore?.logo) ||
-    normalizeBannerUrl(sellerData.storeBanner) ||
-    null;
+  const bannerCandidates = [
+    normalizeBannerUrl(sellerStore?.banner),
+    normalizeBannerUrl(sellerStore?.logo),
+    normalizeBannerUrl(sellerData.storeBanner),
+  ].filter((value): value is string => Boolean(value));
+  const resolvedStoreBanner = bannerCandidates[bannerIndex] || null;
 
   const openZoom = (label: string, url: string, rotation: number) => {
     setZoomedImage({ label, url });
@@ -612,10 +614,12 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
         setOpen(nextOpen);
         if (nextOpen) {
           setCardRotation({ front: 0, back: 0 });
+          setBannerIndex(0);
         } else {
           setZoomedImage(null);
           setZoomScale(1);
           setZoomRotation(0);
+          setBannerIndex(0);
         }
       }}
     >
@@ -652,7 +656,11 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
                     alt="Store banner"
                     className="absolute inset-0 h-full w-full object-cover"
                     onError={(event) => {
-                      event.currentTarget.style.display = "none";
+                      if (bannerIndex < bannerCandidates.length - 1) {
+                        setBannerIndex((prev) => prev + 1);
+                      } else {
+                        event.currentTarget.style.display = "none";
+                      }
                     }}
                   />
                 ) : null}
@@ -1265,8 +1273,8 @@ export default function AdminSellers() {
                       {(() => {
                         const linkedStore = sellerStoreDetailsMap.get(seller.id);
                         const sellerImage =
-                          linkedStore?.logo ||
                           linkedStore?.banner ||
+                          linkedStore?.logo ||
                           seller.profileImage ||
                           seller.storeBanner;
                         if (sellerImage) {

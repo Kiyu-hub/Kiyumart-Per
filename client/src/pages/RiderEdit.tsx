@@ -32,6 +32,24 @@ interface RiderUser {
   riderRegion?: string | null;
 }
 
+const normalizeVehicleInfo = (
+  value: RiderUser["vehicleInfo"] | string | null | undefined,
+): RiderUser["vehicleInfo"] => {
+  if (!value) return null;
+  if (typeof value === "object") return value as RiderUser["vehicleInfo"];
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object") {
+        return parsed as RiderUser["vehicleInfo"];
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
 const editRiderSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
@@ -63,6 +81,14 @@ export default function RiderEdit() {
 
   const { data: riderData, isLoading: riderLoading} = useQuery<RiderUser>({
     queryKey: ["/api/users", riderId],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/${riderId}`, { credentials: "include" });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load rider");
+      }
+      return res.json();
+    },
     enabled: !!riderId && isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
@@ -84,13 +110,14 @@ export default function RiderEdit() {
 
   useEffect(() => {
     if (riderData) {
+      const vehicleInfo = normalizeVehicleInfo(riderData.vehicleInfo as any);
       form.reset({
         name: riderData.name,
         email: riderData.email,
         phone: riderData.phone || "",
-        vehicleType: riderData.vehicleInfo?.type || "",
-        vehicleNumber: riderData.vehicleInfo?.plateNumber || "",
-        licenseNumber: riderData.vehicleInfo?.license || "",
+        vehicleType: vehicleInfo?.type || "",
+        vehicleNumber: vehicleInfo?.plateNumber || "",
+        licenseNumber: vehicleInfo?.license || "",
         nationalIdCard: riderData.nationalIdCard || "",
         businessAddress: riderData.businessAddress || "",
         riderCity: riderData.riderCity || "",

@@ -649,20 +649,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      // CRITICAL: If seller updated storeType, propagate to their store record
-      if (updateData.storeType && updatedUser.role === "seller") {
-        try {
-          const existingStore = await storage.getStoreByPrimarySeller(req.user!.id);
-          if (existingStore) {
-            await storage.updateStore(existingStore.id, {
-              storeType: updateData.storeType,
-              storeTypeMetadata: updateData.storeTypeMetadata || existingStore.storeTypeMetadata
-            });
-            console.log(`Updated store ${existingStore.id} with new storeType: ${updateData.storeType}`);
+      // Keep seller profile fields synchronized with the seller store record.
+      if (updatedUser.role === "seller") {
+        const shouldSyncSellerStore =
+          ("storeType" in updateData) ||
+          ("storeTypeMetadata" in updateData) ||
+          ("storeName" in updateData) ||
+          ("storeDescription" in updateData) ||
+          ("storeBanner" in updateData);
+
+        if (shouldSyncSellerStore) {
+          try {
+            const existingStore = await storage.getStoreByPrimarySeller(req.user!.id);
+            if (existingStore) {
+              const storeUpdate: Record<string, any> = {};
+              if ("storeType" in updateData && updateData.storeType) {
+                storeUpdate.storeType = updateData.storeType;
+              }
+              if ("storeTypeMetadata" in updateData && updateData.storeTypeMetadata !== undefined) {
+                storeUpdate.storeTypeMetadata = updateData.storeTypeMetadata || existingStore.storeTypeMetadata;
+              }
+              if ("storeName" in updateData) {
+                storeUpdate.name = typeof updateData.storeName === "string"
+                  ? updateData.storeName.trim()
+                  : updateData.storeName;
+              }
+              if ("storeDescription" in updateData) {
+                storeUpdate.description = updateData.storeDescription || "";
+              }
+              if ("storeBanner" in updateData) {
+                const normalizedBanner = typeof updateData.storeBanner === "string"
+                  ? updateData.storeBanner.trim()
+                  : "";
+                storeUpdate.banner = normalizedBanner || null;
+                if (!existingStore.logo && normalizedBanner) {
+                  storeUpdate.logo = normalizedBanner;
+                }
+              }
+
+              if (Object.keys(storeUpdate).length > 0) {
+                await storage.updateStore(existingStore.id, storeUpdate);
+              }
+            }
+          } catch (storeUpdateError: any) {
+            console.error("Failed to sync seller profile fields to store record:", storeUpdateError);
+            // Don't fail the profile update if store sync fails.
           }
-        } catch (storeUpdateError: any) {
-          console.error('Failed to update store storeType:', storeUpdateError);
-          // Don't fail the profile update if store update fails
         }
       }
 
@@ -1904,6 +1936,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "isApproved",
         "vehicleInfo",
         "storeType",
+        "storeName",
+        "storeDescription",
+        "storeBanner",
         "nationalIdCard",
         "businessAddress",
         "riderCity",
@@ -2117,6 +2152,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.updateUser(req.params.id, updateData);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      // Keep seller profile fields in sync with the seller store record.
+      if (user.role === "seller") {
+        try {
+          const existingStore = await storage.getStoreByPrimarySeller(user.id);
+          if (existingStore) {
+            const storeUpdate: Record<string, any> = {};
+            if ("storeType" in updateData && updateData.storeType) {
+              storeUpdate.storeType = updateData.storeType;
+            }
+            if ("storeName" in updateData) {
+              storeUpdate.name = typeof updateData.storeName === "string"
+                ? updateData.storeName.trim()
+                : updateData.storeName;
+            }
+            if ("storeDescription" in updateData) {
+              storeUpdate.description = updateData.storeDescription || "";
+            }
+            if ("storeBanner" in updateData) {
+              const normalizedBanner = typeof updateData.storeBanner === "string"
+                ? updateData.storeBanner.trim()
+                : "";
+              storeUpdate.banner = normalizedBanner || null;
+              if (!existingStore.logo && normalizedBanner) {
+                storeUpdate.logo = normalizedBanner;
+              }
+            }
+            if (Object.keys(storeUpdate).length > 0) {
+              await storage.updateStore(existingStore.id, storeUpdate);
+            }
+          }
+        } catch (storeSyncError) {
+          console.error("Failed syncing seller admin updates to store:", storeSyncError);
+        }
       }
 
       if (roleChanged) {
@@ -12740,6 +12810,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updated = await storage.updateStore(req.params.id, req.body);
+
+      // Keep seller user profile fields aligned when store details are edited directly.
+      if (updated?.primarySellerId) {
+        try {
+          const userPatch: Record<string, any> = {};
+          if (req.body.name !== undefined) {
+            userPatch.storeName = typeof req.body.name === "string" ? req.body.name.trim() : req.body.name;
+          }
+          if (req.body.description !== undefined) {
+            userPatch.storeDescription = req.body.description || "";
+          }
+          if (req.body.banner !== undefined || req.body.logo !== undefined) {
+            const bannerValue = typeof req.body.banner === "string" ? req.body.banner.trim() : "";
+            const logoValue = typeof req.body.logo === "string" ? req.body.logo.trim() : "";
+            userPatch.storeBanner = bannerValue || logoValue || null;
+          }
+          if (Object.keys(userPatch).length > 0) {
+            await storage.updateUser(updated.primarySellerId, userPatch);
+          }
+        } catch (profileSyncError) {
+          console.error("Failed to sync store edits back to seller profile:", profileSyncError);
+        }
+      }
+
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
