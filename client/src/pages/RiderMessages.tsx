@@ -308,6 +308,14 @@ export default function RiderMessages() {
     }, 1200);
   };
 
+  const handleBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    navigate("/rider");
+  };
+
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) {
@@ -351,7 +359,7 @@ export default function RiderMessages() {
     <DashboardLayout role="rider">
       <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
         <div className="flex items-center gap-4 p-4 md:p-6 flex-shrink-0">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/rider")}>
+          <Button variant="ghost" size="icon" onClick={handleBack}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">
@@ -631,7 +639,7 @@ export default function RiderMessages() {
                                 className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${
                                   msg.senderId === user?.id
                                     ? "bg-primary text-primary-foreground"
-                                    : "bg-accent"
+                                    : "bg-muted"
                                 }`}
                               >
                                 <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />

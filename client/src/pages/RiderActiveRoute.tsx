@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Loader2, MapPin, Navigation, Package, QrCode, Phone, User, Video, MessageSquare } from "lucide-react";
+import { Loader2, MapPin, Navigation, Package, QrCode, Phone, User, MessageSquare } from "lucide-react";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
 import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { useToast } from "@/hooks/use-toast";
@@ -112,7 +112,7 @@ export default function RiderActiveRoute() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => navigate(`/chat?userId=${activeDelivery.buyerId}`)}
+                        onClick={() => navigate(`/rider/messages?userId=${activeDelivery.buyerId}`)}
                         className="flex items-center gap-1.5"
                       >
                         <MessageSquare className="h-4 w-4" />
@@ -131,20 +131,6 @@ export default function RiderActiveRoute() {
                       >
                         <Phone className="h-4 w-4" />
                         <span className="hidden sm:inline">Call</span>
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="default"
-                        onClick={() => {
-                          if (activeDelivery.buyerId) {
-                            jitsiCall.startCall(activeDelivery.buyerId, 'video');
-                          }
-                        }}
-                        disabled={jitsiCall.inCall}
-                        className="flex items-center gap-1.5 bg-primary"
-                      >
-                        <Video className="h-4 w-4" />
-                        <span className="hidden sm:inline">Video</span>
                       </Button>
                     </>
                   )}
