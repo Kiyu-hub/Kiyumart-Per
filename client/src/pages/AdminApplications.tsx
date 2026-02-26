@@ -121,25 +121,25 @@ export default function AdminApplications() {
 
   const { data: pendingSellerApplications = [], isLoading: pendingSellersLoading } = useQuery<Application[]>({
     queryKey: ["/api/users", "seller", "pending"],
-    queryFn: async () => fetchApplications("/api/users?role=seller&isApproved=false&applicationStatus=pending"),
+    queryFn: async () => fetchApplications("/api/users?role=seller&applicationStatus=pending"),
     enabled: canManageApplications,
   });
 
   const { data: pendingRiderApplications = [], isLoading: pendingRidersLoading } = useQuery<Application[]>({
     queryKey: ["/api/users", "rider", "pending"],
-    queryFn: async () => fetchApplications("/api/users?role=rider&isApproved=false&applicationStatus=pending"),
+    queryFn: async () => fetchApplications("/api/users?role=rider&applicationStatus=pending"),
     enabled: canManageApplications,
   });
 
   const { data: interviewSellerApplications = [], isLoading: interviewSellersLoading } = useQuery<Application[]>({
     queryKey: ["/api/users", "seller", "interview_scheduled"],
-    queryFn: async () => fetchApplications("/api/users?role=seller&isApproved=false&applicationStatus=interview_scheduled"),
+    queryFn: async () => fetchApplications("/api/users?role=seller&applicationStatus=interview_scheduled"),
     enabled: canManageApplications,
   });
 
   const { data: interviewRiderApplications = [], isLoading: interviewRidersLoading } = useQuery<Application[]>({
     queryKey: ["/api/users", "rider", "interview_scheduled"],
-    queryFn: async () => fetchApplications("/api/users?role=rider&isApproved=false&applicationStatus=interview_scheduled"),
+    queryFn: async () => fetchApplications("/api/users?role=rider&applicationStatus=interview_scheduled"),
     enabled: canManageApplications,
   });
 

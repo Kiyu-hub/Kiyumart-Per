@@ -814,7 +814,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Apply additional filters
       if (isApproved !== undefined) {
         const isApprovedBool = isApproved === "true";
-        users = users.filter(u => u.isApproved === isApprovedBool);
+        const roleQuery = String(role || "").toLowerCase();
+        const appStatusQuery = String(applicationStatus || "").toLowerCase();
+        const isRoleApplicationListing =
+          (roleQuery === "seller" || roleQuery === "rider") &&
+          (appStatusQuery === "pending" || appStatusQuery === "interview_scheduled");
+
+        users = users.filter((u: any) => {
+          // For seller/rider application queues, an applicant can be currently approved
+          // in their existing role (e.g., buyer) while still pending for requestedRole.
+          // Treat that as "not approved for requested role" to keep them visible.
+          if (isRoleApplicationListing) {
+            const requestedRole = String(u.requestedRole || "").toLowerCase();
+            const currentRole = String(u.role || "").toLowerCase();
+            const pendingForRequestedRole = requestedRole === roleQuery && currentRole !== roleQuery;
+            const effectiveApproved = pendingForRequestedRole ? false : Boolean(u.isApproved);
+            return effectiveApproved === isApprovedBool;
+          }
+          return Boolean(u.isApproved) === isApprovedBool;
+        });
       }
       
       if (applicationStatus) {

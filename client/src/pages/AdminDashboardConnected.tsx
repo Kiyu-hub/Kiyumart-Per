@@ -181,8 +181,8 @@ export default function AdminDashboardConnected() {
     queryKey: ["/api/dashboard/pending-applications-count"],
     queryFn: async () => {
       const [sellerRes, riderRes] = await Promise.all([
-        fetch("/api/users?role=seller&isApproved=false&applicationStatus=pending", { credentials: "include" }),
-        fetch("/api/users?role=rider&isApproved=false&applicationStatus=pending", { credentials: "include" }),
+        fetch("/api/users?role=seller&applicationStatus=pending", { credentials: "include" }),
+        fetch("/api/users?role=rider&applicationStatus=pending", { credentials: "include" }),
       ]);
       if (!sellerRes.ok || !riderRes.ok) return { count: 0, sellers: 0, riders: 0 };
       const [sellers, riders] = await Promise.all([sellerRes.json(), riderRes.json()]);
