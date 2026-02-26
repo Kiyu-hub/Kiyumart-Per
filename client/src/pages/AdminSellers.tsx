@@ -563,6 +563,10 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
 
 function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
   const [open, setOpen] = useState(false);
+  const [rotatedCardSide, setRotatedCardSide] = useState<{ front: boolean; back: boolean }>({
+    front: false,
+    back: false,
+  });
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -637,24 +641,64 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {sellerData.ghanaCardFront && (
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-2">Front</p>
-                    <div className="bg-muted rounded-lg p-2">
-                      <img 
-                        src={sellerData.ghanaCardFront} 
-                        alt="Ghana Card Front" 
-                        className="w-full h-auto rounded object-contain"
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-muted-foreground">Front</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setRotatedCardSide((prev) => ({ ...prev, front: !prev.front }))}
+                      >
+                        Rotate
+                      </Button>
+                    </div>
+                    <div className="bg-muted rounded-lg p-2 h-60 border border-border/70 flex items-center justify-center overflow-hidden">
+                      <img
+                        src={sellerData.ghanaCardFront}
+                        alt="Ghana Card Front"
+                        className={`max-h-[85%] max-w-[85%] rounded object-contain transition-transform duration-150 ${
+                          rotatedCardSide.front ? "rotate-90" : ""
+                        }`}
+                        onLoad={(event) => {
+                          const img = event.currentTarget;
+                          const shouldRotate = img.naturalHeight > img.naturalWidth;
+                          setRotatedCardSide((prev) =>
+                            prev.front === shouldRotate ? prev : { ...prev, front: shouldRotate }
+                          );
+                        }}
                       />
                     </div>
                   </div>
                 )}
                 {sellerData.ghanaCardBack && (
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-2">Back</p>
-                    <div className="bg-muted rounded-lg p-2">
-                      <img 
-                        src={sellerData.ghanaCardBack} 
-                        alt="Ghana Card Back" 
-                        className="w-full h-auto rounded object-contain"
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-muted-foreground">Back</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setRotatedCardSide((prev) => ({ ...prev, back: !prev.back }))}
+                      >
+                        Rotate
+                      </Button>
+                    </div>
+                    <div className="bg-muted rounded-lg p-2 h-60 border border-border/70 flex items-center justify-center overflow-hidden">
+                      <img
+                        src={sellerData.ghanaCardBack}
+                        alt="Ghana Card Back"
+                        className={`max-h-[85%] max-w-[85%] rounded object-contain transition-transform duration-150 ${
+                          rotatedCardSide.back ? "rotate-90" : ""
+                        }`}
+                        onLoad={(event) => {
+                          const img = event.currentTarget;
+                          const shouldRotate = img.naturalHeight > img.naturalWidth;
+                          setRotatedCardSide((prev) =>
+                            prev.back === shouldRotate ? prev : { ...prev, back: shouldRotate }
+                          );
+                        }}
                       />
                     </div>
                   </div>

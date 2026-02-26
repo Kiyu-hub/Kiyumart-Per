@@ -214,54 +214,71 @@ export default function AdminProducts() {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : (
-            <div className="grid gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
               {filteredProducts.map((product) => (
-                <Card key={product.id} className="p-4" data-testid={`card-product-${product.id}`}>
-                  <div className="flex items-center gap-4">
+                <Card
+                  key={product.id}
+                  className="overflow-hidden border-border/70 shadow-sm hover:shadow-md hover:border-primary/30 transition-all"
+                  data-testid={`card-product-${product.id}`}
+                >
+                  <div className="relative aspect-[4/3] bg-muted/20">
                     <img
                       src={product.images[0] || "/placeholder.jpg"}
                       alt={product.name}
-                      className="w-16 h-16 object-cover rounded"
+                      className="h-full w-full object-cover"
                       data-testid={`img-product-${product.id}`}
                     />
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-lg" data-testid={`text-product-name-${product.id}`}>
+                    <div className="absolute top-2 left-2 flex items-center gap-2">
+                      <Badge
+                        className={product.isActive ? "bg-emerald-600 hover:bg-emerald-600" : ""}
+                        variant={product.isActive ? "default" : "secondary"}
+                        data-testid={`badge-status-${product.id}`}
+                      >
+                        {product.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="p-4 space-y-3">
+                    <div>
+                      <h3
+                        className="font-semibold text-base leading-snug line-clamp-2 min-h-[2.5rem]"
+                        data-testid={`text-product-name-${product.id}`}
+                      >
                         {product.name}
                       </h3>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className="text-primary font-bold" data-testid={`text-price-${product.id}`}>
-                          {formatPrice(parseFloat(product.price))}
-                        </span>
-                        <Badge variant="outline" data-testid={`badge-category-${product.id}`}>
-                          {product.category}
-                        </Badge>
-                        {product.storeName && (
-                          <Badge variant="secondary" data-testid={`badge-seller-${product.id}`}>
-                            {product.storeName}
-                          </Badge>
-                        )}
-                        <span className="text-sm text-muted-foreground" data-testid={`text-stock-${product.id}`}>
-                          Stock: {product.stock}
-                        </span>
-                        {product.isActive ? (
-                          <Badge className="bg-green-500" data-testid={`badge-status-${product.id}`}>Active</Badge>
-                        ) : (
-                          <Badge variant="secondary" data-testid={`badge-status-${product.id}`}>Inactive</Badge>
-                        )}
-                      </div>
+                      <p className="text-primary font-bold mt-1" data-testid={`text-price-${product.id}`}>
+                        {formatPrice(parseFloat(product.price))}
+                      </p>
                     </div>
-                    <div className="flex gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" data-testid={`badge-category-${product.id}`}>
+                        {product.category}
+                      </Badge>
+                      {product.storeName && (
+                        <Badge variant="secondary" data-testid={`badge-seller-${product.id}`}>
+                          {product.storeName}
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm text-muted-foreground border-t pt-2">
+                      <span data-testid={`text-stock-${product.id}`}>Stock: {product.stock}</span>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-1 border-t pt-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => navigate(`/product/${product.id}`)}
                         data-testid={`button-view-${product.id}`}
                         title="View product"
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="icon"
                         onClick={() => navigate(`/admin/products/${product.id}/edit`)}
                         data-testid={`button-edit-${product.id}`}
