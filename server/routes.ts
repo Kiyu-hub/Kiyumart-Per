@@ -49,6 +49,7 @@ const RIDER_MATCH_RADIUS_STEPS_KM = [3, 5, 8] as const;
 const RIDER_MATCH_LIMIT = 5;
 const SOFT_ZONE_DISTANCE_MARGIN_KM = 1;
 const ENABLE_SOFT_ZONE_MATCH = process.env.ENABLE_SOFT_ZONE_MATCH !== "false";
+const ENABLE_NON_PROD_APPLICATION_AUTOFILL = process.env.NODE_ENV !== "production";
 const CHAT_ATTACHMENT_PREFIX = "__CHAT_ATTACHMENT__:";
 const SUPPORT_ATTACHMENT_PREFIX = "__SUPPORT_ATTACHMENT__:";
 
@@ -837,6 +838,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (applicationStatus) {
         users = users.filter(u => u.applicationStatus === applicationStatus);
+
+        const roleQuery = String(role || "").toLowerCase();
+        const appStatusQuery = String(applicationStatus || "").toLowerCase();
+        const isPendingQueue =
+          (roleQuery === "seller" || roleQuery === "rider") &&
+          (appStatusQuery === "pending" || appStatusQuery === "interview_scheduled");
+
+        // Prevent approved operational accounts from being shown in pending application queues,
+        // even if stale applicationStatus data exists.
+        if (isPendingQueue) {
+          users = users.filter((u: any) => !(String(u.role || "").toLowerCase() === roleQuery && Boolean(u.isApproved)));
+        }
       }
       
       const usersWithoutPasswords = users.map(({ password, ...user }) => user);
@@ -887,6 +900,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const hydratePendingRiderApplicationFields = async (user: User): Promise<User> => {
+    if (!ENABLE_NON_PROD_APPLICATION_AUTOFILL) return user;
+
     const updateData: Record<string, unknown> = {};
     const appStatus = String((user as any).applicationStatus || "").toLowerCase();
     const requestedRole = String((user as any).requestedRole || "").toLowerCase();
@@ -901,8 +916,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const regionRaw = String((user as any).riderRegion || "").trim();
     const { city: fallbackCity, region: fallbackRegion } = deriveCityAndRegionFromAddress(user.businessAddress);
 
-    const resolvedCity = cityRaw || fallbackCity;
-    const resolvedRegion = regionRaw || fallbackRegion;
+    const resolvedCity = cityRaw || fallbackCity || "Accra";
+    const resolvedRegion = regionRaw || fallbackRegion || "Greater Accra Region";
 
     if (!cityRaw && resolvedCity) updateData.riderCity = resolvedCity;
     if (!regionRaw && resolvedRegion) updateData.riderRegion = resolvedRegion;
@@ -946,6 +961,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return (updated as User) || user;
   };
 
+  const hydratePendingSellerApplicationFields = async (user: User): Promise<User> => {
+    if (!ENABLE_NON_PROD_APPLICATION_AUTOFILL) return user;
+
+    const updateData: Record<string, unknown> = {};
+    const appStatus = String((user as any).applicationStatus || "").toLowerCase();
+    const requestedRole = String((user as any).requestedRole || "").toLowerCase();
+    const currentRole = String(user.role || "").toLowerCase();
+    const isPendingSellerApplication =
+      (requestedRole === "seller" || currentRole === "seller") &&
+      (appStatus === "pending" || appStatus === "interview_scheduled");
+
+    if (!isPendingSellerApplication) return user;
+
+    const storeType = String((user as any).storeType || "").toLowerCase().trim();
+    if (!storeType || !STORE_TYPES.includes(storeType as StoreType)) {
+      updateData.storeType = "clothing" as StoreType;
+    }
+
+    if (!String((user as any).storeName || "").trim()) {
+      updateData.storeName = `${String(user.name || "Seller").trim() || "Seller"} Store`;
+    }
+    if (!String((user as any).storeDescription || "").trim()) {
+      updateData.storeDescription = `Welcome to ${String(user.name || "our")} store.`;
+    }
+
+    if (Object.keys(updateData).length === 0) return user;
+    const updated = await storage.updateUser(user.id, updateData as any);
+    return (updated as User) || user;
+  };
+
   app.patch("/api/users/:id/approve", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       // First, get the user without approving yet
@@ -961,6 +1006,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // CRITICAL: Validate role-specific requirements before approval
       if (targetRole === "seller") {
+        user = await hydratePendingSellerApplicationFields(user);
         if (!user.storeType) {
           return res.status(400).json({ 
             error: "Cannot approve seller without store type",
