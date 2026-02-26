@@ -249,30 +249,35 @@ export default function CustomerSupport() {
     },
   });
 
-  const assignConversationMutation = useMutation({
-    mutationFn: async (conversationId: string) => {
-      const res = await apiRequest("POST", `/api/support/conversations/${conversationId}/assign`, {});
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
-      toast({
-        title: "Conversation Assigned",
-        description: "This support ticket has been assigned to you",
-      });
-    },
-  });
-
   const resolveConversationMutation = useMutation({
     mutationFn: async (conversationId: string) => {
       const res = await apiRequest("POST", `/api/support/conversations/${conversationId}/resolve`, {});
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedConversation: SupportConversation) => {
+      queryClient.setQueryData<SupportConversation[]>(["/api/support/conversations"], (current = []) =>
+        current.map((conversation) =>
+          conversation.id === updatedConversation.id
+            ? {
+                ...conversation,
+                status: updatedConversation.status,
+                resolvedAt: updatedConversation.resolvedAt ?? new Date().toISOString(),
+                updatedAt: updatedConversation.updatedAt ?? new Date().toISOString(),
+              }
+            : conversation
+        )
+      );
       queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
       toast({
         title: "Conversation Resolved",
         description: "This support ticket has been marked as resolved",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Resolve failed",
+        description: error.message || "Unable to resolve this conversation",
+        variant: "destructive",
       });
     },
   });
@@ -501,6 +506,19 @@ export default function CustomerSupport() {
   const peerUserId = selectedConv
     ? (isSupportStaff ? selectedConv.customerId : selectedConv.agentId)
     : null;
+  const canCurrentUserResolve = useMemo(() => {
+    if (!selectedConv || !isSupportStaff) return false;
+    if (selectedConv.status === "resolved") return false;
+    if (isSuperAdmin) return true;
+    if (selectedConv.agentId) return String(selectedConv.agentId) === String(user?.id || "");
+
+    const mode = selectedConv.routingMode || "all_support";
+    if (mode === "all_support") return true;
+    if (mode === "all_agents") return normalizedRole === "agent";
+    if (mode === "all_admins") return normalizedRole === "admin";
+    const ids = Array.isArray(selectedConv.routingUserIds) ? selectedConv.routingUserIds.map(String) : [];
+    return ids.includes(String(user?.id || ""));
+  }, [selectedConv, isSupportStaff, isSuperAdmin, user?.id, normalizedRole]);
 
   useEffect(() => {
     if (!selectedConv) return;
@@ -603,6 +621,19 @@ export default function CustomerSupport() {
       case "assigned": return "bg-blue-500";
       case "resolved": return "bg-green-500";
       default: return "bg-gray-500";
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case "open":
+        return "Open";
+      case "assigned":
+        return "Assigned";
+      case "resolved":
+        return "Resolved";
+      default:
+        return status;
     }
   };
 
@@ -818,9 +849,21 @@ export default function CustomerSupport() {
                               {conv.unreadCount}
                             </Badge>
                           )}
-                          <Badge className={`${getStatusColor(conv.status)} text-white`}>{conv.status}</Badge>
+                          <Badge className={`${getStatusColor(conv.status)} text-white`}>
+                            {getStatusLabel(conv.status)}
+                          </Badge>
                         </div>
                       </div>
+                      {isSupportStaff && conv.status === "assigned" && (
+                        <div className="mb-2 flex items-center gap-2">
+                          <Badge variant="secondary" className="bg-blue-100 text-blue-900 border-blue-200">
+                            Assigned
+                          </Badge>
+                          <span className="text-[11px] text-muted-foreground">
+                            Assigned by Super Admin: {conv.agentName || "Unspecified assignee"}
+                          </span>
+                        </div>
+                      )}
                       <p className="text-xs text-muted-foreground truncate mb-1">
                         {(() => {
                           const attachment = parseAttachmentMessage(conv.lastMessage || "");
@@ -872,8 +915,20 @@ export default function CustomerSupport() {
                       <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <h2 className="font-semibold truncate">{selectedConv.subject}</h2>
-                        <Badge className={`${getStatusColor(selectedConv.status)} text-white`}>{selectedConv.status}</Badge>
+                        <Badge className={`${getStatusColor(selectedConv.status)} text-white`}>
+                          {getStatusLabel(selectedConv.status)}
+                        </Badge>
                       </div>
+                      {isSupportStaff && selectedConv.status === "assigned" && (
+                        <div className="mb-1 flex items-center gap-2">
+                          <Badge variant="secondary" className="bg-blue-100 text-blue-900 border-blue-200">
+                            Assigned
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            Assigned by Super Admin: {selectedConv.agentName || "Unspecified assignee"}
+                          </span>
+                        </div>
+                      )}
                       <div className="text-sm truncate text-muted-foreground">
                         {isPeerTyping ? (
                           <span className="text-[#25D366] font-medium">typing...</span>
@@ -955,17 +1010,7 @@ export default function CustomerSupport() {
                         >
                           <Video className="h-4 w-4" />
                         </Button>
-                        {selectedConv.status === "open" && (
-                          <Button
-                            size="sm"
-                            onClick={() => assignConversationMutation.mutate(selectedConv.id)}
-                            disabled={assignConversationMutation.isPending}
-                            data-testid="button-assign"
-                          >
-                            Assign to Me
-                          </Button>
-                        )}
-                        {selectedConv.status !== "resolved" && selectedConv.agentId === user?.id && (
+                        {canCurrentUserResolve && (
                           <Button
                             size="sm"
                             variant="outline"

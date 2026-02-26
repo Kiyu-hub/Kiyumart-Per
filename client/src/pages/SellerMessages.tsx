@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, MessageSquare, Send, ArrowLeft, User } from "lucide-react";
+import { Loader2, Search, MessageSquare, Send, ArrowLeft, User, Headphones } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { useSocket } from "@/contexts/NotificationContext";
@@ -142,7 +142,9 @@ export default function SellerMessages() {
     isTypingRef.current = false;
   }, [selectedUserId]);
 
-  // Fetch contacts (admins, buyers who have messaged)
+  // Fetch contacts:
+  // - always-open masked support channel
+  // - active stakeholders + existing non-support conversation partners
   const { data: users = [], isLoading: usersLoading } = useQuery<UserData[]>({
     queryKey: ["/api/seller/message-contacts"],
     queryFn: async () => {
@@ -151,7 +153,15 @@ export default function SellerMessages() {
       return res.json();
     },
     enabled: isAuthenticated && user?.role === "seller",
+    refetchInterval: 10000,
   });
+
+  // Default to unified support contact first
+  useEffect(() => {
+    if (!users.length || selectedUserId) return;
+    const support = users.find((u) => String(u.role || "").toLowerCase() === "support_agent");
+    setSelectedUserId(support?.id || users[0].id);
+  }, [users, selectedUserId]);
 
   // Auto-select user when coming from notification with userId
   useEffect(() => {
@@ -159,9 +169,6 @@ export default function SellerMessages() {
       const targetUser = users.find(u => u.id === userIdFilter);
       if (targetUser) {
         setSelectedUserId(targetUser.id);
-      } else {
-        // User not in contacts, still try to open chat
-        setSelectedUserId(userIdFilter);
       }
     }
   }, [userIdFilter, users, selectedUserId]);
@@ -323,12 +330,15 @@ export default function SellerMessages() {
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
+      case "support_agent":
+        return "bg-emerald-600 text-white";
       case "admin":
       case "super_admin":
-        return "bg-purple-500 text-white";
+      case "agent":
+        return "bg-emerald-700 text-white";
       case "buyer":
         return "bg-blue-500 text-white";
-      case "agent":
+      case "rider":
         return "bg-orange-500 text-white";
       default:
         return "bg-gray-500 text-white";
@@ -354,8 +364,14 @@ export default function SellerMessages() {
           </Button>
           <div className="flex-1">
             <h1 className="text-xl md:text-2xl font-bold">Messages</h1>
-            <p className="text-muted-foreground text-sm">Chat with support and customers</p>
+            <p className="text-muted-foreground text-sm">
+              Always-open seller messaging with support. For tracked issues, create a support ticket.
+            </p>
           </div>
+          <Button variant="outline" onClick={() => navigate("/support")} data-testid="button-open-support-tickets">
+            <Headphones className="h-4 w-4 mr-2" />
+            Open Support Tickets
+          </Button>
         </div>
 
         {/* Mobile: Show user list or chat */}
@@ -401,7 +417,7 @@ export default function SellerMessages() {
                           <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
                           <div className="flex items-center gap-2">
                             <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
-                              {userData.role}
+                              {userData.role === "support_agent" ? "support" : userData.role}
                             </Badge>
                             <span className="text-[10px] text-muted-foreground">
                               {batchPresence.getPresence(userData.id).status === "online"
@@ -423,7 +439,7 @@ export default function SellerMessages() {
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-sm">{selectedUser?.name || 'Support'}</h3>
+                  <h3 className="font-semibold text-sm">{selectedUser?.name || "Support Agent"}</h3>
                   <p className={`text-xs ${selectedUserPresence.isOnline ? "text-green-600" : "text-muted-foreground"}`}>
                     {isPeerTyping
                       ? "typing..."
@@ -431,7 +447,9 @@ export default function SellerMessages() {
                       ? "Online"
                       : selectedUserPresence.presence?.lastSeen
                       ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}`
-                      : selectedUser?.role || "Unknown"}
+                      : selectedUser?.role === "support_agent"
+                        ? "Support"
+                        : selectedUser?.role || "Unknown"}
                   </p>
                 </div>
               </div>
@@ -563,7 +581,7 @@ export default function SellerMessages() {
                             <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
                             <div className="flex items-center gap-2">
                               <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
-                                {userData.role}
+                                {userData.role === "support_agent" ? "support" : userData.role}
                               </Badge>
                               <span className="text-[10px] text-muted-foreground">
                                 {batchPresence.getPresence(userData.id).status === "online"
@@ -591,7 +609,7 @@ export default function SellerMessages() {
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <h3 className="font-semibold text-lg">{selectedUser?.name || 'Support'}</h3>
+                      <h3 className="font-semibold text-lg">{selectedUser?.name || "Support Agent"}</h3>
                       <p className={`text-xs ${selectedUserPresence.isOnline ? "text-green-600" : "text-muted-foreground"}`}>
                         {isPeerTyping
                           ? "typing..."
@@ -599,7 +617,9 @@ export default function SellerMessages() {
                           ? "Online"
                           : selectedUserPresence.presence?.lastSeen
                           ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}`
-                          : selectedUser?.role || "Support"}
+                          : selectedUser?.role === "support_agent"
+                            ? "Support"
+                            : selectedUser?.role || "Support"}
                       </p>
                     </div>
                   </div>

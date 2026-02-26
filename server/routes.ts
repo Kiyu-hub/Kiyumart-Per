@@ -8,7 +8,7 @@ import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { db } from "../db";
 import { users, cart, wishlist, chatMessages, notifications, orders, orderItems, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable, adminPermissions, riderPayouts } from "@shared/schema";
-import { eq, or, isNotNull, and, desc, sql } from "drizzle-orm";
+import { eq, or, isNotNull, and, desc, sql, inArray, asc } from "drizzle-orm";
 import { 
   hashPassword, 
   comparePassword, 
@@ -7248,11 +7248,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sender = await storage.getUser(senderId);
       const senderRole = String(sender?.role || "").toLowerCase();
       const receiverRole = String(receiver?.role || "").toLowerCase();
-      const isRiderToPrivilegedSupport =
-        senderRole === "rider" && (receiverRole === "agent" || receiverRole === "admin" || receiverRole === "super_admin");
+      const isUnifiedSupportSender =
+        (senderRole === "rider" || senderRole === "seller") &&
+        (receiverRole === "agent" || receiverRole === "admin" || receiverRole === "super_admin");
 
       let recipientIds = [receiverId];
-      if (isRiderToPrivilegedSupport) {
+      if (isUnifiedSupportSender) {
         const [admins, superAdmins, agents] = await Promise.all([
           storage.getUsersByRole("admin"),
           storage.getUsersByRole("super_admin"),
@@ -7339,8 +7340,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!permission.allowed) {
         return res.status(403).json({ error: permission.reason });
       }
+      const requester = await storage.getUser(req.user!.id);
+      const peer = await storage.getUser(req.params.userId);
+      const requesterRole = String(requester?.role || "").toLowerCase().trim();
+      const peerRole = String(peer?.role || "").toLowerCase().trim();
+      const isUnifiedSupportThread =
+        (requesterRole === "rider" || requesterRole === "seller") &&
+        (peerRole === "agent" || peerRole === "admin" || peerRole === "super_admin");
+
+      if (isUnifiedSupportThread) {
+        const [admins, superAdmins, agents] = await Promise.all([
+          storage.getUsersByRole("admin"),
+          storage.getUsersByRole("super_admin"),
+          storage.getUsersByRole("agent"),
+        ]);
+        const supportIds = [...admins, ...superAdmins, ...agents]
+          .filter((u, idx, arr) => Boolean(u) && arr.findIndex((x) => x.id === u.id) === idx)
+          .map((u) => String(u.id));
+
+        if (supportIds.length === 0) {
+          return res.json([]);
+        }
+
+        const unifiedMessages = await db
+          .select()
+          .from(chatMessages)
+          .where(
+            or(
+              and(eq(chatMessages.senderId, req.user!.id), inArray(chatMessages.receiverId, supportIds)),
+              and(eq(chatMessages.receiverId, req.user!.id), inArray(chatMessages.senderId, supportIds)),
+            ),
+          )
+          .orderBy(asc(chatMessages.createdAt));
+
+        return res.json(unifiedMessages);
+      }
+
       const messages = await storage.getMessages(req.user!.id, req.params.userId);
-      res.json(messages);
+      return res.json(messages);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -7352,7 +7389,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!permission.allowed) {
         return res.status(403).json({ error: permission.reason });
       }
-      const updatedMessages = await storage.markMessagesAsRead(req.params.userId, req.user!.id);
+      const requester = await storage.getUser(req.user!.id);
+      const peer = await storage.getUser(req.params.userId);
+      const requesterRole = String(requester?.role || "").toLowerCase().trim();
+      const peerRole = String(peer?.role || "").toLowerCase().trim();
+      const isUnifiedSupportThread =
+        (requesterRole === "rider" || requesterRole === "seller") &&
+        (peerRole === "agent" || peerRole === "admin" || peerRole === "super_admin");
+
+      let updatedMessages: any[] = [];
+      if (isUnifiedSupportThread) {
+        const [admins, superAdmins, agents] = await Promise.all([
+          storage.getUsersByRole("admin"),
+          storage.getUsersByRole("super_admin"),
+          storage.getUsersByRole("agent"),
+        ]);
+        const supportIds = [...admins, ...superAdmins, ...agents]
+          .filter((u, idx, arr) => Boolean(u) && arr.findIndex((x) => x.id === u.id) === idx)
+          .map((u) => String(u.id));
+
+        if (supportIds.length > 0) {
+          updatedMessages = await db
+            .update(chatMessages)
+            .set({
+              isRead: true,
+              status: "read",
+              readAt: new Date(),
+              deliveredAt: sql`coalesce(${chatMessages.deliveredAt}, now())`,
+            })
+            .where(
+              and(
+                eq(chatMessages.receiverId, req.user!.id),
+                inArray(chatMessages.senderId, supportIds),
+                sql`coalesce(${chatMessages.isRead}, false) = false`,
+              ),
+            )
+            .returning();
+        }
+      } else {
+        updatedMessages = await storage.markMessagesAsRead(req.params.userId, req.user!.id);
+      }
 
       // Emit WhatsApp-style read status updates back to original senders
       for (const msg of updatedMessages) {
@@ -7492,45 +7568,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get message contacts for sellers (admins, agents, and buyers who have messaged)
+  // Get message contacts for sellers:
+  // - Always include exactly one masked support entry ("Support Agent")
+  // - Include active-order stakeholders + existing non-support conversation partners
   app.get("/api/seller/message-contacts", requireAuth, requireRole("seller"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const userId = req.user!.id;
-      
-      // Get all admins, super_admins, and agents as potential contacts
-      const admins = await storage.getUsersByRole("admin");
-      const superAdmins = await storage.getUsersByRole("super_admin");
-      const agents = await storage.getUsersByRole("agent");
-      
-      // Get users who have had conversations with this seller
-      const allMessages = await db.select({
-        senderId: chatMessages.senderId,
-        receiverId: chatMessages.receiverId,
-      }).from(chatMessages).where(
-        sql`${chatMessages.senderId} = ${userId} OR ${chatMessages.receiverId} = ${userId}`
+
+      const [admins, superAdmins, agents] = await Promise.all([
+        storage.getUsersByRole("admin"),
+        storage.getUsersByRole("super_admin"),
+        storage.getUsersByRole("agent"),
+      ]);
+      const supportPool = [...agents, ...admins, ...superAdmins].filter((u) => Boolean(u?.isActive));
+
+      const sellerOrders = await storage.getOrdersByUser(userId, "seller");
+      const activeStatuses = new Set([
+        "paid",
+        "preparing",
+        "ready",
+        "searching_rider",
+        "assigned",
+        "rider_arrived",
+        "picked_up",
+        "in_transit",
+        "en_route",
+        "arrived",
+      ]);
+
+      const activeStakeholderIds = new Set<string>();
+      sellerOrders.forEach((o: any) => {
+        if (!activeStatuses.has(canonicalizeOrderStatus(o.status))) return;
+        if (o.buyerId) activeStakeholderIds.add(String(o.buyerId));
+        if (o.riderId) activeStakeholderIds.add(String(o.riderId));
+      });
+
+      const activeStakeholders = await Promise.all(
+        Array.from(activeStakeholderIds).map((id) => storage.getUser(id)),
       );
-      
+
+      const allMessages = await db
+        .select({
+          senderId: chatMessages.senderId,
+          receiverId: chatMessages.receiverId,
+        })
+        .from(chatMessages)
+        .where(sql`${chatMessages.senderId} = ${userId} OR ${chatMessages.receiverId} = ${userId}`);
+
       const conversationPartners = new Set<string>();
-      allMessages.forEach(msg => {
+      allMessages.forEach((msg) => {
         if (msg.senderId !== userId) conversationPartners.add(msg.senderId);
         if (msg.receiverId !== userId) conversationPartners.add(msg.receiverId);
       });
-      
-      // Get user details for conversation partners
-      const partnerUsers = await Promise.all(
-        Array.from(conversationPartners).map(id => storage.getUser(id))
-      );
-      
-      // Combine all contacts (admins + agents + conversation partners)
-      const allContacts = [...admins, ...superAdmins, ...agents];
-      partnerUsers.forEach(u => {
-        if (u && !allContacts.some(c => c.id === u.id)) {
-          allContacts.push(u);
-        }
-      });
-      
-      // Remove passwords and return
-      const contacts = allContacts.map(u => ({
+
+      const partnerUsers = await Promise.all(Array.from(conversationPartners).map((id) => storage.getUser(id)));
+
+      const isSupportRole = (role?: string | null) => {
+        const normalized = String(role || "").toLowerCase().trim();
+        return normalized === "agent" || normalized === "admin" || normalized === "super_admin";
+      };
+
+      const allContacts: any[] = [];
+      const primarySupport = supportPool[0];
+      if (primarySupport) {
+        allContacts.push({
+          id: primarySupport.id,
+          name: "Support Agent",
+          email: "support@kiyumart.com",
+          role: "support_agent",
+          phone: null,
+          profileImage: primarySupport.profileImage || null,
+          isActive: true,
+        });
+      }
+
+      const appendUniqueNonSupportContact = (u: any) => {
+        if (!u || isSupportRole(u.role) || allContacts.some((c) => c.id === u.id)) return;
+        allContacts.push({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          phone: u.phone,
+          profileImage: u.profileImage,
+          isActive: u.isActive,
+        });
+      };
+
+      activeStakeholders.forEach((u) => appendUniqueNonSupportContact(u));
+      partnerUsers.forEach((u) => appendUniqueNonSupportContact(u));
+
+      const contacts = allContacts.map((u) => ({
         id: u.id,
         name: u.name,
         email: u.email,
@@ -7539,7 +7667,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         profileImage: u.profileImage,
         isActive: u.isActive,
       }));
-      
+
       res.json(contacts);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -7588,7 +7716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: "support@kiyumart.com",
           role: "support_agent",
           phone: null,
-          profileImage: null,
+          profileImage: primarySupport.profileImage || null,
           isActive: true,
         });
       }
@@ -11644,8 +11772,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const user = req.user!;
 
-      if (req.user?.role !== "agent" && req.user?.role !== "admin" && req.user?.role !== "super_admin") {
-        return res.status(403).json({ error: "Only agents and admins can assign conversations" });
+      if (req.user?.role !== "super_admin") {
+        return res.status(403).json({ error: "Only super admin can assign conversations" });
       }
 
       const { db } = await import("../db/index");
@@ -11661,12 +11789,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Conversation not found" });
       }
 
-      if (user.role !== "super_admin" && !canSupportUserAccessConversation(user, existing as any)) {
+      if (!canSupportUserAccessConversation(user, existing as any)) {
         return res.status(403).json({ error: "Access denied" });
       }
 
       let assignedAgentId = user.id;
-      if (user.role === "super_admin" && req.body?.assigneeId) {
+      if (req.body?.assigneeId) {
         const assignee = await storage.getUser(String(req.body.assigneeId));
         if (!assignee || !["agent", "admin", "super_admin"].includes(String(assignee.role || ""))) {
           return res.status(400).json({ error: "Invalid assigneeId" });
@@ -11760,8 +11888,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/support/conversations/:id/resolve", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
+      const user = req.user!;
 
-      if (req.user?.role !== "agent" && req.user?.role !== "admin" && req.user?.role !== "super_admin") {
+      if (user.role !== "agent" && user.role !== "admin" && user.role !== "super_admin") {
         return res.status(403).json({ error: "Only agents and admins can resolve conversations" });
       }
 
@@ -11779,8 +11908,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Conversation not found" });
       }
 
-      if (!canSupportUserAccessConversation(req.user!, existing as any)) {
+      if (!canSupportUserAccessConversation(user, existing as any)) {
         return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Resolution policy:
+      // - super admin can always resolve
+      // - when a ticket is explicitly assigned, only that assignee can resolve
+      // - when unassigned (default all_support routing), any routed support staff can resolve
+      const hasExplicitAssignee = Boolean(existing.agentId);
+      if (
+        user.role !== "super_admin" &&
+        hasExplicitAssignee &&
+        String(existing.agentId || "") !== String(user.id)
+      ) {
+        return res.status(403).json({
+          error: "Only the staff member assigned by super admin can resolve this conversation",
+        });
       }
 
       const [updated] = await db
@@ -11791,6 +11935,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!updated) {
         return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      io.to((existing as any).customerId).emit("support_conversation_updated", {
+        conversationId: id,
+        event: "resolved",
+      });
+      const routedStaff = await resolveConversationSupportRecipients(updated as any, { includeSuperAdminsAlways: true });
+      for (const staff of routedStaff) {
+        io.to(staff.id).emit("support_conversation_updated", {
+          conversationId: id,
+          event: "resolved",
+        });
       }
 
       res.json(updated);
