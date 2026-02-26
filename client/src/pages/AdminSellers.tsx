@@ -636,23 +636,26 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
             </h3>
             <div className="rounded-lg overflow-hidden border border-border/70">
               <div
-                className="relative h-44 flex items-center justify-center bg-muted bg-cover bg-center"
+                className="relative h-48 flex items-center justify-center bg-muted bg-cover bg-center"
                 style={
                   resolvedStoreBanner
                     ? { backgroundImage: `url(${resolvedStoreBanner})` }
-                    : undefined
+                    : { background: "linear-gradient(120deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground)/0.12) 100%)" }
                 }
               >
-                {resolvedStoreBanner && (
-                  <div className="absolute inset-0 bg-black/35" />
-                )}
+                <div className={`absolute inset-0 ${resolvedStoreBanner ? "bg-black/35" : "bg-black/10"}`} />
                 {sellerData.profileImage ? (
-                  <img
-                    src={sellerData.profileImage}
-                    alt="Profile"
-                    className="relative z-10 w-32 h-32 rounded-full object-cover border-4 border-background shadow-lg cursor-zoom-in"
+                  <button
+                    type="button"
+                    className="relative z-10 rounded-full p-1.5 bg-background/85 border border-white/30 shadow-xl backdrop-blur-sm"
                     onClick={() => openZoom("Profile Photo", sellerData.profileImage!, 0)}
-                  />
+                  >
+                    <img
+                      src={sellerData.profileImage}
+                      alt="Profile"
+                      className="w-32 h-32 rounded-full object-cover cursor-zoom-in"
+                    />
+                  </button>
                 ) : (
                   <div className="relative z-10 w-32 h-32 rounded-full bg-background/90 border-4 border-background shadow-lg flex items-center justify-center">
                     <User className="h-12 w-12 text-muted-foreground" />
