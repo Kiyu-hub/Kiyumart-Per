@@ -447,22 +447,44 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
         </DialogHeader>
         
         <div className="space-y-6">
-          {riderData.profileImage && (
-            <div>
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  Profile Photo
-                </h3>
-                <div className="bg-muted rounded-lg p-4 flex justify-center">
-                  <img 
-                    src={riderData.profileImage} 
-                    alt="Profile" 
-                    className="w-32 h-32 rounded-full object-cover cursor-zoom-in"
-                    onClick={() => openZoom("Profile Photo", riderData.profileImage!, 0)}
+          <div>
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Profile Photo
+            </h3>
+            <div className="rounded-lg overflow-hidden border border-border/70">
+              <div className="relative h-48 flex items-center justify-center bg-muted">
+                {riderData.profileImage ? (
+                  <img
+                    src={riderData.profileImage}
+                    alt="Profile background"
+                    className="absolute inset-0 h-full w-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
                   />
-                </div>
+                ) : null}
+                <div className={`absolute inset-0 ${riderData.profileImage ? "bg-black/35" : "bg-black/10"}`} />
+                {riderData.profileImage ? (
+                  <button
+                    type="button"
+                    className="relative z-10 rounded-full p-1.5 bg-background/85 border border-white/30 shadow-xl backdrop-blur-sm"
+                    onClick={() => openZoom("Profile Photo", riderData.profileImage!, 0)}
+                  >
+                    <img
+                      src={riderData.profileImage}
+                      alt="Profile"
+                      className="w-32 h-32 rounded-full object-cover cursor-zoom-in"
+                    />
+                  </button>
+                ) : (
+                  <div className="relative z-10 w-32 h-32 rounded-full bg-background/90 border-4 border-background shadow-lg flex items-center justify-center">
+                    <User className="h-12 w-12 text-muted-foreground" />
+                  </div>
+                )}
               </div>
-          )}
+            </div>
+          </div>
 
           <div>
             <h3 className="text-lg font-semibold mb-3">Personal Information</h3>
@@ -952,8 +974,19 @@ export default function AdminRiders() {
                 {filteredRiders.map((rider) => (
                 <Card key={rider.id} className="p-4" data-testid={`card-rider-${rider.id}`}>
                   <div className="flex items-center gap-4">
-                    <div className="bg-orange-500/10 p-3 rounded-full">
-                      <Bike className="h-6 w-6 text-orange-500" />
+                    <div className="bg-orange-500/10 p-0 rounded-full w-12 h-12 overflow-hidden flex items-center justify-center">
+                      {rider.profileImage ? (
+                        <img
+                          src={rider.profileImage}
+                          alt={`${rider.name || rider.username} profile`}
+                          className="h-full w-full object-cover"
+                          onError={(event) => {
+                            event.currentTarget.style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <Bike className="h-6 w-6 text-orange-500" />
+                      )}
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-lg" data-testid={`text-username-${rider.id}`}>
