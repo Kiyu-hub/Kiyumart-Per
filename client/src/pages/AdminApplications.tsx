@@ -105,6 +105,62 @@ export default function AdminApplications() {
     );
   };
 
+  const formatFieldValue = (value: unknown) => {
+    if (value === null || value === undefined) return "N/A";
+    if (typeof value === "string" && value.trim().length === 0) return "N/A";
+    if (typeof value === "boolean") return value ? "Yes" : "No";
+    return String(value);
+  };
+
+  const DetailField = ({
+    label,
+    value,
+    fullWidth = false,
+    testId,
+  }: {
+    label: string;
+    value: unknown;
+    fullWidth?: boolean;
+    testId?: string;
+  }) => (
+    <div className={fullWidth ? "md:col-span-2" : ""} data-testid={testId}>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm leading-6 break-words">{formatFieldValue(value)}</p>
+    </div>
+  );
+
+  const getApplicationChecklist = (application: Application, role: "seller" | "rider") => {
+    const checks = [
+      { label: "Full name", ok: Boolean(application.name) },
+      { label: "Email", ok: Boolean(application.email) },
+      { label: "Phone", ok: Boolean(application.phone) },
+      { label: "Business/Contact address", ok: Boolean(application.businessAddress) },
+      { label: "Ghana Card number", ok: Boolean(application.nationalIdCard) },
+      { label: "Profile photo", ok: Boolean(application.profileImage) },
+      { label: "Ghana Card front", ok: Boolean(application.ghanaCardFront) },
+      { label: "Ghana Card back", ok: Boolean(application.ghanaCardBack) },
+    ];
+
+    if (role === "seller") {
+      checks.push(
+        { label: "Store name", ok: Boolean(application.storeName) },
+        { label: "Store type", ok: Boolean(application.storeType) },
+        { label: "Store description", ok: Boolean(application.storeDescription) },
+        { label: "Store banner", ok: Boolean(application.storeBanner) },
+      );
+    } else {
+      checks.push(
+        { label: "Rider city", ok: Boolean(application.riderCity) },
+        { label: "Rider region", ok: Boolean(application.riderRegion) },
+        { label: "Vehicle type", ok: Boolean(application.vehicleInfo?.type) },
+        { label: "Vehicle plate", ok: Boolean(application.vehicleInfo?.plateNumber) },
+        { label: "Driver license", ok: Boolean(application.vehicleInfo?.license) },
+      );
+    }
+
+    return checks;
+  };
+
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
       navigate("/auth");
@@ -750,25 +806,49 @@ export default function AdminApplications() {
 
         {/* Application Details Dialog */}
         <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
-          <DialogContent className="w-[95vw] max-w-5xl max-h-[88vh] overflow-hidden p-0">
+          <DialogContent className="w-[96vw] max-w-6xl h-[90vh] overflow-hidden p-0">
             {selectedApplication && (
               <>
-                <div className="relative flex h-full max-h-[88vh] flex-col">
-                  <DialogHeader className="px-6 pt-6 pb-2 border-b">
-                    <DialogTitle className="text-2xl flex items-center gap-2">
-                      {getEffectiveRole(selectedApplication) === "seller" ? (
-                        <Store className="h-6 w-6 text-blue-500" />
-                      ) : (
-                        <Bike className="h-6 w-6 text-orange-500" />
-                      )}
-                      {selectedApplication.name}
-                    </DialogTitle>
-                    <DialogDescription>
-                      {getEffectiveRole(selectedApplication) === "seller" ? "Seller" : "Delivery Rider"} Application Details
-                    </DialogDescription>
+                <div className="relative flex h-full flex-col">
+                  <DialogHeader className="border-b bg-muted/20 px-6 py-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <DialogTitle className="text-2xl flex items-center gap-3">
+                          <span className={`rounded-full p-2 ${getEffectiveRole(selectedApplication) === "seller" ? "bg-blue-500/10" : "bg-orange-500/10"}`}>
+                            {getEffectiveRole(selectedApplication) === "seller" ? (
+                              <Store className="h-6 w-6 text-blue-500" />
+                            ) : (
+                              <Bike className="h-6 w-6 text-orange-500" />
+                            )}
+                          </span>
+                          <span className="truncate">{selectedApplication.name || "Unnamed Applicant"}</span>
+                        </DialogTitle>
+                        <DialogDescription className="mt-2">
+                          {getEffectiveRole(selectedApplication) === "seller" ? "Seller" : "Delivery Rider"} application profile and verification details
+                        </DialogDescription>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <span
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${
+                            selectedApplication.applicationStatus === "rejected"
+                              ? "border-rose-200 bg-rose-100 text-rose-700"
+                              : selectedApplication.applicationStatus === "interview_scheduled"
+                                ? "border-blue-200 bg-blue-100 text-blue-700"
+                                : selectedApplication.applicationStatus === "approved"
+                                  ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+                                  : "border-amber-200 bg-amber-100 text-amber-700"
+                          }`}
+                        >
+                          {(selectedApplication.applicationStatus || "pending").replace(/_/g, " ")}
+                        </span>
+                        <span className="rounded-full border bg-background px-3 py-1 text-xs font-semibold capitalize">
+                          {getEffectiveRole(selectedApplication)} application
+                        </span>
+                      </div>
+                    </div>
                   </DialogHeader>
 
-                  <div className="space-y-6 mt-0 overflow-y-auto px-6 py-4">
+                  <div className="space-y-5 mt-0 flex-1 overflow-y-auto px-6 py-5">
                   {/* Rejection Reason (if rejected) */}
                   {selectedApplication.applicationStatus === "rejected" && selectedApplication.rejectionReason && (
                     <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
@@ -793,52 +873,26 @@ export default function AdminApplications() {
                   )}
 
                   {/* Personal Information */}
-                  <div>
+                  <Card className="p-4">
                     <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                       <User className="h-5 w-5" />
                       Personal Information
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Application ID</p>
-                        <p className="text-base break-all">{selectedApplication.id || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Applied On</p>
-                        <p className="text-base">{selectedApplication.createdAt ? new Date(selectedApplication.createdAt).toLocaleString() : "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Full Name</p>
-                        <p className="text-base">{selectedApplication.name || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Email</p>
-                        <p className="text-base">{selectedApplication.email || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Phone</p>
-                        <p className="text-base">{selectedApplication.phone || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Current Account Role</p>
-                        <p className="text-base capitalize">{selectedApplication.role || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Requested Role</p>
-                        <p className="text-base capitalize">{getEffectiveRole(selectedApplication)}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Ghana Card Number</p>
-                        <p className="text-base">{selectedApplication.nationalIdCard || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Application Status</p>
-                        <p className="text-base capitalize">{selectedApplication.applicationStatus || "N/A"}</p>
-                      </div>
-                      <div className="md:col-span-2">
-                        <p className="text-sm font-medium text-muted-foreground">Address / Location</p>
-                        <p className="text-base">{selectedApplication.businessAddress || "N/A"}</p>
-                      </div>
+                      <DetailField label="Application ID" value={selectedApplication.id} />
+                      <DetailField
+                        label="Applied On"
+                        value={selectedApplication.createdAt ? new Date(selectedApplication.createdAt).toLocaleString() : "N/A"}
+                      />
+                      <DetailField label="Full Name" value={selectedApplication.name} />
+                      <DetailField label="Email" value={selectedApplication.email} />
+                      <DetailField label="Phone" value={selectedApplication.phone} />
+                      <DetailField label="Current Account Role" value={selectedApplication.role} />
+                      <DetailField label="Requested Role" value={getEffectiveRole(selectedApplication)} />
+                      <DetailField label="Ghana Card Number" value={selectedApplication.nationalIdCard} />
+                      <DetailField label="Application Status" value={selectedApplication.applicationStatus} />
+                      <DetailField label="Delivery Zone ID" value={selectedApplication.deliveryZoneId} />
+                      <DetailField label="Address / Location" value={selectedApplication.businessAddress} fullWidth />
                       {getEffectiveRole(selectedApplication) === "rider" && (
                         <>
                           <div>
@@ -899,10 +953,10 @@ export default function AdminApplications() {
                         </>
                       )}
                     </div>
-                  </div>
+                  </Card>
 
                   {/* Uploaded Media */}
-                  <div>
+                  <Card className="p-4">
                     <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                       <CreditCard className="h-5 w-5" />
                       Uploaded Media & Verification Images
@@ -914,11 +968,11 @@ export default function AdminApplications() {
                       {getEffectiveRole(selectedApplication) === "seller" &&
                         renderImageTile("Store Banner", selectedApplication.storeBanner, "media-store-banner")}
                     </div>
-                  </div>
+                  </Card>
 
                   {/* Vehicle Information (rider-only) */}
                   {getEffectiveRole(selectedApplication) === "rider" && (
-                    <div>
+                    <Card className="p-4">
                       <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                         <Car className="h-5 w-5" />
                         Vehicle Information
@@ -941,19 +995,60 @@ export default function AdminApplications() {
                           <p className="text-base">{selectedApplication.vehicleInfo?.color || "N/A"}</p>
                         </div>
                       </div>
-                    </div>
+                    </Card>
                   )}
 
+                  <Card className="p-4">
+                    <h3 className="text-lg font-semibold mb-3">Application Completeness</h3>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      {
+                        (() => {
+                          const checks = getApplicationChecklist(selectedApplication, getEffectiveRole(selectedApplication));
+                          const completed = checks.filter((item) => item.ok).length;
+                          return `${completed}/${checks.length} required fields provided`;
+                        })()
+                      }
+                    </p>
+                    <div className="space-y-2">
+                      {getApplicationChecklist(selectedApplication, getEffectiveRole(selectedApplication)).map((item) => (
+                        <div
+                          key={item.label}
+                          className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                            item.ok ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70"
+                          }`}
+                        >
+                          {item.ok ? (
+                            <Check className="h-4 w-4 text-emerald-600" />
+                          ) : (
+                            <X className="h-4 w-4 text-amber-600" />
+                          )}
+                          <span>{item.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+
+                  <Card className="p-4">
+                    <h3 className="text-lg font-semibold mb-3">Raw Application Record</h3>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Full payload snapshot for audit and debugging.
+                    </p>
+                    <pre className="max-h-56 overflow-auto rounded-md border bg-muted/20 p-3 text-xs leading-5 whitespace-pre-wrap break-words">
+                      {JSON.stringify(selectedApplication, null, 2)}
+                    </pre>
+                  </Card>
+
                   {/* Action Buttons */}
-                  {(selectedApplication.applicationStatus === "pending" || selectedApplication.applicationStatus === "interview_scheduled") && (
-                    <div className="flex justify-end gap-3 pt-4 border-t">
-                      <Button
-                        variant="outline"
-                        onClick={() => setViewDetailsOpen(false)}
-                        data-testid="button-close-details"
-                      >
-                        Close
-                      </Button>
+                  <div className="flex justify-end gap-3 pt-4 border-t sticky bottom-0 bg-background">
+                    <Button
+                      variant="outline"
+                      onClick={() => setViewDetailsOpen(false)}
+                      data-testid="button-close-details"
+                    >
+                      Close
+                    </Button>
+                    {(selectedApplication.applicationStatus === "pending" || selectedApplication.applicationStatus === "interview_scheduled") && (
+                      <>
                       <Button
                         variant="destructive"
                         onClick={() => {
@@ -995,8 +1090,9 @@ export default function AdminApplications() {
                         )}
                         Approve Application
                       </Button>
-                    </div>
-                  )}
+                      </>
+                    )}
+                  </div>
                   </div>
                   {detailsLoading && (
                     <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] flex items-center justify-center">
