@@ -589,22 +589,45 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
         </DialogHeader>
         
         <div className="space-y-6">
-          {/* Profile Image */}
-          {sellerData.profileImage && (
-            <div>
-              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <User className="h-5 w-5" />
-                Profile Photo
-              </h3>
-              <div className="bg-muted rounded-lg p-4 flex justify-center">
-                <img 
-                  src={sellerData.profileImage} 
-                  alt="Profile" 
-                  className="w-32 h-32 rounded-full object-cover"
-                />
+          {/* Profile Image + Store Banner */}
+          <div>
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Profile Photo
+            </h3>
+            <div className="rounded-lg overflow-hidden border border-border/70">
+              <div
+                className="relative h-44 flex items-center justify-center bg-muted bg-cover bg-center"
+                style={
+                  sellerData.storeBanner
+                    ? { backgroundImage: `url(${sellerData.storeBanner})` }
+                    : undefined
+                }
+              >
+                {sellerData.storeBanner && (
+                  <div className="absolute inset-0 bg-black/35" />
+                )}
+                {sellerData.profileImage ? (
+                  <img
+                    src={sellerData.profileImage}
+                    alt="Profile"
+                    className="relative z-10 w-32 h-32 rounded-full object-cover border-4 border-background shadow-lg"
+                  />
+                ) : (
+                  <div className="relative z-10 w-32 h-32 rounded-full bg-background/90 border-4 border-background shadow-lg flex items-center justify-center">
+                    <User className="h-12 w-12 text-muted-foreground" />
+                  </div>
+                )}
               </div>
+              {sellerData.storeBanner && (
+                <div className="px-3 py-2 border-t bg-background/70">
+                  <p className="text-xs text-muted-foreground truncate">
+                    Store banner applied
+                  </p>
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Personal Information */}
           <div>

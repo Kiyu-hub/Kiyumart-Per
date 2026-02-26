@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Loader2, Search, User, Edit, Ban, MessageSquare, Trash2, ArrowLeft, CheckCircle, XCircle, UserCog, Phone } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { VideoCallModal } from "@/components/VideoCallModal";
 
@@ -126,30 +126,62 @@ export default function AdminUsers() {
     }
   };
 
-  const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
-  const [userToPromote, setUserToPromote] = useState<string | null>(null);
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const [userToChangeRole, setUserToChangeRole] = useState<UserData | null>(null);
+  const [targetRole, setTargetRole] = useState<string>("buyer");
 
-  const promoteToAdminMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      return apiRequest("PATCH", `/api/users/${userId}`, { role: "admin" });
+  const ROLE_WEIGHT: Record<string, number> = {
+    buyer: 1,
+    seller: 2,
+    rider: 2,
+    agent: 3,
+    admin: 4,
+    super_admin: 5,
+  };
+
+  const getAvailableRoleOptions = () => {
+    if (user?.role === "super_admin") {
+      return ["buyer", "seller", "rider", "agent", "admin", "super_admin"];
+    }
+    return ["buyer", "seller", "rider", "agent", "admin"];
+  };
+
+  const getRoleChangeDirection = (fromRole: string, toRole: string) => {
+    const from = ROLE_WEIGHT[fromRole] ?? 0;
+    const to = ROLE_WEIGHT[toRole] ?? 0;
+    if (to > from) return "promoted";
+    if (to < from) return "demoted";
+    return "updated";
+  };
+
+  const changeUserRoleMutation = useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+      return apiRequest("PATCH", `/api/users/${userId}`, { role });
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      const direction = getRoleChangeDirection(userToChangeRole?.role || "", variables.role);
       toast({
         title: "Success",
-        description: "User has been promoted to admin",
+        description:
+          direction === "promoted"
+            ? "User promoted successfully"
+            : direction === "demoted"
+              ? "User demoted successfully"
+              : "User role updated successfully",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      setPromoteDialogOpen(false);
-      setUserToPromote(null);
+      if (user?.id === variables.userId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      }
+      setRoleDialogOpen(false);
+      setUserToChangeRole(null);
     },
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to promote user",
+        description: error.message || "Failed to update user role",
         variant: "destructive",
       });
-      setPromoteDialogOpen(false);
-      setUserToPromote(null);
     },
   });
 
@@ -248,46 +280,21 @@ export default function AdminUsers() {
           </div>
         </div>
         <div className="flex gap-2">
-          {user?.role === "super_admin" && userData.role !== "admin" && userData.role !== "super_admin" && (
-            <Dialog open={promoteDialogOpen && userToPromote === userData.id} onOpenChange={(open) => {
-              setPromoteDialogOpen(open);
-              if (!open) setUserToPromote(null);
-            }}>
-              <DialogTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  data-testid={`button-promote-${userData.id}`}
-                  title="Promote to Admin"
-                  onClick={() => {
-                    setUserToPromote(userData.id);
-                    setPromoteDialogOpen(true);
-                  }}
-                >
-                  <UserCog className="h-4 w-4 text-primary" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Promote to Admin</DialogTitle>
-                  <DialogDescription>
-                    Are you sure you want to promote {userData.name || userData.username} to admin? 
-                    They will have access to all administrative functions.
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setPromoteDialogOpen(false)}>Cancel</Button>
-                  <Button 
-                    onClick={() => promoteToAdminMutation.mutate(userData.id)}
-                    disabled={promoteToAdminMutation.isPending}
-                    data-testid={`button-confirm-promote-${userData.id}`}
-                  >
-                    {promoteToAdminMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Promote
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+          {(user?.role === "admin" || user?.role === "super_admin") && (
+            <Button 
+              variant="ghost" 
+              size="icon"
+              data-testid={`button-change-role-${userData.id}`}
+              title="Promote / demote role"
+              onClick={() => {
+                setUserToChangeRole(userData);
+                setTargetRole(userData.role);
+                setRoleDialogOpen(true);
+              }}
+              disabled={user?.role !== "super_admin" && userData.role === "super_admin"}
+            >
+              <UserCog className="h-4 w-4 text-primary" />
+            </Button>
           )}
           <Button 
             variant="ghost" 
@@ -491,6 +498,57 @@ export default function AdminUsers() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Promote / Demote Role Dialog */}
+      <Dialog
+        open={roleDialogOpen}
+        onOpenChange={(open) => {
+          setRoleDialogOpen(open);
+          if (!open) setUserToChangeRole(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update User Role</DialogTitle>
+            <DialogDescription>
+              Change role for {userToChangeRole?.name || userToChangeRole?.username}. The user will receive an in-app notification about this role change.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">
+              Current role: <span className="font-semibold text-foreground">{userToChangeRole?.role || "N/A"}</span>
+            </div>
+            <Select value={targetRole} onValueChange={setTargetRole}>
+              <SelectTrigger data-testid="select-target-role">
+                <SelectValue placeholder="Select target role" />
+              </SelectTrigger>
+              <SelectContent>
+                {getAvailableRoleOptions().map((role) => (
+                  <SelectItem key={role} value={role}>
+                    {role.replace("_", " ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRoleDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!userToChangeRole) return;
+                changeUserRoleMutation.mutate({ userId: userToChangeRole.id, role: targetRole });
+              }}
+              disabled={!userToChangeRole || changeUserRoleMutation.isPending || userToChangeRole.role === targetRole}
+              data-testid="button-confirm-change-role"
+            >
+              {changeUserRoleMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Update Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!confirmDeleteUser} onOpenChange={(open) => !open && setConfirmDeleteUser(null)}>
