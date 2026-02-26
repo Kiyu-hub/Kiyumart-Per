@@ -36,11 +36,17 @@ const pendingMessages = new Map<string, PendingMessage>();
 const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY = 1000; // 1 second
 const MAX_RETRY_DELAY = 300000; // 5 minutes
+const VERBOSE_MESSAGE_DELIVERY_LOGS = process.env.MESSAGE_DELIVERY_VERBOSE === "true";
 
 class MessageDeliveryService {
   private io: SocketIOServer | null = null;
   private retryInterval: NodeJS.Timeout | null = null;
   private deliveryCallbacks: Map<string, (status: string, error?: string) => void> = new Map();
+
+  private debugLog(message: string, ...args: any[]) {
+    if (!VERBOSE_MESSAGE_DELIVERY_LOGS) return;
+    console.log(message, ...args);
+  }
 
   /**
    * Initialize the message delivery service
@@ -94,7 +100,7 @@ class MessageDeliveryService {
     if (pendingMessage.status !== 'delivered') {
       pendingMessage.nextRetry = this.calculateNextRetry(0);
       pendingMessages.set(message.id, pendingMessage);
-      console.log(`[MESSAGE-DELIVERY] Message ${message.id} queued for retry`);
+      this.debugLog(`[MESSAGE-DELIVERY] Message ${message.id} queued for retry`);
       return { status: 'queued', delivered: false };
     }
 
@@ -110,7 +116,7 @@ class MessageDeliveryService {
     const receiverPresence = presenceService.getPresence(message.receiverId);
     
     if (!receiverPresence || receiverPresence.status !== 'online') {
-      console.log(`[MESSAGE-DELIVERY] User ${message.receiverId} not online, queuing`);
+      this.debugLog(`[MESSAGE-DELIVERY] User ${message.receiverId} not online, queuing`);
       return false;
     }
 
@@ -139,7 +145,7 @@ class MessageDeliveryService {
       message.status = 'sent';
       message.lastAttempt = new Date();
       
-      console.log(`[MESSAGE-DELIVERY] Message ${message.id} sent to ${message.receiverId}`);
+      this.debugLog(`[MESSAGE-DELIVERY] Message ${message.id} sent to ${message.receiverId}`);
       return true;
     } catch (error) {
       console.error(`[MESSAGE-DELIVERY] Failed to send message ${message.id}:`, error);
@@ -165,7 +171,7 @@ class MessageDeliveryService {
       });
     }
 
-    console.log(`[MESSAGE-DELIVERY] Message ${messageId} delivered`);
+    this.debugLog(`[MESSAGE-DELIVERY] Message ${messageId} delivered`);
     return { messageId, deliveredAt: now };
   }
 
@@ -188,7 +194,7 @@ class MessageDeliveryService {
       });
     }
 
-    console.log(`[MESSAGE-DELIVERY] ${messageIds.length} messages marked as read`);
+    this.debugLog(`[MESSAGE-DELIVERY] ${messageIds.length} messages marked as read`);
     return { messageIds, readAt: now };
   }
 
@@ -228,7 +234,7 @@ class MessageDeliveryService {
             });
           }
           
-          console.log(`[MESSAGE-DELIVERY] Message ${messageId} failed after ${message.retryCount} retries`);
+          this.debugLog(`[MESSAGE-DELIVERY] Message ${messageId} failed after ${message.retryCount} retries`);
           continue;
         }
 
@@ -241,7 +247,7 @@ class MessageDeliveryService {
           message.retryCount++;
           message.nextRetry = this.calculateNextRetry(message.retryCount);
           pendingMessages.set(messageId, message);
-          console.log(`[MESSAGE-DELIVERY] Message ${messageId} retry ${message.retryCount}/${MAX_RETRIES}, next: ${message.nextRetry.toISOString()}`);
+          this.debugLog(`[MESSAGE-DELIVERY] Message ${messageId} retry ${message.retryCount}/${MAX_RETRIES}, next: ${message.nextRetry.toISOString()}`);
         }
       }
     }, 2000); // Check every 2 seconds
@@ -269,7 +275,7 @@ class MessageDeliveryService {
     }
 
     if (pending.length > 0) {
-      console.log(`[MESSAGE-DELIVERY] Delivered ${pending.length} queued messages to ${userId}`);
+      this.debugLog(`[MESSAGE-DELIVERY] Delivered ${pending.length} queued messages to ${userId}`);
     }
   }
 

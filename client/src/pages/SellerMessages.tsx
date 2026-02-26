@@ -77,7 +77,8 @@ export default function SellerMessages() {
       if (msg.receiverId === user?.id) {
         socket.emit("message_delivered", { messageId: msg.id });
       }
-      if (msg.senderId === selectedUserId || msg.receiverId === selectedUserId) {
+      const isMessageForCurrentUser = msg.senderId === user?.id || msg.receiverId === user?.id;
+      if (isMessageForCurrentUser || msg.senderId === selectedUserId || msg.receiverId === selectedUserId) {
         queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedUserId] });
       }
     };
@@ -218,7 +219,7 @@ export default function SellerMessages() {
   useEffect(() => {
     if (!socket || !selectedUserId || messages.length === 0) return;
 
-    const incoming = messages.filter((m) => m.senderId === selectedUserId);
+    const incoming = messages.filter((m) => m.senderId !== user?.id);
     const undelivered = incoming.filter((m) => !m.deliveredAt && m.status === "sent");
     const unread = incoming.filter((m) => !m.readAt && !m.isRead);
 
@@ -231,7 +232,7 @@ export default function SellerMessages() {
         },
       });
     }
-  }, [socket, selectedUserId, messages, markConversationReadMutation.isPending]);
+  }, [socket, selectedUserId, messages, markConversationReadMutation.isPending, user?.id]);
 
   const handleSendMessage = () => {
     if (message.trim() && selectedUserId) {

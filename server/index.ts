@@ -18,6 +18,7 @@ app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  const verboseApiLogs = process.env.API_VERBOSE_LOGS === "true";
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
@@ -27,13 +28,23 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
+    const isApiPath = path.startsWith("/api");
+    const isErrorStatus = res.statusCode >= 400;
+    const isNoisyPollPath =
+      path === "/api/platform-settings" ||
+      path === "/api/homepage/promotional" ||
+      path === "/api/notifications/unread-count" ||
+      path.startsWith("/api/presence");
 
-    // Verbose logging: always log requests with errors (4xx/5xx), and
-    // also log API responses to capture useful JSON payloads for debugging.
-    if (!path.startsWith("/api") && res.statusCode < 400) return;
+    // Keep errors visible, but suppress high-frequency successful polling logs by default.
+    if (!isApiPath && !isErrorStatus) return;
+    if (isApiPath && !verboseApiLogs && !isErrorStatus) {
+      if (isNoisyPollPath) return;
+      if (duration < 800) return;
+    }
 
     let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-    if (path.startsWith("/api") && capturedJsonResponse) {
+    if ((verboseApiLogs || isErrorStatus) && isApiPath && capturedJsonResponse) {
       logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
     }
 

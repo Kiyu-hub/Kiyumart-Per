@@ -72,7 +72,11 @@ To be the leading online marketplace platform for local businesses, connecting q
 
 ## Support Routing & Rider Messaging Unification Update (February 26, 2026)
 
-- Rider dashboard messaging is now unified with support conversation APIs (`/api/support/conversations*`) to prevent split routing between direct chat and support chat.
+- Rider/Seller messaging is now separated from ticket workflows:
+  - `/support` remains ticket-based (`/api/support/conversations*`).
+  - `/rider/messages` and `/seller/messages` use unified support chat endpoints (`/api/messages*`) with masked `Support Agent` contact.
+- Unified support chat now aggregates privileged support responders (agent/admin/super_admin) into one rider/seller-visible support thread.
+- Support contact profiles are now included in rider/seller message contacts (`profileImage` hydrated from active support staff).
 - Added backend-authoritative support routing controls on conversations:
   - `all_support`
   - `all_agents`
@@ -87,6 +91,9 @@ To be the leading online marketplace platform for local businesses, connecting q
 - Added responder traceability for supervision:
   - `support_conversations.last_support_responder_id`
   - API response fields for `lastSupportResponderName` and `lastSupportResponderRole`.
+- Reduced noisy runtime logs:
+  - Added API polling log suppression in `server/index.ts` (configurable via `API_VERBOSE_LOGS=true`).
+  - Added delivery retry log suppression in `messageDeliveryService` (configurable via `MESSAGE_DELIVERY_VERBOSE=true`).
 - Migration added:
   - `migrations/0025_support_conversation_routing.sql`
 
