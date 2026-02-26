@@ -44,7 +44,7 @@ export default function RiderDeliveries() {
     if (s === "searching_rider") return "searching_rider";
     if (s === "ready_for_pickup") return "assigned";
     if (s === "assigned_to_rider") return "assigned";
-    if (s === "out_for_delivery") return "en_route";
+    if (s === "out_for_delivery" || s === "en_route") return "in_transit";
     return s || "pending";
   };
 
@@ -74,7 +74,6 @@ export default function RiderDeliveries() {
       case "rider_arrived": return "bg-cyan-500";
       case "picked_up": return "bg-purple-500";
       case "in_transit": return "bg-orange-500";
-      case "en_route": return "bg-orange-500";
       case "delivered": return "bg-green-500";
       default: return "bg-gray-500";
     }
@@ -98,7 +97,6 @@ export default function RiderDeliveries() {
               <SelectItem value="rider_arrived">Rider Arrived</SelectItem>
               <SelectItem value="picked_up">Picked Up</SelectItem>
               <SelectItem value="in_transit">In Transit</SelectItem>
-              <SelectItem value="en_route">In Transit</SelectItem>
               <SelectItem value="delivered">Delivered</SelectItem>
             </SelectContent>
           </Select>
@@ -183,16 +181,6 @@ export default function RiderDeliveries() {
                       </Button>
                     )}
                     {normalizeStatus(delivery.status) === "in_transit" && (
-                      <Button
-                        size="sm"
-                        onClick={() => updateStatusMutation.mutate({ id: delivery.id, status: "en_route" })}
-                        disabled={updateStatusMutation.isPending}
-                        data-testid={`button-enroute-${delivery.id}`}
-                      >
-                        Mark as En Route
-                      </Button>
-                    )}
-                    {normalizeStatus(delivery.status) === "en_route" && (
                       <Button
                         size="sm"
                         onClick={() => navigate(`/rider/route?orderId=${delivery.id}`)}

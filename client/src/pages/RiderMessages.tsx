@@ -44,7 +44,7 @@ interface Message {
   readAt?: string | null;
 }
 
-const SUPPORT_ROLES = new Set(["support_agent", "agent", "admin", "super_admin"]);
+const SUPPORT_ROLES = new Set(["support_agent", "agent", "admin", "super_admin", "superadmin", "administrator"]);
 
 export default function RiderMessages() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -155,6 +155,27 @@ export default function RiderMessages() {
     enabled: isAuthenticated && user?.role === "rider",
     refetchInterval: 15000,
   });
+
+  const normalizedUsers = useMemo(() => {
+    const mapped: UserData[] = [];
+    let supportInserted = false;
+    for (const u of users) {
+      if (SUPPORT_ROLES.has(String(u.role || "").toLowerCase())) {
+        if (!supportInserted) {
+          mapped.push({
+            ...u,
+            name: "Support Agent",
+            role: "support_agent",
+            email: "support@kiyumart.com",
+          });
+          supportInserted = true;
+        }
+        continue;
+      }
+      mapped.push(u);
+    }
+    return mapped;
+  }, [users]);
 
   // Auto-select user only when the contact is still allowed (support or active-order stakeholder).
   useEffect(() => {
@@ -281,27 +302,6 @@ export default function RiderMessages() {
       setUploadingAudio(false);
     }
   };
-
-  const normalizedUsers = useMemo(() => {
-    const mapped: UserData[] = [];
-    let supportInserted = false;
-    for (const u of users) {
-      if (SUPPORT_ROLES.has(String(u.role || "").toLowerCase())) {
-        if (!supportInserted) {
-          mapped.push({
-            ...u,
-            name: "Support Agent",
-            role: "support_agent",
-            email: "support@kiyumart.com",
-          });
-          supportInserted = true;
-        }
-        continue;
-      }
-      mapped.push(u);
-    }
-    return mapped;
-  }, [users]);
 
   const filteredUsers = normalizedUsers.filter(u => 
     u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||

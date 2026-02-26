@@ -121,17 +121,37 @@ export default function RiderActiveRoute() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => {
+                        onClick={async () => {
                           if (activeDelivery.buyerId) {
-                            jitsiCall.startCall(activeDelivery.buyerId, 'voice');
+                            try {
+                              await jitsiCall.startCall(activeDelivery.buyerId, 'voice');
+                            } catch (error: any) {
+                              toast({
+                                title: "Failed to start in-app call",
+                                description: error?.message || "Unable to start call right now",
+                                variant: "destructive",
+                              });
+                            }
                           }
                         }}
                         disabled={jitsiCall.inCall}
                         className="flex items-center gap-1.5"
                       >
                         <Phone className="h-4 w-4" />
-                        <span className="hidden sm:inline">Call</span>
+                        <span className="hidden sm:inline">In-App Call</span>
                       </Button>
+                      {activeDelivery.buyerPhone && (
+                        <a href={`tel:${activeDelivery.buyerPhone}`}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex items-center gap-1.5"
+                          >
+                            <Phone className="h-4 w-4" />
+                            <span className="hidden sm:inline">Phone Call</span>
+                          </Button>
+                        </a>
+                      )}
                     </>
                   )}
                 </div>

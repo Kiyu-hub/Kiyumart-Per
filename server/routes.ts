@@ -10094,25 +10094,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
     getOrdersByBuyer: async (buyerId: string) => {
       const buyerOrders = await storage.getAllOrders();
-      return buyerOrders.filter((o: any) => o.buyerId === buyerId);
+      const target = String(buyerId);
+      return buyerOrders.filter((o: any) => String(o.buyerId || "") === target);
     },
     getOrdersBySeller: async (sellerId: string) => {
       const sellerOrders = await storage.getAllOrders();
-      return sellerOrders.filter((o: any) => o.sellerId === sellerId);
+      const target = String(sellerId);
+      return sellerOrders.filter((o: any) => String(o.sellerId || "") === target);
     },
     getOrdersByRider: async (riderId: string) => {
       const riderOrders = await storage.getAllOrders();
-      return riderOrders.filter((o: any) => o.riderId === riderId);
+      const target = String(riderId);
+      return riderOrders.filter((o: any) => String(o.riderId || "") === target);
     },
     getActiveOrderBetweenUsers: async (userId1: string, userId2: string) => {
       const allOrders = await storage.getAllOrders();
-      return allOrders.find((o: any) => 
-        ((o.buyerId === userId1 && (o.sellerId === userId2 || o.riderId === userId2)) ||
-         (o.buyerId === userId2 && (o.sellerId === userId1 || o.riderId === userId1)) ||
-         (o.sellerId === userId1 && o.riderId === userId2) ||
-         (o.sellerId === userId2 && o.riderId === userId1)) &&
-        ['pending', 'created', 'confirmed', 'processing', 'ready', 'searching_rider', 'assigned', 'rider_arrived', 'picked_up', 'in_transit', 'en_route', 'delivered'].includes(String(o.status || '').toLowerCase().trim())
-      ) || null;
+      const lhs = String(userId1);
+      const rhs = String(userId2);
+      const chatActiveStatuses = new Set(["searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"]);
+
+      const linked = allOrders.filter((o: any) => {
+        const buyerId = String(o.buyerId || "");
+        const sellerId = String(o.sellerId || "");
+        const riderId = String(o.riderId || "");
+        return (
+          (buyerId === lhs && (sellerId === rhs || riderId === rhs)) ||
+          (buyerId === rhs && (sellerId === lhs || riderId === lhs)) ||
+          (sellerId === lhs && riderId === rhs) ||
+          (sellerId === rhs && riderId === lhs)
+        );
+      });
+
+      if (linked.length === 0) return null;
+
+      const sorted = linked.sort((a: any, b: any) => {
+        const aTs = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const bTs = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return bTs - aTs;
+      });
+
+      const active = sorted.find((o: any) => chatActiveStatuses.has(canonicalizeOrderStatus(o.status)));
+      return active || null;
     },
   });
 
