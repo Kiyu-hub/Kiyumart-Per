@@ -183,6 +183,8 @@ export default function AdminApplications() {
       if (isLocal) {
         candidates.push(`http://localhost:5000${normalizedPath}`);
         candidates.push(`http://127.0.0.1:5000${normalizedPath}`);
+        candidates.push(`http://localhost:5001${normalizedPath}`);
+        candidates.push(`http://127.0.0.1:5001${normalizedPath}`);
       }
     }
 
@@ -385,17 +387,66 @@ export default function AdminApplications() {
 
   const purgePendingMutation = useMutation({
     mutationFn: async () => {
-      return requestJsonWithFallback<{ totalFound?: number; clearedApproved?: number; deletedUnapproved?: number }>(
-        "POST",
-        "/api/admin/applications/purge-pending",
-        {},
-        "Clear Pending Queue",
-      );
+      try {
+        return await requestJsonWithFallback<{ totalFound?: number; clearedApproved?: number; deletedUnapproved?: number; fallback?: boolean }>(
+          "POST",
+          "/api/admin/applications/purge-pending",
+          {},
+          "Clear Pending Queue",
+        );
+      } catch {
+        // Legacy fallback: perform equivalent cleanup using existing user APIs.
+        const buckets = await Promise.all([
+          fetchApplications("/api/users?role=seller&applicationStatus=pending"),
+          fetchApplications("/api/users?role=rider&applicationStatus=pending"),
+          fetchApplications("/api/users?role=seller&applicationStatus=interview_scheduled"),
+          fetchApplications("/api/users?role=rider&applicationStatus=interview_scheduled"),
+        ]);
+
+        const byId = new Map<string, Application>();
+        for (const appList of buckets) {
+          for (const app of appList) {
+            if (app?.id) byId.set(app.id, app);
+          }
+        }
+
+        let clearedApproved = 0;
+        let deletedUnapproved = 0;
+
+        const uniqueApps = Array.from(byId.values());
+        for (const app of uniqueApps) {
+          if (app.isApproved) {
+            await requestJsonWithFallback(
+              "PATCH",
+              `/api/users/${app.id}`,
+              {
+                requestedRole: null,
+                applicationStatus: "approved",
+                rejectionReason: null,
+                interviewScheduledAt: null,
+                interviewScheduledBy: null,
+              },
+              `Clear pending state for ${app.id}`,
+            );
+            clearedApproved += 1;
+          } else {
+            await requestJsonWithFallback("DELETE", `/api/users/${app.id}`, undefined, `Delete pending applicant ${app.id}`);
+            deletedUnapproved += 1;
+          }
+        }
+
+        return {
+          totalFound: byId.size,
+          clearedApproved,
+          deletedUnapproved,
+          fallback: true,
+        };
+      }
     },
     onSuccess: async (data: any) => {
       toast({
         title: "Pending Queue Cleared",
-        description: `Found ${data?.totalFound ?? 0}. Cleared ${data?.clearedApproved ?? 0}, deleted ${data?.deletedUnapproved ?? 0}.`,
+        description: `${data?.fallback ? "[Legacy fallback] " : ""}Found ${data?.totalFound ?? 0}. Cleared ${data?.clearedApproved ?? 0}, deleted ${data?.deletedUnapproved ?? 0}.`,
       });
       await queryClient.invalidateQueries({ queryKey: ["/api/users"] });
     },
@@ -1210,14 +1261,14 @@ export default function AdminApplications() {
                           key={item.label}
                           className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
                             item.ok
-                              ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-100"
-                              : "border-amber-500/60 bg-amber-500/20 text-amber-100"
+                              ? "border-emerald-400/80 bg-emerald-900/45 text-emerald-50"
+                              : "border-yellow-400/80 bg-yellow-900/45 text-yellow-50"
                           }`}
                         >
                           {item.ok ? (
-                            <Check className="h-4 w-4 text-emerald-300" />
+                            <Check className="h-4 w-4 text-emerald-200" />
                           ) : (
-                            <X className="h-4 w-4 text-amber-300" />
+                            <X className="h-4 w-4 text-yellow-200" />
                           )}
                           <span>{item.label}</span>
                         </div>
