@@ -16,12 +16,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Users, Video, Phone, Search, Loader2 } from "lucide-react";
 import type { CallType } from "@/hooks/useGroupCall";
+import UserAvatar from "@/components/UserAvatar";
 
 interface User {
   id: string;
   name: string;
   email: string;
   role: string;
+  profileImage?: string | null;
 }
 
 interface ParticipantSelectorDialogProps {
@@ -148,6 +150,12 @@ export function ParticipantSelectorDialog({
                             checked={selectedIds.has(user.id)}
                             onCheckedChange={() => toggleSelection(user.id)}
                             data-testid={`checkbox-${user.id}`}
+                          />
+                          <UserAvatar
+                            profileImage={user.profileImage}
+                            name={user.name}
+                            email={user.email}
+                            size="md"
                           />
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{user.name}</p>

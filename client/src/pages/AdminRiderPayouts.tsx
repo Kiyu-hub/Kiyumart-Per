@@ -45,12 +45,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import UserAvatar from "@/components/UserAvatar";
 
 interface Rider {
   id: string;
   name: string;
   email: string;
   phone?: string;
+  profileImage?: string | null;
   momoNumber?: string;
   isApproved: boolean;
   isActive: boolean;
@@ -309,9 +311,13 @@ export default function AdminRiderPayouts() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Bike className="h-8 w-8 text-primary" />
-                  </div>
+                  <UserAvatar
+                    profileImage={selectedRider.profileImage}
+                    name={selectedRider.name}
+                    email={selectedRider.email}
+                    size="lg"
+                    className="h-16 w-16"
+                  />
                   <div>
                     <CardTitle className="text-2xl">{selectedRider.name}</CardTitle>
                     <CardDescription className="flex items-center gap-4 mt-1">
@@ -730,9 +736,13 @@ export default function AdminRiderPayouts() {
                     <TableRow key={rider.id} className="hover:bg-muted/50 transition-colors">
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                            {rider.name?.charAt(0)?.toUpperCase() || "?"}
-                          </div>
+                          <UserAvatar
+                            profileImage={rider.profileImage}
+                            name={rider.name}
+                            email={rider.email}
+                            size="md"
+                            className="h-10 w-10"
+                          />
                           <div>
                             <p className="font-medium">{rider.name}</p>
                             <p className="text-sm text-muted-foreground">{rider.email}</p>

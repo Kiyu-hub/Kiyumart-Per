@@ -60,9 +60,15 @@ const editSellerSchema = z.object({
   email: z.string().email("Invalid email address"),
   phone: z.string().optional(),
   password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
+  storeType: z.enum(STORE_TYPES, { required_error: "Store type is required" }),
   storeName: z.string().min(2, "Store name must be at least 2 characters"),
   storeDescription: z.string().optional(),
   storeBanner: z.string().optional(),
+  businessAddress: z.string().optional(),
+  nationalIdCard: z.string().optional(),
+  profileImage: z.string().optional(),
+  ghanaCardFront: z.string().optional(),
+  ghanaCardBack: z.string().optional(),
 });
 
 type CreateSellerFormData = z.infer<typeof createSellerSchema>;
@@ -352,9 +358,15 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
       email: sellerData.email,
       phone: sellerData.phone || "",
       password: "",
+      storeType: (sellerData.storeType as (typeof STORE_TYPES)[number]) || STORE_TYPES[0],
       storeName: sellerData.storeName || "",
       storeDescription: sellerData.storeDescription || "",
       storeBanner: sellerData.storeBanner || "",
+      businessAddress: sellerData.businessAddress || "",
+      nationalIdCard: sellerData.nationalIdCard || "",
+      profileImage: sellerData.profileImage || "",
+      ghanaCardFront: sellerData.ghanaCardFront || "",
+      ghanaCardBack: sellerData.ghanaCardBack || "",
     },
   });
 
@@ -364,9 +376,15 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
         name: data.name,
         email: data.email,
         phone: data.phone,
+        storeType: data.storeType,
         storeName: data.storeName,
         storeDescription: data.storeDescription,
         storeBanner: data.storeBanner,
+        businessAddress: data.businessAddress || null,
+        nationalIdCard: data.nationalIdCard || null,
+        profileImage: data.profileImage || null,
+        ghanaCardFront: data.ghanaCardFront || null,
+        ghanaCardBack: data.ghanaCardBack || null,
       };
       
       // Only include password if provided
@@ -479,6 +497,34 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
 
             <FormField
               control={form.control}
+              name="storeType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Store Type *</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-edit-store-type">
+                        <SelectValue placeholder="Select store type" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {STORE_TYPES.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {STORE_TYPE_CONFIG[type].icon} {STORE_TYPE_CONFIG[type].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    {field.value && STORE_TYPE_CONFIG[field.value as keyof typeof STORE_TYPE_CONFIG]?.description}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name="storeName"
               render={({ field }) => (
                 <FormItem>
@@ -509,6 +555,105 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="businessAddress"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Business Address</FormLabel>
+                  <FormControl>
+                    <Input placeholder="123 Main St, Accra, Ghana" {...field} data-testid="input-edit-business-address" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="nationalIdCard"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Ghana Card Number</FormLabel>
+                  <FormControl>
+                    <Input placeholder="GHA-123456789-0" {...field} data-testid="input-edit-national-id-card" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="profileImage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Profile Image</FormLabel>
+                  <FormControl>
+                    <MediaUploadInput
+                      id="edit-seller-profile-image"
+                      label=""
+                      value={field.value || ""}
+                      onChange={field.onChange}
+                      accept="image"
+                      placeholder="Upload or enter profile image URL..."
+                      description="Profile image shown in user cards and profile views"
+                      skip4KValidation
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="ghanaCardFront"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Ghana Card Front</FormLabel>
+                    <FormControl>
+                      <MediaUploadInput
+                        id="edit-seller-ghana-front"
+                        label=""
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                        accept="image"
+                        placeholder="Upload or enter front image URL..."
+                        description="Front side of verification card"
+                        skip4KValidation
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="ghanaCardBack"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Ghana Card Back</FormLabel>
+                    <FormControl>
+                      <MediaUploadInput
+                        id="edit-seller-ghana-back"
+                        label=""
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                        accept="image"
+                        placeholder="Upload or enter back image URL..."
+                        description="Back side of verification card"
+                        skip4KValidation
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             <FormField
               control={form.control}
@@ -1273,9 +1418,9 @@ export default function AdminSellers() {
                       {(() => {
                         const linkedStore = sellerStoreDetailsMap.get(seller.id);
                         const sellerImage =
+                          seller.profileImage ||
                           linkedStore?.banner ||
                           linkedStore?.logo ||
-                          seller.profileImage ||
                           seller.storeBanner;
                         if (sellerImage) {
                           return (

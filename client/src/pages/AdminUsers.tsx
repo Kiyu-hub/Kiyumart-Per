@@ -11,10 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Loader2, Search, User, Edit, Ban, MessageSquare, Trash2, ArrowLeft, CheckCircle, XCircle, UserCog, Phone } from "lucide-react";
+import { Loader2, Search, Edit, Ban, MessageSquare, Trash2, ArrowLeft, CheckCircle, XCircle, UserCog, Phone, Video } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { VideoCallModal } from "@/components/VideoCallModal";
+import { useJitsiCall } from "@/hooks/useJitsiCall";
+import { JitsiCallDialog } from "@/components/JitsiCallDialog";
+import UserAvatar from "@/components/UserAvatar";
 
 interface UserData {
   id: string;
@@ -23,6 +25,7 @@ interface UserData {
   email: string;
   role: string;
   phone: string | null;
+  profileImage?: string | null;
   isActive: boolean;
   isApproved: boolean;
   createdAt: string;
@@ -38,8 +41,8 @@ export default function AdminUsers() {
   
   const [confirmBanUser, setConfirmBanUser] = useState<{ id: string; name: string; isActive: boolean } | null>(null);
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<{ id: string; name: string } | null>(null);
-  const [callModalOpen, setCallModalOpen] = useState(false);
-  const [userToCall, setUserToCall] = useState<{ id: string; name: string } | null>(null);
+  const [activeCallTarget, setActiveCallTarget] = useState<{ id: string; name: string } | null>(null);
+  const jitsiCall = useJitsiCall(user?.id || "");
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -123,6 +126,16 @@ export default function AdminUsers() {
   const confirmDeleteAction = () => {
     if (confirmDeleteUser) {
       deleteUserMutation.mutate(confirmDeleteUser.id);
+    }
+  };
+
+  const startJitsiCall = async (target: UserData, callType: "voice" | "video") => {
+    try {
+      setActiveCallTarget({ id: target.id, name: target.name || target.username });
+      await jitsiCall.startCall(target.id, callType);
+    } catch {
+      // Errors are surfaced by useJitsiCall toasts.
+      setActiveCallTarget(null);
     }
   };
 
@@ -238,9 +251,12 @@ export default function AdminUsers() {
   const UserCard = ({ userData }: { userData: UserData }) => (
     <Card className="p-4" data-testid={`card-user-${userData.id}`}>
       <div className="flex items-center gap-4">
-        <div className="bg-primary/10 p-3 rounded-full">
-          <User className="h-6 w-6 text-primary" />
-        </div>
+        <UserAvatar
+          profileImage={userData.profileImage}
+          name={userData.name || userData.username}
+          email={userData.email}
+          size="lg"
+        />
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-lg truncate" data-testid={`text-username-${userData.id}`}>
             {userData.name || userData.username}
@@ -299,14 +315,22 @@ export default function AdminUsers() {
           <Button 
             variant="ghost" 
             size="icon"
-            onClick={() => {
-              setUserToCall({ id: userData.id, name: userData.name || userData.username });
-              setCallModalOpen(true);
-            }}
-            data-testid={`button-call-${userData.id}`}
-            title="Call user"
+            onClick={() => void startJitsiCall(userData, "voice")}
+            data-testid={`button-call-voice-${userData.id}`}
+            title="Start voice call"
+            disabled={jitsiCall.isStarting || jitsiCall.isJoining}
           >
             <Phone className="h-4 w-4 text-green-600" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => void startJitsiCall(userData, "video")}
+            data-testid={`button-call-video-${userData.id}`}
+            title="Start video call"
+            disabled={jitsiCall.isStarting || jitsiCall.isJoining}
+          >
+            <Video className="h-4 w-4 text-primary" />
           </Button>
           <Button 
             variant="ghost" 
@@ -564,16 +588,41 @@ export default function AdminUsers() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Video Call Modal */}
-      {userToCall && (
-        <VideoCallModal
-          open={callModalOpen}
-          onOpenChange={setCallModalOpen}
-          targetUserId={userToCall.id}
-          targetUserName={userToCall.name}
-          isInitiator={true}
-        />
-      )}
+      <JitsiCallDialog
+        isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
+        roomUrl={jitsiCall.getJitsiUrl()}
+        roomName={jitsiCall.currentRoom?.roomName || null}
+        jitsiConfig={jitsiCall.jitsiConfig}
+        callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || "video"}
+        participants={
+          activeCallTarget
+            ? [{ id: activeCallTarget.id, name: activeCallTarget.name }]
+            : []
+        }
+        isHost={jitsiCall.currentRoom?.createdBy === user?.id}
+        incomingCall={
+          jitsiCall.incomingCall
+            ? {
+                callerName: jitsiCall.incomingCall.callerName,
+                callType: jitsiCall.incomingCall.callType,
+              }
+            : null
+        }
+        onAccept={() => jitsiCall.acceptIncomingCall()}
+        onReject={() => {
+          setActiveCallTarget(null);
+          jitsiCall.rejectIncomingCall();
+        }}
+        onLeave={() => {
+          setActiveCallTarget(null);
+          jitsiCall.leaveCall();
+        }}
+        onEnd={() => {
+          setActiveCallTarget(null);
+          jitsiCall.endCall();
+        }}
+        isJoining={jitsiCall.isJoining}
+      />
     </DashboardLayout>
   );
 }

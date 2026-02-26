@@ -10,11 +10,11 @@ import { useToast } from "@/hooks/use-toast";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import MediaUploadInput from "@/components/MediaUploadInput";
 
 interface RiderUser {
   id: string;
@@ -25,11 +25,15 @@ interface RiderUser {
     type: string;
     plateNumber: string;
     license: string;
+    color?: string;
   } | null;
   nationalIdCard: string | null;
   businessAddress?: string | null;
   riderCity?: string | null;
   riderRegion?: string | null;
+  profileImage?: string | null;
+  ghanaCardFront?: string | null;
+  ghanaCardBack?: string | null;
 }
 
 const normalizeVehicleInfo = (
@@ -56,11 +60,15 @@ const editRiderSchema = z.object({
   phone: z.string().min(10, "Phone number must be at least 10 characters"),
   vehicleType: z.string().min(1, "Vehicle type is required"),
   vehicleNumber: z.string().min(1, "Vehicle number is required"),
+  vehicleColor: z.string().optional(),
   licenseNumber: z.string().min(1, "License number is required"),
   nationalIdCard: z.string().min(5, "National ID card must be at least 5 characters"),
   businessAddress: z.string().min(5, "Address is required"),
   riderCity: z.string().min(2, "City is required"),
   riderRegion: z.string().min(2, "Region is required"),
+  profileImage: z.string().optional(),
+  ghanaCardFront: z.string().optional(),
+  ghanaCardBack: z.string().optional(),
 });
 
 type EditRiderFormData = z.infer<typeof editRiderSchema>;
@@ -100,11 +108,15 @@ export default function RiderEdit() {
       phone: "",
       vehicleType: "",
       vehicleNumber: "",
+      vehicleColor: "",
       licenseNumber: "",
       nationalIdCard: "",
       businessAddress: "",
       riderCity: "",
       riderRegion: "",
+      profileImage: "",
+      ghanaCardFront: "",
+      ghanaCardBack: "",
     },
   });
 
@@ -117,11 +129,15 @@ export default function RiderEdit() {
         phone: riderData.phone || "",
         vehicleType: vehicleInfo?.type || "",
         vehicleNumber: vehicleInfo?.plateNumber || "",
+        vehicleColor: vehicleInfo?.color || "",
         licenseNumber: vehicleInfo?.license || "",
         nationalIdCard: riderData.nationalIdCard || "",
         businessAddress: riderData.businessAddress || "",
         riderCity: riderData.riderCity || "",
         riderRegion: riderData.riderRegion || "",
+        profileImage: riderData.profileImage || "",
+        ghanaCardFront: riderData.ghanaCardFront || "",
+        ghanaCardBack: riderData.ghanaCardBack || "",
       });
     }
   }, [riderData, form]);
@@ -136,11 +152,15 @@ export default function RiderEdit() {
           type: data.vehicleType,
           plateNumber: data.vehicleNumber,
           license: data.licenseNumber,
+          color: data.vehicleColor || undefined,
         },
         nationalIdCard: data.nationalIdCard,
         businessAddress: data.businessAddress,
         riderCity: data.riderCity,
         riderRegion: data.riderRegion,
+        profileImage: data.profileImage || null,
+        ghanaCardFront: data.ghanaCardFront || null,
+        ghanaCardBack: data.ghanaCardBack || null,
       };
       return apiRequest("PATCH", `/api/users/${riderId}`, updateData);
     },
@@ -334,6 +354,77 @@ export default function RiderEdit() {
                       )}
                     />
                   </div>
+
+                  <FormField
+                    control={form.control}
+                    name="profileImage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Profile Image</FormLabel>
+                        <FormControl>
+                          <MediaUploadInput
+                            id="edit-rider-profile-image"
+                            label=""
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            accept="image"
+                            placeholder="Upload or enter profile image URL..."
+                            description="Profile image shown in rider cards and profile views"
+                            skip4KValidation
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="ghanaCardFront"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Ghana Card Front</FormLabel>
+                          <FormControl>
+                            <MediaUploadInput
+                              id="edit-rider-ghana-front"
+                              label=""
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              accept="image"
+                              placeholder="Upload or enter front image URL..."
+                              description="Front side of Ghana card verification"
+                              skip4KValidation
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="ghanaCardBack"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Ghana Card Back</FormLabel>
+                          <FormControl>
+                            <MediaUploadInput
+                              id="edit-rider-ghana-back"
+                              label=""
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              accept="image"
+                              placeholder="Upload or enter back image URL..."
+                              description="Back side of Ghana card verification"
+                              skip4KValidation
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                 </CardContent>
               </Card>
 
@@ -374,6 +465,20 @@ export default function RiderEdit() {
                         <FormLabel>Vehicle Number</FormLabel>
                         <FormControl>
                           <Input placeholder="GR-1234-23" {...field} data-testid="input-vehicle-number" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="vehicleColor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vehicle Color</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Red, Blue, Black..." {...field} data-testid="input-vehicle-color" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

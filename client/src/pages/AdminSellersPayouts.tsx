@@ -52,12 +52,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import UserAvatar from "@/components/UserAvatar";
 
 interface Seller {
   id: string;
   name: string;
   email: string;
   phone?: string | null;
+  profileImage?: string | null;
   isApproved: boolean;
   totalPaid: number | string;
   pendingAmount: number | string;
@@ -286,9 +288,13 @@ export default function AdminSellersPayouts() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                    <User className="h-8 w-8 text-primary" />
-                  </div>
+                  <UserAvatar
+                    profileImage={selectedSeller.profileImage}
+                    name={selectedSeller.name}
+                    email={selectedSeller.email}
+                    size="lg"
+                    className="h-16 w-16"
+                  />
                   <div>
                     <CardTitle className="text-2xl">{selectedSeller.name}</CardTitle>
                     <CardDescription className="flex items-center gap-2 mt-1">
@@ -646,9 +652,13 @@ export default function AdminSellersPayouts() {
                     <TableRow key={seller.id} className="hover:bg-muted/50 transition-colors">
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                            {seller.name?.charAt(0)?.toUpperCase() || "?"}
-                          </div>
+                          <UserAvatar
+                            profileImage={seller.profileImage}
+                            name={seller.name}
+                            email={seller.email}
+                            size="md"
+                            className="h-10 w-10"
+                          />
                           <div>
                             <p className="font-medium">{seller.name}</p>
                             <p className="text-sm text-muted-foreground">{seller.email}</p>

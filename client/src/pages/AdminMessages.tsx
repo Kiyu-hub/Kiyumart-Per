@@ -25,6 +25,7 @@ import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresen
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 import MessageAttachmentContent from "@/components/MessageAttachmentContent";
 import { buildChatAttachmentMessage, parseChatAttachmentMessage } from "@/lib/chatAttachments";
+import UserAvatar from "@/components/UserAvatar";
 
 interface UserData {
   id: string;
@@ -33,6 +34,7 @@ interface UserData {
   email: string;
   role: string;
   phone: string | null;
+  profileImage?: string | null;
   isActive: boolean;
 }
 
@@ -879,11 +881,12 @@ export default function AdminMessages() {
                         >
                           {/* Avatar with presence */}
                           <div className="relative flex-shrink-0">
-                            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
-                              <span className="text-base font-semibold text-primary">
-                                {(userData.name || userData.username || 'U').charAt(0).toUpperCase()}
-                              </span>
-                            </div>
+                            <UserAvatar
+                              profileImage={userData.profileImage}
+                              name={userData.name || userData.username}
+                              email={userData.email}
+                              size="lg"
+                            />
                             <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-background ${
                               isOnline ? 'bg-green-500' : isAway ? 'bg-yellow-500' : 'bg-gray-400'
                             }`} />
@@ -919,11 +922,12 @@ export default function AdminMessages() {
               <div className="flex items-center gap-3 p-3 border-b bg-gradient-to-r from-primary/5 to-transparent">
                 {/* Avatar with presence */}
                 <div className="relative flex-shrink-0">
-                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
-                    <span className="text-sm font-semibold text-primary">
-                      {(selectedUser.name || selectedUser.username || 'U').charAt(0).toUpperCase()}
-                    </span>
-                  </div>
+                  <UserAvatar
+                    profileImage={selectedUser.profileImage}
+                    name={selectedUser.name || selectedUser.username}
+                    email={selectedUser.email}
+                    size="md"
+                  />
                   <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
                     selectedUserPresence.isOnline ? 'bg-green-500' : 
                     selectedUserPresence.isAway ? 'bg-yellow-500' : 'bg-gray-400'
@@ -1172,11 +1176,12 @@ export default function AdminMessages() {
                         <div className="flex items-center gap-3">
                           {/* Avatar with presence indicator */}
                           <div className="relative flex-shrink-0">
-                            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
-                              <span className="text-sm font-semibold text-primary">
-                                {(userData.name || userData.username || 'U').charAt(0).toUpperCase()}
-                              </span>
-                            </div>
+                            <UserAvatar
+                              profileImage={userData.profileImage}
+                              name={userData.name || userData.username}
+                              email={userData.email}
+                              size="md"
+                            />
                             {/* Online indicator dot */}
                             <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
                               isOnline ? 'bg-green-500' : isAway ? 'bg-yellow-500' : 'bg-gray-400'
@@ -1213,11 +1218,12 @@ export default function AdminMessages() {
                   <div className="flex items-center gap-3">
                     {/* Avatar with presence */}
                     <div className="relative">
-                      <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
-                        <span className="text-lg font-semibold text-primary">
-                          {(selectedUser.name || selectedUser.username || 'U').charAt(0).toUpperCase()}
-                        </span>
-                      </div>
+                      <UserAvatar
+                        profileImage={selectedUser.profileImage}
+                        name={selectedUser.name || selectedUser.username}
+                        email={selectedUser.email}
+                        size="lg"
+                      />
                       <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-background ${
                         selectedUserPresence.isOnline ? 'bg-green-500' : 
                         selectedUserPresence.isAway ? 'bg-yellow-500' : 'bg-gray-400'
@@ -1350,9 +1356,12 @@ export default function AdminMessages() {
                           data-testid={`message-${msg.id}`}
                         >
                           <div className="flex-shrink-0">
-                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              <User className="h-4 w-4 text-primary" />
-                            </div>
+                            <UserAvatar
+                              profileImage={msg.senderId === user?.id ? (user?.profileImage || null) : (selectedUser?.profileImage || null)}
+                              name={msg.senderId === user?.id ? (user?.name || "You") : (selectedUser?.name || selectedUser?.username || "User")}
+                              email={msg.senderId === user?.id ? user?.email : selectedUser?.email}
+                              size="sm"
+                            />
                           </div>
                           <div className={`flex-1 ${msg.senderId === user?.id ? "text-right" : ""}`}>
                             <div
