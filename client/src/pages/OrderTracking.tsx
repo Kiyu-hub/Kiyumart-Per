@@ -361,6 +361,13 @@ export default function OrderTracking() {
               ) : (
                 <div className="space-y-6">
                   {filteredOrders.map((order) => (
+                    (() => {
+                      const isPickup = normalizeDeliveryMethod(order.deliveryMethod) === "pickup";
+                      const resolvedOtp = isPickup
+                        ? (order.pickupOtp || order.deliveryOtp || null)
+                        : (order.deliveryOtp || order.pickupOtp || null);
+                      const otpLabel = isPickup ? "Pickup OTP" : "Delivery OTP";
+                      return (
                     <Card key={order.id} className="overflow-hidden" data-testid={`card-order-${order.id}`}>
                       <CardHeader className="bg-muted/30 pb-4">
                         <div className="flex justify-between items-start flex-wrap gap-4">
@@ -455,7 +462,7 @@ export default function OrderTracking() {
                         )}
 
                         {/* Verification Codes */}
-                        {order.status !== "cancelled" && order.qrCode && (
+                        {order.status !== "cancelled" && (order.qrCode || resolvedOtp) && (
                           <div className="pt-4 border-t">
                             <p className="text-sm font-medium mb-3">
                               {normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
@@ -464,26 +471,27 @@ export default function OrderTracking() {
                             </p>
                             <div className="flex justify-center bg-muted/30 p-6 rounded-lg">
                               <div className="text-center">
-                                <QRCodeDisplay
-                                  value={order.qrCode}
-                                  title=""
-                                  description={
-                                    normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
-                                      ? "Show this QR code to the pickup station agent when collecting your order"
-                                      : "Show this QR code to the delivery rider to confirm receipt"
-                                  }
-                                />
-                                <p className="text-xs text-muted-foreground mt-2" data-testid={`text-qr-value-${order.id}`}>
-                                  {order.qrCode}
-                                </p>
-                                {normalizeDeliveryMethod(order.deliveryMethod) === "pickup" && order.pickupOtp && (
-                                  <p className="text-sm font-semibold mt-3" data-testid={`text-pickup-otp-${order.id}`}>
-                                    Pickup OTP: {order.pickupOtp}
-                                  </p>
+                                {order.qrCode ? (
+                                  <>
+                                    <QRCodeDisplay
+                                      value={order.qrCode}
+                                      title=""
+                                      description={
+                                        normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
+                                          ? "Show this QR code to the pickup station agent when collecting your order"
+                                          : "Show this QR code to the delivery rider to confirm receipt"
+                                      }
+                                    />
+                                    <p className="text-xs text-muted-foreground mt-2" data-testid={`text-qr-value-${order.id}`}>
+                                      {order.qrCode}
+                                    </p>
+                                  </>
+                                ) : (
+                                  <p className="text-sm text-muted-foreground">QR code is being prepared. You can use OTP below.</p>
                                 )}
-                                {normalizeDeliveryMethod(order.deliveryMethod) !== "pickup" && order.deliveryOtp && (
-                                  <p className="text-sm font-semibold mt-3" data-testid={`text-delivery-otp-${order.id}`}>
-                                    Delivery OTP: {order.deliveryOtp}
+                                {resolvedOtp && (
+                                  <p className="text-sm font-semibold mt-3" data-testid={`text-order-otp-${order.id}`}>
+                                    {otpLabel}: {resolvedOtp}
                                   </p>
                                 )}
                                 <p className="text-xs text-muted-foreground mt-3 max-w-md">
@@ -497,6 +505,8 @@ export default function OrderTracking() {
                         )}
                       </CardContent>
                     </Card>
+                      );
+                    })()
                   ))}
                 </div>
               )}

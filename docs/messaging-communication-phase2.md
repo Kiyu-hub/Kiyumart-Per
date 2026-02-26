@@ -1,6 +1,6 @@
 # Phase 2: Messaging & Communication System Rebuild
 
-Last updated: February 21, 2026
+Last updated: February 26, 2026
 
 ## Scope Summary
 
@@ -9,6 +9,7 @@ Last updated: February 21, 2026
 - Role-aware support routing across buyer/seller/rider/agent/admin/super_admin.
 - Identity masking for `admin` and `super_admin` in customer-facing support conversations.
 - Read/unread support message tracking and support analytics endpoint.
+- Super-admin-controlled support routing filter per conversation (`all_support`, `all_agents`, `all_admins`, `specific_staff`).
 
 ## Non-Breaking Upgrade Strategy
 
@@ -63,6 +64,9 @@ flowchart LR
 - `id`
 - `customer_id`
 - `agent_id`
+- `routing_mode` (new)
+- `routing_user_ids` (new)
+- `last_support_responder_id` (new)
 - `status` (`open` | `assigned` | `resolved`)
 - `subject`
 - `last_message`
@@ -84,15 +88,22 @@ flowchart LR
 ## API Additions/Changes (Phase 2)
 
 - Existing support endpoints remain unchanged in path/contract and are backward-compatible.
+- New (super admin):
+  - `GET /api/support/staff`
+  - `PATCH /api/support/conversations/:id/routing`
 - `GET /api/support/conversations`
-  - Adds unread counts and response lifecycle fields.
+  - Adds unread counts, response lifecycle fields, and routing/responder metadata.
+  - For support staff viewers, conversations are filtered by routing policy.
   - Applies masked sender identity for non-support viewers where sender role is `admin`/`super_admin`.
 - `GET /api/support/conversations/:id/messages`
   - Returns support message read fields.
+  - Enforces routing policy for support staff viewers.
   - Marks inbound unread messages as read.
   - Emits `support_conversation_updated` with `event: "read"`.
 - `POST /api/support/conversations/:id/messages`
   - Tracks first support response time (`first_response_at`) when first support-staff reply is sent.
+  - Tracks `last_support_responder_id` for supervision/audit.
+  - Notification recipients are routing-aware and super-admin visible.
   - Customer notification sender name is masked when sender is `admin`/`super_admin`.
 - New: `GET /api/support/analytics`
   - `totals` (`open`, `assigned`, `resolved`, `unresolved`)
@@ -132,3 +143,10 @@ Super admin can disable any role’s support permissions from `/admin/permission
 - `support_messages.is_read`, `support_messages.read_at`
 - `support_conversations.first_response_at`, `support_conversations.resolved_at`
 - Read/status indexes for support query patterns
+
+`migrations/0025_support_conversation_routing.sql` adds:
+
+- `support_conversations.routing_mode`
+- `support_conversations.routing_user_ids`
+- `support_conversations.last_support_responder_id`
+- Routing/responder indexes for support supervision

@@ -30,6 +30,11 @@ interface SupportConversation {
   agentName: string | null;
   agentRole?: string | null;
   agentProfileImage?: string | null;
+  routingMode?: "all_support" | "all_agents" | "all_admins" | "specific_staff";
+  routingUserIds?: string[] | null;
+  lastSupportResponderId?: string | null;
+  lastSupportResponderName?: string | null;
+  lastSupportResponderRole?: string | null;
   status: "open" | "assigned" | "resolved";
   subject: string;
   lastMessage: string;
@@ -38,6 +43,14 @@ interface SupportConversation {
   resolvedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface SupportStaffUser {
+  id: string;
+  name: string;
+  email: string;
+  role: "agent" | "admin" | "super_admin";
+  isActive: boolean;
 }
 
 interface Message {
@@ -91,6 +104,8 @@ export default function CustomerSupport() {
   const [newSupportMessage, setNewSupportMessage] = useState("");
   const [showNewTicketForm, setShowNewTicketForm] = useState(false);
   const [staffTicketFilter, setStaffTicketFilter] = useState<"open" | "assigned" | "resolved" | "all">("all");
+  const [routingMode, setRoutingMode] = useState<"all_support" | "all_agents" | "all_admins" | "specific_staff">("all_support");
+  const [routingUserIds, setRoutingUserIds] = useState<string[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
   const jitsiCall = useJitsiCall(user?.id || "");
@@ -103,6 +118,7 @@ export default function CustomerSupport() {
     return user.role === "superadmin" ? "super_admin" : user.role;
   }, [user?.role]);
   const isSupportStaff = normalizedRole === "agent" || normalizedRole === "admin" || normalizedRole === "super_admin";
+  const isSuperAdmin = normalizedRole === "super_admin";
 
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
@@ -129,6 +145,15 @@ export default function CustomerSupport() {
     },
     enabled: !!selectedConversation,
     refetchInterval: selectedConversation ? 3000 : false,
+  });
+
+  const { data: supportStaff = [] } = useQuery<SupportStaffUser[]>({
+    queryKey: ["/api/support/staff"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/support/staff");
+      return res.json();
+    },
+    enabled: isAuthenticated && isSuperAdmin,
   });
 
   useEffect(() => {
@@ -248,6 +273,34 @@ export default function CustomerSupport() {
       toast({
         title: "Conversation Resolved",
         description: "This support ticket has been marked as resolved",
+      });
+    },
+  });
+
+  const updateRoutingMutation = useMutation({
+    mutationFn: async (payload: {
+      conversationId: string;
+      mode: "all_support" | "all_agents" | "all_admins" | "specific_staff";
+      routingUserIds: string[];
+    }) => {
+      const res = await apiRequest("PATCH", `/api/support/conversations/${payload.conversationId}/routing`, {
+        mode: payload.mode,
+        routingUserIds: payload.routingUserIds,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
+      toast({
+        title: "Support routing updated",
+        description: "Conversation recipients were updated successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Routing update failed",
+        description: error.message,
+        variant: "destructive",
       });
     },
   });
@@ -449,6 +502,12 @@ export default function CustomerSupport() {
     ? (isSupportStaff ? selectedConv.customerId : selectedConv.agentId)
     : null;
 
+  useEffect(() => {
+    if (!selectedConv) return;
+    setRoutingMode((selectedConv.routingMode as any) || "all_support");
+    setRoutingUserIds(Array.isArray(selectedConv.routingUserIds) ? selectedConv.routingUserIds : []);
+  }, [selectedConv?.id, selectedConv?.routingMode, selectedConv?.routingUserIds]);
+
   const presenceUserIds = useMemo(
     () =>
       Array.from(
@@ -545,6 +604,21 @@ export default function CustomerSupport() {
       case "resolved": return "bg-green-500";
       default: return "bg-gray-500";
     }
+  };
+
+  const toggleRoutingUser = (staffId: string) => {
+    setRoutingUserIds((prev) =>
+      prev.includes(staffId) ? prev.filter((id) => id !== staffId) : [...prev, staffId]
+    );
+  };
+
+  const handleApplyRouting = () => {
+    if (!selectedConv) return;
+    updateRoutingMutation.mutate({
+      conversationId: selectedConv.id,
+      mode: routingMode,
+      routingUserIds: routingMode === "specific_staff" ? routingUserIds : [],
+    });
   };
 
   if (authLoading || !isAuthenticated) {
@@ -836,7 +910,31 @@ export default function CustomerSupport() {
                     </div>
                     </div>
                     {isSupportStaff && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                        {isSuperAdmin && (
+                          <div className="flex items-center gap-2 mr-2">
+                            <select
+                              value={routingMode}
+                              onChange={(e) => setRoutingMode(e.target.value as any)}
+                              className="h-8 rounded-md border bg-background px-2 text-xs"
+                              data-testid="select-support-routing-mode"
+                            >
+                              <option value="all_support">All Support</option>
+                              <option value="all_agents">All Agents</option>
+                              <option value="all_admins">All Admins</option>
+                              <option value="specific_staff">Specific Staff</option>
+                            </select>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleApplyRouting}
+                              disabled={updateRoutingMutation.isPending}
+                              data-testid="button-apply-support-routing"
+                            >
+                              Apply
+                            </Button>
+                          </div>
+                        )}
                         <Button
                           size="icon"
                           variant="outline"
@@ -882,6 +980,32 @@ export default function CustomerSupport() {
                       </div>
                     )}
                   </div>
+                  {isSuperAdmin && routingMode === "specific_staff" && (
+                    <div className="px-4 pb-3 border-b flex flex-wrap items-center gap-2">
+                      {supportStaff.map((staff) => {
+                        const selected = routingUserIds.includes(staff.id);
+                        return (
+                          <button
+                            key={staff.id}
+                            type="button"
+                            className={`text-xs px-2 py-1 rounded border ${
+                              selected ? "bg-primary text-primary-foreground border-primary" : "bg-background"
+                            }`}
+                            onClick={() => toggleRoutingUser(staff.id)}
+                            data-testid={`toggle-routing-user-${staff.id}`}
+                          >
+                            {staff.name} ({staff.role})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {isSupportStaff && selectedConv?.lastSupportResponderName && (
+                    <div className="px-4 py-2 border-b text-xs text-muted-foreground">
+                      Last support response: {selectedConv.lastSupportResponderName}
+                      {selectedConv.lastSupportResponderRole ? ` (${selectedConv.lastSupportResponderRole})` : ""}
+                    </div>
+                  )}
                   <ScrollArea className="flex-1 min-h-0 p-4">
                     {messagesLoading ? (
                       <div className="text-center py-10 text-muted-foreground">

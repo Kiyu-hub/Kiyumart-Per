@@ -64,6 +64,13 @@
     --sidebar-border: 0 0% 90%;
     --sidebar-ring: 16 100% 61%;
   }
+
+  /* Force accessible light-mode secondary tones globally (dashboards + storefront). */
+  :root:not(.dark) {
+    --secondary: 210 45% 93% !important;
+    --secondary-foreground: 210 42% 22% !important;
+    --secondary-border: 210 38% 78% !important;
+  }
  
   .dark {
     /* Font families - Same for dark mode */
@@ -217,5 +224,30 @@
   .dark [class*="hover:border-red"]:hover,
   .dark [class*="hover:border-destructive"]:hover {
     border-color: #22c55e !important;
+  }
+}
+
+/* Dashboard-only light mode contrast fix for secondary badges/buttons */
+@layer components {
+  :root:not(.dark) [data-dashboard-surface] [data-ui-component="badge"][data-ui-variant="secondary"] {
+    background-color: #dbeafe !important;
+    border-color: #93c5fd !important;
+    color: #1e3a8a !important;
+  }
+
+  :root:not(.dark) [data-dashboard-surface] [data-ui-component="button"][data-ui-variant="secondary"] {
+    background-color: #eff6ff !important;
+    border-color: #93c5fd !important;
+    color: #1e3a8a !important;
+  }
+
+  :root:not(.dark) [data-dashboard-surface] [data-ui-component="button"][data-ui-variant="secondary"]:hover {
+    background-color: #dbeafe !important;
+    border-color: #60a5fa !important;
+    color: #1e40af !important;
+  }
+
+  :root:not(.dark) [data-dashboard-surface] [data-ui-component="button"][data-ui-variant="secondary"]:focus-visible {
+    box-shadow: 0 0 0 2px #93c5fd !important;
   }
 }

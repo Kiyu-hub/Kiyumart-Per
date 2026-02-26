@@ -82,6 +82,12 @@ export default function Footer() {
   });
   
   const { user, isAuthenticated } = useAuth();
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document
+      .querySelectorAll<HTMLElement>("[data-route-scroll-container]")
+      .forEach((el) => el.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+  };
 
   // Determine current store mode
   const isMultiVendor = settings?.isMultiVendor ?? false;
@@ -167,7 +173,7 @@ export default function Footer() {
       );
     }
     return (
-      <Link href={url} className="hover:text-primary transition-colors">
+      <Link href={url} onClick={scrollToTop} className="hover:text-primary transition-colors">
         {page.title}
       </Link>
     );
@@ -324,13 +330,13 @@ export default function Footer() {
               ) : (
                 /* Default links when no admin pages exist */
                 <>
-                  <li><Link href="/" className="hover:text-primary transition-colors">Home</Link></li>
-                  <li><Link href="/products" className="hover:text-primary transition-colors">All Products</Link></li>
+                  <li><Link href="/" onClick={scrollToTop} className="hover:text-primary transition-colors">Home</Link></li>
+                  <li><Link href="/products" onClick={scrollToTop} className="hover:text-primary transition-colors">All Products</Link></li>
                   {isMultiVendor && (
                     <>
-                      <li><Link href="/stores" className="hover:text-primary transition-colors">Browse Stores</Link></li>
-                      <li><Link href="/become-seller" className="hover:text-primary transition-colors">Become a Seller</Link></li>
-                      <li><Link href="/become-rider" className="hover:text-primary transition-colors">Become a Rider</Link></li>
+                      <li><Link href="/stores" onClick={scrollToTop} className="hover:text-primary transition-colors">Browse Stores</Link></li>
+                      <li><Link href="/become-seller" onClick={scrollToTop} className="hover:text-primary transition-colors">Become a Seller</Link></li>
+                      <li><Link href="/become-rider" onClick={scrollToTop} className="hover:text-primary transition-colors">Become a Rider</Link></li>
                     </>
                   )}
                 </>
@@ -350,10 +356,10 @@ export default function Footer() {
               ) : (
                 /* Default links when no admin pages exist */
                 <>
-                  <li><Link href="/support" className="hover:text-primary transition-colors">Customer Support</Link></li>
-                  <li><Link href="/orders" className="hover:text-primary transition-colors">Track My Order</Link></li>
-                  <li><Link href="/wishlist" className="hover:text-primary transition-colors">My Wishlist</Link></li>
-                  <li><Link href="/profile" className="hover:text-primary transition-colors">My Account</Link></li>
+                  <li><Link href="/support" onClick={scrollToTop} className="hover:text-primary transition-colors">Customer Support</Link></li>
+                  <li><Link href="/orders" onClick={scrollToTop} className="hover:text-primary transition-colors">Track My Order</Link></li>
+                  <li><Link href="/wishlist" onClick={scrollToTop} className="hover:text-primary transition-colors">My Wishlist</Link></li>
+                  <li><Link href="/profile" onClick={scrollToTop} className="hover:text-primary transition-colors">My Account</Link></li>
                 </>
               )}
 
@@ -385,14 +391,14 @@ export default function Footer() {
             <div className="mt-6">
               <h5 className="font-bold text-sm mb-2 text-foreground">Quick Access</h5>
               <div className="flex flex-col gap-2">
-                <Link href={isMultiVendor ? "/products" : "/"}>
+                <Link href={isMultiVendor ? "/products" : "/"} onClick={scrollToTop}>
                   <Button variant="outline" size="sm" className="w-full text-xs justify-start">
                     <ShieldCheck className="h-3.5 w-3.5 mr-2" />
                     {isMultiVendor ? "Browse All Products" : "Browse Our Products"}
                   </Button>
                 </Link>
                 {!isAuthenticated && (
-                  <Link href="/auth">
+                  <Link href="/auth" onClick={scrollToTop}>
                     <Button variant="default" size="sm" className="w-full text-xs">
                       Sign Up / Log In
                     </Button>

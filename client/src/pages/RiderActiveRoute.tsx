@@ -7,7 +7,13 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Loader2, MapPin, Navigation, Package, QrCode, Phone, User, MessageSquare } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Loader2, MapPin, Navigation, Package, QrCode, Phone, User, MessageSquare, ChevronDown } from "lucide-react";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
 import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { useToast } from "@/hooks/use-toast";
@@ -118,40 +124,55 @@ export default function RiderActiveRoute() {
                         <MessageSquare className="h-4 w-4" />
                         <span className="hidden sm:inline">Chat</span>
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          if (activeDelivery.buyerId) {
-                            try {
-                              await jitsiCall.startCall(activeDelivery.buyerId, 'voice');
-                            } catch (error: any) {
-                              toast({
-                                title: "Failed to start in-app call",
-                                description: error?.message || "Unable to start call right now",
-                                variant: "destructive",
-                              });
-                            }
-                          }
-                        }}
-                        disabled={jitsiCall.inCall}
-                        className="flex items-center gap-1.5"
-                      >
-                        <Phone className="h-4 w-4" />
-                        <span className="hidden sm:inline">In-App Call</span>
-                      </Button>
-                      {activeDelivery.buyerPhone && (
-                        <a href={`tel:${activeDelivery.buyerPhone}`}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                           <Button
                             size="sm"
                             variant="outline"
+                            disabled={jitsiCall.inCall}
                             className="flex items-center gap-1.5"
                           >
                             <Phone className="h-4 w-4" />
-                            <span className="hidden sm:inline">Phone Call</span>
+                            <span className="hidden sm:inline">Call</span>
+                            <ChevronDown className="h-4 w-4" />
                           </Button>
-                        </a>
-                      )}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={async () => {
+                              if (!activeDelivery.buyerId) return;
+                              try {
+                                await jitsiCall.startCall(activeDelivery.buyerId, "voice");
+                              } catch (error: any) {
+                                toast({
+                                  title: "Failed to start in-app call",
+                                  description: error?.message || "Unable to start call right now",
+                                  variant: "destructive",
+                                });
+                              }
+                            }}
+                          >
+                            <Phone className="h-4 w-4 mr-2" />
+                            In-App Call
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              if (activeDelivery.buyerPhone) {
+                                window.location.href = `tel:${activeDelivery.buyerPhone}`;
+                                return;
+                              }
+                              toast({
+                                title: "Phone number unavailable",
+                                description: "This customer does not have a phone number on the order yet.",
+                                variant: "destructive",
+                              });
+                            }}
+                          >
+                            <Phone className="h-4 w-4 mr-2" />
+                            Phone Call
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </>
                   )}
                 </div>

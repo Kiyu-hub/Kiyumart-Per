@@ -181,7 +181,7 @@ export default function DashboardLayout({
   const isDashboardHome = location === fallbackRoute;
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background" data-dashboard-surface>
       <DashboardSidebar
         role={normalizedRole as any}
         activeItem={activeItem}
@@ -197,7 +197,7 @@ export default function DashboardLayout({
           </div>
         )}
         
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto" data-route-scroll-container>
           {children}
         </main>
       </div>

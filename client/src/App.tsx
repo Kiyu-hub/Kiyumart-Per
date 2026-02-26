@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import * as React from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -97,13 +97,45 @@ import DynamicPage from "@/pages/DynamicPage";
 import TrackOrder from "@/pages/TrackOrder";
 import EReceipt from "@/pages/EReceipt";
 
+function RouteScrollManager() {
+  const [location] = useLocation();
+
+  React.useEffect(() => {
+    const [pathPart, hashPart] = location.split("#");
+    const hasHash = Boolean(hashPart && hashPart.trim().length > 0);
+
+    // Always reset top on route/query changes for both window and dashboard scroll containers.
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document
+      .querySelectorAll<HTMLElement>("[data-route-scroll-container]")
+      .forEach((el) => el.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+
+    // If a hash target exists, scroll to that specific section after render.
+    if (hasHash) {
+      const targetId = decodeURIComponent(hashPart!);
+      requestAnimationFrame(() => {
+        const target =
+          document.getElementById(targetId) ||
+          document.querySelector<HTMLElement>(`[data-scroll-target="${targetId}"]`);
+        if (target) {
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+    }
+  }, [location]);
+
+  return null;
+}
+
 function Router() {
   // Apply branding colors from database settings
   useBranding();
   
   return (
-    <Switch>
-      <Route path="/" component={Home} />
+    <>
+      <RouteScrollManager />
+      <Switch>
+        <Route path="/" component={Home} />
       <Route path="/products" component={AllProducts} />
       <Route path="/stores" component={BrowseStores} />
       <Route path="/sellers/:id" component={SellerStorePage} />
@@ -196,8 +228,9 @@ function Router() {
       <Route path="/track" component={OrderTracking} />
       <Route path="/live-tracking" component={LiveTracking} />
       <Route path="/page/:slug" component={DynamicPage} />
-      <Route component={NotFound} />
-    </Switch>
+        <Route component={NotFound} />
+      </Switch>
+    </>
   );
 }
 

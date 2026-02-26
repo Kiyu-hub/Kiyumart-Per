@@ -6,7 +6,7 @@
 >
 > A **fully functional, production-ready local marketplace platform** enabling small businesses, artisans, and entrepreneurs to sell their products to local and regional customers. Multi-vendor support, comprehensive admin management, real-time order tracking, and secure payment processing.
 > 
-> **Version:** 1.2.0 (Strict Verification & Hardening Update)  
+> **Version:** 1.2.1 (Support Routing & Rider Messaging Unification Update)  
 > **Status:** ✅ Production Ready with Enterprise-Grade Security  
 > **Last Updated:** February 26, 2026
 > 
@@ -20,6 +20,7 @@
 
 - [Overview](#overview)
 - [Phase 2 Messaging Update (February 21, 2026)](#phase-2-messaging-update-february-21-2026)
+- [Support Routing & Rider Messaging Unification Update (February 26, 2026)](#support-routing--rider-messaging-unification-update-february-26-2026)
 - [Phase 2 Order Flow & Sync Update (February 21, 2026)](#phase-2-order-flow--sync-update-february-21-2026)
 - [Phase 2 Rider Assignment & Delivery Update (February 21, 2026)](#phase-2-rider-assignment--delivery-update-february-21-2026)
 - [Phase 2 Zone Soft-Matching Update (February 21, 2026)](#phase-2-zone-soft-matching-update-february-21-2026)
@@ -68,6 +69,26 @@ To be the leading online marketplace platform for local businesses, connecting q
 - Seller/Rider dashboard chat menu now respects role features (`messages.view`) so Super Admin can hide chat from Permissions.
 - Direct URL guard added: `/seller/messages` and `/rider/messages` now redirect to dashboard when `messages.view` is disabled.
 - Full diagrams/spec: [docs/messaging-communication-phase2.md](./docs/messaging-communication-phase2.md)
+
+## Support Routing & Rider Messaging Unification Update (February 26, 2026)
+
+- Rider dashboard messaging is now unified with support conversation APIs (`/api/support/conversations*`) to prevent split routing between direct chat and support chat.
+- Added backend-authoritative support routing controls on conversations:
+  - `all_support`
+  - `all_agents`
+  - `all_admins`
+  - `specific_staff`
+- Added super admin support routing management APIs:
+  - `GET /api/support/staff`
+  - `PATCH /api/support/conversations/:id/routing`
+- Added super admin assignment flexibility:
+  - `POST /api/support/conversations/:id/assign` now accepts optional `assigneeId` (super admin only).
+- Notification and typing fan-out now respect conversation routing policy (with super admin visibility preserved).
+- Added responder traceability for supervision:
+  - `support_conversations.last_support_responder_id`
+  - API response fields for `lastSupportResponderName` and `lastSupportResponderRole`.
+- Migration added:
+  - `migrations/0025_support_conversation_routing.sql`
 
 ## Phase 2 Order Flow & Sync Update (February 21, 2026)
 
@@ -277,7 +298,7 @@ Any change that affects DB schema, enums, defaults, constraints, or SQL views mu
 Environment execution rule:
 - Run the same migration runner in each environment with that environment's `DATABASE_URL`.
 - Example target for this release:
-  - `migrations/0023_add_requested_role.sql`
+  - `migrations/0025_support_conversation_routing.sql`
 
 ## Order Fulfillment Visibility Audit Update (February 23, 2026)
 

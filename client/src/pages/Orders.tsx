@@ -234,14 +234,14 @@ export default function Orders() {
         data-testid={`order-card-${order.id}`}
       >
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-muted">
                 {getStatusIcon(orderStatus, order.deliveryMethod)}
               </div>
               <div>
                 <CardTitle className="text-lg">
-                  Order <span className="whitespace-nowrap">#{displayOrderNumber}</span>
+                  <span className="whitespace-nowrap">#{displayOrderNumber}</span>
                 </CardTitle>
                 <p className="text-sm text-muted-foreground">
                   {new Date(order.createdAt).toLocaleDateString()}

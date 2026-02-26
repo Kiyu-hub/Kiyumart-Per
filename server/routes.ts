@@ -4482,6 +4482,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return sanitized;
   };
 
+  const generateOrderOtp = (): string => {
+    return String(Math.floor(100000 + Math.random() * 900000));
+  };
+
   const haversineDistanceKm = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
     const toRad = (deg: number) => (deg * Math.PI) / 180;
     const earthRadiusKm = 6371;
@@ -5537,6 +5541,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           const rider = order.riderId ? ridersById.get(order.riderId) : null;
           const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
+          const deliveryMethod = String(order?.deliveryMethod || "").toLowerCase().trim();
+          const isPickup = deliveryMethod === "pickup";
+          const isBuyerOrAdminViewer =
+            req.user!.role === "buyer" ||
+            req.user!.role === "customer" ||
+            req.user!.role === "admin" ||
+            req.user!.role === "super_admin" ||
+            String(order?.buyerId || "") === String(req.user!.id);
+          if (isBuyerOrAdminViewer) {
+            if (isPickup && !securedOrder.pickupOtp) {
+              const newPickupOtp = generateOrderOtp();
+              await storage.updateOrder(order.id, { pickupOtp: newPickupOtp } as any);
+              securedOrder.pickupOtp = newPickupOtp;
+            }
+            if (!isPickup && !securedOrder.deliveryOtp) {
+              const newDeliveryOtp = generateOrderOtp();
+              await storage.updateOrder(order.id, { deliveryOtp: newDeliveryOtp } as any);
+              securedOrder.deliveryOtp = newDeliveryOtp;
+            }
+            if (!securedOrder.pickupOtp) {
+              const newPickupOtp = generateOrderOtp();
+              await storage.updateOrder(order.id, { pickupOtp: newPickupOtp } as any);
+              securedOrder.pickupOtp = newPickupOtp;
+            }
+            if (!securedOrder.deliveryOtp) {
+              const newDeliveryOtp = generateOrderOtp();
+              await storage.updateOrder(order.id, { deliveryOtp: newDeliveryOtp } as any);
+              securedOrder.deliveryOtp = newDeliveryOtp;
+            }
+          }
           const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
           return {
             ...securedOrder,
@@ -5595,6 +5629,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: mapOrderStatusForViewerRole(order as any, req.user!.role),
       };
       const securedOrder = sanitizeOrderVerificationSecrets(finalOrder, req.user!);
+      const deliveryMethod = String(finalOrder?.deliveryMethod || "").toLowerCase().trim();
+      const isPickup = deliveryMethod === "pickup";
+      const isBuyerOrAdminViewer =
+        req.user!.role === "buyer" ||
+        req.user!.role === "customer" ||
+        req.user!.role === "admin" ||
+        req.user!.role === "super_admin" ||
+        String(finalOrder?.buyerId || "") === String(req.user!.id);
+      if (isBuyerOrAdminViewer) {
+        if (isPickup && !securedOrder.pickupOtp) {
+          const newPickupOtp = generateOrderOtp();
+          await storage.updateOrder(finalOrder.id, { pickupOtp: newPickupOtp } as any);
+          securedOrder.pickupOtp = newPickupOtp;
+        }
+        if (!isPickup && !securedOrder.deliveryOtp) {
+          const newDeliveryOtp = generateOrderOtp();
+          await storage.updateOrder(finalOrder.id, { deliveryOtp: newDeliveryOtp } as any);
+          securedOrder.deliveryOtp = newDeliveryOtp;
+        }
+        if (!securedOrder.pickupOtp) {
+          const newPickupOtp = generateOrderOtp();
+          await storage.updateOrder(finalOrder.id, { pickupOtp: newPickupOtp } as any);
+          securedOrder.pickupOtp = newPickupOtp;
+        }
+        if (!securedOrder.deliveryOtp) {
+          const newDeliveryOtp = generateOrderOtp();
+          await storage.updateOrder(finalOrder.id, { deliveryOtp: newDeliveryOtp } as any);
+          securedOrder.deliveryOtp = newDeliveryOtp;
+        }
+      }
       const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
       const orderHistory = await storage.getOrderStatusHistory(securedOrder.id);
       const verificationSummary = extractVerificationSummary(orderHistory);
@@ -6062,6 +6126,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       throw error;
     }
 
+    // Rider-contact guard: every rider-assigned delivery must have a callable buyer number.
+    if (String(order.deliveryMethod || "").toLowerCase().trim() === "rider") {
+      const existingPhone = typeof order.deliveryPhone === "string" ? order.deliveryPhone.trim() : "";
+      if (!existingPhone) {
+        const buyer = await storage.getUser(order.buyerId);
+        const fallbackPhone = typeof buyer?.phone === "string" ? buyer.phone.trim() : "";
+        if (fallbackPhone) {
+          await storage.updateOrder(orderId, { deliveryPhone: fallbackPhone } as any);
+          (order as any).deliveryPhone = fallbackPhone;
+        } else {
+          const error = new Error(
+            "Cannot assign rider: buyer phone number is required. Ask buyer to update phone before assignment."
+          );
+          (error as any).code = 409;
+          throw error;
+        }
+      }
+    }
+
     // Always assign rider first.
     const assigned = await storage.assignRider(orderId, riderId);
     if (!assigned) {
@@ -6509,6 +6592,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           orderNumber: orders.orderNumber,
           status: orders.status,
           deliveryAddress: orders.deliveryAddress,
+          deliveryPhone: orders.deliveryPhone,
           deliveryLatitude: orders.deliveryLatitude,
           deliveryLongitude: orders.deliveryLongitude,
           buyerId: orders.buyerId,
@@ -6542,7 +6626,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deliveryLongitude: order.deliveryLongitude ? parseFloat(order.deliveryLongitude) : null,
         buyerId: order.buyerId,
         buyerName: buyer?.name || "Customer",
-        buyerPhone: buyer?.phone || null,
+        buyerPhone: order.deliveryPhone || buyer?.phone || null,
         qrCode: order.qrCode || null,
       });
     } catch (error: any) {
@@ -7476,7 +7560,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const supportPool = [...agents, ...admins, ...superAdmins].filter((u) => Boolean(u?.isActive));
 
       const riderOrders = await storage.getOrdersByUser(userId, "rider");
-      const activeStatuses = new Set(["searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"]);
+      const activeStatuses = new Set([
+        "searching_rider",
+        "assigned",
+        "rider_arrived",
+        "picked_up",
+        "in_transit",
+        "en_route",
+        "arrived",
+      ]);
       const activeStakeholderIds = new Set<string>();
       riderOrders.forEach((o: any) => {
         if (!activeStatuses.has(canonicalizeOrderStatus(o.status))) return;
@@ -10423,17 +10515,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(eq(supportConversations.id, conversationId))
           .limit(1);
         if (!conversation) return;
+        const actor = await storage.getUser(userId);
+        if (!actor || !canSupportUserAccessConversation(actor as any, conversation as any)) return;
 
         const targetUserIds = new Set<string>();
         targetUserIds.add(conversation.customerId);
-        if (conversation.agentId) {
-          targetUserIds.add(conversation.agentId);
-        } else {
-          const admins = await storage.getUsersByRole("admin");
-          const superAdmins = await storage.getUsersByRole("super_admin");
-          const agents = await storage.getUsersByRole("agent");
-          [...admins, ...superAdmins, ...agents].forEach((u) => targetUserIds.add(u.id));
-        }
+        const routedStaff = await resolveConversationSupportRecipients(conversation as any, { includeSuperAdminsAlways: true });
+        routedStaff.forEach((staff) => targetUserIds.add(staff.id));
         targetUserIds.delete(userId);
 
         Array.from(targetUserIds).forEach((targetUserId) => {
@@ -10457,17 +10545,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(eq(supportConversations.id, conversationId))
           .limit(1);
         if (!conversation) return;
+        const actor = await storage.getUser(userId);
+        if (!actor || !canSupportUserAccessConversation(actor as any, conversation as any)) return;
 
         const targetUserIds = new Set<string>();
         targetUserIds.add(conversation.customerId);
-        if (conversation.agentId) {
-          targetUserIds.add(conversation.agentId);
-        } else {
-          const admins = await storage.getUsersByRole("admin");
-          const superAdmins = await storage.getUsersByRole("super_admin");
-          const agents = await storage.getUsersByRole("agent");
-          [...admins, ...superAdmins, ...agents].forEach((u) => targetUserIds.add(u.id));
-        }
+        const routedStaff = await resolveConversationSupportRecipients(conversation as any, { includeSuperAdminsAlways: true });
+        routedStaff.forEach((staff) => targetUserIds.add(staff.id));
         targetUserIds.delete(userId);
 
         Array.from(targetUserIds).forEach((targetUserId) => {
@@ -11015,6 +11099,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  type SupportRoutingMode = "all_support" | "all_agents" | "all_admins" | "specific_staff";
+
+  const normalizeSupportRoutingMode = (value?: string | null): SupportRoutingMode => {
+    const normalized = String(value || "").toLowerCase().trim();
+    if (normalized === "all_agents") return "all_agents";
+    if (normalized === "all_admins") return "all_admins";
+    if (normalized === "specific_staff") return "specific_staff";
+    return "all_support";
+  };
+
+  const parseRoutingUserIds = (value: unknown): string[] => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed.map((item) => String(item)).filter(Boolean);
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const getSupportStaffRoster = async () => {
+    const [admins, superAdmins, agents] = await Promise.all([
+      storage.getUsersByRole("admin"),
+      storage.getUsersByRole("super_admin"),
+      storage.getUsersByRole("agent"),
+    ]);
+    return [...admins, ...superAdmins, ...agents]
+      .filter((staff, index, arr) => Boolean(staff?.isActive) && arr.findIndex((x) => x.id === staff.id) === index);
+  };
+
+  const resolveConversationSupportRecipients = async (
+    conversation: { routingMode?: string | null; routingUserIds?: unknown; agentId?: string | null },
+    options?: { includeSuperAdminsAlways?: boolean }
+  ) => {
+    const includeSuperAdminsAlways = options?.includeSuperAdminsAlways !== false;
+    const roster = await getSupportStaffRoster();
+    const mode = normalizeSupportRoutingMode(conversation.routingMode);
+    const configuredIds = new Set(parseRoutingUserIds(conversation.routingUserIds));
+    if (conversation.agentId) configuredIds.add(String(conversation.agentId));
+
+    const recipients = roster.filter((staff) => {
+      if (includeSuperAdminsAlways && staff.role === "super_admin") return true;
+      if (mode === "all_support") return true;
+      if (mode === "all_agents") return staff.role === "agent";
+      if (mode === "all_admins") return staff.role === "admin" || staff.role === "super_admin";
+      return configuredIds.has(String(staff.id));
+    });
+
+    return recipients;
+  };
+
+  const canSupportUserAccessConversation = (
+    user: { id: string; role: string },
+    conversation: { customerId: string; routingMode?: string | null; routingUserIds?: unknown; agentId?: string | null }
+  ): boolean => {
+    const role = String(user.role || "").toLowerCase().trim();
+    if (role === "super_admin") return true;
+    if (conversation.customerId === user.id) return true;
+    if (role !== "admin" && role !== "agent") return false;
+
+    const mode = normalizeSupportRoutingMode(conversation.routingMode);
+    const configuredIds = new Set(parseRoutingUserIds(conversation.routingUserIds));
+    if (conversation.agentId) configuredIds.add(String(conversation.agentId));
+
+    if (mode === "all_support") return true;
+    if (mode === "all_agents") return role === "agent";
+    if (mode === "all_admins") return role === "admin";
+    return configuredIds.has(String(user.id));
+  };
+
   // ============ Customer Support Routes ============
   app.get("/api/support/conversations", requireAuth, requireRoleFeature("support.view"), async (req: AuthRequest, res) => {
     try {
@@ -11054,8 +11212,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
               limit 1
             )`,
             status: supportConversations.status,
+            routingMode: supportConversations.routingMode,
+            routingUserIds: supportConversations.routingUserIds,
             subject: supportConversations.subject,
             lastMessage: supportConversations.lastMessage,
+            lastSupportResponderId: supportConversations.lastSupportResponderId,
+            lastSupportResponderName: sql<string | null>`(
+              select ${users.name}
+              from ${users}
+              where ${users.id} = ${supportConversations.lastSupportResponderId}
+              limit 1
+            )`,
+            lastSupportResponderRole: sql<string | null>`(
+              select ${users.role}
+              from ${users}
+              where ${users.id} = ${supportConversations.lastSupportResponderId}
+              limit 1
+            )`,
             unreadCount: sql<number>`(
               select count(*)::int
               from ${supportMessages}
@@ -11100,8 +11273,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
               limit 1
             )`,
             status: supportConversations.status,
+            routingMode: supportConversations.routingMode,
+            routingUserIds: supportConversations.routingUserIds,
             subject: supportConversations.subject,
             lastMessage: supportConversations.lastMessage,
+            lastSupportResponderId: supportConversations.lastSupportResponderId,
+            lastSupportResponderName: sql<string | null>`(
+              select ${users.name}
+              from ${users}
+              where ${users.id} = ${supportConversations.lastSupportResponderId}
+              limit 1
+            )`,
+            lastSupportResponderRole: sql<string | null>`(
+              select ${users.role}
+              from ${users}
+              where ${users.id} = ${supportConversations.lastSupportResponderId}
+              limit 1
+            )`,
             unreadCount: sql<number>`(
               select count(*)::int
               from ${supportMessages}
@@ -11121,7 +11309,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await conversationsQuery;
-      const response = result.map((conversation: any) => {
+      const routed = result.filter((conversation: any) => canSupportUserAccessConversation(user, conversation));
+      const response = routed.map((conversation: any) => {
         const maskedAgentName = resolveSupportDisplayName({
           senderRole: conversation.agentRole,
           senderName: conversation.agentName,
@@ -11160,6 +11349,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         customerId: user.id,
         subject,
         lastMessage: message,
+        routingMode: "all_support",
+        routingUserIds: [],
         status: "open",
       }).returning();
 
@@ -11175,13 +11366,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const senderProfile = await storage.getUser(user.id);
         const senderLabel = senderProfile?.name || user.email || "A customer";
-        const admins = await storage.getUsersByRole("admin");
-        const superAdmins = await storage.getUsersByRole("super_admin");
-        const agents = await storage.getUsersByRole("agent");
-        const supportStaff = [...admins, ...superAdmins, ...agents]
-          .filter((staff, idx, arr) => staff.id !== user.id && arr.findIndex((x) => x.id === staff.id) === idx);
+        const supportStaff = await resolveConversationSupportRecipients(conversation, { includeSuperAdminsAlways: true });
 
         for (const staff of supportStaff) {
+          if (staff.id === user.id) continue;
           const supportLink = staff.role === "agent"
             ? `/agent/tickets?conversationId=${conversation.id}`
             : `/admin/live-support?conversationId=${conversation.id}`;
@@ -11234,7 +11422,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Conversation not found" });
       }
 
-      if (user.role !== "agent" && user.role !== "admin" && user.role !== "super_admin" && conversation.customerId !== user.id) {
+      if (!canSupportUserAccessConversation(user, conversation as any)) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -11292,8 +11480,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         conversationId: id,
         event: "read",
       });
-      if (conversation.agentId) {
-        io.to(conversation.agentId).emit("support_conversation_updated", {
+      const routedStaff = await resolveConversationSupportRecipients(conversation as any, { includeSuperAdminsAlways: true });
+      for (const staff of routedStaff) {
+        io.to(staff.id).emit("support_conversation_updated", {
           conversationId: id,
           event: "read",
         });
@@ -11329,7 +11518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Conversation not found" });
       }
 
-      if (user.role !== "agent" && user.role !== "admin" && user.role !== "super_admin" && conversation.customerId !== user.id) {
+      if (!canSupportUserAccessConversation(user, conversation as any)) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -11350,6 +11539,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedConversationData: any = { lastMessage: message, updatedAt: new Date() };
       if (!conversation.firstResponseAt && shouldSetFirstResponse && isSupportSender) {
         updatedConversationData.firstResponseAt = new Date();
+      }
+      if (isSupportSender) {
+        updatedConversationData.lastSupportResponderId = user.id;
       }
 
       await db
@@ -11392,13 +11584,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             event: "message",
           });
         } else {
-          const admins = await storage.getUsersByRole("admin");
-          const superAdmins = await storage.getUsersByRole("super_admin");
-          const agents = await storage.getUsersByRole("agent");
-          const supportStaff = [...admins, ...superAdmins, ...agents]
-            .filter((staff, idx, arr) => staff.id !== user.id && arr.findIndex((x) => x.id === staff.id) === idx);
+          const supportStaff = await resolveConversationSupportRecipients(conversation as any, {
+            includeSuperAdminsAlways: true,
+          });
 
           for (const staff of supportStaff) {
+            if (staff.id === user.id) continue;
             const supportLink = staff.role === "agent"
               ? `/agent/tickets?conversationId=${id}`
               : `/admin/live-support?conversationId=${id}`;
@@ -11434,8 +11625,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         conversationId: id,
         event: "message",
       });
-      if (conversation.agentId) {
-        io.to(conversation.agentId).emit("support_conversation_updated", {
+      const routedStaff = await resolveConversationSupportRecipients(conversation as any, { includeSuperAdminsAlways: true });
+      for (const staff of routedStaff) {
+        io.to(staff.id).emit("support_conversation_updated", {
           conversationId: id,
           event: "message",
         });
@@ -11459,15 +11651,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { db } = await import("../db/index");
       const { supportConversations } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
+      const [existing] = await db
+        .select()
+        .from(supportConversations)
+        .where(eq(supportConversations.id, id))
+        .limit(1);
+
+      if (!existing) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      if (user.role !== "super_admin" && !canSupportUserAccessConversation(user, existing as any)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      let assignedAgentId = user.id;
+      if (user.role === "super_admin" && req.body?.assigneeId) {
+        const assignee = await storage.getUser(String(req.body.assigneeId));
+        if (!assignee || !["agent", "admin", "super_admin"].includes(String(assignee.role || ""))) {
+          return res.status(400).json({ error: "Invalid assigneeId" });
+        }
+        assignedAgentId = assignee.id;
+      }
 
       const [updated] = await db
         .update(supportConversations)
-        .set({ agentId: user.id, status: "assigned", updatedAt: new Date() })
+        .set({ agentId: assignedAgentId, status: "assigned", updatedAt: new Date() })
         .where(eq(supportConversations.id, id))
         .returning();
 
       if (!updated) {
         return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/support/staff", requireAuth, requireRole("super_admin"), async (_req: AuthRequest, res) => {
+    try {
+      const roster = await getSupportStaffRoster();
+      const staff = roster.map((member) => ({
+        id: member.id,
+        name: member.name,
+        email: member.email,
+        role: member.role,
+        isActive: member.isActive,
+      }));
+      res.json(staff);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/support/conversations/:id/routing", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const mode = normalizeSupportRoutingMode(req.body?.mode);
+      const requestedIds = parseRoutingUserIds(req.body?.routingUserIds);
+      const { db } = await import("../db/index");
+      const { supportConversations } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+
+      const [existing] = await db
+        .select()
+        .from(supportConversations)
+        .where(eq(supportConversations.id, id))
+        .limit(1);
+
+      if (!existing) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      const roster = await getSupportStaffRoster();
+      const rosterSet = new Set(roster.map((member) => String(member.id)));
+      const validIds = requestedIds.filter((candidate) => rosterSet.has(String(candidate)));
+
+      if (mode === "specific_staff" && validIds.length === 0) {
+        return res.status(400).json({ error: "At least one support user must be selected for specific_staff routing" });
+      }
+
+      const [updated] = await db
+        .update(supportConversations)
+        .set({
+          routingMode: mode,
+          routingUserIds: mode === "specific_staff" ? validIds : [],
+          updatedAt: new Date(),
+        })
+        .where(eq(supportConversations.id, id))
+        .returning();
+
+      const recipients = await resolveConversationSupportRecipients(updated as any, { includeSuperAdminsAlways: true });
+      for (const recipient of recipients) {
+        io.to(recipient.id).emit("support_conversation_updated", {
+          conversationId: id,
+          event: "routing_updated",
+        });
       }
 
       res.json(updated);
@@ -11487,6 +11768,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { db } = await import("../db/index");
       const { supportConversations } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
+
+      const [existing] = await db
+        .select()
+        .from(supportConversations)
+        .where(eq(supportConversations.id, id))
+        .limit(1);
+
+      if (!existing) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      if (!canSupportUserAccessConversation(req.user!, existing as any)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
 
       const [updated] = await db
         .update(supportConversations)
