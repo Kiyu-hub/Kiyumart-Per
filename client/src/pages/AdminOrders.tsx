@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Loader2, Search, Eye, Package, ArrowLeft, TrendingUp, Clock, CheckCircle, XCircle, Truck, Filter, RefreshCw, AlertTriangle, DollarSign } from "lucide-react";
+import { Loader2, Search, Eye, Package, ArrowLeft, TrendingUp, Clock, CheckCircle, XCircle, Truck, Filter, RefreshCw, AlertTriangle, DollarSign, MessageCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -38,7 +38,7 @@ interface Order {
   deliveryPhone?: string;
   buyer?: { id: string; name: string; email?: string; phone?: string };
   customerInfo?: { name?: string; email?: string; phone?: string; address?: string | null };
-  seller?: { id: string; name: string };
+  seller?: { id: string; name: string; storeName?: string | null };
   rider?: { id: string; name: string };
   verificationSummary?: {
     sellerToRider?: string | null;
@@ -180,7 +180,7 @@ function ViewOrderDialog({
                   <SelectTrigger data-testid="select-order-status">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[1200]">
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="processing">Processing</SelectItem>
                     <SelectItem value="en_route">Out for Delivery</SelectItem>
@@ -225,7 +225,7 @@ function ViewOrderDialog({
                   <SelectTrigger data-testid="select-rider">
                     <SelectValue placeholder={ridersLoading ? "Loading riders..." : orderDetails.riderId ? "Rider assigned" : "Select a rider"} />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[1200]">
                     {availableRiders.length === 0 && !ridersLoading && (
                       <div className="px-2 py-3 text-sm text-muted-foreground text-center">
                         No available riders
@@ -941,12 +941,74 @@ function OrdersList({
             })()}
             {(() => {
               const sellerState = getSellerActionState(order);
+              const sellerActionPending = sellerState.label === "Seller Action Required";
+              const riderActionPending = [
+                "assigned",
+                "rider_arrived",
+                "picked_up",
+                "in_transit",
+                "en_route",
+                "arrived",
+              ].includes(normalize(order.status));
+              const sellerDisplayName =
+                String(order.seller?.storeName || "").trim() ||
+                String(order.seller?.name || "").trim() ||
+                (order.sellerId ? `Seller ${order.sellerId.slice(0, 6)}` : "Unknown Seller");
+              const sellerContact = order.sellerId || null;
+              const riderDisplayName =
+                String(order.rider?.name || "").trim() ||
+                (order.riderId ? `Rider ${order.riderId.slice(0, 6)}` : "No Rider Assigned");
+              const riderContact = order.riderId || null;
               return (
                 <div className="mt-1">
                   <Badge className={`${sellerState.className} text-[11px]`} variant="secondary">
                     {sellerState.label}
                   </Badge>
                   <p className="text-[11px] text-muted-foreground mt-1">{sellerState.hint}</p>
+                  {sellerActionPending && (
+                    <div className="rounded-md border border-orange-200/60 dark:border-orange-900/40 p-2 mt-2 space-y-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        Responsible seller store: <span className="font-medium text-foreground">{sellerDisplayName}</span>
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        disabled={!sellerContact}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!sellerContact) return;
+                          navigate(`/admin/messages?userId=${sellerContact}`);
+                        }}
+                        data-testid={`button-message-seller-${order.id}`}
+                      >
+                        <MessageCircle className="h-3 w-3 mr-1" />
+                        Message Seller
+                      </Button>
+                    </div>
+                  )}
+                  {riderActionPending && (
+                    <div className="rounded-md border border-blue-200/60 dark:border-blue-900/40 p-2 mt-2 space-y-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        Responsible rider: <span className="font-medium text-foreground">{riderDisplayName}</span>
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        disabled={!riderContact}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!riderContact) return;
+                          navigate(`/admin/messages?userId=${riderContact}`);
+                        }}
+                        data-testid={`button-message-rider-${order.id}`}
+                      >
+                        <MessageCircle className="h-3 w-3 mr-1" />
+                        Message Rider
+                      </Button>
+                    </div>
+                  )}
                 </div>
               );
             })()}

@@ -4273,6 +4273,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (normalized === "qr_otp") return "QR + OTP";
     return null;
   };
+  const resolveUserDisplayName = (user?: { name?: string | null; email?: string | null; id?: string | null } | null) => {
+    const name = String(user?.name || "").trim();
+    if (name) return name;
+    const email = String(user?.email || "").trim();
+    if (email.includes("@")) return email.split("@")[0];
+    const id = String(user?.id || "").trim();
+    if (id) return `User ${id.slice(0, 6)}`;
+    return "Unknown";
+  };
 
   const extractVerificationSummary = (history: Array<any>) => {
     const summary: {
@@ -5312,6 +5321,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (buyer) buyersById.set(buyerId, buyer);
         })
       );
+      const storeIds = Array.from(new Set(orders.map((o) => o.storeId).filter(Boolean)));
+      const storesById = new Map<string, any>();
+      await Promise.all(
+        storeIds.map(async (storeId) => {
+          const store = await storage.getStore(storeId);
+          if (store) storesById.set(storeId, store);
+        })
+      );
+      const sellerIds = Array.from(new Set(orders.map((o) => o.sellerId).filter(Boolean)));
+      const sellersById = new Map<string, any>();
+      const sellerStoresBySellerId = new Map<string, any>();
+      await Promise.all(
+        sellerIds.map(async (sellerId) => {
+          const [seller, sellerStore] = await Promise.all([
+            storage.getUser(sellerId),
+            storage.getStoreByPrimarySeller(sellerId),
+          ]);
+          if (seller) sellersById.set(sellerId, seller);
+          if (sellerStore) sellerStoresBySellerId.set(sellerId, sellerStore);
+        })
+      );
+      const riderIds = Array.from(new Set(orders.map((o) => o.riderId).filter(Boolean)));
+      const ridersById = new Map<string, any>();
+      await Promise.all(
+        riderIds.map(async (riderId) => {
+          const rider = await storage.getUser(riderId);
+          if (rider) ridersById.set(riderId, rider);
+        })
+      );
 
       // Fetch order items with product names for each order
       const ordersWithItemsRaw = await Promise.all(
@@ -5320,6 +5358,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const orderHistory = await storage.getOrderStatusHistory(order.id);
           const verificationSummary = extractVerificationSummary(orderHistory);
           const buyer = buyersById.get(order.buyerId);
+          const seller = sellersById.get(order.sellerId);
+          const orderStore = order.storeId ? storesById.get(order.storeId) : null;
+          const sellerStore = sellerStoresBySellerId.get(order.sellerId);
+          const rider = order.riderId ? ridersById.get(order.riderId) : null;
           const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
           const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
           return {
@@ -5329,6 +5371,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             totalAmount: order.total,
             items,
             verificationSummary,
+            seller: seller
+              ? {
+                  id: seller.id,
+                  name: resolveUserDisplayName(seller),
+                  storeName: orderStore?.name || sellerStore?.name || seller.storeName || null,
+                }
+              : undefined,
+            rider: rider
+              ? {
+                  id: rider.id,
+                  name: resolveUserDisplayName(rider),
+                }
+              : undefined,
             buyer: buyer
               ? {
                   id: buyer.id,
@@ -5399,11 +5454,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (rider) {
           riderInfo = {
             id: rider.id,
-            name: rider.name,
+            name: resolveUserDisplayName(rider),
             phone: rider.phone || null,
             vehicleType: rider.vehicleInfo?.type || null,
             vehiclePlateNumber: rider.vehicleInfo?.plateNumber || null,
             rating: rider.ratings ?? null,
+          };
+        }
+      }
+      let sellerInfo: any = securedOrder.sellerId
+        ? {
+            id: securedOrder.sellerId,
+            name: "Seller",
+            storeName: null,
+          }
+        : null;
+      if (securedOrder.sellerId) {
+        const [seller, sellerStore] = await Promise.all([
+          storage.getUser(securedOrder.sellerId),
+          storage.getStoreByPrimarySeller(securedOrder.sellerId),
+        ]);
+        if (seller) {
+          sellerInfo = {
+            id: seller.id,
+            name: resolveUserDisplayName(seller),
+            storeName: sellerStore?.name || seller.storeName || null,
           };
         }
       }
@@ -5417,6 +5492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json({
           ...securedOrder,
           riderInfo,
+          sellerInfo,
           verificationSummary,
           customerInfo: buyer ? {
             name: buyer.name,
@@ -5430,6 +5506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json({
           ...securedOrder,
           riderInfo,
+          sellerInfo,
           verificationSummary,
         });
       }
