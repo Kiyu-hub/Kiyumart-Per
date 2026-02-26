@@ -363,18 +363,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { email, password } = req.body;
       
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
+      const dbUser = await storage.getUserByEmail(email);
+      if (!dbUser) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
-      const isValidPassword = await comparePassword(password, user.password);
+      const isValidPassword = await comparePassword(password, dbUser.password);
       if (!isValidPassword) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
+      let user = dbUser;
       if (!user.isActive) {
         return res.status(403).json({ error: "Account is inactive" });
+      }
+
+      // Safety self-heal:
+      // keep unapproved seller/rider applicants in buyer role so they can still access the app
+      // while their requested role remains pending for admin approval.
+      if (!user.isApproved && (user.role === "seller" || user.role === "rider")) {
+        const patch: Record<string, unknown> = {
+          role: "buyer",
+          applicationStatus:
+            (user as any).applicationStatus && (user as any).applicationStatus !== "approved"
+              ? (user as any).applicationStatus
+              : ("pending" as any),
+        };
+        if (!(user as any).requestedRole) {
+          patch.requestedRole = user.role;
+        }
+        const healed = await storage.updateUser(user.id, patch);
+        if (healed) user = healed as any;
       }
 
       if (!user.isApproved && (user.role === "seller" || user.role === "rider")) {
@@ -12085,7 +12104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get current seller's store (auto-create if missing)
-  app.get("/api/stores/my-store", requireAuth, requireRole("seller"), requireRoleFeature("store.manage"), async (req: AuthRequest, res) => {
+  app.get("/api/stores/my-store", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
     try {
       console.log(`[/api/stores/my-store] Request from seller ${req.user!.id}`);
       
@@ -12735,7 +12754,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create Paystack subaccount for store
-  app.post("/api/stores/:storeId/setup-paystack", requireAuth, requireRole("seller"), requireRoleFeature("store.manage"), async (req: AuthRequest, res) => {
+  app.post("/api/stores/:storeId/setup-paystack", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
     try {
       const store = await storage.getStore(req.params.storeId);
       if (!store) {
