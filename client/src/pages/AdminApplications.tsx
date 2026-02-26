@@ -721,24 +721,25 @@ export default function AdminApplications() {
 
         {/* Application Details Dialog */}
         <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
-          <DialogContent className="relative w-[95vw] max-w-5xl max-h-[88vh] overflow-hidden">
+          <DialogContent className="w-[95vw] max-w-5xl max-h-[88vh] overflow-hidden p-0">
             {selectedApplication && (
               <>
-                <DialogHeader>
-                  <DialogTitle className="text-2xl flex items-center gap-2">
-                    {getEffectiveRole(selectedApplication) === "seller" ? (
-                      <Store className="h-6 w-6 text-blue-500" />
-                    ) : (
-                      <Bike className="h-6 w-6 text-orange-500" />
-                    )}
-                    {selectedApplication.name}
-                  </DialogTitle>
-                  <DialogDescription>
-                    {getEffectiveRole(selectedApplication) === "seller" ? "Seller" : "Delivery Rider"} Application Details
-                  </DialogDescription>
-                </DialogHeader>
+                <div className="relative flex h-full max-h-[88vh] flex-col">
+                  <DialogHeader className="px-6 pt-6 pb-2 border-b">
+                    <DialogTitle className="text-2xl flex items-center gap-2">
+                      {getEffectiveRole(selectedApplication) === "seller" ? (
+                        <Store className="h-6 w-6 text-blue-500" />
+                      ) : (
+                        <Bike className="h-6 w-6 text-orange-500" />
+                      )}
+                      {selectedApplication.name}
+                    </DialogTitle>
+                    <DialogDescription>
+                      {getEffectiveRole(selectedApplication) === "seller" ? "Seller" : "Delivery Rider"} Application Details
+                    </DialogDescription>
+                  </DialogHeader>
 
-                <div className="space-y-6 mt-4 max-h-[58vh] overflow-y-auto pr-2">
+                  <div className="space-y-6 mt-0 overflow-y-auto px-6 py-4">
                   {/* Rejection Reason (if rejected) */}
                   {selectedApplication.applicationStatus === "rejected" && selectedApplication.rejectionReason && (
                     <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
@@ -981,12 +982,13 @@ export default function AdminApplications() {
                       </Button>
                     </div>
                   )}
-                </div>
-                {detailsLoading && (
-                  <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] flex items-center justify-center">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
-                )}
+                  {detailsLoading && (
+                    <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] flex items-center justify-center">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </DialogContent>
