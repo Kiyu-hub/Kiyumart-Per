@@ -5375,6 +5375,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const buyer = buyersById.get(order.buyerId);
           const seller = sellersById.get(order.sellerId);
           const orderStore = order.storeId ? storesById.get(order.storeId) : null;
+          const fallbackSeller =
+            !seller && orderStore?.primarySellerId ? await storage.getUser(orderStore.primarySellerId) : null;
+          const resolvedSeller = seller || fallbackSeller;
           const sellerStore = sellerStoresBySellerId.get(order.sellerId);
           const rider = order.riderId ? ridersById.get(order.riderId) : null;
           const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
@@ -5386,11 +5389,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             totalAmount: order.total,
             items,
             verificationSummary,
-            seller: seller
+            seller: resolvedSeller
               ? {
-                  id: seller.id,
-                  name: resolveUserDisplayName(seller),
-                  storeName: orderStore?.name || sellerStore?.name || seller.storeName || null,
+                  id: resolvedSeller.id,
+                  name: resolveUserDisplayName(resolvedSeller),
+                  storeName: orderStore?.name || sellerStore?.name || resolvedSeller.storeName || null,
                 }
               : undefined,
             rider: rider
@@ -5489,13 +5492,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           storage.getUser(securedOrder.sellerId),
           storage.getStoreByPrimarySeller(securedOrder.sellerId),
         ]);
-        if (seller) {
+        const orderStore = securedOrder.storeId ? await storage.getStore(securedOrder.storeId) : null;
+        const fallbackSeller =
+          !seller && orderStore?.primarySellerId ? await storage.getUser(orderStore.primarySellerId) : null;
+        const resolvedSeller = seller || fallbackSeller;
+        if (resolvedSeller) {
           sellerInfo = {
-            id: seller.id,
-            name: resolveUserDisplayName(seller),
-            storeName: sellerStore?.name || seller.storeName || null,
-            email: seller.email || null,
-            phone: seller.phone || null,
+            id: resolvedSeller.id,
+            name: resolveUserDisplayName(resolvedSeller),
+            storeName: orderStore?.name || sellerStore?.name || resolvedSeller.storeName || null,
+            email: resolvedSeller.email || null,
+            phone: resolvedSeller.phone || null,
           };
         }
       }

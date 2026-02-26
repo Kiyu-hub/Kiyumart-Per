@@ -974,11 +974,11 @@ function OrdersList({
               const sellerDisplayName =
                 String(order.seller?.storeName || "").trim() ||
                 String(order.seller?.name || "").trim() ||
-                (order.sellerId ? `Seller ${order.sellerId.slice(0, 6)}` : "Unknown Seller");
+                "Unknown Seller Store";
               const sellerContact = order.sellerId || null;
               const riderDisplayName =
                 String(order.rider?.name || "").trim() ||
-                (order.riderId ? `Rider ${order.riderId.slice(0, 6)}` : "No Rider Assigned");
+                "Unknown Rider";
               const riderContact = order.riderId || null;
               return (
                 <div className="mt-1">
