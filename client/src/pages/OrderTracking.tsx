@@ -64,24 +64,33 @@ export default function OrderTracking() {
     return s || "pending";
   };
   const normalizeDeliveryMethod = (value?: string) => (value || "").toLowerCase().trim();
-  const toCustomerStatus = (value?: string) => {
+  const toCustomerStatus = (value?: string, deliveryMethod?: string) => {
     const s = normalizeStatus(value);
+    const isPickup = normalizeDeliveryMethod(deliveryMethod) === "pickup";
     if (["pending"].includes(s)) return "pending";
+    if (isPickup) {
+      if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
+      if (["picked_up", "in_transit", "en_route"].includes(s)) return "processing";
+      if (["delivered", "completed"].includes(s)) return "delivered";
+      if (["cancelled", "disputed"].includes(s)) return s;
+      return "pending";
+    }
     if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
     if (["picked_up", "in_transit", "en_route"].includes(s)) return "en_route";
     if (["delivered", "completed"].includes(s)) return "delivered";
     if (["cancelled", "disputed"].includes(s)) return s;
     return "pending";
   };
-  const toCustomerStatusLabel = (value?: string) => {
-    const s = toCustomerStatus(value);
+  const toCustomerStatusLabel = (value?: string, deliveryMethod?: string) => {
+    const s = toCustomerStatus(value, deliveryMethod);
+    const isPickup = normalizeDeliveryMethod(deliveryMethod) === "pickup";
     switch (s) {
       case "pending":
         return "Pending";
       case "processing":
-        return "Preparing Delivery";
+        return isPickup ? "Preparing Order" : "Preparing Delivery";
       case "en_route":
-        return "On the Way";
+        return isPickup ? "Ready for Pickup" : "On the Way";
       case "delivered":
         return "Delivered";
       case "cancelled":
@@ -122,7 +131,7 @@ export default function OrderTracking() {
       // Show toast notification
       toast({
         title: "Order Status Updated",
-        description: `Order #${data.orderNumber} is now ${toCustomerStatusLabel(data.status)}`,
+        description: `Order #${data.orderNumber} status updated to ${toCustomerStatusLabel(data.status)}`,
       });
     });
 
@@ -216,7 +225,7 @@ export default function OrderTracking() {
     if (requestedOrderId && order.id !== requestedOrderId) return false;
 
     const normalized = normalizeStatus(order.status);
-    const customerStatus = toCustomerStatus(order.status);
+    const customerStatus = toCustomerStatus(order.status, order.deliveryMethod);
     const address = normalizeDeliveryMethod(order.deliveryMethod) === "pickup" ? "" : (order.deliveryAddress || "");
     const city = order.deliveryCity || "";
     const matchesSearch = 
@@ -361,7 +370,7 @@ export default function OrderTracking() {
                               #{order.orderNumber}
                             </p>
                           </div>
-                          <OrderStatusBadge status={order.status} />
+                          <OrderStatusBadge status={order.status} deliveryMethod={order.deliveryMethod} />
                         </div>
                       </CardHeader>
 

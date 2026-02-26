@@ -1,9 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Clock, Package, Truck, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { Clock, Package, Truck, CheckCircle2, XCircle, AlertTriangle, MapPin } from "lucide-react";
 
 interface OrderStatusBadgeProps {
   status: string;
+  deliveryMethod?: string;
   className?: string;
 }
 
@@ -15,6 +16,17 @@ const normalizeStatus = (status?: string) => {
   if (s === "picked_up" || s === "in_transit" || s === "en_route") return "en_route";
   if (s === "completed") return "completed";
   return s || "pending";
+};
+
+const normalizeForPickup = (status?: string) => {
+  const s = normalizeStatus(status);
+  if (["pending"].includes(s)) return "pending";
+  if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) {
+    return s === "ready" ? "ready_for_pickup" : "processing";
+  }
+  if (["picked_up", "in_transit", "en_route"].includes(s)) return "ready_for_pickup";
+  if (s === "completed") return "delivered";
+  return s;
 };
 
 const statusConfig = {
@@ -60,12 +72,24 @@ const statusConfig = {
     variant: "secondary" as const,
     className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300",
   },
+  ready_for_pickup: {
+    label: "Ready for Pickup",
+    icon: MapPin,
+    variant: "secondary" as const,
+    className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
+  },
 };
 
-export default function OrderStatusBadge({ status, className }: OrderStatusBadgeProps) {
-  const normalizedStatus = normalizeStatus(status);
+export default function OrderStatusBadge({ status, deliveryMethod, className }: OrderStatusBadgeProps) {
+  const isPickup = (deliveryMethod || "").toLowerCase().trim() === "pickup";
+  const normalizedStatus = isPickup ? normalizeForPickup(status) : normalizeStatus(status);
   const config = statusConfig[normalizedStatus as keyof typeof statusConfig] || statusConfig.pending;
   const Icon = config.icon;
+
+  const label =
+    isPickup && normalizedStatus === "processing"
+      ? "Preparing Order"
+      : config.label;
 
   return (
     <Badge
@@ -74,7 +98,7 @@ export default function OrderStatusBadge({ status, className }: OrderStatusBadge
       data-testid={`badge-${normalizedStatus}`}
     >
       <Icon className="h-3.5 w-3.5" />
-      <span>{config.label}</span>
+      <span>{label}</span>
     </Badge>
   );
 }

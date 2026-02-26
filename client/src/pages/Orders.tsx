@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
-import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard, AlertCircle, Loader2 } from "lucide-react";
+import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard, AlertCircle, Loader2, MapPin } from "lucide-react";
 
 interface Order {
   id: string;
@@ -59,16 +59,17 @@ export default function Orders() {
     return orderStatus;
   };
 
-  const getStatusLabel = (status: string) => {
+  const getStatusLabel = (status: string, deliveryMethod?: string) => {
+    const isPickup = normalize(deliveryMethod) === "pickup";
     switch (status.toLowerCase()) {
       case "pending":
         return "Pending";
       case "processing":
-        return "Preparing Delivery";
+        return isPickup ? "Preparing Order" : "Preparing Delivery";
       case "en_route":
-        return "On the Way";
+        return isPickup ? "Ready for Pickup" : "On the Way";
       case "delivered":
-        return "Delivered";
+        return isPickup ? "Completed" : "Delivered";
       case "cancelled":
         return "Cancelled";
       case "disputed":
@@ -117,14 +118,15 @@ export default function Orders() {
     }
   };
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = (status: string, deliveryMethod?: string) => {
+    const isPickup = normalize(deliveryMethod) === "pickup";
     switch (status.toLowerCase()) {
       case "pending":
         return <Clock className="h-4 w-4" />;
       case "processing":
         return <Package className="h-4 w-4" />;
       case "en_route":
-        return <Truck className="h-4 w-4" />;
+        return isPickup ? <MapPin className="h-4 w-4" /> : <Truck className="h-4 w-4" />;
       case "delivered":
         return <CheckCircle className="h-4 w-4" />;
       case "cancelled":
@@ -229,7 +231,7 @@ export default function Orders() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-muted">
-                {getStatusIcon(orderStatus)}
+                {getStatusIcon(orderStatus, order.deliveryMethod)}
               </div>
               <div>
                 <CardTitle className="text-lg">Order #{order.id.slice(0, 8)}</CardTitle>
@@ -239,7 +241,7 @@ export default function Orders() {
               </div>
             </div>
             <Badge className={getStatusColor(orderStatus)} data-testid={`badge-status-${order.id}`}>
-              {getStatusLabel(orderStatus)}
+              {getStatusLabel(orderStatus, order.deliveryMethod)}
             </Badge>
           </div>
         </CardHeader>
