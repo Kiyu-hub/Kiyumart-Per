@@ -38,6 +38,7 @@ interface Application {
   storeTypeMetadata?: Record<string, any> | null;
   storeName?: string;
   storeDescription?: string;
+  storeBanner?: string | null;
   vehicleInfo?: {
     type: string;
     plateNumber?: string;
@@ -74,6 +75,34 @@ export default function AdminApplications() {
     if (requested === "seller" || requested === "rider") return requested;
     const current = String(application.role || "").toLowerCase();
     return current === "rider" ? "rider" : "seller";
+  };
+
+  const renderImageTile = (label: string, url?: string | null, testId?: string) => {
+    if (!url) {
+      return (
+        <div className="rounded-lg border border-dashed p-3">
+          <p className="text-sm font-medium text-muted-foreground mb-1">{label}</p>
+          <p className="text-sm text-muted-foreground">N/A</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-lg border p-3 bg-muted/30" data-testid={testId}>
+        <p className="text-sm font-medium text-muted-foreground mb-2">{label}</p>
+        <div className="rounded-md overflow-hidden border bg-background">
+          <img src={url} alt={label} className="w-full max-h-64 object-contain" />
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 block text-xs text-primary break-all hover:underline"
+        >
+          {url}
+        </a>
+      </div>
+    );
   };
 
   useEffect(() => {
@@ -771,6 +800,14 @@ export default function AdminApplications() {
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
+                        <p className="text-sm font-medium text-muted-foreground">Application ID</p>
+                        <p className="text-base break-all">{selectedApplication.id || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Applied On</p>
+                        <p className="text-base">{selectedApplication.createdAt ? new Date(selectedApplication.createdAt).toLocaleString() : "N/A"}</p>
+                      </div>
+                      <div>
                         <p className="text-sm font-medium text-muted-foreground">Full Name</p>
                         <p className="text-base">{selectedApplication.name || "N/A"}</p>
                       </div>
@@ -781,6 +818,10 @@ export default function AdminApplications() {
                       <div>
                         <p className="text-sm font-medium text-muted-foreground">Phone</p>
                         <p className="text-base">{selectedApplication.phone || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Current Account Role</p>
+                        <p className="text-base capitalize">{selectedApplication.role || "N/A"}</p>
                       </div>
                       <div>
                         <p className="text-sm font-medium text-muted-foreground">Requested Role</p>
@@ -826,78 +867,52 @@ export default function AdminApplications() {
                           </div>
                           <div className="md:col-span-2">
                             <p className="text-sm font-medium text-muted-foreground">Store Metadata</p>
-                            <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                              {selectedApplication.storeTypeMetadata
-                                ? JSON.stringify(selectedApplication.storeTypeMetadata, null, 2)
-                                : "N/A"}
-                            </pre>
+                            {selectedApplication.storeTypeMetadata && Object.keys(selectedApplication.storeTypeMetadata).length > 0 ? (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  {Object.entries(selectedApplication.storeTypeMetadata).map(([key, value]) => (
+                                    <div key={key} className="rounded border p-2 bg-muted/20">
+                                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                        {key.replace(/([A-Z])/g, " $1").trim()}
+                                      </p>
+                                      <p className="text-sm break-words">
+                                        {Array.isArray(value)
+                                          ? value.join(", ")
+                                          : typeof value === "object"
+                                            ? JSON.stringify(value)
+                                            : String(value)}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                                <details className="rounded border p-2 bg-muted/10">
+                                  <summary className="cursor-pointer text-xs text-muted-foreground">Raw metadata JSON</summary>
+                                  <pre className="text-xs mt-2 overflow-x-auto whitespace-pre-wrap">
+                                    {JSON.stringify(selectedApplication.storeTypeMetadata, null, 2)}
+                                  </pre>
+                                </details>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">N/A</p>
+                            )}
                           </div>
                         </>
                       )}
                     </div>
                   </div>
 
-                  {/* Profile Picture */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                      <User className="h-5 w-5" />
-                      Profile Photo
-                    </h3>
-                    {selectedApplication.profileImage ? (
-                      <div className="bg-muted rounded-lg p-4 inline-block">
-                        <img
-                          src={selectedApplication.profileImage}
-                          alt="Profile"
-                          className="w-48 h-48 rounded-lg object-cover border-2 border-border"
-                        />
-                        <p className="text-xs text-muted-foreground mt-2 break-all">{selectedApplication.profileImage}</p>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">N/A</p>
-                    )}
-                  </div>
-
-                  {/* Ghana Card Images */}
+                  {/* Uploaded Media */}
                   <div>
                     <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                       <CreditCard className="h-5 w-5" />
-                      Ghana Card Verification
+                      Uploaded Media & Verification Images
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground mb-2">Front</p>
-                        {selectedApplication.ghanaCardFront ? (
-                          <>
-                            <div className="bg-muted rounded-lg p-2">
-                              <img
-                                src={selectedApplication.ghanaCardFront}
-                                alt="Ghana Card Front"
-                                className="w-full h-auto rounded object-contain"
-                              />
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-2 break-all">{selectedApplication.ghanaCardFront}</p>
-                          </>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">N/A</p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground mb-2">Back</p>
-                        {selectedApplication.ghanaCardBack ? (
-                          <>
-                            <div className="bg-muted rounded-lg p-2">
-                              <img
-                                src={selectedApplication.ghanaCardBack}
-                                alt="Ghana Card Back"
-                                className="w-full h-auto rounded object-contain"
-                              />
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-2 break-all">{selectedApplication.ghanaCardBack}</p>
-                          </>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">N/A</p>
-                        )}
-                      </div>
+                      {renderImageTile("Profile Photo", selectedApplication.profileImage, "media-profile-image")}
+                      {renderImageTile("Ghana Card Front", selectedApplication.ghanaCardFront, "media-card-front")}
+                      {renderImageTile("Ghana Card Back", selectedApplication.ghanaCardBack, "media-card-back")}
+                      {getEffectiveRole(selectedApplication) === "seller" &&
+                        renderImageTile("Store Banner", selectedApplication.storeBanner, "media-store-banner")}
                     </div>
                   </div>
 
