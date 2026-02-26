@@ -177,6 +177,45 @@ export default function AdminDashboardConnected() {
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
+  const { data: pendingApplicationsBadgeData } = useQuery<{ count: number; sellers: number; riders: number }>({
+    queryKey: ["/api/dashboard/pending-applications-count"],
+    queryFn: async () => {
+      const [sellerRes, riderRes] = await Promise.all([
+        fetch("/api/users?role=seller&isApproved=false&applicationStatus=pending", { credentials: "include" }),
+        fetch("/api/users?role=rider&isApproved=false&applicationStatus=pending", { credentials: "include" }),
+      ]);
+      if (!sellerRes.ok || !riderRes.ok) return { count: 0, sellers: 0, riders: 0 };
+      const [sellers, riders] = await Promise.all([sellerRes.json(), riderRes.json()]);
+      const sellerCount = Array.isArray(sellers) ? sellers.length : 0;
+      const riderCount = Array.isArray(riders) ? riders.length : 0;
+      return { count: sellerCount + riderCount, sellers: sellerCount, riders: riderCount };
+    },
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
+  const { data: pendingAssignmentsBadgeData } = useQuery<{ count: number }>({
+    queryKey: ["/api/dashboard/pending-assignments-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/orders", { credentials: "include" });
+      if (!res.ok) return { count: 0 };
+      const data = await res.json();
+      if (!Array.isArray(data)) return { count: 0 };
+      const actionableStatuses = new Set(["pending", "confirmed", "processing", "ready", "searching_rider"]);
+      const count = data.filter((order: any) => {
+        const deliveryMethod = String(order?.deliveryMethod || "").toLowerCase().trim();
+        const status = String(order?.status || "").toLowerCase().trim();
+        const riderId = order?.riderId || null;
+        return deliveryMethod !== "pickup" && !riderId && actionableStatuses.has(status);
+      }).length;
+      return { count };
+    },
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -261,6 +300,8 @@ export default function AdminDashboardConnected() {
   const buyerMap = new Map(Array.isArray(buyers) ? buyers.map(b => [b.id, b]) : []);
 
   const deliveredCount = orders.filter(o => normalizeOrderStatus(o.status) === "delivered").length;
+  const pendingApplicationsCount = pendingApplicationsBadgeData?.count || 0;
+  const pendingAssignmentsCount = pendingAssignmentsBadgeData?.count || 0;
   const paidMoneyFromOrders = orders
     .filter((o) => isPaidPaymentStatus((o as any).paymentStatus))
     .reduce((sum, o) => sum + Number.parseFloat((o as any).total || "0"), 0);
@@ -515,6 +556,9 @@ export default function AdminDashboardConnected() {
                   <CardTitle className="flex items-center gap-2">
                     <Ticket className="h-5 w-5" />
                     Applications
+                    {pendingApplicationsCount > 0 && (
+                      <Badge variant="destructive" className="ml-1">{pendingApplicationsCount > 99 ? "99+" : pendingApplicationsCount}</Badge>
+                    )}
                   </CardTitle>
                   <Button 
                     variant="outline" 
@@ -532,7 +576,13 @@ export default function AdminDashboardConnected() {
                         <p className="text-sm text-muted-foreground">
                           Review and approve seller and rider applications
                         </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Sellers: {pendingApplicationsBadgeData?.sellers || 0} | Riders: {pendingApplicationsBadgeData?.riders || 0}
+                        </p>
                       </div>
+                      <Badge variant={pendingApplicationsCount > 0 ? "destructive" : "secondary"}>
+                        {pendingApplicationsCount}
+                      </Badge>
                     </div>
                   </div>
                 </CardContent>
@@ -542,26 +592,35 @@ export default function AdminDashboardConnected() {
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <Truck className="h-5 w-5" />
-                    Riders Management
+                    Rider Assignment Queue
+                    {pendingAssignmentsCount > 0 && (
+                      <Badge variant="destructive" className="ml-1">{pendingAssignmentsCount > 99 ? "99+" : pendingAssignmentsCount}</Badge>
+                    )}
                   </CardTitle>
                   <Button 
                     variant="outline" 
-                    onClick={() => navigate("/admin/riders")}
-                    data-testid="button-view-riders"
+                    onClick={() => navigate("/admin/manual-rider-assignment")}
+                    data-testid="button-view-rider-queue"
                   >
-                    View All
+                    Open Queue
                   </Button>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
                       <div>
-                        <p className="font-semibold">Manage Riders</p>
+                        <p className="font-semibold">Pending Rider Assignment</p>
                         <p className="text-sm text-muted-foreground">
-                          View, approve, and manage all riders on the platform
+                          Orders waiting for a rider assignment
                         </p>
                       </div>
+                      <Badge variant={pendingAssignmentsCount > 0 ? "destructive" : "secondary"}>
+                        {pendingAssignmentsCount}
+                      </Badge>
                     </div>
+                    <Button variant="outline" onClick={() => navigate("/admin/riders")} data-testid="button-view-riders">
+                      Manage Riders
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

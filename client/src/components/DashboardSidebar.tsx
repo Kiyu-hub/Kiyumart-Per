@@ -35,7 +35,7 @@ interface MenuItem {
   icon: React.ElementType;
   label: string;
   id: string;
-  badge?: number | "dynamic" | "applications_dynamic";
+  badge?: number | "dynamic" | "applications_dynamic" | "assignments_dynamic";
   separator?: boolean;
 }
 
@@ -65,7 +65,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Users, label: "Users", id: "users" },
     { icon: UserCog, label: "Sellers", id: "sellers" },
     { icon: Truck, label: "Riders", id: "riders" },
-    { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment" },
+    { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment", badge: "assignments_dynamic" },
     { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic" },
     { icon: Shield, label: "Permissions", id: "permissions" },
     { icon: MapPin, label: "Delivery Zones", id: "zones" },
@@ -89,7 +89,8 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: ShoppingBag, label: "Orders", id: "orders" },
     { icon: UserCog, label: "Sellers", id: "sellers" },
     { icon: Truck, label: "Riders", id: "riders" },
-    { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment" },
+    { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment", badge: "assignments_dynamic" },
+    { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic" },
     { icon: MapPin, label: "Delivery Zones", id: "zones" },
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart", separator: true },
     { icon: ShoppingBag, label: "My Purchases", id: "my-purchases" },
@@ -197,6 +198,32 @@ export default function DashboardSidebar({
 
   const pendingApplicationsCount = applicationBadgeData?.count || 0;
 
+  const { data: assignmentBadgeData } = useQuery<{ count: number }>({
+    queryKey: ["/api/sidebar/pending-assignments-count"],
+    queryFn: async () => {
+      if (normalizedRole !== "admin" && normalizedRole !== "super_admin") return { count: 0 };
+      const ordersRes = await fetch("/api/orders", { credentials: "include" });
+      if (!ordersRes.ok) return { count: 0 };
+      const orders = await ordersRes.json();
+      if (!Array.isArray(orders)) return { count: 0 };
+
+      const actionableStatuses = new Set(["pending", "confirmed", "processing", "ready", "searching_rider"]);
+      const count = orders.filter((order: any) => {
+        const deliveryMethod = String(order?.deliveryMethod || "").toLowerCase().trim();
+        const status = String(order?.status || "").toLowerCase().trim();
+        const riderId = order?.riderId || null;
+        return deliveryMethod !== "pickup" && !riderId && actionableStatuses.has(status);
+      }).length;
+
+      return { count };
+    },
+    enabled: normalizedRole === "admin" || normalizedRole === "super_admin",
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
+  const pendingAssignmentsCount = assignmentBadgeData?.count || 0;
+
   // Ensure we have the current user available for the avatar even if parent hasn't passed it yet
   const { data: currentUser } = useQuery<CurrentUserPayload>({
     queryKey: ["/api/auth/me"],
@@ -248,6 +275,8 @@ export default function DashboardSidebar({
             ? (notificationCount > 0 ? (notificationCount > 9 ? "9+" : String(notificationCount)) : null)
             : item.badge === "applications_dynamic"
               ? (pendingApplicationsCount > 0 ? (pendingApplicationsCount > 99 ? "99+" : String(pendingApplicationsCount)) : null)
+              : item.badge === "assignments_dynamic"
+                ? (pendingAssignmentsCount > 0 ? (pendingAssignmentsCount > 99 ? "99+" : String(pendingAssignmentsCount)) : null)
               : typeof item.badge === "number"
                 ? String(item.badge)
                 : null;
