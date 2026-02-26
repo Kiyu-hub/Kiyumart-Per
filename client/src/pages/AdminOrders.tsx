@@ -257,6 +257,23 @@ function ViewOrderDialog({
                 )}
               </div>
             )}
+            {(orderDetails.sellerInfo?.name || orderDetails.sellerInfo?.storeName || orderDetails.sellerInfo?.email || orderDetails.sellerInfo?.phone) && (
+              <div className="space-y-1 border-t pt-4">
+                <p className="text-sm font-medium text-muted-foreground">Seller Information</p>
+                {orderDetails.sellerInfo?.storeName && (
+                  <p className="text-sm">Store: <span className="font-semibold">{orderDetails.sellerInfo.storeName}</span></p>
+                )}
+                {orderDetails.sellerInfo?.name && (
+                  <p className="text-sm">Seller: <span className="font-semibold">{orderDetails.sellerInfo.name}</span></p>
+                )}
+                {orderDetails.sellerInfo?.email && (
+                  <p className="text-sm text-muted-foreground">Email: {orderDetails.sellerInfo.email}</p>
+                )}
+                {orderDetails.sellerInfo?.phone && (
+                  <p className="text-sm text-muted-foreground">Phone: {orderDetails.sellerInfo.phone}</p>
+                )}
+              </div>
+            )}
 
             <div className="border-t pt-4">
               <p className="font-medium mb-2">Order Summary</p>
@@ -914,25 +931,29 @@ function OrdersList({
               })()}
             </div>
             {(() => {
-              const status = String(order.status || "").toLowerCase().trim();
-              const isDone = status === "delivered" || status === "completed";
-              if (!isDone) return null;
               const isPickup = String(order.deliveryMethod || "").toLowerCase().trim() === "pickup";
               const verification = order.verificationSummary;
+              const hasAnyVerification = Boolean(
+                verification?.sellerToRider || verification?.riderToBuyer || verification?.sellerToBuyer
+              );
+              const status = String(order.status || "").toLowerCase().trim();
+              const shouldShowVerification =
+                hasAnyVerification || ["picked_up", "in_transit", "en_route", "arrived", "delivered", "completed"].includes(status);
+              if (!shouldShowVerification) return null;
               return (
                 <div className="rounded-md border border-muted p-2 mt-1 text-[11px] space-y-1">
-                  <p className="font-semibold text-foreground">Completion Verification</p>
+                  <p className="font-semibold text-foreground">Verification Checkpoints</p>
                   {isPickup ? (
                     <p className="text-muted-foreground">
-                      Seller to Buyer: <span className="font-medium text-foreground">{verification?.sellerToBuyer || "Not recorded"}</span>
+                      Seller to Buyer: <span className="font-medium text-foreground">{verification?.sellerToBuyer ? `Verified (${verification.sellerToBuyer})` : "Pending"}</span>
                     </p>
                   ) : (
                     <>
                       <p className="text-muted-foreground">
-                        Seller to Rider: <span className="font-medium text-foreground">{verification?.sellerToRider || "Not recorded"}</span>
+                        Seller to Rider: <span className="font-medium text-foreground">{verification?.sellerToRider ? `Verified (${verification.sellerToRider})` : "Pending"}</span>
                       </p>
                       <p className="text-muted-foreground">
-                        Rider to Buyer: <span className="font-medium text-foreground">{verification?.riderToBuyer || "Not recorded"}</span>
+                        Rider to Buyer: <span className="font-medium text-foreground">{verification?.riderToBuyer ? `Verified (${verification.riderToBuyer})` : "Pending"}</span>
                       </p>
                     </>
                   )}

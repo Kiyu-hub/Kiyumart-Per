@@ -4293,13 +4293,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     for (const entry of history) {
       const reason = String(entry?.reason || "");
       const matched = reason.match(/^verification:(seller_to_rider|rider_to_buyer|seller_to_buyer):(qr|otp|qr_otp)$/);
-      if (!matched) continue;
-      const channel = matched[1];
-      const methodLabel = formatVerificationMethodLabel(matched[2]);
-      if (!methodLabel) continue;
-      if (channel === "seller_to_rider" && !summary.sellerToRider) summary.sellerToRider = methodLabel;
-      if (channel === "rider_to_buyer" && !summary.riderToBuyer) summary.riderToBuyer = methodLabel;
-      if (channel === "seller_to_buyer" && !summary.sellerToBuyer) summary.sellerToBuyer = methodLabel;
+      if (matched) {
+        const channel = matched[1];
+        const methodLabel = formatVerificationMethodLabel(matched[2]);
+        if (!methodLabel) continue;
+        if (channel === "seller_to_rider" && !summary.sellerToRider) summary.sellerToRider = methodLabel;
+        if (channel === "rider_to_buyer" && !summary.riderToBuyer) summary.riderToBuyer = methodLabel;
+        if (channel === "seller_to_buyer" && !summary.sellerToBuyer) summary.sellerToBuyer = methodLabel;
+        continue;
+      }
+      // Backward compatibility for legacy reason strings before method capture existed.
+      if (!summary.sellerToRider && reason === "seller_pickup_qr_otp_verified") {
+        summary.sellerToRider = "QR + OTP";
+        continue;
+      }
+      if (!summary.riderToBuyer && reason === "qr_delivery_verified") {
+        summary.riderToBuyer = "Verified (legacy)";
+        continue;
+      }
+      if (!summary.sellerToBuyer && reason === "seller_customer_pickup_qr_otp_verified") {
+        summary.sellerToBuyer = "QR + OTP";
+        continue;
+      }
     }
 
     return summary;
@@ -5479,6 +5494,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             id: seller.id,
             name: resolveUserDisplayName(seller),
             storeName: sellerStore?.name || seller.storeName || null,
+            email: seller.email || null,
+            phone: seller.phone || null,
           };
         }
       }
