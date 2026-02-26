@@ -859,10 +859,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const deriveCityAndRegionFromAddress = (address?: string | null): { city: string; region: string } => {
+    const parts = String(address || "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const city = parts[0] || "";
+    const regionMatch = parts.find((part) => /region/i.test(part)) || parts[1] || parts[2] || "";
+
+    return { city, region: regionMatch };
+  };
+
+  const normalizeVehicleType = (value?: string | null): "car" | "motorcycle" | undefined => {
+    const normalized = String(value || "").toLowerCase().trim();
+    if (!normalized) return undefined;
+    if (normalized.includes("car") || normalized.includes("van") || normalized.includes("truck")) return "car";
+    if (
+      normalized.includes("motor") ||
+      normalized.includes("bike") ||
+      normalized.includes("bicycle") ||
+      normalized.includes("cycle")
+    ) {
+      return "motorcycle";
+    }
+    return undefined;
+  };
+
+  const hydratePendingRiderApplicationFields = async (user: User): Promise<User> => {
+    const updateData: Record<string, unknown> = {};
+    const appStatus = String((user as any).applicationStatus || "").toLowerCase();
+    const requestedRole = String((user as any).requestedRole || "").toLowerCase();
+    const currentRole = String(user.role || "").toLowerCase();
+    const isPendingRiderApplication =
+      (requestedRole === "rider" || currentRole === "rider") &&
+      (appStatus === "pending" || appStatus === "interview_scheduled");
+
+    if (!isPendingRiderApplication) return user;
+
+    const cityRaw = String((user as any).riderCity || "").trim();
+    const regionRaw = String((user as any).riderRegion || "").trim();
+    const { city: fallbackCity, region: fallbackRegion } = deriveCityAndRegionFromAddress(user.businessAddress);
+
+    const resolvedCity = cityRaw || fallbackCity;
+    const resolvedRegion = regionRaw || fallbackRegion;
+
+    if (!cityRaw && resolvedCity) updateData.riderCity = resolvedCity;
+    if (!regionRaw && resolvedRegion) updateData.riderRegion = resolvedRegion;
+
+    const existingVehicleInfo = (typeof (user as any).vehicleInfo === "object" && (user as any).vehicleInfo)
+      ? { ...(user as any).vehicleInfo }
+      : {};
+
+    const existingVehicleType = normalizeVehicleType(
+      String(existingVehicleInfo.type || (user as any).vehicleType || "").trim()
+    );
+    if (!existingVehicleType) {
+      // Backfill legacy pending rider records with a safe default type so approval can proceed.
+      existingVehicleInfo.type = "motorcycle";
+      const parsedVehicle = vehicleInfoSchema.safeParse(existingVehicleInfo);
+      if (parsedVehicle.success) {
+        updateData.vehicleInfo = parsedVehicle.data as any;
+      }
+    }
+
+    const willHaveZone = Boolean((user as any).deliveryZoneId || updateData.deliveryZoneId);
+    if (!willHaveZone && (resolvedCity || resolvedRegion)) {
+      const zones = await storage.getDeliveryZones();
+      const normalize = (value?: string | null) => (value || "").toLowerCase().trim();
+      const city = normalize(resolvedCity);
+      const region = normalize(resolvedRegion);
+
+      if (city) {
+        const cityZone = zones.find((z: any) => normalize(z.city) === city || normalize(z.name) === city);
+        if (cityZone?.id) updateData.deliveryZoneId = cityZone.id;
+      }
+
+      if (!updateData.deliveryZoneId && region) {
+        const regionZone = zones.find((z: any) => normalize(z.region) === region || normalize(z.name) === region);
+        if (regionZone?.id) updateData.deliveryZoneId = regionZone.id;
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) return user;
+    const updated = await storage.updateUser(user.id, updateData as any);
+    return (updated as User) || user;
+  };
+
   app.patch("/api/users/:id/approve", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       // First, get the user without approving yet
-      const user = await storage.getUser(req.params.id);
+      let user = await storage.getUser(req.params.id);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -904,6 +991,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       if (targetRole === "rider") {
+        user = await hydratePendingRiderApplicationFields(user);
         if (!user.vehicleInfo || !user.vehicleInfo.type) {
           return res.status(400).json({ 
             error: "Cannot approve rider without vehicle information",

@@ -814,6 +814,17 @@ export default function AdminApplications() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <DialogTitle className="text-2xl flex items-center gap-3">
+                          {selectedApplication.profileImage ? (
+                            <img
+                              src={selectedApplication.profileImage}
+                              alt={`${selectedApplication.name || "Applicant"} profile`}
+                              className="h-12 w-12 rounded-full object-cover border border-border shrink-0"
+                            />
+                          ) : (
+                            <span className="h-12 w-12 rounded-full border border-border bg-muted/40 flex items-center justify-center shrink-0">
+                              <User className="h-6 w-6 text-muted-foreground" />
+                            </span>
+                          )}
                           <span className={`rounded-full p-2 ${getEffectiveRole(selectedApplication) === "seller" ? "bg-blue-500/10" : "bg-orange-500/10"}`}>
                             {getEffectiveRole(selectedApplication) === "seller" ? (
                               <Store className="h-6 w-6 text-blue-500" />
@@ -821,7 +832,12 @@ export default function AdminApplications() {
                               <Bike className="h-6 w-6 text-orange-500" />
                             )}
                           </span>
-                          <span className="truncate">{selectedApplication.name || "Unnamed Applicant"}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate">{selectedApplication.name || "Unnamed Applicant"}</span>
+                            <span className="block text-sm font-normal text-muted-foreground truncate">
+                              {selectedApplication.email || "No email"}
+                            </span>
+                          </span>
                         </DialogTitle>
                         <DialogDescription className="mt-2">
                           {getEffectiveRole(selectedApplication) === "seller" ? "Seller" : "Delivery Rider"} application profile and verification details
@@ -1038,61 +1054,64 @@ export default function AdminApplications() {
                     </pre>
                   </Card>
 
-                  {/* Action Buttons */}
-                  <div className="flex justify-end gap-3 pt-4 border-t sticky bottom-0 bg-background">
-                    <Button
-                      variant="outline"
-                      onClick={() => setViewDetailsOpen(false)}
-                      data-testid="button-close-details"
-                    >
-                      Close
-                    </Button>
-                    {(selectedApplication.applicationStatus === "pending" || selectedApplication.applicationStatus === "interview_scheduled") && (
-                      <>
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          setViewDetailsOpen(false);
-                          openRejectDialog(selectedApplication);
-                        }}
-                        data-testid="button-reject-details"
-                        className="gap-2"
-                      >
-                          <X className="h-4 w-4" />
-                          Reject Application
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          onClick={() => {
-                            setViewDetailsOpen(false);
-                            openScheduleDialog(selectedApplication);
-                          }}
-                          disabled={scheduleInterviewMutation.isPending}
-                          data-testid="button-schedule-details"
-                          className="gap-2"
-                        >
-                          <CalendarClock className="h-4 w-4" />
-                          {selectedApplication.applicationStatus === "interview_scheduled"
-                            ? "Reschedule Interview"
-                            : "Schedule Interview"}
-                        </Button>
-                        <Button
-                          variant="default"
-                          onClick={() => approveApplicationMutation.mutate({ userId: selectedApplication.id })}
-                          disabled={approveApplicationMutation.isPending}
-                          data-testid="button-approve-details"
-                        className="gap-2"
-                      >
-                        {approveApplicationMutation.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Check className="h-4 w-4" />
-                        )}
-                        Approve Application
-                      </Button>
-                      </>
-                    )}
                   </div>
+
+                  {/* Action Buttons */}
+                  <div className="border-t bg-background px-6 py-4">
+                    <div className="flex flex-wrap justify-end gap-3">
+                      <Button
+                        variant="outline"
+                        onClick={() => setViewDetailsOpen(false)}
+                        data-testid="button-close-details"
+                      >
+                        Close
+                      </Button>
+                      {(selectedApplication.applicationStatus === "pending" || selectedApplication.applicationStatus === "interview_scheduled") && (
+                        <>
+                          <Button
+                            variant="destructive"
+                            onClick={() => {
+                              setViewDetailsOpen(false);
+                              openRejectDialog(selectedApplication);
+                            }}
+                            data-testid="button-reject-details"
+                            className="gap-2"
+                          >
+                            <X className="h-4 w-4" />
+                            Reject Application
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            onClick={() => {
+                              setViewDetailsOpen(false);
+                              openScheduleDialog(selectedApplication);
+                            }}
+                            disabled={scheduleInterviewMutation.isPending}
+                            data-testid="button-schedule-details"
+                            className="gap-2"
+                          >
+                            <CalendarClock className="h-4 w-4" />
+                            {selectedApplication.applicationStatus === "interview_scheduled"
+                              ? "Reschedule Interview"
+                              : "Schedule Interview"}
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => approveApplicationMutation.mutate({ userId: selectedApplication.id })}
+                            disabled={approveApplicationMutation.isPending}
+                            data-testid="button-approve-details"
+                            className="gap-2"
+                          >
+                            {approveApplicationMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                            Approve Application
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   {detailsLoading && (
                     <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] flex items-center justify-center">
