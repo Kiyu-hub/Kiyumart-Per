@@ -219,6 +219,7 @@ export default function Orders() {
     const paymentButtonConfig = getPaymentButtonConfig(order);
     const orderStatus = getEffectiveOrderStatus(order);
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+    const displayOrderNumber = order.orderNumber || `ORD-${order.id.slice(0, 8).toUpperCase()}`;
     const isPickup = normalize(order.deliveryMethod) === "pickup";
     const verification = order.verificationSummary;
     const showVerificationBlock = ["delivered", "completed"].includes(orderStatus);
@@ -239,7 +240,9 @@ export default function Orders() {
                 {getStatusIcon(orderStatus, order.deliveryMethod)}
               </div>
               <div>
-                <CardTitle className="text-lg">Order #{displayOrderNumber}</CardTitle>
+                <CardTitle className="text-lg">
+                  Order <span className="whitespace-nowrap">#{displayOrderNumber}</span>
+                </CardTitle>
                 <p className="text-sm text-muted-foreground">
                   {new Date(order.createdAt).toLocaleDateString()}
                 </p>
@@ -436,4 +439,3 @@ export default function Orders() {
     </div>
   );
 }
-    const displayOrderNumber = order.orderNumber || `ORD-${order.id.slice(0, 8).toUpperCase()}`;
