@@ -7,7 +7,40 @@ import fs from "fs/promises";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { db } from "../db";
-import { users, cart, wishlist, chatMessages, notifications, orders, orderItems, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable, adminPermissions, riderPayouts } from "@shared/schema";
+import {
+  users,
+  cart,
+  wishlist,
+  wishlists,
+  chatMessages,
+  notifications,
+  supportConversations,
+  supportMessages,
+  orders,
+  orderItems,
+  orderStatusHistory,
+  deliveryTracking,
+  deliveryAssignments,
+  transactions,
+  reviews,
+  riderReviews,
+  products,
+  productVariants,
+  productMedia,
+  stores,
+  coupons,
+  promotionalAds,
+  promotions,
+  featuredListings,
+  commissions,
+  sellerPayouts,
+  riderPayouts,
+  platformEarnings,
+  adminWalletTransactions,
+  platformSettings as platformSettingsTable,
+  footerPages as footerPagesTable,
+  adminPermissions,
+} from "@shared/schema";
 import { eq, or, isNotNull, and, desc, sql, inArray, asc } from "drizzle-orm";
 import { 
   hashPassword, 
@@ -2121,45 +2154,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Execute all deletes in a transaction for data integrity
       await db.transaction(async (tx) => {
-        // Delete user's chat messages
-        await tx.delete(chatMessages).where(
-          or(
-            eq(chatMessages.senderId, req.params.id),
-            eq(chatMessages.receiverId, req.params.id)
-          )
-        );
-        
-        // Delete user's cart items
-        await tx.delete(cart).where(eq(cart.userId, req.params.id));
-        
-        // Delete user's wishlist items
-        await tx.delete(wishlist).where(eq(wishlist.userId, req.params.id));
-        
-        // Delete user's notifications
-        await tx.delete(notifications).where(eq(notifications.userId, req.params.id));
-        
-        // If seller, delete their store and products
-        if (user.role === "seller") {
-          const store = await storage.getStoreByPrimarySeller(req.params.id);
-          if (store) {
-            // Delete products from this store
-            await tx.delete(products).where(eq(products.storeId, store.id));
-            // Delete the store
-            await tx.delete(stores).where(eq(stores.id, store.id));
-            console.log(`Deleting store ${store.id} and its products for seller ${req.params.id}`);
-          }
+        const userId = req.params.id;
+
+        // Collect support conversations tied to this account.
+        const conversationRows = await tx
+          .select({ id: supportConversations.id })
+          .from(supportConversations)
+          .where(
+            or(
+              eq(supportConversations.customerId, userId),
+              eq(supportConversations.agentId, userId),
+              eq(supportConversations.lastSupportResponderId, userId),
+            ),
+          );
+        const conversationIds = conversationRows.map((c) => c.id);
+
+        // Collect order IDs where this user is buyer/seller/rider.
+        const orderRows = await tx
+          .select({ id: orders.id })
+          .from(orders)
+          .where(
+            or(eq(orders.buyerId, userId), eq(orders.sellerId, userId), eq(orders.riderId, userId)),
+          );
+        const orderIds = orderRows.map((o) => o.id);
+
+        // Collect products owned by seller account (if any).
+        const productRows = await tx
+          .select({ id: products.id })
+          .from(products)
+          .where(eq(products.sellerId, userId));
+        const productIds = productRows.map((p) => p.id);
+
+        // Collect seller stores.
+        const sellerStoreRows = await tx
+          .select({ id: stores.id })
+          .from(stores)
+          .where(eq(stores.primarySellerId, userId));
+        const sellerStoreIds = sellerStoreRows.map((s) => s.id);
+
+        // Support/chat clean-up.
+        await tx.delete(chatMessages).where(or(eq(chatMessages.senderId, userId), eq(chatMessages.receiverId, userId)));
+        await tx.delete(supportMessages).where(eq(supportMessages.senderId, userId));
+        if (conversationIds.length > 0) {
+          await tx.delete(supportMessages).where(inArray(supportMessages.conversationId, conversationIds));
+          await tx.delete(supportConversations).where(inArray(supportConversations.id, conversationIds));
         }
-        
-        // Delete user's orders (as buyer or rider)
-        await tx.delete(orders).where(
-          or(
-            eq(orders.buyerId, req.params.id),
-            eq(orders.riderId, req.params.id)
-          )
-        );
-        
-        // Finally, delete the user
-        await tx.delete(users).where(eq(users.id, req.params.id));
+
+        // User-tied clean-up.
+        await tx.delete(cart).where(eq(cart.userId, userId));
+        await tx.delete(wishlist).where(eq(wishlist.userId, userId));
+        await tx.delete(wishlists).where(eq(wishlists.userId, userId));
+        await tx.delete(notifications).where(eq(notifications.userId, userId));
+        await tx.delete(transactions).where(eq(transactions.userId, userId));
+        await tx.delete(reviews).where(eq(reviews.userId, userId));
+        await tx.delete(riderReviews).where(or(eq(riderReviews.userId, userId), eq(riderReviews.riderId, userId)));
+        await tx.delete(coupons).where(eq(coupons.sellerId, userId));
+        await tx.delete(commissions).where(eq(commissions.sellerId, userId));
+        await tx.delete(sellerPayouts).where(or(eq(sellerPayouts.sellerId, userId), eq(sellerPayouts.processedBy, userId)));
+        await tx
+          .delete(riderPayouts)
+          .where(
+            or(
+              eq(riderPayouts.riderId, userId),
+              eq(riderPayouts.approvedBy, userId),
+              eq(riderPayouts.processedBy, userId),
+              eq(riderPayouts.rejectedBy, userId),
+            ),
+          );
+        await tx.delete(promotions).where(or(eq(promotions.sellerId, userId), eq(promotions.promotedBy, userId)));
+        await tx.delete(featuredListings).where(eq(featuredListings.sellerId, userId));
+        await tx.delete(adminWalletTransactions).where(eq(adminWalletTransactions.adminId, userId));
+
+        // Product/store clean-up for sellers.
+        if (productIds.length > 0) {
+          await tx.delete(cart).where(inArray(cart.productId, productIds));
+          await tx.delete(wishlist).where(inArray(wishlist.productId, productIds));
+          await tx.delete(wishlists).where(inArray(wishlists.productId, productIds));
+          await tx.delete(reviews).where(inArray(reviews.productId, productIds));
+          await tx.delete(orderItems).where(inArray(orderItems.productId, productIds));
+          await tx.delete(productVariants).where(inArray(productVariants.productId, productIds));
+          await tx.delete(productMedia).where(inArray(productMedia.productId, productIds));
+          await tx.delete(promotions).where(inArray(promotions.productId, productIds));
+          await tx.delete(featuredListings).where(inArray(featuredListings.productId, productIds));
+          await tx.delete(products).where(inArray(products.id, productIds));
+        }
+
+        if (sellerStoreIds.length > 0) {
+          await tx.delete(stores).where(inArray(stores.id, sellerStoreIds));
+        }
+
+        // Order dependency clean-up.
+        if (orderIds.length > 0) {
+          await tx.delete(orderItems).where(inArray(orderItems.orderId, orderIds));
+          await tx.delete(deliveryTracking).where(inArray(deliveryTracking.orderId, orderIds));
+          await tx.delete(deliveryAssignments).where(inArray(deliveryAssignments.orderId, orderIds));
+          await tx.delete(orderStatusHistory).where(inArray(orderStatusHistory.orderId, orderIds));
+          await tx.delete(transactions).where(inArray(transactions.orderId, orderIds));
+          await tx.delete(riderReviews).where(inArray(riderReviews.orderId, orderIds));
+          await tx.delete(reviews).where(inArray(reviews.orderId, orderIds));
+          await tx.delete(platformEarnings).where(inArray(platformEarnings.orderId, orderIds));
+          await tx.delete(commissions).where(inArray(commissions.orderId, orderIds));
+          await tx.delete(riderPayouts).where(inArray(riderPayouts.orderId, orderIds));
+          await tx.delete(orders).where(inArray(orders.id, orderIds));
+        }
+
+        // Finally, delete the user.
+        await tx.delete(users).where(eq(users.id, userId));
       });
       
       console.log(`Successfully hard deleted user ${req.params.id} and all related data`);

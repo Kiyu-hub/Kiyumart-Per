@@ -77,7 +77,7 @@ export default function AdminApplications() {
     return current === "rider" ? "rider" : "seller";
   };
 
-  const renderImageTile = (label: string, url?: string | null, testId?: string) => {
+  const renderImageTile = (label: string, url?: string | null, testId?: string, compact = false) => {
     if (!url) {
       return (
         <div className="rounded-lg border border-dashed p-3">
@@ -91,7 +91,7 @@ export default function AdminApplications() {
       <div className="rounded-lg border p-3 bg-muted/30" data-testid={testId}>
         <p className="text-sm font-medium text-muted-foreground mb-2">{label}</p>
         <div className="rounded-md overflow-hidden border bg-background">
-          <img src={url} alt={label} className="w-full max-h-64 object-contain" />
+          <img src={url} alt={label} className={`w-full ${compact ? "max-h-40" : "max-h-64"} object-contain`} />
         </div>
         <a
           href={url}
@@ -1026,7 +1026,7 @@ export default function AdminApplications() {
 
         {/* Application Details Dialog */}
         <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
-          <DialogContent className="w-[98vw] sm:w-[96vw] max-w-6xl h-[92vh] max-h-[92vh] overflow-hidden p-0">
+          <DialogContent className="w-[98vw] sm:w-[96vw] max-w-6xl h-[88vh] max-h-[88vh] overflow-hidden p-0">
             {selectedApplication && (
               <>
                 <div className="relative flex h-full min-h-0 flex-col">
@@ -1108,6 +1108,18 @@ export default function AdminApplications() {
                       </p>
                     </div>
                   )}
+
+                  {/* ID Card Verification */}
+                  <Card className="p-3">
+                    <h3 className="text-base font-semibold mb-2 flex items-center gap-2">
+                      <CreditCard className="h-5 w-5" />
+                      ID Card Verifications
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {renderImageTile("Ghana Card Front", selectedApplication.ghanaCardFront, "media-card-front", true)}
+                      {renderImageTile("Ghana Card Back", selectedApplication.ghanaCardBack, "media-card-back", true)}
+                    </div>
+                  </Card>
 
                   {/* Personal Information */}
                   <Card className="p-4">
@@ -1191,30 +1203,6 @@ export default function AdminApplications() {
                       )}
                     </div>
                   </Card>
-
-                  {/* ID Card Verification */}
-                  <Card className="p-4">
-                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                      <CreditCard className="h-5 w-5" />
-                      ID Card Verification Documents
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {renderImageTile("Ghana Card Front", selectedApplication.ghanaCardFront, "media-card-front")}
-                      {renderImageTile("Ghana Card Back", selectedApplication.ghanaCardBack, "media-card-back")}
-                    </div>
-                  </Card>
-
-                  {getEffectiveRole(selectedApplication) === "seller" && (
-                    <Card className="p-4">
-                      <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                        <Store className="h-5 w-5" />
-                        Store Banner
-                      </h3>
-                      <div className="grid grid-cols-1 gap-4">
-                        {renderImageTile("Store Banner", selectedApplication.storeBanner, "media-store-banner")}
-                      </div>
-                    </Card>
-                  )}
 
                   {/* Vehicle Information (rider-only) */}
                   {getEffectiveRole(selectedApplication) === "rider" && (
