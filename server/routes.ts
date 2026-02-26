@@ -4259,6 +4259,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     viewerRole?: string | null
   ) => resolveVisibleOrderStateForRole(orderLike, viewerRole).status;
 
+  const resolveVerificationMethod = (hasQr: boolean, hasOtp: boolean): "qr" | "otp" | "qr_otp" | "unknown" => {
+    if (hasQr && hasOtp) return "qr_otp";
+    if (hasQr) return "qr";
+    if (hasOtp) return "otp";
+    return "unknown";
+  };
+
+  const formatVerificationMethodLabel = (method?: string | null): string | null => {
+    const normalized = String(method || "").toLowerCase().trim();
+    if (normalized === "qr") return "QR";
+    if (normalized === "otp") return "OTP";
+    if (normalized === "qr_otp") return "QR + OTP";
+    return null;
+  };
+
+  const extractVerificationSummary = (history: Array<any>) => {
+    const summary: {
+      sellerToRider?: string | null;
+      riderToBuyer?: string | null;
+      sellerToBuyer?: string | null;
+    } = {};
+
+    for (const entry of history) {
+      const reason = String(entry?.reason || "");
+      const matched = reason.match(/^verification:(seller_to_rider|rider_to_buyer|seller_to_buyer):(qr|otp|qr_otp)$/);
+      if (!matched) continue;
+      const channel = matched[1];
+      const methodLabel = formatVerificationMethodLabel(matched[2]);
+      if (!methodLabel) continue;
+      if (channel === "seller_to_rider" && !summary.sellerToRider) summary.sellerToRider = methodLabel;
+      if (channel === "rider_to_buyer" && !summary.riderToBuyer) summary.riderToBuyer = methodLabel;
+      if (channel === "seller_to_buyer" && !summary.sellerToBuyer) summary.sellerToBuyer = methodLabel;
+    }
+
+    return summary;
+  };
+
   const sanitizeOrderVerificationSecrets = (order: any, viewer: { id: string; role: string }) => {
     const isAdminViewer = viewer.role === "admin" || viewer.role === "super_admin";
     const isBuyerViewer = order?.buyerId === viewer.id;
@@ -4784,12 +4821,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       throw error;
     }
 
-    const updatedOrder = await storage.applyOrderStatusTransition(
+    const deliveredOrder = await storage.applyOrderStatusTransition(
       orderId,
       "delivered",
       riderId,
       "rider",
       reason
+    );
+    if (!deliveredOrder) {
+      const error = new Error("Order not found");
+      (error as any).code = 404;
+      throw error;
+    }
+
+    const updatedOrder = await storage.applyOrderStatusTransition(
+      orderId,
+      "completed",
+      riderId,
+      "rider",
+      "delivery_verified_and_completed"
     );
     if (!updatedOrder) {
       const error = new Error("Order not found");
@@ -4800,16 +4850,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await storage.createNotification({
       userId: order.buyerId,
       type: "order",
-      title: "Order Delivered!",
-      message: `Your order #${order.orderNumber} has been successfully delivered. Thank you for shopping with us!`,
+      title: "Order Completed!",
+      message: `Your order #${order.orderNumber} has been successfully delivered and verified.`,
       metadata: { link: `/orders/${orderId}` } as any,
     });
 
     await storage.createNotification({
       userId: order.sellerId,
       type: "order",
-      title: "Delivery Completed",
-      message: `Order #${order.orderNumber} has been delivered to the customer.`,
+      title: "Order Completed",
+      message: `Order #${order.orderNumber} delivery has been verified and completed.`,
       metadata: { link: `/seller/orders?orderId=${orderId}` } as any,
     });
 
@@ -4826,7 +4876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       deliveredAt: new Date().toISOString(),
     });
 
-    await emitOrderStatusUpdateToStakeholders(updatedOrder, "delivered");
+    await emitOrderStatusUpdateToStakeholders(updatedOrder, "completed");
 
     // Keep payout creation idempotent across all delivery completion entry points.
     if (order.deliveryFee) {
@@ -4845,7 +4895,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             currency: order.currency || "GHS",
             method: "mobile_money",
             status: "pending_approval",
-            notes: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Delivered & Verified.`,
+            notes: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Completed & Verified.`,
           });
 
           const superAdmins = await storage.getUsersByRole("super_admin");
@@ -4856,7 +4906,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               userId: admin.id,
               type: "payout",
               title: "📦 Payout Action Required",
-              message: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Delivered & Verified.`,
+              message: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Completed & Verified.`,
               metadata: {
                 link: `/admin/riders-payouts`,
                 payoutId: payout.id,
@@ -5267,6 +5317,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ordersWithItemsRaw = await Promise.all(
         orders.map(async (order) => {
           const items = await storage.getOrderItems(order.id);
+          const orderHistory = await storage.getOrderStatusHistory(order.id);
+          const verificationSummary = extractVerificationSummary(orderHistory);
           const buyer = buyersById.get(order.buyerId);
           const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
           const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
@@ -5276,6 +5328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             _hiddenForViewer: visible.hidden,
             totalAmount: order.total,
             items,
+            verificationSummary,
             buyer: buyer
               ? {
                   id: buyer.id,
@@ -5314,6 +5367,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       const securedOrder = sanitizeOrderVerificationSecrets(finalOrder, req.user!);
       const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
+      const orderHistory = await storage.getOrderStatusHistory(securedOrder.id);
+      const verificationSummary = extractVerificationSummary(orderHistory);
       
       // Enforce stakeholder access for order detail reads.
       const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
@@ -5362,6 +5417,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json({
           ...securedOrder,
           riderInfo,
+          verificationSummary,
           customerInfo: buyer ? {
             name: buyer.name,
             email: buyer.email,
@@ -5374,6 +5430,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json({
           ...securedOrder,
           riderInfo,
+          verificationSummary,
         });
       }
     } catch (error: any) {
@@ -5567,14 +5624,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Single backend-authoritative rider completion path: use shared finalize helper.
+      // Completion is verification-gated and must go through dedicated QR/OTP verification endpoints.
+      if (normalizedStatus === "completed") {
+        return res.status(409).json({
+          error: "Order completion is verification-gated. Use QR/OTP verification endpoints to complete delivery or pickup.",
+        });
+      }
+
+      // Rider delivery completion is verification-gated and must use the dedicated QR/OTP endpoint.
       if (normalizedStatus === "delivered" && actorRole === "rider") {
-        try {
-          const finalized = await finalizeRiderDelivery(orderId, actorId, reason || "rider_status_delivery_complete");
-          return res.json(finalized);
-        } catch (deliveryError: any) {
-          return res.status(deliveryError?.code || 400).json({ error: deliveryError?.message || "Failed to complete delivery" });
-        }
+        return res.status(409).json({
+          error: "Rider delivery completion requires verification. Use /api/orders/:id/complete-delivery with QR or OTP.",
+        });
       }
       
       // CRITICAL: All validation, side effects, and audit trail happen INSIDE the transaction
@@ -5902,7 +5963,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           details: "Provided QR/OTP does not match this delivery order.",
         });
       }
-      const updatedOrder = await finalizeRiderDelivery(orderId, riderId, "qr_delivery_verified");
+      const verificationMethod = resolveVerificationMethod(Boolean(isQrValid), Boolean(isOtpValid));
+      const updatedOrder = await finalizeRiderDelivery(
+        orderId,
+        riderId,
+        `verification:rider_to_buyer:${verificationMethod}`
+      );
       console.log(`Order ${orderId} delivered by rider ${riderId} via unified completion flow`);
       res.json({
         ...updatedOrder,
@@ -5960,12 +6026,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!isQrValid && !isOtpValid) {
           return res.status(400).json({ error: "Invalid verification (QR/OTP mismatch)" });
         }
+        const verificationMethod = resolveVerificationMethod(Boolean(isQrValid), Boolean(isOtpValid));
 
         const current = canonicalizeOrderStatus(order.status);
         if (current === "assigned") {
           await storage.applyOrderStatusTransition(orderId, "rider_arrived", actorId, actorRole, "seller_verified_rider_at_pickup");
         }
-        const updated = await storage.applyOrderStatusTransition(orderId, "picked_up", actorId, actorRole, "seller_pickup_qr_otp_verified");
+        const updated = await storage.applyOrderStatusTransition(
+          orderId,
+          "picked_up",
+          actorId,
+          actorRole,
+          `verification:seller_to_rider:${verificationMethod}`
+        );
         if (!updated) return res.status(404).json({ error: "Order not found" });
         await emitOrderStatusUpdateToStakeholders(updated, "picked_up");
         return res.json({ success: true, order: updated });
@@ -6016,8 +6089,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!isQrValid && !isOtpValid) {
           return res.status(400).json({ error: "Invalid verification (QR/OTP mismatch)" });
         }
+        const verificationMethod = resolveVerificationMethod(Boolean(isQrValid), Boolean(isOtpValid));
 
-        const updated = await storage.applyOrderStatusTransition(orderId, "completed", actorId, actorRole, "seller_customer_pickup_qr_otp_verified");
+        const updated = await storage.applyOrderStatusTransition(
+          orderId,
+          "completed",
+          actorId,
+          actorRole,
+          `verification:seller_to_buyer:${verificationMethod}`
+        );
         if (!updated) return res.status(404).json({ error: "Order not found" });
         await emitOrderStatusUpdateToStakeholders(updated, "completed");
         return res.json({ success: true, order: updated });

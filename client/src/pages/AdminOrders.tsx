@@ -40,6 +40,11 @@ interface Order {
   customerInfo?: { name?: string; email?: string; phone?: string; address?: string | null };
   seller?: { id: string; name: string };
   rider?: { id: string; name: string };
+  verificationSummary?: {
+    sellerToRider?: string | null;
+    riderToBuyer?: string | null;
+    sellerToBuyer?: string | null;
+  };
 }
 
 interface OrderStats {
@@ -286,6 +291,7 @@ function ViewOrderDialog({
 export default function AdminOrders() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [actionFilter, setActionFilter] = useState<string>("all");
   const [activeTab, setActiveTab] = useState("all-orders");
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -406,10 +412,46 @@ export default function AdminOrders() {
   // Filter orders based on search and status
   const filteredOrders = useMemo(() => {
     const normalize = (s?: string) => (s || "").toLowerCase().trim();
+    const isPickupMethod = (method?: string) => {
+      const m = normalize(method);
+      return m === "pickup" || m === "store_pickup";
+    };
+    const getAwaitingActionOwner = (order: Order): "seller" | "admin" | "rider" | "delivered" | "none" => {
+      const status = normalize(order.status);
+      const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+      const isPickup = isPickupMethod(order.deliveryMethod);
+
+      if (paymentStatus !== "paid" && ["pending", "created", "unpaid"].includes(status)) {
+        return "none";
+      }
+
+      if (["paid", "processing", "preparing", "confirmed"].includes(status)) {
+        return "seller";
+      }
+
+      if (["ready", "searching_rider"].includes(status) && !isPickup) {
+        return "admin";
+      }
+
+      if (["assigned", "rider_arrived", "picked_up", "in_transit", "en_route", "arrived"].includes(status)) {
+        return "rider";
+      }
+
+      if (["delivered", "completed"].includes(status)) {
+        return "delivered";
+      }
+
+      return "none";
+    };
+
     let orders = activeTab === "my-orders" ? myOrders : allOrders;
 
     if (statusFilter !== "all") {
       orders = orders.filter(o => normalize(o.status) === normalize(statusFilter));
+    }
+
+    if (actionFilter !== "all") {
+      orders = orders.filter((o) => getAwaitingActionOwner(o) === actionFilter);
     }
     
     if (searchQuery.trim()) {
@@ -429,7 +471,7 @@ export default function AdminOrders() {
     return orders.sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-  }, [allOrders, myOrders, activeTab, statusFilter, searchQuery]);
+  }, [allOrders, myOrders, activeTab, statusFilter, actionFilter, searchQuery]);
   
   // Sync openOrderId with URL params
   useEffect(() => {
@@ -625,6 +667,19 @@ export default function AdminOrders() {
                   <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={actionFilter} onValueChange={setActionFilter}>
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <Filter className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Filter by action owner" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Action Owners</SelectItem>
+                  <SelectItem value="seller">Awaiting Seller Action</SelectItem>
+                  <SelectItem value="admin">Awaiting Admin Action</SelectItem>
+                  <SelectItem value="rider">Awaiting Rider Action</SelectItem>
+                  <SelectItem value="delivered">Delivered Actions</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Recent Orders Widget */}
@@ -717,6 +772,63 @@ function OrdersList({
 }) {
   const [, navigate] = useLocation();
   const getPaymentLabel = (value?: string) => normalizePaymentStatus(value);
+  const normalize = (value?: string) => (value || "").toLowerCase().trim();
+  const isPickupMethod = (value?: string) => {
+    const method = normalize(value);
+    return method === "pickup" || method === "store_pickup";
+  };
+
+  const getSellerActionState = (order: Order) => {
+    const status = normalize(order.status);
+    const paymentStatus = getPaymentLabel(order.paymentStatus);
+    const pickupFlow = isPickupMethod(order.deliveryMethod);
+
+    if (paymentStatus !== "paid" && ["pending", "created", "unpaid"].includes(status)) {
+      return {
+        label: "Awaiting Payment",
+        hint: "Seller action not started",
+        className: "bg-yellow-100 text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-200",
+      };
+    }
+
+    if (["paid", "processing", "preparing", "confirmed"].includes(status)) {
+      return {
+        label: "Seller Action Required",
+        hint: pickupFlow ? "Seller must prepare for pickup" : "Seller must prepare for dispatch",
+        className: "bg-orange-100 text-orange-900 dark:bg-orange-900/30 dark:text-orange-200",
+      };
+    }
+
+    if (["ready", "searching_rider", "assigned", "rider_arrived"].includes(status)) {
+      return {
+        label: pickupFlow ? "Ready for Pickup" : "Ready for Dispatch",
+        hint: pickupFlow ? "Awaiting buyer collection" : "Awaiting rider/dispatch progression",
+        className: "bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200",
+      };
+    }
+
+    if (["picked_up", "in_transit", "en_route", "arrived", "delivered", "completed"].includes(status)) {
+      return {
+        label: "Seller Handoff Complete",
+        hint: "No further seller action required",
+        className: "bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-200",
+      };
+    }
+
+    if (status === "cancelled") {
+      return {
+        label: "Order Cancelled",
+        hint: "No seller action required",
+        className: "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200",
+      };
+    }
+
+    return {
+      label: "Seller Status Pending",
+      hint: "Review order details",
+      className: "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-200",
+    };
+  };
 
   if (isLoading) {
     return (
@@ -801,6 +913,43 @@ function OrdersList({
                 );
               })()}
             </div>
+            {(() => {
+              const status = String(order.status || "").toLowerCase().trim();
+              const isDone = status === "delivered" || status === "completed";
+              if (!isDone) return null;
+              const isPickup = String(order.deliveryMethod || "").toLowerCase().trim() === "pickup";
+              const verification = order.verificationSummary;
+              return (
+                <div className="rounded-md border border-muted p-2 mt-1 text-[11px] space-y-1">
+                  <p className="font-semibold text-foreground">Completion Verification</p>
+                  {isPickup ? (
+                    <p className="text-muted-foreground">
+                      Seller to Buyer: <span className="font-medium text-foreground">{verification?.sellerToBuyer || "Not recorded"}</span>
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-muted-foreground">
+                        Seller to Rider: <span className="font-medium text-foreground">{verification?.sellerToRider || "Not recorded"}</span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Rider to Buyer: <span className="font-medium text-foreground">{verification?.riderToBuyer || "Not recorded"}</span>
+                      </p>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+            {(() => {
+              const sellerState = getSellerActionState(order);
+              return (
+                <div className="mt-1">
+                  <Badge className={`${sellerState.className} text-[11px]`} variant="secondary">
+                    {sellerState.label}
+                  </Badge>
+                  <p className="text-[11px] text-muted-foreground mt-1">{sellerState.hint}</p>
+                </div>
+              );
+            })()}
           </div>
           
           <div className="border-t pt-3 mt-3 space-y-1 text-xs">
@@ -818,8 +967,22 @@ function OrdersList({
             const s = (order.status || "").toLowerCase().trim();
             const paymentStatus = getPaymentLabel(order.paymentStatus);
             const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
-            const trackStatuses = new Set(["processing", "en_route", "picked_up", "assigned"]);
-            if (isMyOrders && (s === "pending" || isUnpaid)) {
+            const isProcessingPayment = paymentStatus === "processing";
+            const trackStatuses = new Set([
+              "processing",
+              "ready",
+              "searching_rider",
+              "assigned",
+              "rider_arrived",
+              "picked_up",
+              "in_transit",
+              "en_route",
+              "arrived",
+            ]);
+            const canResumePayment =
+              ["pending", "created", "unpaid"].includes(s) &&
+              (isUnpaid || isProcessingPayment);
+            if (isMyOrders && canResumePayment) {
               return (
                 <Button
                   variant="default"

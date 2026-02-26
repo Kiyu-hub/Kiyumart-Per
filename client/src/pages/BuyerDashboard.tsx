@@ -54,7 +54,10 @@ export default function BuyerDashboard() {
   const stats = {
     totalOrders: orders.length,
     pendingOrders: orders.filter(o => normalize(o.status) === "pending").length,
-    completedOrders: orders.filter(o => normalize(o.status) === "delivered").length,
+    completedOrders: orders.filter(o => {
+      const s = normalize(o.status);
+      return s === "delivered" || s === "completed";
+    }).length,
     totalSpend: orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0),
     pendingPayments: orders.filter((o) => {
       const paymentStatus = normalizePaymentStatus(o.paymentStatus);
@@ -62,7 +65,17 @@ export default function BuyerDashboard() {
     }).length,
   };
 
-  const trackStatuses = new Set(["processing", "en_route", "picked_up", "assigned"]);
+  const trackStatuses = new Set([
+    "processing",
+    "ready",
+    "searching_rider",
+    "assigned",
+    "rider_arrived",
+    "picked_up",
+    "in_transit",
+    "en_route",
+    "arrived",
+  ]);
   const activeDeliveries = orders.filter((o) => trackStatuses.has(normalize(o.status))).length;
   const recentOrders = [...orders]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -180,12 +193,15 @@ export default function BuyerDashboard() {
               const isPaid = paymentStatus === "paid";
               const isProcessingPayment = paymentStatus === "processing";
               const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
-              const requiresPaymentAction = isUnpaid || isProcessingPayment;
+              const canResumePayment =
+                ["pending", "created", "unpaid"].includes(s) &&
+                (isUnpaid || isProcessingPayment);
+              const shouldTrack = trackStatuses.has(s) || isPaid || isProcessingPayment;
               const displayStatus = (s === "pending" && (isPaid || isProcessingPayment)) ? "processing" : order.status;
 
-              const action = requiresPaymentAction
+              const action = canResumePayment
                 ? { label: "Continue Payment", path: `/payment/${order.id}`, variant: "outline" as const }
-                : (trackStatuses.has(s) || isPaid || isProcessingPayment)
+                : shouldTrack
                   ? { label: "Track Order", path: `/track?orderId=${order.id}`, variant: "outline" as const }
                   : { label: "View Order", path: "/orders", variant: "ghost" as const };
 
@@ -220,7 +236,7 @@ export default function BuyerDashboard() {
                         </div>
                       </div>
 
-                      {requiresPaymentAction && (
+                      {canResumePayment && (
                         <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">Payment required</p>
                       )}
                     </div>

@@ -114,6 +114,20 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       preconditions: [],
       sideEffects: [],
     },
+    completed: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.deliveryMethod === "pickup",
+          error: "Only pickup orders can complete directly from confirmed status",
+        }),
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before pickup completion",
+        }),
+      ],
+      sideEffects: [(order) => ({ deliveredAt: order.deliveredAt || new Date() })],
+    },
     cancelled: {
       allowedRoles: ["buyer", "seller", "admin", "super_admin"],
       preconditions: [],
@@ -136,6 +150,20 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [],
       sideEffects: [],
+    },
+    completed: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.deliveryMethod === "pickup",
+          error: "Only pickup orders can complete directly from ready status",
+        }),
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before pickup completion",
+        }),
+      ],
+      sideEffects: [(order) => ({ deliveredAt: order.deliveredAt || new Date() })],
     },
     cancelled: {
       allowedRoles: ["buyer", "seller", "admin", "super_admin"],
@@ -188,6 +216,20 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       allowedRoles: ["buyer", "admin", "super_admin"],
       preconditions: [],
       sideEffects: [],
+    },
+    completed: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.deliveryMethod === "pickup",
+          error: "Only pickup orders can complete directly from processing status",
+        }),
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before pickup completion",
+        }),
+      ],
+      sideEffects: [(order) => ({ deliveredAt: order.deliveredAt || new Date() })],
     },
   },
 
@@ -355,8 +397,18 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
 
   delivered: {
     completed: {
-      allowedRoles: ["admin", "super_admin"],
-      preconditions: [],
+      allowedRoles: ["admin", "super_admin", "rider"],
+      preconditions: [
+        (ctx) => {
+          if (ctx.actorRole === "rider") {
+            return {
+              valid: ctx.order.riderId === ctx.actorId,
+              error: "Only the assigned rider can complete this delivery",
+            };
+          }
+          return { valid: true };
+        },
+      ],
       sideEffects: [],
     },
     disputed: {

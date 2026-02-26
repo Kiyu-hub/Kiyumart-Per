@@ -177,10 +177,23 @@ export default function SellerOrders() {
                 </div>
                 {(() => {
                   const s = normalize(order.status);
-                  const trackStatuses = new Set(["processing", "en_route", "picked_up", "assigned"]);
+                  const trackStatuses = new Set([
+                    "processing",
+                    "ready",
+                    "searching_rider",
+                    "assigned",
+                    "rider_arrived",
+                    "picked_up",
+                    "in_transit",
+                    "en_route",
+                    "arrived",
+                  ]);
+                  const canResumePayment =
+                    ["pending", "created", "unpaid"].includes(s) &&
+                    ["pending", "failed", "processing"].includes(paymentStatusLabel);
 
                   if (orderContext === "buyer") {
-                    if (s === "pending") {
+                    if (canResumePayment) {
                       return (
                         <Button
                           variant="default"
@@ -205,7 +218,7 @@ export default function SellerOrders() {
                         </Button>
                       );
                     }
-                    if (paymentStatusLabel === "processing") {
+                    if (paymentStatusLabel === "processing" || trackStatuses.has(s)) {
                       return (
                         <Button
                           variant="outline"
@@ -221,12 +234,13 @@ export default function SellerOrders() {
 
                     return (
                       <Button
-                        variant="default"
+                        variant="outline"
                         size="sm"
                         className="w-full text-xs"
-                        onClick={() => navigate(`/payment/${order.id}`)}
+                        onClick={() => navigate(`/track?orderId=${order.id}`)}
                       >
-                        Continue Payment
+                        <Package className="h-3 w-3 mr-2" />
+                        Track Order
                       </Button>
                     );
                   }

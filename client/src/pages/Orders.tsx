@@ -27,6 +27,11 @@ interface Order {
     quantity: number;
     price: string;
   }>;
+  verificationSummary?: {
+    sellerToRider?: string | null;
+    riderToBuyer?: string | null;
+    sellerToBuyer?: string | null;
+  };
 }
 
 export default function Orders() {
@@ -54,7 +59,7 @@ export default function Orders() {
     if (["picked_up", "in_transit", "en_route", "out_for_delivery", "delivering"].includes(orderStatus)) {
       return "en_route";
     }
-    if (orderStatus === "completed") return "delivered";
+    if (orderStatus === "completed") return "completed";
     if (orderStatus === "created") return "pending";
     return orderStatus;
   };
@@ -69,7 +74,9 @@ export default function Orders() {
       case "en_route":
         return isPickup ? "Ready for Pickup" : "On the Way";
       case "delivered":
-        return isPickup ? "Completed" : "Delivered";
+        return "Delivered";
+      case "completed":
+        return "Completed";
       case "cancelled":
         return "Cancelled";
       case "disputed":
@@ -94,6 +101,8 @@ export default function Orders() {
         return "bg-purple-500 text-white";
       case "delivered":
         return "bg-green-500 text-white";
+      case "completed":
+        return "bg-green-600 text-white";
       case "cancelled":
         return "bg-red-500 text-white";
       default:
@@ -129,6 +138,8 @@ export default function Orders() {
         return isPickup ? <MapPin className="h-4 w-4" /> : <Truck className="h-4 w-4" />;
       case "delivered":
         return <CheckCircle className="h-4 w-4" />;
+      case "completed":
+        return <CheckCircle className="h-4 w-4" />;
       case "cancelled":
         return <XCircle className="h-4 w-4" />;
       default:
@@ -153,6 +164,12 @@ export default function Orders() {
 
   const filterOrdersByStatus = (status: string) => {
     if (status === "all") return orders;
+    if (status === "delivered") {
+      return orders.filter((order) => {
+        const effective = getEffectiveOrderStatus(order);
+        return effective === "delivered" || effective === "completed";
+      });
+    }
     return orders.filter((order) => getEffectiveOrderStatus(order) === status.toLowerCase());
   };
 
@@ -160,8 +177,15 @@ export default function Orders() {
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const orderStatus = getEffectiveOrderStatus(order);
     const isPickup = normalize(order.deliveryMethod) === "pickup";
+    const rawStatus = normalize(order.status);
+    const canResumePayment =
+      ["pending", "created", "unpaid"].includes(rawStatus) &&
+      ["pending", "failed", "processing"].includes(paymentStatus);
+    const shouldTrackOrView =
+      ["processing", "en_route", "delivered", "cancelled", "disputed"].includes(orderStatus) ||
+      paymentStatus === "paid";
 
-    if (paymentStatus === "paid") {
+    if (shouldTrackOrView) {
       return {
         label: isPickup ? "View Order" : "Track Order",
         variant: "outline" as const,
@@ -171,7 +195,7 @@ export default function Orders() {
       };
     }
 
-    if (paymentStatus === "processing") {
+    if (canResumePayment) {
       return {
         label: "Continue Payment",
         variant: "default" as const,
@@ -181,23 +205,12 @@ export default function Orders() {
       };
     }
 
-    if (orderStatus === "pending") {
-      return {
-        label: "Continue Payment",
-        variant: "default" as const,
-        disabled: false,
-        onClick: () => navigate(`/payment/${order.id}`),
-        title: "Resume payment for this pending order",
-      };
-    }
-
-    // Default to showing payment CTA for unpaid/failed states
     return {
-      label: "Continue Payment",
-      variant: "default" as const,
+      label: isPickup ? "View Order" : "Track Order",
+      variant: "outline" as const,
       disabled: false,
-      onClick: () => navigate(`/payment/${order.id}`),
-      title: "Resume payment for this order",
+      onClick: () => navigate(`/track?orderId=${order.id}`),
+      title: isPickup ? "View order updates" : "View order status and tracking information",
     };
   };
 
@@ -205,20 +218,11 @@ export default function Orders() {
     const paymentButtonConfig = getPaymentButtonConfig(order);
     const orderStatus = getEffectiveOrderStatus(order);
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+    const isPickup = normalize(order.deliveryMethod) === "pickup";
+    const verification = order.verificationSummary;
+    const showVerificationBlock = ["delivered", "completed"].includes(orderStatus);
     const handleCardClick = () => {
-      if (paymentStatus === "paid") {
-        navigate(`/track?orderId=${order.id}`);
-        return;
-      }
-      if (paymentStatus === "processing") {
-        navigate(`/payment/${order.id}`);
-        return;
-      }
-      if (orderStatus === "pending") {
-        navigate(`/payment/${order.id}`);
-        return;
-      }
-      navigate(`/payment/${order.id}`);
+      paymentButtonConfig.onClick();
     };
 
     return (
@@ -278,6 +282,34 @@ export default function Orders() {
               <span className="text-muted-foreground">Fulfillment:</span>
               <span className="font-medium capitalize">{order.deliveryMethod || "pickup"}</span>
             </div>
+            {showVerificationBlock && (
+              <div className="rounded-md border border-muted p-2 text-xs space-y-1">
+                <p className="font-semibold text-foreground">Completion Verification</p>
+                {isPickup ? (
+                  <p className="text-muted-foreground">
+                    Seller verified buyer using:{" "}
+                    <span className="font-medium text-foreground">
+                      {verification?.sellerToBuyer || "Not recorded"}
+                    </span>
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-muted-foreground">
+                      Seller verified rider at pickup:{" "}
+                      <span className="font-medium text-foreground">
+                        {verification?.sellerToRider || "Not recorded"}
+                      </span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      Rider verified buyer at delivery:{" "}
+                      <span className="font-medium text-foreground">
+                        {verification?.riderToBuyer || "Not recorded"}
+                      </span>
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
             {normalize(order.deliveryMethod) !== "pickup" && (
               <>
                 <div className="flex justify-between text-sm">
