@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2 } from "lucide-react";
+import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, Eraser } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface Application {
@@ -301,6 +301,27 @@ export default function AdminApplications() {
     },
   });
 
+  const purgePendingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/applications/purge-pending", {});
+      return res.json();
+    },
+    onSuccess: async (data: any) => {
+      toast({
+        title: "Pending Queue Cleared",
+        description: `Found ${data?.totalFound ?? 0}. Cleared ${data?.clearedApproved ?? 0}, deleted ${data?.deletedUnapproved ?? 0}.`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to clear pending queue",
+        variant: "destructive",
+      });
+    },
+  });
+
   const toDateTimeLocalValue = (value?: string | null) => {
     if (!value) return "";
     const parsed = new Date(value);
@@ -406,6 +427,13 @@ export default function AdminApplications() {
     const confirmed = window.confirm(`Delete ${application.name}'s account and related records? This cannot be undone.`);
     if (!confirmed) return;
     deleteApplicantMutation.mutate({ userId: application.id });
+  };
+
+  const handlePurgePendingQueue = () => {
+    if (user?.role !== "super_admin") return;
+    const confirmed = window.confirm("Clear all pending seller/rider applications now? This deletes unapproved applicant accounts.");
+    if (!confirmed) return;
+    purgePendingMutation.mutate();
   };
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
@@ -596,6 +624,22 @@ export default function AdminApplications() {
             </h1>
             <p className="text-muted-foreground mt-1">Review and approve seller and rider applications</p>
           </div>
+          {user?.role === "super_admin" && (
+            <Button
+              variant="outline"
+              onClick={handlePurgePendingQueue}
+              disabled={purgePendingMutation.isPending}
+              data-testid="button-clear-pending-queue"
+              className="gap-2"
+            >
+              {purgePendingMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Eraser className="h-4 w-4" />
+              )}
+              Clear Pending Queue
+            </Button>
+          )}
         </div>
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">

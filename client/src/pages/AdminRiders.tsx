@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Search, User, Edit, Plus, Bike, ArrowLeft, CheckCircle, XCircle, ShieldCheck, Clock, Eye, CreditCard, MapPin } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
@@ -27,6 +27,7 @@ interface Rider {
   phone: string | null;
   isActive: boolean;
   isApproved: boolean;
+  applicationStatus?: "pending" | "interview_scheduled" | "approved" | "rejected" | null;
   profileImage: string | null;
   ghanaCardFront: string | null;
   ghanaCardBack: string | null;
@@ -74,6 +75,42 @@ const addRiderSchema = z.object({
 });
 
 type AddRiderFormData = z.infer<typeof addRiderSchema>;
+
+const parseVehicleInfo = (value: unknown): Rider["vehicleInfo"] => {
+  if (!value) return null;
+  if (typeof value === "object") return value as Rider["vehicleInfo"];
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object") {
+        return parsed as Rider["vehicleInfo"];
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const normalizeRider = (raw: any): Rider => ({
+  id: String(raw?.id || ""),
+  username: String(raw?.username || raw?.name || ""),
+  name: String(raw?.name || raw?.username || ""),
+  email: String(raw?.email || ""),
+  phone: raw?.phone ? String(raw.phone) : null,
+  isActive: Boolean(raw?.isActive),
+  isApproved: Boolean(raw?.isApproved),
+  applicationStatus: raw?.applicationStatus || null,
+  profileImage: raw?.profileImage || null,
+  ghanaCardFront: raw?.ghanaCardFront || null,
+  ghanaCardBack: raw?.ghanaCardBack || null,
+  nationalIdCard: raw?.nationalIdCard || null,
+  vehicleInfo: parseVehicleInfo(raw?.vehicleInfo),
+  businessAddress: raw?.businessAddress || null,
+  riderCity: raw?.riderCity || null,
+  riderRegion: raw?.riderRegion || null,
+  createdAt: raw?.createdAt || null,
+});
 
 function AddRiderDialog() {
   const [open, setOpen] = useState(false);
@@ -362,6 +399,7 @@ function AddRiderDialog() {
 
 function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
   const [open, setOpen] = useState(false);
+  const vehicleInfo = parseVehicleInfo(riderData.vehicleInfo);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -372,7 +410,7 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
           data-testid={`button-view-application-${riderData.id}`}
         >
           <Eye className="h-3 w-3 mr-1" />
-          View Application
+          View Profile
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -463,7 +501,7 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
             </div>
           )}
 
-          {riderData.vehicleInfo && (
+          {vehicleInfo && (
             <div>
               <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                 <Bike className="h-5 w-5" />
@@ -472,21 +510,21 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground">Vehicle Type</p>
-                  <p className="font-medium capitalize">{riderData.vehicleInfo.type}</p>
+                  <p className="font-medium capitalize">{vehicleInfo.type || "N/A"}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Plate Number</p>
-                  <p className="font-medium">{riderData.vehicleInfo.plateNumber}</p>
+                  <p className="font-medium">{vehicleInfo.plateNumber || "N/A"}</p>
                 </div>
-                {riderData.vehicleInfo.color && (
+                {vehicleInfo.color && (
                   <div>
                     <p className="text-muted-foreground">Vehicle Color</p>
-                    <p className="font-medium capitalize">{riderData.vehicleInfo.color}</p>
+                    <p className="font-medium capitalize">{vehicleInfo.color}</p>
                   </div>
                 )}
                 <div>
                   <p className="text-muted-foreground">License Number</p>
-                  <p className="font-medium">{riderData.vehicleInfo.license}</p>
+                  <p className="font-medium">{vehicleInfo.license || "N/A"}</p>
                 </div>
               </div>
             </div>
@@ -578,62 +616,58 @@ function ApproveRejectDialog({ riderData }: { riderData: Rider }) {
   return (
     <>
       {!riderData.isApproved && riderData.isActive && (
-        <>
-          <ViewApplicationDialog riderData={riderData} />
-          <AlertDialog open={open} onOpenChange={setOpen}>
-            <AlertDialogTrigger asChild>
-              <Button 
-                variant="default" 
-                size="sm"
-                onClick={() => setAction('approve')}
-                data-testid={`button-approve-${riderData.id}`}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                <CheckCircle className="h-3 w-3 mr-1" />
-                Approve
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogTrigger asChild>
-              <Button 
-                variant="destructive" 
-                size="sm"
-                onClick={() => setAction('reject')}
-                data-testid={`button-reject-${riderData.id}`}
-              >
-                <XCircle className="h-3 w-3 mr-1" />
-                Reject
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {action === 'approve' ? 'Approve' : 'Reject'} Rider Application?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {action === 'approve' 
-                    ? `Are you sure you want to approve ${riderData.name || riderData.username}'s application? This will allow them to start accepting deliveries.`
-                    : `Are you sure you want to reject ${riderData.name || riderData.username}'s application? This will deactivate their account.`
-                  }
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel data-testid="button-cancel-action">Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={confirmAction}
-                  disabled={isPending}
-                  data-testid="button-confirm-action"
-                  className={action === 'reject' ? 'bg-destructive hover:bg-destructive/90' : ''}
-                >
-                  {isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  {action === 'approve' ? 'Approve' : 'Reject'}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </>
+        <div className="flex gap-1">
+          <Button 
+            variant="default" 
+            size="sm"
+            onClick={() => handleAction('approve')}
+            data-testid={`button-approve-${riderData.id}`}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            <CheckCircle className="h-3 w-3 mr-1" />
+            Approve
+          </Button>
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={() => handleAction('reject')}
+            data-testid={`button-reject-${riderData.id}`}
+          >
+            <XCircle className="h-3 w-3 mr-1" />
+            Reject
+          </Button>
+        </div>
       )}
+
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {action === 'approve' ? 'Approve' : 'Reject'} Rider Application?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {action === 'approve' 
+                ? `Are you sure you want to approve ${riderData.name || riderData.username}'s application? This will allow them to start accepting deliveries.`
+                : `Are you sure you want to reject ${riderData.name || riderData.username}'s application?`
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-action">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmAction}
+              disabled={isPending}
+              data-testid="button-confirm-action"
+              className={action === 'reject' ? 'bg-destructive hover:bg-destructive/90' : ''}
+            >
+              {isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              {action === 'approve' ? 'Approve' : 'Reject'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -655,16 +689,25 @@ export default function AdminRiders() {
     queryKey: ["/api/users", "rider"],
     queryFn: async () => {
       const res = await fetch("/api/users?role=rider");
-      return res.json();
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load riders");
+      }
+      const payload = await res.json();
+      if (!Array.isArray(payload)) return [];
+      return payload.map(normalizeRider);
     },
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
   // All riders
-  const allRiders = riders;
+  const allRiders = Array.isArray(riders) ? riders : [];
   
-  // Pending applications (unapproved riders)
-  const pendingRiders = riders.filter(r => r.isApproved === false && r.isActive === true);
+  // Pending applications (unapproved active riders with pending/interview status only)
+  const pendingRiders = riders.filter((r) => {
+    const status = String(r.applicationStatus || "").toLowerCase();
+    return r.isApproved === false && r.isActive === true && (status === "pending" || status === "interview_scheduled");
+  });
   const approvedRiders = allRiders.filter(r => r.isApproved === true);
   
   // Get the appropriate rider list based on active tab
@@ -675,6 +718,7 @@ export default function AdminRiders() {
       : allRiders;
 
   const filteredRiders = displayedRiders.filter(r => 
+    (r.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
     (r.username?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
     (r.email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
   );
@@ -746,7 +790,7 @@ export default function AdminRiders() {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-lg" data-testid={`text-username-${rider.id}`}>
-                        {rider.username}
+                        {rider.name || rider.username}
                       </h3>
                       <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
                         <span data-testid={`text-email-${rider.id}`}>{rider.email}</span>
@@ -783,16 +827,8 @@ export default function AdminRiders() {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => navigate(`/admin/riders/${rider.id}`)}
-                        data-testid={`button-view-details-${rider.id}`}
-                      >
-                        <Eye className="h-3 w-3 mr-1" />
-                        View Details
-                      </Button>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <ViewApplicationDialog riderData={rider} />
                       {!rider.isApproved && rider.isActive ? (
                         <ApproveRejectDialog riderData={rider} />
                       ) : (

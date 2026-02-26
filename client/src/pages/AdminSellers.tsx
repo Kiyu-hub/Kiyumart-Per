@@ -30,6 +30,7 @@ interface SellerData {
   role: string;
   isActive: boolean;
   isApproved: boolean;
+  applicationStatus?: "pending" | "interview_scheduled" | "approved" | "rejected" | null;
   storeName: string | null;
   storeDescription: string | null;
   storeBanner: string | null;
@@ -66,6 +67,27 @@ const editSellerSchema = z.object({
 
 type CreateSellerFormData = z.infer<typeof createSellerSchema>;
 type EditSellerFormData = z.infer<typeof editSellerSchema>;
+
+const normalizeSeller = (raw: any): SellerData => ({
+  id: String(raw?.id || ""),
+  name: String(raw?.name || raw?.username || ""),
+  email: String(raw?.email || ""),
+  phone: raw?.phone ? String(raw.phone) : null,
+  role: String(raw?.role || ""),
+  isActive: Boolean(raw?.isActive),
+  isApproved: Boolean(raw?.isApproved),
+  applicationStatus: raw?.applicationStatus || null,
+  storeName: raw?.storeName || null,
+  storeDescription: raw?.storeDescription || null,
+  storeBanner: raw?.storeBanner || null,
+  storeType: raw?.storeType || null,
+  profileImage: raw?.profileImage || null,
+  ghanaCardFront: raw?.ghanaCardFront || null,
+  ghanaCardBack: raw?.ghanaCardBack || null,
+  nationalIdCard: raw?.nationalIdCard || null,
+  businessAddress: raw?.businessAddress || null,
+  createdAt: raw?.createdAt || null,
+});
 
 function CreateSellerDialog() {
   const [open, setOpen] = useState(false);
@@ -551,7 +573,7 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
           data-testid={`button-view-application-${sellerData.id}`}
         >
           <Eye className="h-3 w-3 mr-1" />
-          View Application
+          View Profile
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -761,7 +783,6 @@ function ApproveRejectDialog({ sellerData }: { sellerData: SellerData }) {
     <>
       {!sellerData.isApproved && sellerData.isActive && (
         <div className="flex gap-1">
-          <ViewApplicationDialog sellerData={sellerData} />
           <Button 
             variant="default" 
             size="sm"
@@ -896,19 +917,42 @@ export default function AdminSellers() {
 
   const { data: users = [], isLoading } = useQuery<SellerData[]>({
     queryKey: ["/api/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/users", { credentials: "include" });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load users");
+      }
+      const payload = await res.json();
+      if (!Array.isArray(payload)) return [];
+      return payload.map(normalizeSeller);
+    },
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
   const { data: stores = [] } = useQuery<Array<{ id: string; primarySellerId: string }>>({
     queryKey: ["/api/stores"],
+    queryFn: async () => {
+      const res = await fetch("/api/stores", { credentials: "include" });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load stores");
+      }
+      const payload = await res.json();
+      if (!Array.isArray(payload)) return [];
+      return payload;
+    },
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
   // All sellers
-  const allSellers = users.filter(u => u.role === "seller");
+  const allSellers = (Array.isArray(users) ? users : []).filter((u) => u.role === "seller");
   
   // Pending applications (unapproved AND active sellers only, excluding rejected ones)
-  const pendingSellers = allSellers.filter(s => s.isApproved === false && s.isActive === true);
+  const pendingSellers = allSellers.filter((s) => {
+    const status = String(s.applicationStatus || "").toLowerCase();
+    return s.isApproved === false && s.isActive === true && (status === "pending" || status === "interview_scheduled");
+  });
   
   // Approved sellers
   const approvedSellers = allSellers.filter(s => s.isApproved === true);
@@ -1004,27 +1048,20 @@ export default function AdminSellers() {
                             {seller.storeName || "No store name"}
                           </p>
                         </div>
-                        <div className="flex gap-2 flex-shrink-0">
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => navigate(`/admin/sellers/${seller.id}`)}
-                            data-testid={`button-view-details-${seller.id}`}
-                          >
-                            <Eye className="h-3 w-3 mr-1" />
-                            View Details
-                          </Button>
+                        <div className="flex flex-wrap items-center justify-end gap-2 flex-shrink-0">
+                          <ViewApplicationDialog sellerData={seller} />
                           <EditSellerDialog sellerData={seller} />
                           <BanActivateDialog sellerData={seller} />
                           {seller.isApproved && sellerToStoreMap.has(seller.id) && (
                             <Button 
                               variant="outline" 
-                              size="icon"
+                              size="sm"
                               onClick={() => navigate(`/sellers/${seller.id}`)}
                               data-testid={`button-view-store-${seller.id}`}
-                              title="View Store"
+                              className="gap-1"
                             >
-                              <Store className="h-4 w-4" />
+                              <ExternalLink className="h-4 w-4" />
+                              Store
                             </Button>
                           )}
                         </div>

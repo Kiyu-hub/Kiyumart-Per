@@ -2170,6 +2170,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post(
+    "/api/admin/applications/purge-pending",
+    requireAuth,
+    requireRole("super_admin"),
+    requirePermission("manage_users"),
+    async (req, res) => {
+      try {
+        const pendingStatuses = ["pending", "interview_scheduled"] as const;
+        const roleTargets = ["seller", "rider"] as const;
+
+        const candidates = await db
+          .select({
+            id: users.id,
+            role: users.role,
+            isApproved: users.isApproved,
+            requestedRole: users.requestedRole,
+            applicationStatus: users.applicationStatus,
+          })
+          .from(users)
+          .where(
+            and(
+              inArray(users.applicationStatus as any, pendingStatuses as any),
+              or(
+                inArray(users.requestedRole as any, roleTargets as any),
+                and(inArray(users.role as any, roleTargets as any), eq(users.isApproved, false)),
+              ),
+            ),
+          );
+
+        const toClear = candidates.filter((u) => Boolean(u.isApproved));
+        const toDelete = candidates.filter((u) => !u.isApproved);
+
+        if (toClear.length) {
+          const clearIds = toClear.map((u) => u.id);
+          await db
+            .update(users)
+            .set({
+              requestedRole: null,
+              applicationStatus: "approved" as any,
+              rejectionReason: null,
+              interviewScheduledAt: null,
+              interviewScheduledBy: null,
+            })
+            .where(inArray(users.id, clearIds));
+        }
+
+        if (toDelete.length) {
+          await db.transaction(async (tx) => {
+            for (const applicant of toDelete) {
+              const applicantId = applicant.id;
+              await tx
+                .delete(chatMessages)
+                .where(or(eq(chatMessages.senderId, applicantId), eq(chatMessages.receiverId, applicantId)));
+              await tx.delete(cart).where(eq(cart.userId, applicantId));
+              await tx.delete(wishlist).where(eq(wishlist.userId, applicantId));
+              await tx.delete(notifications).where(eq(notifications.userId, applicantId));
+
+              if (String(applicant.role || "").toLowerCase() === "seller") {
+                const sellerStores = await tx
+                  .select({ id: stores.id })
+                  .from(stores)
+                  .where(eq(stores.primarySellerId, applicantId));
+                for (const store of sellerStores) {
+                  await tx.delete(products).where(eq(products.storeId, store.id));
+                  await tx.delete(stores).where(eq(stores.id, store.id));
+                }
+              }
+
+              await tx.delete(orders).where(or(eq(orders.buyerId, applicantId), eq(orders.riderId, applicantId)));
+              await tx.delete(users).where(eq(users.id, applicantId));
+            }
+          });
+        }
+
+        res.json({
+          success: true,
+          totalFound: candidates.length,
+          clearedApproved: toClear.length,
+          deletedUnapproved: toDelete.length,
+        });
+      } catch (error: any) {
+        console.error("Error purging pending applications:", error);
+        res.status(400).json({ error: error.message || "Failed to purge pending applications" });
+      }
+    },
+  );
+
   // ============ Application Routes (Seller/Rider) ============
   app.post("/api/applications/seller", async (req, res) => {
     try {
