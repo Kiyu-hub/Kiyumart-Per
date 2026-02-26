@@ -1,4 +1,4 @@
-import { Check, Clock, Package, Truck, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { Check, Clock, Package, Truck, CheckCircle2, XCircle, AlertTriangle, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface OrderStatusTimelineProps {
@@ -46,7 +46,7 @@ const deliveryStatusSteps = [
 const pickupStatusSteps = [
   { key: "pending", label: "Order Placed", icon: Clock },
   { key: "processing", label: "Preparing Order", icon: Package },
-  { key: "ready_for_pickup", label: "Ready for Pickup", icon: Truck },
+  { key: "ready_for_pickup", label: "Ready for Pickup", icon: MapPin },
   { key: "delivered", label: "Completed", icon: CheckCircle2 },
 ];
 
