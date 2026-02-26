@@ -24,6 +24,29 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const showDeviceNotification = useCallback((title: string, message: string, tag?: string) => {
+    if (typeof window === "undefined") return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    // Avoid duplicate browser alerts while user is actively viewing the app.
+    if (document.visibilityState === "visible") return;
+    try {
+      new Notification(title, {
+        body: message,
+        tag,
+      });
+    } catch {
+      // Ignore browser notification API errors.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!user) return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "default") return;
+    Notification.requestPermission().catch(() => {});
+  }, [user]);
 
   const playNotificationSound = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -218,6 +241,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         variant: data.type === "error" ? "destructive" : "default",
         duration: 5000,
       });
+      showDeviceNotification(data.title, data.message, `notif-${data.type || "default"}`);
       playNotificationSound();
     });
 
@@ -266,6 +290,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           : data.message,
         duration: 4000,
       });
+      showDeviceNotification("New Message", data.message, `message-${data.id}`);
       playNotificationSound();
     });
 
@@ -305,7 +330,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setSocket(null);
       setIsConnected(false);
     };
-  }, [user?.id, user?.role, toast, playNotificationSound]);
+  }, [user?.id, user?.role, toast, playNotificationSound, showDeviceNotification]);
 
   return (
     <NotificationContext.Provider value={{ socket, isConnected }}>

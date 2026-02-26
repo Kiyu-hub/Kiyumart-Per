@@ -101,6 +101,37 @@ function decodeAttachmentNotificationPreview(rawMessage: string): string | null 
   return senderPrefix ? `${senderPrefix}: ${attachmentLabel}` : attachmentLabel;
 }
 
+function resolveMessageNotificationActor(
+  receiver: Pick<User, "role"> | null | undefined,
+  sender: Pick<User, "id" | "role" | "name" | "email"> | null | undefined
+): {
+  titleSenderName: string;
+  bodySenderName: string;
+  senderIdMetadata: string | null;
+  senderRoleMetadata: string | null;
+} {
+  const senderRole = String(sender?.role || "").toLowerCase().trim();
+  const receiverRole = String(receiver?.role || "").toLowerCase().trim();
+  const senderName = sender?.name || sender?.email || "Support";
+  const shouldMask = receiverRole === "rider" && (senderRole === "agent" || senderRole === "admin" || senderRole === "super_admin");
+
+  if (shouldMask) {
+    return {
+      titleSenderName: "Support Agent",
+      bodySenderName: "Support Agent",
+      senderIdMetadata: null,
+      senderRoleMetadata: "support_agent",
+    };
+  }
+
+  return {
+    titleSenderName: senderName,
+    bodySenderName: senderName,
+    senderIdMetadata: sender?.id || null,
+    senderRoleMetadata: sender?.role || null,
+  };
+}
+
 type RiderAssignmentAttemptStatus =
   | "offered"
   | "accepted"
@@ -6427,16 +6458,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const online = Boolean(req.body?.online);
       if (!online) {
-        const riderOrders = await storage.getOrdersByUser(req.user!.id, "rider");
-        const hasActiveDelivery = riderOrders.some((o: any) =>
-          ["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes(canonicalizeOrderStatus(o.status))
-        );
-        if (hasActiveDelivery) {
-          return res.status(409).json({ error: "Cannot go offline while an active delivery is in progress" });
-        }
+        return res.status(403).json({
+          error: "Rider self-offline is disabled. Availability is managed by platform operations.",
+        });
       }
-      const updated = await storage.updateUser(req.user!.id, { riderOnline: online } as any);
-      io.to(req.user!.id).emit("rider_availability_updated", { online });
+      const updated = await storage.updateUser(req.user!.id, { riderOnline: true } as any);
+      io.to(req.user!.id).emit("rider_availability_updated", { online: true });
       res.json({ online: (updated as any)?.riderOnline !== false });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -7139,21 +7166,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (receiver && receiver.id !== senderId) {
         const rawMessage = (message.message || "").trim();
         const messagePreview = decodeAttachmentNotificationPreview(rawMessage) || rawMessage;
-        const notificationBody = messagePreview || `You have a new message from ${sender?.name || sender?.email || 'Support'}`;
+        const actor = resolveMessageNotificationActor(receiver as any, sender as any);
+        const notificationBody = messagePreview || `You have a new message from ${actor.bodySenderName}`;
         await storage.createNotification({
           userId: receiver.id,
           type: "message",
-          title: `New message from ${sender?.name || sender?.email || 'Support'}`,
+          title: `New message from ${actor.titleSenderName}`,
           message: notificationBody,
-          metadata: { messageId: message.id, senderId, preview: messagePreview } as any,
+          metadata: {
+            messageId: message.id,
+            senderId: actor.senderIdMetadata,
+            senderRole: actor.senderRoleMetadata,
+            preview: messagePreview,
+          } as any,
         });
         
         // Also emit a notification event to the receiver's socket room
         io.to(receiverId).emit("notification", {
           type: "message",
-          title: `New message from ${sender?.name || sender?.email || 'Support'}`,
+          title: `New message from ${actor.titleSenderName}`,
           message: notificationBody,
-          data: { messageId: message.id, senderId, preview: messagePreview },
+          data: {
+            messageId: message.id,
+            senderId: actor.senderIdMetadata,
+            senderRole: actor.senderRoleMetadata,
+            preview: messagePreview,
+          },
         });
       }
       
@@ -10836,20 +10874,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const sender = await storage.getUser(senderId);
           
           if (receiver) {
+            const actor = resolveMessageNotificationActor(receiver as any, sender as any);
             // Create notification in database
             await storage.createNotification({
               userId: receiverId,
               type: "message",
               title: "New message",
-              message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
+              message: `You have a new message from ${actor.bodySenderName}`,
+              metadata: {
+                messageId: newMessage.id,
+                senderId: actor.senderIdMetadata,
+                senderRole: actor.senderRoleMetadata,
+              } as any,
             });
             
             // Emit notification event
             io.to(receiverId).emit("notification", {
               type: "message",
               title: "New message",
-              message: `You have a new message from ${sender?.name || sender?.email || 'Support'}`,
-              data: { messageId: newMessage.id, senderId },
+              message: `You have a new message from ${actor.bodySenderName}`,
+              data: {
+                messageId: newMessage.id,
+                senderId: actor.senderIdMetadata,
+                senderRole: actor.senderRoleMetadata,
+              },
             });
           }
         } catch (notifyError) {

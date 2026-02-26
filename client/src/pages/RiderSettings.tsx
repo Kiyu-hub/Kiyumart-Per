@@ -27,7 +27,6 @@ export default function RiderSettings() {
   const [deliveryNotifications, setDeliveryNotifications] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [locationSharing, setLocationSharing] = useState(true);
-  const [riderOnline, setRiderOnline] = useState(true);
 
   const { data: settings, isLoading } = useQuery<RiderSettingsPayload>({
     queryKey: ["/api/rider/settings"],
@@ -40,7 +39,6 @@ export default function RiderSettings() {
 
   useEffect(() => {
     if (!settings) return;
-    setRiderOnline(settings.riderOnline !== false);
     setDeliveryNotifications(settings.deliveryNotifications !== false);
     setEmailNotifications(settings.emailNotifications !== false);
     setLocationSharing(settings.locationSharing !== false);
@@ -63,29 +61,6 @@ export default function RiderSettings() {
       toast({
         title: "Update failed",
         description: error.message || "Could not save preferences",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const availabilityMutation = useMutation({
-    mutationFn: async (online: boolean) => {
-      const res = await apiRequest("PATCH", "/api/rider/availability", { online });
-      if (!res.ok) throw new Error("Failed to update availability");
-      return res.json();
-    },
-    onSuccess: (payload) => {
-      setRiderOnline(Boolean(payload?.online));
-      queryClient.invalidateQueries({ queryKey: ["/api/rider/settings"] });
-      toast({
-        title: "Availability updated",
-        description: payload?.online ? "You are online for new assignments." : "You are offline for new assignments.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Availability update failed",
-        description: error.message || "Could not update rider availability",
         variant: "destructive",
       });
     },
@@ -202,20 +177,16 @@ export default function RiderSettings() {
               <Separator />
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label htmlFor="rider-online" className="text-base">
+                  <Label className="text-base">
                     Rider Availability
                   </Label>
                   <p className="text-sm text-muted-foreground">
-                    Control if you can receive new rider assignments.
+                    Availability is managed by platform operations. Riders remain online for assignments.
                   </p>
                 </div>
-                <Switch
-                  id="rider-online"
-                  checked={riderOnline}
-                  onCheckedChange={(checked) => availabilityMutation.mutate(Boolean(checked))}
-                  disabled={availabilityMutation.isPending}
-                  data-testid="switch-rider-availability"
-                />
+                <span className="inline-flex items-center rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white">
+                  Online
+                </span>
               </div>
               <div className="pt-4">
                 <Button onClick={() => navigate("/profile")} data-testid="button-edit-profile">

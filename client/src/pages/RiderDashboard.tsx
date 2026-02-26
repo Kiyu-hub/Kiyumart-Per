@@ -1,6 +1,6 @@
 import { useEffect, lazy, Suspense } from "react";
 import { useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -8,10 +8,6 @@ import MetricCard from "@/components/MetricCard";
 import OrderCard from "@/components/OrderCard";
 import OrderStatusTimeline from "@/components/OrderStatusTimeline";
 import { Card } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import { DollarSign, Package, MapPin, Star, Loader2 } from "lucide-react";
 
 const RiderLiveMap = lazy(() => import("@/components/RiderLiveMap"));
@@ -45,10 +41,6 @@ interface RiderEarningsPayload {
   deliveriesCompleted: number;
 }
 
-interface RiderSettingsPayload {
-  riderOnline: boolean;
-}
-
 const ACTIVE_DELIVERY_STATUSES = new Set([
   "searching_rider",
   "assigned",
@@ -64,7 +56,6 @@ export default function RiderDashboard() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
-  const { toast } = useToast();
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== "rider")) {
@@ -92,38 +83,6 @@ export default function RiderDashboard() {
     enabled: isAuthenticated && user?.role === "rider",
   });
 
-  const { data: settings } = useQuery<RiderSettingsPayload>({
-    queryKey: ["/api/rider/settings"],
-    queryFn: async () => {
-      const res = await fetch("/api/rider/settings", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch rider settings");
-      return res.json();
-    },
-    enabled: isAuthenticated && user?.role === "rider",
-  });
-
-  const availabilityMutation = useMutation({
-    mutationFn: async (online: boolean) => {
-      const res = await apiRequest("PATCH", "/api/rider/availability", { online });
-      if (!res.ok) throw new Error("Failed to update availability");
-      return res.json();
-    },
-    onSuccess: (payload) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/rider/settings"] });
-      toast({
-        title: "Availability updated",
-        description: payload?.online ? "You are online for new assignments." : "You are offline for new assignments.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Availability update failed",
-        description: error.message || "Could not update rider availability",
-        variant: "destructive",
-      });
-    },
-  });
-
   if (authLoading || !isAuthenticated || user?.role !== "rider") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -146,15 +105,8 @@ export default function RiderDashboard() {
         ) : (
           <>
             <div className="mb-6 flex items-center justify-end">
-              <div className="flex items-center gap-3 rounded-lg border px-4 py-2">
-                <Label htmlFor="dashboard-rider-online" className="text-sm">Online for Assignments</Label>
-                <Switch
-                  id="dashboard-rider-online"
-                  checked={settings?.riderOnline !== false}
-                  onCheckedChange={(checked) => availabilityMutation.mutate(Boolean(checked))}
-                  disabled={availabilityMutation.isPending}
-                  data-testid="switch-dashboard-rider-availability"
-                />
+              <div className="rounded-lg border px-4 py-2 text-sm text-muted-foreground">
+                Availability: Always online for assignments
               </div>
             </div>
 

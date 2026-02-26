@@ -124,8 +124,10 @@ export default function RiderNotifications() {
         navigate("/rider/deliveries");
         break;
       case "message":
-        // Navigate to messages with sender ID for direct chat
-        if (metadata?.senderId) {
+        // Support-staff senders are masked to a generic support entry for riders.
+        if (metadata?.senderRole === "support_agent") {
+          navigate("/rider/messages");
+        } else if (metadata?.senderId) {
           navigate(`/rider/messages?userId=${metadata.senderId}`);
         } else {
           navigate("/rider/messages");
