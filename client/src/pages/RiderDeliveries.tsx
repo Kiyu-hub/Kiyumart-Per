@@ -181,14 +181,19 @@ export default function RiderDeliveries() {
                       </Button>
                     )}
                     {normalizeStatus(delivery.status) === "in_transit" && (
-                      <Button
-                        size="sm"
-                        onClick={() => navigate(`/rider/route?orderId=${delivery.id}`)}
-                        data-testid={`button-complete-verified-${delivery.id}`}
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Complete with QR/OTP
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => navigate(`/rider/route?orderId=${delivery.id}`)}
+                          data-testid={`button-complete-verified-${delivery.id}`}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Pending completion (QR or OTP)
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Step 1: Ask buyer for QR or OTP. Step 2: Scan QR or enter OTP. Step 3: Submit to complete.
+                        </p>
+                      </div>
                     )}
                   </div>
                 </div>

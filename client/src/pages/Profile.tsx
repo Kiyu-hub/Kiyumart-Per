@@ -601,7 +601,9 @@ export default function Profile() {
                           data-testid={`card-order-${order.id}`}
                         >
                           <div>
-                            <p className="font-semibold">Order #{order.id}</p>
+                            <p className="font-semibold">
+                              Order #{order.orderNumber || `ORD-${String(order.id || "").slice(0, 8).toUpperCase()}`}
+                            </p>
                             <p className="text-sm text-muted-foreground">
                               {order.createdAt}
                             </p>
@@ -609,7 +611,7 @@ export default function Profile() {
                           <Button 
                             variant="outline" 
                             size="sm"
-                            onClick={() => navigate(`/track`)}
+                            onClick={() => navigate(`/track?orderId=${order.id}`)}
                             data-testid={`button-view-order-${order.id}`}
                           >
                             View Details

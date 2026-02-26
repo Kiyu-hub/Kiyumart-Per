@@ -13,6 +13,7 @@ import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard, AlertCircle, L
 
 interface Order {
   id: string;
+  orderNumber?: string;
   userId: string;
   status: string;
   paymentStatus: string;
@@ -238,7 +239,7 @@ export default function Orders() {
                 {getStatusIcon(orderStatus, order.deliveryMethod)}
               </div>
               <div>
-                <CardTitle className="text-lg">Order #{order.id.slice(0, 8)}</CardTitle>
+                <CardTitle className="text-lg">Order #{displayOrderNumber}</CardTitle>
                 <p className="text-sm text-muted-foreground">
                   {new Date(order.createdAt).toLocaleDateString()}
                 </p>
@@ -435,3 +436,4 @@ export default function Orders() {
     </div>
   );
 }
+    const displayOrderNumber = order.orderNumber || `ORD-${order.id.slice(0, 8).toUpperCase()}`;

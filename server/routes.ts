@@ -10157,7 +10157,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allOrders = await storage.getAllOrders();
       const lhs = String(userId1);
       const rhs = String(userId2);
-      const chatActiveStatuses = new Set(["searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"]);
+      const chatActiveStatuses = new Set([
+        "ready",
+        "processing",
+        "searching_rider",
+        "assigned",
+        "rider_arrived",
+        "picked_up",
+        "in_transit",
+        "en_route",
+        "arrived",
+      ]);
 
       const linked = allOrders.filter((o: any) => {
         const buyerId = String(o.buyerId || "");

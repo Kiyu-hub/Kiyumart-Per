@@ -27,6 +27,7 @@
 - [Order Purchase to Live Tracking Audit Update (February 21, 2026)](#order-purchase-to-live-tracking-audit-update-february-21-2026)
 - [Strict Verification & Hardening Update (February 23, 2026)](#strict-verification--hardening-update-february-23-2026)
 - [Runtime Log Audit & Rider Stability Update (February 26, 2026)](#runtime-log-audit--rider-stability-update-february-26-2026)
+- [Call, Tracking OTP & Order Number Consistency Update (February 26, 2026)](#call-tracking-otp--order-number-consistency-update-february-26-2026)
 - [Order Fulfillment Visibility Audit Update (February 23, 2026)](#order-fulfillment-visibility-audit-update-february-23-2026)
 - [Features](#features)
 - [Documentation](#documentation)
@@ -218,6 +219,21 @@ To be the leading online marketplace platform for local businesses, connecting q
 - PASS `payment_gated_searching_rider` (`status=searching_rider`, `payment=completed`)
 - PASS `backend_eta_endpoint` (`source=backend_math`)
 - PASS `system_health_endpoint`
+
+## Call, Tracking OTP & Order Number Consistency Update (February 26, 2026)
+
+- Hardened rider in-app call authorization by aligning active chat/call statuses across:
+  - `server/services/chatPermissionService.ts`
+  - `server/routes.ts` chat permission adapter
+- Added support for `ready`, `processing`, and `arrived` as active delivery communication states.
+- Updated rider completion CTA text for in-transit deliveries to clearly indicate verification gate:
+  - `Pending completion (QR or OTP)`
+  - Included on-screen step note for riders.
+- Fixed buyer-facing order number rendering consistency in purchase/history views:
+  - `client/src/pages/Orders.tsx`
+  - `client/src/pages/Profile.tsx`
+  - Uses canonical `orderNumber` first, with deterministic `ORD-XXXXXXXX` fallback.
+- Confirmed Track Order page continues to display both QR and corresponding OTP under verification block when available.
 - PASS `revenue_view_endpoints`
 
 ## Runtime Log Audit & Rider Stability Update (February 26, 2026)

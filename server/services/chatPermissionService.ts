@@ -45,12 +45,15 @@ interface StorageAdapter {
 // Active delivery statuses that allow non-support stakeholder chat/calls.
 // Support roles (agent/admin/super_admin) are handled as explicit exceptions.
 const ACTIVE_ORDER_STATUSES = [
+  "ready",
+  "processing",
   "searching_rider",
   "assigned",
   "rider_arrived",
   "picked_up",
   "in_transit",
   "en_route",
+  "arrived",
 ];
 
 function normalizeOrderStatus(status?: string | null): string {
