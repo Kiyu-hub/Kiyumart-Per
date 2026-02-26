@@ -587,7 +587,17 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
     staleTime: 30_000,
   });
 
-  const resolvedStoreBanner = sellerData.storeBanner || sellerStore?.banner || sellerStore?.logo || null;
+  const normalizeBannerUrl = (value?: string | null) => {
+    if (!value) return null;
+    const normalized = String(value).trim();
+    if (!normalized || normalized === "null" || normalized === "undefined") return null;
+    return normalized;
+  };
+  const resolvedStoreBanner =
+    normalizeBannerUrl(sellerData.storeBanner) ||
+    normalizeBannerUrl(sellerStore?.banner) ||
+    normalizeBannerUrl(sellerStore?.logo) ||
+    null;
 
   const openZoom = (label: string, url: string, rotation: number) => {
     setZoomedImage({ label, url });
@@ -635,14 +645,17 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
               Profile Photo
             </h3>
             <div className="rounded-lg overflow-hidden border border-border/70">
-              <div
-                className="relative h-48 flex items-center justify-center bg-muted bg-cover bg-center"
-                style={
-                  resolvedStoreBanner
-                    ? { backgroundImage: `url(${resolvedStoreBanner})` }
-                    : { background: "linear-gradient(120deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground)/0.12) 100%)" }
-                }
-              >
+              <div className="relative h-48 flex items-center justify-center bg-muted">
+                {resolvedStoreBanner ? (
+                  <img
+                    src={resolvedStoreBanner}
+                    alt="Store banner"
+                    className="absolute inset-0 h-full w-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : null}
                 <div className={`absolute inset-0 ${resolvedStoreBanner ? "bg-black/35" : "bg-black/10"}`} />
                 {sellerData.profileImage ? (
                   <button
@@ -1209,7 +1222,7 @@ export default function AdminSellers() {
               <h1 className="text-3xl font-bold text-foreground" data-testid="heading-sellers">Sellers Management</h1>
               <p className="text-muted-foreground mt-1">Manage sellers, stores, and approvals</p>
             </div>
-            <CreateSellerDialog />
+            {user?.role !== "super_admin" && <CreateSellerDialog />}
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

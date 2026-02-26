@@ -376,24 +376,13 @@ export default function AdminUsers() {
               <p className="text-muted-foreground mt-1">Manage platform users and roles</p>
             </div>
             <div className="flex gap-2">
-              {user?.role === "super_admin" && (
-                <Button
-                  onClick={() => navigate("/admin/users/create?role=admin")}
-                  data-testid="button-create-admin"
-                  className="gap-2"
-                  variant="default"
-                >
-                  <UserCog className="h-4 w-4" />
-                  Create Admin
-                </Button>
-              )}
               <Button
-                onClick={() => navigate("/admin/users/create?role=agent")}
-                data-testid="button-create-agent"
+                onClick={() => navigate("/admin/users/create")}
+                data-testid="button-add-account"
                 className="gap-2"
               >
                 <UserCog className="h-4 w-4" />
-                Create Agent
+                Add an Account
               </Button>
             </div>
           </div>

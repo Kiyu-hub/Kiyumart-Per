@@ -914,7 +914,7 @@ export default function AdminRiders() {
               <h1 className="text-3xl font-bold text-foreground" data-testid="heading-riders">Riders Management</h1>
               <p className="text-muted-foreground mt-1">Manage delivery riders</p>
             </div>
-            <AddRiderDialog />
+            {user?.role !== "super_admin" && <AddRiderDialog />}
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
