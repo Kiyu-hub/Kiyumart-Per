@@ -257,23 +257,17 @@ function ViewOrderDialog({
                 )}
               </div>
             )}
-            {(orderDetails.sellerInfo?.name || orderDetails.sellerInfo?.storeName || orderDetails.sellerInfo?.email || orderDetails.sellerInfo?.phone) && (
-              <div className="space-y-1 border-t pt-4">
-                <p className="text-sm font-medium text-muted-foreground">Seller Information</p>
-                {orderDetails.sellerInfo?.storeName && (
-                  <p className="text-sm">Store: <span className="font-semibold">{orderDetails.sellerInfo.storeName}</span></p>
-                )}
-                {orderDetails.sellerInfo?.name && (
-                  <p className="text-sm">Seller: <span className="font-semibold">{orderDetails.sellerInfo.name}</span></p>
-                )}
-                {orderDetails.sellerInfo?.email && (
-                  <p className="text-sm text-muted-foreground">Email: {orderDetails.sellerInfo.email}</p>
-                )}
-                {orderDetails.sellerInfo?.phone && (
-                  <p className="text-sm text-muted-foreground">Phone: {orderDetails.sellerInfo.phone}</p>
-                )}
-              </div>
-            )}
+            <div className="space-y-1 border-t pt-4">
+              <p className="text-sm font-medium text-muted-foreground">Seller Information</p>
+              <p className="text-sm">
+                Store: <span className="font-semibold">{orderDetails.sellerInfo?.storeName || "Not available"}</span>
+              </p>
+              <p className="text-sm">
+                Seller: <span className="font-semibold">{orderDetails.sellerInfo?.name || "Not available"}</span>
+              </p>
+              <p className="text-sm text-muted-foreground">Email: {orderDetails.sellerInfo?.email || "Not available"}</p>
+              <p className="text-sm text-muted-foreground">Phone: {orderDetails.sellerInfo?.phone || "Not available"}</p>
+            </div>
 
             <div className="border-t pt-4">
               <p className="font-medium mb-2">Order Summary</p>

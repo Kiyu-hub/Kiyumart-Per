@@ -7,7 +7,7 @@ import fs from "fs/promises";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { db } from "../db";
-import { users, cart, wishlist, chatMessages, notifications, orders, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable, adminPermissions, riderPayouts } from "@shared/schema";
+import { users, cart, wishlist, chatMessages, notifications, orders, orderItems, products, stores, promotionalAds, commissions, platformSettings as platformSettingsTable, footerPages as footerPagesTable, adminPermissions, riderPayouts } from "@shared/schema";
 import { eq, or, isNotNull, and, desc, sql } from "drizzle-orm";
 import { 
   hashPassword, 
@@ -2331,9 +2331,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get platform settings to check for single-store mode
       const platformSettings = await storage.getPlatformSettings();
       
-      // In single-store mode with a primary store set, filter by that store's seller
+      // In single-store mode with a primary store set, always force product scope to that store's seller.
       let finalSellerId: string | undefined = sellerId as string;
-      if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId && !sellerId) {
+      if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
         const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
         if (primaryStore) {
           finalSellerId = primaryStore.primarySellerId || undefined;
@@ -2356,6 +2356,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const product = await storage.getProduct(req.params.id);
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
+      }
+      const platformSettings = await storage.getPlatformSettings();
+      if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
+        const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
+        if (primaryStore) {
+          const outOfScopeSeller = product.sellerId !== primaryStore.primarySellerId;
+          const outOfScopeStore = !!product.storeId && product.storeId !== primaryStore.id;
+          if (outOfScopeSeller || outOfScopeStore) {
+            return res.status(404).json({ error: "Product not found" });
+          }
+        }
       }
       res.json(product);
     } catch (error: any) {
@@ -4320,6 +4331,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return summary;
   };
 
+  const inferOrderSellerContext = async (orderLike: { id: string; sellerId?: string | null; storeId?: string | null }) => {
+    let sellerId = String(orderLike.sellerId || "").trim() || null;
+    let storeId = String(orderLike.storeId || "").trim() || null;
+
+    let storeRecord: any = null;
+    if (storeId) {
+      storeRecord = await storage.getStore(storeId);
+      if (storeRecord?.primarySellerId && !sellerId) {
+        sellerId = storeRecord.primarySellerId;
+      }
+    }
+
+    let sellerRecord: any = null;
+    if (sellerId) {
+      sellerRecord = await storage.getUser(sellerId);
+    }
+
+    if (!storeRecord && sellerId) {
+      storeRecord = await storage.getStoreByPrimarySeller(sellerId);
+      if (storeRecord?.id) storeId = storeRecord.id;
+    }
+
+    if (!sellerId || !storeId || !sellerRecord) {
+      const [firstItem] = await db
+        .select({
+          productId: orderItems.productId,
+          productSellerId: products.sellerId,
+          productStoreId: products.storeId,
+        })
+        .from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(eq(orderItems.orderId, orderLike.id))
+        .limit(1);
+
+      const inferredSellerId = String(firstItem?.productSellerId || "").trim() || null;
+      const inferredStoreId = String(firstItem?.productStoreId || "").trim() || null;
+
+      if (!sellerId && inferredSellerId) sellerId = inferredSellerId;
+      if (!storeId && inferredStoreId) storeId = inferredStoreId;
+
+      if (!sellerRecord && sellerId) {
+        sellerRecord = await storage.getUser(sellerId);
+      }
+      if (!storeRecord && storeId) {
+        storeRecord = await storage.getStore(storeId);
+      }
+      if (!storeRecord && sellerId) {
+        storeRecord = await storage.getStoreByPrimarySeller(sellerId);
+        if (storeRecord?.id) storeId = storeRecord.id;
+      }
+      const inferredPrimarySellerId = String(storeRecord?.primarySellerId || "").trim();
+      if (!sellerId && inferredPrimarySellerId) {
+        sellerId = inferredPrimarySellerId;
+        sellerRecord = await storage.getUser(inferredPrimarySellerId);
+      }
+    }
+
+    return { sellerId, storeId, sellerRecord, storeRecord };
+  };
+
   const sanitizeOrderVerificationSecrets = (order: any, viewer: { id: string; role: string }) => {
     const isAdminViewer = viewer.role === "admin" || viewer.role === "super_admin";
     const isBuyerViewer = order?.buyerId === viewer.id;
@@ -4977,6 +5048,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const platformIsMultiVendor = platformSettings?.isMultiVendor ?? false;
       const processingFeePercent = Number(platformSettings?.processingFeePercent ?? "1.95");
       const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
+      const primaryStoreForSingleStore =
+        !platformIsMultiVendor && platformSettings?.primaryStoreId
+          ? await storage.getStore(platformSettings.primaryStoreId)
+          : null;
       
       // Server-side price recalculation to prevent tampering
       let serverSubtotal = 0;
@@ -4988,6 +5063,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const product = await storage.getProduct(item.productId);
         if (!product) {
           return res.status(404).json({ error: `Product ${item.productId} not found` });
+        }
+        if (primaryStoreForSingleStore) {
+          const sellerMismatch = product.sellerId !== primaryStoreForSingleStore.primarySellerId;
+          const productStoreId = String(product.storeId || "").trim();
+          const storeMismatch = !!productStoreId && productStoreId !== primaryStoreForSingleStore.id;
+          if (sellerMismatch || storeMismatch) {
+            return res.status(409).json({
+              error: "Single-store scope violation",
+              userMessage: "This order includes products outside the active store scope. Refresh and retry with products from the primary store only.",
+            });
+          }
         }
         
         if (!product.isActive) {
@@ -5377,8 +5463,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const orderStore = order.storeId ? storesById.get(order.storeId) : null;
           const fallbackSeller =
             !seller && orderStore?.primarySellerId ? await storage.getUser(orderStore.primarySellerId) : null;
-          const resolvedSeller = seller || fallbackSeller;
-          const sellerStore = sellerStoresBySellerId.get(order.sellerId);
+          let resolvedSeller = seller || fallbackSeller;
+          let resolvedStore = orderStore || sellerStoresBySellerId.get(order.sellerId) || null;
+          if (!resolvedSeller || !resolvedStore) {
+            const inferred = await inferOrderSellerContext(order);
+            if (!resolvedSeller && inferred.sellerRecord) resolvedSeller = inferred.sellerRecord;
+            if (!resolvedStore && inferred.storeRecord) resolvedStore = inferred.storeRecord;
+            // Self-heal historical orders that missed seller/store linkage.
+            if ((!order.sellerId && inferred.sellerId) || (!order.storeId && inferred.storeId)) {
+              await storage.updateOrder(order.id, {
+                sellerId: (order.sellerId || inferred.sellerId) as any,
+                storeId: (order.storeId || inferred.storeId) as any,
+              } as any);
+            }
+          }
           const rider = order.riderId ? ridersById.get(order.riderId) : null;
           const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
           const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
@@ -5389,11 +5487,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             totalAmount: order.total,
             items,
             verificationSummary,
-            seller: resolvedSeller
+            seller: (resolvedSeller || resolvedStore)
               ? {
-                  id: resolvedSeller.id,
-                  name: resolveUserDisplayName(resolvedSeller),
-                  storeName: orderStore?.name || sellerStore?.name || resolvedSeller.storeName || null,
+                  id: resolvedSeller?.id || resolvedStore?.primarySellerId || order.sellerId || null,
+                  name: resolvedSeller ? resolveUserDisplayName(resolvedSeller) : null,
+                  storeName: resolvedStore?.name || resolvedSeller?.storeName || null,
                 }
               : undefined,
             rider: rider
@@ -5487,23 +5585,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
             storeName: null,
           }
         : null;
-      if (securedOrder.sellerId) {
-        const [seller, sellerStore] = await Promise.all([
-          storage.getUser(securedOrder.sellerId),
-          storage.getStoreByPrimarySeller(securedOrder.sellerId),
-        ]);
-        const orderStore = securedOrder.storeId ? await storage.getStore(securedOrder.storeId) : null;
-        const fallbackSeller =
-          !seller && orderStore?.primarySellerId ? await storage.getUser(orderStore.primarySellerId) : null;
-        const resolvedSeller = seller || fallbackSeller;
+      {
+        const inferred = await inferOrderSellerContext(securedOrder as any);
+        const resolvedSeller = inferred.sellerRecord;
+        const resolvedStore = inferred.storeRecord;
         if (resolvedSeller) {
           sellerInfo = {
             id: resolvedSeller.id,
             name: resolveUserDisplayName(resolvedSeller),
-            storeName: orderStore?.name || sellerStore?.name || resolvedSeller.storeName || null,
+            storeName: resolvedStore?.name || resolvedSeller.storeName || null,
             email: resolvedSeller.email || null,
             phone: resolvedSeller.phone || null,
           };
+        } else if (resolvedStore) {
+          sellerInfo = {
+            id: resolvedStore.primarySellerId || securedOrder.sellerId || null,
+            name: null,
+            storeName: resolvedStore.name || null,
+            email: null,
+            phone: null,
+          };
+        }
+        if ((!securedOrder.sellerId && inferred.sellerId) || (!securedOrder.storeId && inferred.storeId)) {
+          await storage.updateOrder(securedOrder.id, {
+            sellerId: (securedOrder.sellerId || inferred.sellerId) as any,
+            storeId: (securedOrder.storeId || inferred.storeId) as any,
+          } as any);
         }
       }
       
