@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Search, Store, Edit, Ban, ArrowLeft, Plus, CheckCircle, XCircle, ShieldCheck, Clock, ExternalLink, Eye, CreditCard, User, MapPin, Tag } from "lucide-react";
+import { Loader2, Search, Store, Edit, Ban, ArrowLeft, Plus, CheckCircle, XCircle, ShieldCheck, Clock, ExternalLink, Eye, CreditCard, User, MapPin, Tag, ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
@@ -563,13 +563,52 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
 
 function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
   const [open, setOpen] = useState(false);
-  const [rotatedCardSide, setRotatedCardSide] = useState<{ front: boolean; back: boolean }>({
-    front: false,
-    back: false,
+  const [cardRotation, setCardRotation] = useState<{ front: number; back: number }>({
+    front: 0,
+    back: 0,
+  });
+  const [zoomedImage, setZoomedImage] = useState<{ label: string; url: string } | null>(null);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [zoomRotation, setZoomRotation] = useState(0);
+
+  const { data: sellerStore } = useQuery<{ banner?: string | null; logo?: string | null } | null>({
+    queryKey: ["/api/stores/by-seller", sellerData.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/stores/by-seller/${sellerData.id}`, { credentials: "include" });
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load seller store");
+      }
+      return res.json();
+    },
+    enabled: open && !sellerData.storeBanner,
+    retry: false,
+    staleTime: 30_000,
   });
 
+  const resolvedStoreBanner = sellerData.storeBanner || sellerStore?.banner || sellerStore?.logo || null;
+
+  const openZoom = (label: string, url: string, rotation: number) => {
+    setZoomedImage({ label, url });
+    setZoomScale(1);
+    setZoomRotation(rotation % 360);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) {
+          setCardRotation({ front: 0, back: 0 });
+        } else {
+          setZoomedImage(null);
+          setZoomScale(1);
+          setZoomRotation(0);
+        }
+      }}
+    >
       <DialogTrigger asChild>
         <Button 
           variant="outline" 
@@ -599,19 +638,20 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
               <div
                 className="relative h-44 flex items-center justify-center bg-muted bg-cover bg-center"
                 style={
-                  sellerData.storeBanner
-                    ? { backgroundImage: `url(${sellerData.storeBanner})` }
+                  resolvedStoreBanner
+                    ? { backgroundImage: `url(${resolvedStoreBanner})` }
                     : undefined
                 }
               >
-                {sellerData.storeBanner && (
+                {resolvedStoreBanner && (
                   <div className="absolute inset-0 bg-black/35" />
                 )}
                 {sellerData.profileImage ? (
                   <img
                     src={sellerData.profileImage}
                     alt="Profile"
-                    className="relative z-10 w-32 h-32 rounded-full object-cover border-4 border-background shadow-lg"
+                    className="relative z-10 w-32 h-32 rounded-full object-cover border-4 border-background shadow-lg cursor-zoom-in"
+                    onClick={() => openZoom("Profile Photo", sellerData.profileImage!, 0)}
                   />
                 ) : (
                   <div className="relative z-10 w-32 h-32 rounded-full bg-background/90 border-4 border-background shadow-lg flex items-center justify-center">
@@ -619,7 +659,7 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
                   </div>
                 )}
               </div>
-              {sellerData.storeBanner && (
+              {resolvedStoreBanner && (
                 <div className="px-3 py-2 border-t bg-background/70">
                   <p className="text-xs text-muted-foreground truncate">
                     Store banner applied
@@ -666,28 +706,44 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-sm font-medium text-muted-foreground">Front</p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setRotatedCardSide((prev) => ({ ...prev, front: !prev.front }))}
-                      >
-                        Rotate
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => openZoom("Ghana Card Front", sellerData.ghanaCardFront!, cardRotation.front)}
+                        >
+                          Zoom
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() =>
+                            setCardRotation((prev) => ({ ...prev, front: (prev.front + 90) % 360 }))
+                          }
+                        >
+                          Rotate
+                        </Button>
+                      </div>
                     </div>
                     <div className="bg-muted rounded-lg p-2 h-60 border border-border/70 flex items-center justify-center overflow-hidden">
                       <img
                         src={sellerData.ghanaCardFront}
                         alt="Ghana Card Front"
-                        className={`max-h-[85%] max-w-[85%] rounded object-contain transition-transform duration-150 ${
-                          rotatedCardSide.front ? "rotate-90" : ""
-                        }`}
+                        className="max-h-[85%] max-w-[85%] rounded object-contain transition-transform duration-150 cursor-zoom-in"
+                        style={{
+                          transform: `rotate(${cardRotation.front}deg)`,
+                          imageOrientation: "from-image" as any,
+                        }}
+                        onClick={() => openZoom("Ghana Card Front", sellerData.ghanaCardFront!, cardRotation.front)}
                         onLoad={(event) => {
                           const img = event.currentTarget;
                           const shouldRotate = img.naturalHeight > img.naturalWidth;
-                          setRotatedCardSide((prev) =>
-                            prev.front === shouldRotate ? prev : { ...prev, front: shouldRotate }
+                          setCardRotation((prev) =>
+                            prev.front !== 0 ? prev : { ...prev, front: shouldRotate ? 90 : 0 }
                           );
                         }}
                       />
@@ -698,28 +754,44 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-sm font-medium text-muted-foreground">Back</p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setRotatedCardSide((prev) => ({ ...prev, back: !prev.back }))}
-                      >
-                        Rotate
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => openZoom("Ghana Card Back", sellerData.ghanaCardBack!, cardRotation.back)}
+                        >
+                          Zoom
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() =>
+                            setCardRotation((prev) => ({ ...prev, back: (prev.back + 90) % 360 }))
+                          }
+                        >
+                          Rotate
+                        </Button>
+                      </div>
                     </div>
                     <div className="bg-muted rounded-lg p-2 h-60 border border-border/70 flex items-center justify-center overflow-hidden">
                       <img
                         src={sellerData.ghanaCardBack}
                         alt="Ghana Card Back"
-                        className={`max-h-[85%] max-w-[85%] rounded object-contain transition-transform duration-150 ${
-                          rotatedCardSide.back ? "rotate-90" : ""
-                        }`}
+                        className="max-h-[85%] max-w-[85%] rounded object-contain transition-transform duration-150 cursor-zoom-in"
+                        style={{
+                          transform: `rotate(${cardRotation.back}deg)`,
+                          imageOrientation: "from-image" as any,
+                        }}
+                        onClick={() => openZoom("Ghana Card Back", sellerData.ghanaCardBack!, cardRotation.back)}
                         onLoad={(event) => {
                           const img = event.currentTarget;
                           const shouldRotate = img.naturalHeight > img.naturalWidth;
-                          setRotatedCardSide((prev) =>
-                            prev.back === shouldRotate ? prev : { ...prev, back: shouldRotate }
+                          setCardRotation((prev) =>
+                            prev.back !== 0 ? prev : { ...prev, back: shouldRotate ? 90 : 0 }
                           );
                         }}
                       />
@@ -770,6 +842,72 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
           </div>
         </div>
       </DialogContent>
+
+      <Dialog
+        open={Boolean(zoomedImage)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setZoomedImage(null);
+            setZoomScale(1);
+            setZoomRotation(0);
+          }
+        }}
+      >
+        <DialogContent className="w-[96vw] max-w-5xl h-[90vh] p-0 overflow-hidden">
+          <DialogHeader className="border-b px-6 py-4">
+            <DialogTitle>{zoomedImage?.label || "Image Preview"}</DialogTitle>
+            <DialogDescription>Use zoom and rotate controls to inspect details clearly.</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between gap-2 border-b px-6 py-3">
+            <div className="text-sm text-muted-foreground truncate">{zoomedImage?.url || ""}</div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setZoomScale((prev) => Math.max(0.5, Number((prev - 0.25).toFixed(2))))}
+              >
+                <ZoomOut className="h-4 w-4" />
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setZoomScale(1)}>
+                100%
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setZoomScale((prev) => Math.min(4, Number((prev + 0.25).toFixed(2))))}
+              >
+                <ZoomIn className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setZoomRotation((prev) => (prev + 90) % 360)}
+              >
+                <RotateCw className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="h-full overflow-auto bg-black/80 p-4">
+            {zoomedImage && (
+              <div className="flex min-h-full items-center justify-center">
+                <img
+                  src={zoomedImage.url}
+                  alt={zoomedImage.label}
+                  className="max-w-none"
+                  style={{
+                    transform: `scale(${zoomScale}) rotate(${zoomRotation}deg)`,
+                    transformOrigin: "center center",
+                    imageOrientation: "from-image" as any,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
