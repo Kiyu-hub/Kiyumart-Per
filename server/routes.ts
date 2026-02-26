@@ -5687,6 +5687,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       throw error;
     }
 
+    const canonicalOrderStatus = canonicalizeOrderStatus(order.status);
+    const dispatchEligibleStatuses = new Set<ReturnType<typeof canonicalizeOrderStatus>>([
+      "ready",
+      "searching_rider",
+    ]);
+    if (!dispatchEligibleStatuses.has(canonicalOrderStatus)) {
+      const error = new Error(
+        "Order is not ready for rider assignment. Seller must mark it Ready for Dispatch first."
+      );
+      (error as any).code = 409;
+      (error as any).details = {
+        currentStatus: canonicalOrderStatus,
+        requiredStatuses: Array.from(dispatchEligibleStatuses),
+      };
+      throw error;
+    }
+
     if (order.riderId) {
       const error = new Error("Order already has a rider assigned");
       (error as any).code = 400;
@@ -6479,13 +6496,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allOrders = await storage.getAllOrders();
       
       // Filter for orders that need rider assignment:
-      // - delivery method is "rider"
-      // - status is "processing" or "ready" (paid but not yet picked up)
+      // - delivery method is rider
+      // - seller has marked dispatch-ready (or system has started rider matching)
       // - no rider assigned yet
       const pendingOrders = allOrders
         .filter(order => 
           order.deliveryMethod === "rider" &&
-          ["processing", "ready", "confirmed", "searching_rider"].includes((order.status || "").toLowerCase().trim()) &&
+          ["ready", "searching_rider"].includes(canonicalizeOrderStatus(order.status)) &&
           !order.riderId
         )
         .map(order => ({
