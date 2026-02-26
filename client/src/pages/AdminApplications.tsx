@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, Eraser } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 
 interface Application {
   id: string;
@@ -169,33 +169,87 @@ export default function AdminApplications() {
 
   const canManageApplications = isAuthenticated && (user?.role === "admin" || user?.role === "super_admin");
 
-  const parseJsonSafely = async <T,>(res: Response, contextLabel: string): Promise<T> => {
-    const contentType = (res.headers.get("content-type") || "").toLowerCase();
-    const text = await res.text();
+  const buildCandidateApiUrls = (path: string): string[] => {
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    const configuredBase = ((import.meta.env as any).VITE_API_URL || "").trim().replace(/\/$/, "");
+    const candidates: string[] = [];
 
-    if (contentType.includes("text/html") || text.trim().startsWith("<!doctype") || text.trim().startsWith("<html")) {
-      throw new Error(`${contextLabel}: backend returned HTML instead of JSON. Restart backend and verify API base/port.`);
+    if (configuredBase) candidates.push(`${configuredBase}${normalizedPath}`);
+    candidates.push(normalizedPath);
+
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      const isLocal = host === "localhost" || host === "127.0.0.1";
+      if (isLocal) {
+        candidates.push(`http://localhost:5000${normalizedPath}`);
+        candidates.push(`http://127.0.0.1:5000${normalizedPath}`);
+      }
     }
 
-    if (!text.trim()) {
-      return {} as T;
-    }
+    return Array.from(new Set(candidates));
+  };
 
+  const parseErrorPayload = (text: string, statusText: string): string => {
+    if (!text?.trim()) return statusText || "Request failed";
     try {
-      return JSON.parse(text) as T;
+      const parsed = JSON.parse(text);
+      return parsed?.error || parsed?.message || text;
     } catch {
-      throw new Error(`${contextLabel}: invalid JSON response from backend.`);
+      return text;
     }
   };
 
-  const fetchApplications = async (url: string) => {
-    const res = await fetch(url, { credentials: "include" });
-    if (!res.ok) {
-      const message = await res.text();
-      throw new Error(message || "Failed to fetch applications");
+  const requestJsonWithFallback = async <T,>(
+    method: string,
+    path: string,
+    data?: unknown,
+    contextLabel?: string,
+  ): Promise<T> => {
+    const urls = buildCandidateApiUrls(path);
+    let lastNetworkError: Error | null = null;
+
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          method,
+          credentials: "include",
+          headers: data ? { "Content-Type": "application/json" } : undefined,
+          body: data ? JSON.stringify(data) : undefined,
+        });
+
+        const text = await res.text();
+        const isHtml = /^\s*<!doctype html/i.test(text) || /^\s*<html/i.test(text);
+        if (isHtml) {
+          // Try the next candidate backend target (common when frontend server served HTML fallback).
+          continue;
+        }
+
+        if (!res.ok) {
+          throw new Error(parseErrorPayload(text, res.statusText));
+        }
+
+        if (!text.trim()) {
+          return {} as T;
+        }
+
+        try {
+          return JSON.parse(text) as T;
+        } catch {
+          throw new Error(`${contextLabel || path}: invalid JSON response from backend.`);
+        }
+      } catch (error: any) {
+        lastNetworkError = error instanceof Error ? error : new Error(String(error || "Network request failed"));
+      }
     }
-    const payload = await parseJsonSafely<unknown>(res, "Applications list");
-    return Array.isArray(payload) ? (payload as Application[]) : [];
+
+    throw new Error(
+      `${contextLabel || path}: backend returned HTML or was unreachable. Restart backend on port 5000.`,
+    );
+  };
+
+  const fetchApplications = async (url: string) => {
+    const payload = await requestJsonWithFallback<Application[]>("GET", url, undefined, "Applications list");
+    return Array.isArray(payload) ? payload : [];
   };
 
   const { data: pendingSellerApplications = [], isLoading: pendingSellersLoading } = useQuery<Application[]>({
@@ -236,7 +290,7 @@ export default function AdminApplications() {
 
   const approveApplicationMutation = useMutation({
     mutationFn: async ({ userId }: { userId: string }) => {
-      return apiRequest("PATCH", `/api/users/${userId}/approve`, {});
+      return requestJsonWithFallback("PATCH", `/api/users/${userId}/approve`, {}, "Approve application");
     },
     onSuccess: async () => {
       toast({
@@ -259,7 +313,7 @@ export default function AdminApplications() {
 
   const rejectApplicationMutation = useMutation({
     mutationFn: async ({ userId, reason }: { userId: string; reason?: string }) => {
-      return apiRequest("PATCH", `/api/users/${userId}/reject`, { reason });
+      return requestJsonWithFallback("PATCH", `/api/users/${userId}/reject`, { reason }, "Reject application");
     },
     onSuccess: () => {
       toast({
@@ -282,7 +336,12 @@ export default function AdminApplications() {
 
   const scheduleInterviewMutation = useMutation({
     mutationFn: async ({ userId, scheduledAt }: { userId: string; scheduledAt: string }) => {
-      return apiRequest("PATCH", `/api/users/${userId}/interview`, { scheduledAt });
+      return requestJsonWithFallback(
+        "PATCH",
+        `/api/users/${userId}/interview`,
+        { scheduledAt },
+        "Schedule interview",
+      );
     },
     onSuccess: async () => {
       toast({
@@ -305,7 +364,7 @@ export default function AdminApplications() {
 
   const deleteApplicantMutation = useMutation({
     mutationFn: async ({ userId }: { userId: string }) => {
-      return apiRequest("DELETE", `/api/users/${userId}`);
+      return requestJsonWithFallback("DELETE", `/api/users/${userId}`, undefined, "Delete applicant");
     },
     onSuccess: async () => {
       toast({
@@ -326,10 +385,11 @@ export default function AdminApplications() {
 
   const purgePendingMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/admin/applications/purge-pending", {});
-      return parseJsonSafely<{ totalFound?: number; clearedApproved?: number; deletedUnapproved?: number }>(
-        res,
-        "Clear Pending Queue"
+      return requestJsonWithFallback<{ totalFound?: number; clearedApproved?: number; deletedUnapproved?: number }>(
+        "POST",
+        "/api/admin/applications/purge-pending",
+        {},
+        "Clear Pending Queue",
       );
     },
     onSuccess: async (data: any) => {
@@ -361,9 +421,7 @@ export default function AdminApplications() {
     setViewDetailsOpen(true);
     setDetailsLoading(true);
     try {
-      const res = await fetch(`/api/users/${application.id}`, { credentials: "include" });
-      if (!res.ok) return;
-      const full = await parseJsonSafely<Application>(res, "Application details");
+      const full = await requestJsonWithFallback<Application>("GET", `/api/users/${application.id}`, undefined, "Application details");
       setSelectedApplication(full);
     } catch {
       // Keep list payload as fallback.
@@ -1142,28 +1200,20 @@ export default function AdminApplications() {
                         <div
                           key={item.label}
                           className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-                            item.ok ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70"
+                            item.ok
+                              ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-100"
+                              : "border-amber-500/60 bg-amber-500/20 text-amber-100"
                           }`}
                         >
                           {item.ok ? (
-                            <Check className="h-4 w-4 text-emerald-600" />
+                            <Check className="h-4 w-4 text-emerald-300" />
                           ) : (
-                            <X className="h-4 w-4 text-amber-600" />
+                            <X className="h-4 w-4 text-amber-300" />
                           )}
                           <span>{item.label}</span>
                         </div>
                       ))}
                     </div>
-                  </Card>
-
-                  <Card className="p-4">
-                    <h3 className="text-lg font-semibold mb-3">Raw Application Record</h3>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      Full payload snapshot for audit and debugging.
-                    </p>
-                    <pre className="max-h-48 overflow-auto rounded-md border bg-muted/20 p-3 text-xs leading-5 whitespace-pre-wrap break-words">
-                      {JSON.stringify(selectedApplication, null, 2)}
-                    </pre>
                   </Card>
 
                   </div>
