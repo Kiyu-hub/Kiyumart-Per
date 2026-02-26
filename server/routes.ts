@@ -1342,17 +1342,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
-      
-      // Only allow rejection of pending (unapproved) applications
-      if (user.isApproved) {
-        return res.status(400).json({ 
-          error: "Cannot reject already approved applications. Use deactivate instead." 
+
+      const requestedRole = String((user as any).requestedRole || "").toLowerCase();
+      const currentRole = String(user.role || "").toLowerCase();
+      const applicationRole =
+        requestedRole === "seller" || requestedRole === "rider"
+          ? requestedRole
+          : currentRole === "seller" || currentRole === "rider"
+            ? currentRole
+            : "";
+      const applicationStatus = String((user as any).applicationStatus || "").toLowerCase();
+
+      if (!applicationRole) {
+        return res.status(400).json({ error: "User does not have a seller/rider application to reject" });
+      }
+
+      // Reject only pending/interview applications. Approved applications should be deactivated instead.
+      const approvedForApplicationRole =
+        applicationStatus === "approved" || (currentRole === applicationRole && Boolean(user.isApproved));
+      if (approvedForApplicationRole) {
+        return res.status(400).json({
+          error: "Cannot reject already approved applications. Use deactivate instead."
         });
       }
-      
-      // Mark as rejected but keep active so user can see rejection and reapply
-      const rejectedUser = await storage.updateUser(req.params.id, { 
-        isApproved: false,
+
+      if (applicationStatus && applicationStatus !== "pending" && applicationStatus !== "interview_scheduled") {
+        return res.status(400).json({ error: `Cannot reject application with status '${applicationStatus}'` });
+      }
+
+      // Mark as rejected but keep account active so user can see rejection and reapply.
+      // Preserve existing approval for the user's current role (e.g., approved buyer applying for rider).
+      const rejectedUser = await storage.updateUser(req.params.id, {
         isActive: true, // Explicitly keep account active
         applicationStatus: "rejected" as any,
         interviewScheduledAt: null,
@@ -1364,7 +1384,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
       
-      const rejectedRole = ((user as any).requestedRole || user.role) as string;
+      const rejectedRole = applicationRole as string;
       const rejectedRoleLabel = ROLE_LABELS[rejectedRole] || rejectedRole;
       const rejectionMessage = formatFormalNotification(
         `Dear ${rejectedUser.name || "Applicant"},`,
