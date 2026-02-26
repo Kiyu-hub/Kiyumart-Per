@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock } from "lucide-react";
+import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface Application {
@@ -280,6 +280,27 @@ export default function AdminApplications() {
     },
   });
 
+  const deleteApplicantMutation = useMutation({
+    mutationFn: async ({ userId }: { userId: string }) => {
+      return apiRequest("DELETE", `/api/users/${userId}`);
+    },
+    onSuccess: async () => {
+      toast({
+        title: "Deleted",
+        description: "Applicant account deleted successfully",
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setViewDetailsOpen(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete applicant",
+        variant: "destructive",
+      });
+    },
+  });
+
   const toDateTimeLocalValue = (value?: string | null) => {
     if (!value) return "";
     const parsed = new Date(value);
@@ -378,6 +399,13 @@ export default function AdminApplications() {
       userId: selectedApplication.id,
       scheduledAt: interviewDateTime,
     });
+  };
+
+  const handleDeleteApplicant = (application: Application) => {
+    if (user?.role !== "super_admin") return;
+    const confirmed = window.confirm(`Delete ${application.name}'s account and related records? This cannot be undone.`);
+    if (!confirmed) return;
+    deleteApplicantMutation.mutate({ userId: application.id });
   };
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
@@ -530,6 +558,19 @@ export default function AdminApplications() {
                   Reject
                 </Button>
               </>
+            )}
+            {status === "rejected" && user?.role === "super_admin" && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => handleDeleteApplicant(application)}
+                disabled={deleteApplicantMutation.isPending}
+                data-testid={`button-delete-rejected-${application.id}`}
+                className="gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete Applicant
+              </Button>
             )}
           </div>
         </div>
@@ -1110,6 +1151,18 @@ export default function AdminApplications() {
                             Approve Application
                           </Button>
                         </>
+                      )}
+                      {selectedApplication.applicationStatus === "rejected" && user?.role === "super_admin" && (
+                        <Button
+                          variant="destructive"
+                          onClick={() => handleDeleteApplicant(selectedApplication)}
+                          disabled={deleteApplicantMutation.isPending}
+                          data-testid="button-delete-details"
+                          className="gap-2"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete Applicant
+                        </Button>
                       )}
                     </div>
                   </div>

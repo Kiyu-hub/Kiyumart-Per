@@ -2223,6 +2223,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
               userMessage: "Your application to become a seller has been submitted. An admin will review and approve your application shortly.",
             });
           }
+          if (existingStatus === "rejected") {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const normalizedExistingRole = existingRole.toLowerCase();
+            const nextRole =
+              (normalizedExistingRole === "seller" || normalizedExistingRole === "rider") && !(existingUser as any).isApproved
+                ? "buyer"
+                : existingUser.role;
+
+            const updatedUser = await storage.updateUser(existingUser.id, {
+              ...userData,
+              password: hashedPassword,
+              role: nextRole as any,
+              requestedRole: "seller",
+              applicationStatus: "pending" as any,
+              rejectionReason: null,
+              interviewScheduledAt: null,
+              interviewScheduledBy: null,
+            } as any);
+
+            if (!updatedUser) {
+              return res.status(500).json({ error: "Failed to resubmit seller application" });
+            }
+
+            await notifyAdmins(
+              "user",
+              "Resubmitted seller application",
+              `${updatedUser.name} has re-applied to become a seller`,
+              { userId: updatedUser.id, role: "seller", link: `/admin/applications?userId=${updatedUser.id}&role=seller` },
+              {
+                requiredAdminPermission: "manage_users",
+                includeAgents: true,
+                requiredAgentFeature: "users.view",
+              }
+            );
+
+            const { password: _, ...userWithoutPassword } = updatedUser;
+            return res.json(userWithoutPassword);
+          }
         }
         return res.status(400).json({ error: "Email already registered. Please log in to continue your application." });
       }
@@ -2286,6 +2324,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
               applicationStatus: existingStatus || ((existingUser as any).isApproved ? "approved" : null),
               userMessage: "Your application to become a rider has been submitted. An admin will review and approve your application shortly.",
             });
+          }
+          if (existingStatus === "rejected") {
+            // Build properly typed user data
+            const userData: any = { ...rawUserData };
+            userData.riderCity = typeof rawUserData.riderCity === "string" ? rawUserData.riderCity.trim() : undefined;
+            userData.riderRegion = typeof rawUserData.riderRegion === "string" ? rawUserData.riderRegion.trim() : undefined;
+            if (!userData.riderCity || !userData.riderRegion) {
+              const address = String(rawUserData.businessAddress || "").trim();
+              if (address) {
+                const parts = address.split(",").map((part: string) => part.trim()).filter(Boolean);
+                if (!userData.riderCity && parts[0]) userData.riderCity = parts[0];
+                if (!userData.riderRegion && parts[1]) userData.riderRegion = parts[1];
+              }
+            }
+
+            if (!userData.riderCity || String(userData.riderCity).length < 2) {
+              return res.status(400).json({ error: "City is required for rider applications" });
+            }
+            if (!userData.riderRegion || String(userData.riderRegion).length < 2) {
+              return res.status(400).json({ error: "Region is required for rider applications" });
+            }
+
+            if (rawUserData.vehicleInfo) {
+              const parsedVehicle = vehicleInfoSchema.safeParse(rawUserData.vehicleInfo);
+              if (!parsedVehicle.success) {
+                return res.status(400).json({
+                  error: "Invalid vehicle information",
+                  details: parsedVehicle.error.issues
+                });
+              }
+
+              const { type, plateNumber, license, color } = parsedVehicle.data;
+              if (type === "car") {
+                if (!plateNumber) return res.status(400).json({ error: "Plate number is required for car riders" });
+                if (!license) return res.status(400).json({ error: "Driver's license is required for car riders" });
+                if (!color) return res.status(400).json({ error: "Vehicle color is required for car riders" });
+              } else if (type === "motorcycle") {
+                if (!plateNumber) return res.status(400).json({ error: "Plate number is required for motorcycle riders" });
+                if (!license) return res.status(400).json({ error: "Driver's license is required for motorcycle riders" });
+              }
+
+              userData.vehicleInfo = parsedVehicle.data as { type: string; plateNumber?: string; license?: string; color?: string };
+            }
+
+            if (!userData.deliveryZoneId) {
+              const zones = await storage.getDeliveryZones();
+              const city = normalizeZoneText(userData.riderCity);
+              const region = normalizeZoneText(userData.riderRegion);
+              if (city) {
+                const matchedCityZone = zones.find((z: any) =>
+                  normalizeZoneText(z.city) === city || normalizeZoneText(z.name) === city
+                );
+                if (matchedCityZone) userData.deliveryZoneId = matchedCityZone.id;
+              }
+              if (!userData.deliveryZoneId && region) {
+                const matchedRegionZone = zones.find((z: any) =>
+                  normalizeZoneText(z.region) === region || normalizeZoneText(z.name) === region
+                );
+                if (matchedRegionZone) userData.deliveryZoneId = matchedRegionZone.id;
+              }
+            }
+
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const normalizedExistingRole = existingRole.toLowerCase();
+            const nextRole =
+              (normalizedExistingRole === "seller" || normalizedExistingRole === "rider") && !(existingUser as any).isApproved
+                ? "buyer"
+                : existingUser.role;
+
+            const updatedUser = await storage.updateUser(existingUser.id, {
+              ...userData,
+              password: hashedPassword,
+              role: nextRole as any,
+              requestedRole: "rider",
+              applicationStatus: "pending" as any,
+              rejectionReason: null,
+              interviewScheduledAt: null,
+              interviewScheduledBy: null,
+            } as any);
+
+            if (!updatedUser) {
+              return res.status(500).json({ error: "Failed to resubmit rider application" });
+            }
+
+            await notifyAdmins(
+              "user",
+              "Resubmitted rider application",
+              `${updatedUser.name} has re-applied to become a delivery rider`,
+              { userId: updatedUser.id, role: "rider", link: `/admin/applications?userId=${updatedUser.id}&role=rider` },
+              {
+                requiredAdminPermission: "manage_users",
+                includeAgents: true,
+                requiredAgentFeature: "users.view",
+              }
+            );
+
+            const { password: _, ...userWithoutPassword } = updatedUser;
+            return res.json(userWithoutPassword);
           }
         }
         return res.status(400).json({ error: "Email already registered. Please log in to continue your application." });
