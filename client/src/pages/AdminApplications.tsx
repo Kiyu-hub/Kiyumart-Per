@@ -1141,20 +1141,29 @@ export default function AdminApplications() {
                     </div>
                   </Card>
 
-                  {/* Uploaded Media */}
+                  {/* ID Card Verification */}
                   <Card className="p-4">
                     <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                       <CreditCard className="h-5 w-5" />
-                      Uploaded Media & Verification Images
+                      ID Card Verification Documents
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {renderImageTile("Profile Photo", selectedApplication.profileImage, "media-profile-image")}
                       {renderImageTile("Ghana Card Front", selectedApplication.ghanaCardFront, "media-card-front")}
                       {renderImageTile("Ghana Card Back", selectedApplication.ghanaCardBack, "media-card-back")}
-                      {getEffectiveRole(selectedApplication) === "seller" &&
-                        renderImageTile("Store Banner", selectedApplication.storeBanner, "media-store-banner")}
                     </div>
                   </Card>
+
+                  {getEffectiveRole(selectedApplication) === "seller" && (
+                    <Card className="p-4">
+                      <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                        <Store className="h-5 w-5" />
+                        Store Banner
+                      </h3>
+                      <div className="grid grid-cols-1 gap-4">
+                        {renderImageTile("Store Banner", selectedApplication.storeBanner, "media-store-banner")}
+                      </div>
+                    </Card>
+                  )}
 
                   {/* Vehicle Information (rider-only) */}
                   {getEffectiveRole(selectedApplication) === "rider" && (
