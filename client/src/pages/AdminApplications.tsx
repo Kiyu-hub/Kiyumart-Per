@@ -169,10 +169,33 @@ export default function AdminApplications() {
 
   const canManageApplications = isAuthenticated && (user?.role === "admin" || user?.role === "super_admin");
 
+  const parseJsonSafely = async <T,>(res: Response, contextLabel: string): Promise<T> => {
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    const text = await res.text();
+
+    if (contentType.includes("text/html") || text.trim().startsWith("<!doctype") || text.trim().startsWith("<html")) {
+      throw new Error(`${contextLabel}: backend returned HTML instead of JSON. Restart backend and verify API base/port.`);
+    }
+
+    if (!text.trim()) {
+      return {} as T;
+    }
+
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new Error(`${contextLabel}: invalid JSON response from backend.`);
+    }
+  };
+
   const fetchApplications = async (url: string) => {
     const res = await fetch(url, { credentials: "include" });
-    if (!res.ok) throw new Error("Failed to fetch applications");
-    return res.json();
+    if (!res.ok) {
+      const message = await res.text();
+      throw new Error(message || "Failed to fetch applications");
+    }
+    const payload = await parseJsonSafely<unknown>(res, "Applications list");
+    return Array.isArray(payload) ? (payload as Application[]) : [];
   };
 
   const { data: pendingSellerApplications = [], isLoading: pendingSellersLoading } = useQuery<Application[]>({
@@ -304,7 +327,10 @@ export default function AdminApplications() {
   const purgePendingMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/admin/applications/purge-pending", {});
-      return res.json();
+      return parseJsonSafely<{ totalFound?: number; clearedApproved?: number; deletedUnapproved?: number }>(
+        res,
+        "Clear Pending Queue"
+      );
     },
     onSuccess: async (data: any) => {
       toast({
@@ -337,7 +363,7 @@ export default function AdminApplications() {
     try {
       const res = await fetch(`/api/users/${application.id}`, { credentials: "include" });
       if (!res.ok) return;
-      const full = await res.json();
+      const full = await parseJsonSafely<Application>(res, "Application details");
       setSelectedApplication(full);
     } catch {
       // Keep list payload as fallback.
@@ -891,11 +917,11 @@ export default function AdminApplications() {
 
         {/* Application Details Dialog */}
         <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
-          <DialogContent className="w-[96vw] max-w-6xl h-[90vh] overflow-hidden p-0">
+          <DialogContent className="w-[98vw] sm:w-[96vw] max-w-6xl h-[92vh] max-h-[92vh] overflow-hidden p-0">
             {selectedApplication && (
               <>
-                <div className="relative flex h-full flex-col">
-                  <DialogHeader className="border-b bg-muted/20 px-6 py-4">
+                <div className="relative flex h-full min-h-0 flex-col">
+                  <DialogHeader className="shrink-0 border-b bg-muted/20 px-6 py-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <DialogTitle className="text-2xl flex items-center gap-3">
@@ -949,7 +975,8 @@ export default function AdminApplications() {
                     </div>
                   </DialogHeader>
 
-                  <div className="space-y-5 mt-0 flex-1 overflow-y-auto px-6 py-5">
+                  <div className="mt-0 flex-1 min-h-0 overflow-y-auto px-6 py-5">
+                  <div className="space-y-5">
                   {/* Rejection Reason (if rejected) */}
                   {selectedApplication.applicationStatus === "rejected" && selectedApplication.rejectionReason && (
                     <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
@@ -1134,15 +1161,16 @@ export default function AdminApplications() {
                     <p className="text-sm text-muted-foreground mb-3">
                       Full payload snapshot for audit and debugging.
                     </p>
-                    <pre className="max-h-56 overflow-auto rounded-md border bg-muted/20 p-3 text-xs leading-5 whitespace-pre-wrap break-words">
+                    <pre className="max-h-48 overflow-auto rounded-md border bg-muted/20 p-3 text-xs leading-5 whitespace-pre-wrap break-words">
                       {JSON.stringify(selectedApplication, null, 2)}
                     </pre>
                   </Card>
 
                   </div>
+                  </div>
 
                   {/* Action Buttons */}
-                  <div className="border-t bg-background px-6 py-4">
+                  <div className="shrink-0 border-t bg-background px-6 py-4">
                     <div className="flex flex-wrap justify-end gap-3">
                       <Button
                         variant="outline"
