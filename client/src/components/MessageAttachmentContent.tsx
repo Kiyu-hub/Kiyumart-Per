@@ -39,6 +39,30 @@ export default function MessageAttachmentContent({ message, className = "" }: Me
     );
   }
 
+  if (attachment.kind === "product") {
+    const productName = attachment.productName || attachment.name || "Referenced product";
+    return (
+      <div className="rounded-md border bg-muted/40 p-3 space-y-2 max-w-sm">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+          Product Reference
+        </p>
+        <div className="flex items-center gap-3">
+          <img
+            src={attachment.productImage || "/placeholder.jpg"}
+            alt={productName}
+            className="h-14 w-14 rounded-md object-cover border"
+          />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-tight line-clamp-2">{productName}</p>
+            <a href={attachment.url} className="text-xs text-primary hover:underline" data-testid="link-product-reference">
+              Open product
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <a href={attachment.url} target="_blank" rel="noreferrer" className="text-sm underline">
       {attachment.name}

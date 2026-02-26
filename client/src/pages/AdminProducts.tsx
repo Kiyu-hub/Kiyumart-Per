@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, Edit, Trash2, Eye, ArrowLeft, ToggleLeft, ToggleRight, Package } from "lucide-react";
+import { Loader2, Search, Edit, Eye, ArrowLeft, Package, EyeOff, MessageCircle } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -26,60 +26,17 @@ interface Product {
   storeName?: string;
 }
 
-function ToggleProductStatusButton({ product }: { product: Product }) {
+function HideProductDialog({ product }: { product: Product }) {
   const { toast } = useToast();
 
-  const toggleStatusMutation = useMutation({
+  const hideProductMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("PATCH", `/api/products/${product.id}/status`, { isActive: !product.isActive });
     },
     onSuccess: () => {
       toast({
         title: "Success",
-        description: `Product ${product.isActive ? 'deactivated' : 'activated'} successfully`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update product status",
-        variant: "destructive",
-      });
-    },
-  });
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => toggleStatusMutation.mutate()}
-      disabled={toggleStatusMutation.isPending}
-      data-testid={`button-toggle-status-${product.id}`}
-      title={product.isActive ? "Deactivate product" : "Activate product"}
-    >
-      {toggleStatusMutation.isPending ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : product.isActive ? (
-        <ToggleRight className="h-4 w-4 text-green-500" />
-      ) : (
-        <ToggleLeft className="h-4 w-4 text-muted-foreground" />
-      )}
-    </Button>
-  );
-}
-
-function DeleteProductDialog({ product }: { product: Product }) {
-  const { toast } = useToast();
-
-  const deleteProductMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("DELETE", `/api/products/${product.id}`);
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "Product deleted successfully",
+        description: product.isActive ? "Product hidden successfully" : "Product restored successfully",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/homepage/featured-products"] });
@@ -87,7 +44,7 @@ function DeleteProductDialog({ product }: { product: Product }) {
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to delete product",
+        description: error.message || "Failed to update product visibility",
         variant: "destructive",
       });
     },
@@ -96,29 +53,31 @@ function DeleteProductDialog({ product }: { product: Product }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="icon" data-testid={`button-delete-${product.id}`}>
-          <Trash2 className="h-4 w-4" />
+        <Button variant="ghost" size="icon" data-testid={`button-hide-${product.id}`} title={product.isActive ? "Hide product" : "Unhide product"}>
+          <EyeOff className="h-4 w-4" />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete Product</AlertDialogTitle>
+          <AlertDialogTitle>{product.isActive ? "Hide Product" : "Unhide Product"}</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to delete "{product.name}"? This action cannot be undone.
+            {product.isActive
+              ? `Hide "${product.name}" from storefront listings?`
+              : `Restore "${product.name}" so it appears in storefront listings again?`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+          <AlertDialogCancel data-testid="button-cancel-hide">Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={() => deleteProductMutation.mutate()}
-            disabled={deleteProductMutation.isPending}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            data-testid="button-confirm-delete"
+            onClick={() => hideProductMutation.mutate()}
+            disabled={hideProductMutation.isPending}
+            className={product.isActive ? "bg-amber-600 text-white hover:bg-amber-700" : ""}
+            data-testid="button-confirm-hide"
           >
-            {deleteProductMutation.isPending && (
+            {hideProductMutation.isPending && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
-            Delete
+            {product.isActive ? "Hide Product" : "Unhide Product"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -234,7 +193,7 @@ export default function AdminProducts() {
                         variant={product.isActive ? "default" : "secondary"}
                         data-testid={`badge-status-${product.id}`}
                       >
-                        {product.isActive ? "Active" : "Inactive"}
+                        {product.isActive ? "Active" : "Deactivated"}
                       </Badge>
                     </div>
                   </div>
@@ -265,6 +224,11 @@ export default function AdminProducts() {
 
                     <div className="flex items-center justify-between text-sm text-muted-foreground border-t pt-2">
                       <span data-testid={`text-stock-${product.id}`}>Stock: {product.stock}</span>
+                      {!product.isActive && (
+                        <span className="text-amber-500 font-medium" data-testid={`text-hidden-label-${product.id}`}>
+                          Hidden by Super Admin
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-end gap-1 border-t pt-2">
@@ -286,15 +250,32 @@ export default function AdminProducts() {
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <ToggleProductStatusButton product={product} />
-                      <DeleteProductDialog product={product} />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          const params = new URLSearchParams({
+                            userId: product.sellerId,
+                            productId: product.id,
+                            productName: product.name,
+                            productImage: product.images?.[0] || "",
+                            productLink: `/product/${product.id}`,
+                          });
+                          navigate(`/admin/messages?${params.toString()}`);
+                        }}
+                        data-testid={`button-message-seller-${product.id}`}
+                        title="Message seller about this product"
+                      >
+                        <MessageCircle className="h-4 w-4" />
+                      </Button>
+                      <HideProductDialog product={product} />
                     </div>
                   </div>
                 </Card>
               ))}
               
               {filteredProducts.length === 0 && !isSearching && (
-                <div className="text-center py-12">
+                <div className="text-center py-12 col-span-full">
                   <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground" data-testid="text-no-products">
                     {debouncedSearchQuery ? "No products found matching your search" : "No products available"}

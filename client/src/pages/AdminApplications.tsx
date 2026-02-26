@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, Eraser } from "lucide-react";
+import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, Eraser, ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 
 interface Application {
@@ -61,6 +61,9 @@ export default function AdminApplications() {
   const [activeTab, setActiveTab] = useState<"sellers" | "riders" | "interview" | "rejected">("sellers");
   const deepLinkHandledRef = useRef(false);
   const [rotatedImageUrls, setRotatedImageUrls] = useState<Record<string, boolean>>({});
+  const [zoomedImage, setZoomedImage] = useState<{ label: string; url: string; rotation: number } | null>(null);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [zoomRotation, setZoomRotation] = useState(0);
   const isTestingPurgeEnabled = (import.meta.env.MODE || "development") !== "production";
 
   const queryParams = useMemo(() => {
@@ -92,6 +95,7 @@ export default function AdminApplications() {
     }
 
     const rotateForLandscape = Boolean(rotatedImageUrls[url]);
+    const initialRotation = rotateForLandscape ? 90 : 0;
     return (
       <div className="rounded-lg border p-3 bg-muted/30 h-[250px] flex flex-col" data-testid={testId}>
         <p className="text-sm font-medium text-muted-foreground mb-2">{label}</p>
@@ -107,21 +111,37 @@ export default function AdminApplications() {
               const image = event.currentTarget;
               const shouldRotate = /ghana card/i.test(label) && image.naturalHeight > image.naturalWidth;
               setRotatedImageUrls((prev) => {
-                if (Boolean(prev[url]) === shouldRotate) return prev;
-                return { ...prev, [url]: shouldRotate };
-              });
-            }}
-          />
+              if (Boolean(prev[url]) === shouldRotate) return prev;
+              return { ...prev, [url]: shouldRotate };
+            });
+          }}
+        />
         </div>
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 block text-xs text-primary break-all hover:underline truncate"
-          title={url}
-        >
-          {url}
-        </a>
+        <div className="mt-2 flex items-center gap-2">
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block min-w-0 flex-1 text-xs text-primary break-all hover:underline truncate"
+            title={url}
+          >
+            {url}
+          </a>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 px-3"
+            onClick={() => {
+              setZoomedImage({ label, url, rotation: initialRotation });
+              setZoomScale(1);
+              setZoomRotation(initialRotation);
+            }}
+          >
+            <ZoomIn className="h-3.5 w-3.5 mr-1" />
+            Zoom Card
+          </Button>
+        </div>
       </div>
     );
   };
@@ -248,7 +268,9 @@ export default function AdminApplications() {
         }
 
         if (!res.ok) {
-          throw new Error(parseErrorPayload(text, res.statusText));
+          const backendError = new Error(parseErrorPayload(text, res.statusText));
+          (backendError as any).__backendError = true;
+          throw backendError;
         }
 
         if (!text.trim()) {
@@ -261,8 +283,17 @@ export default function AdminApplications() {
           throw new Error(`${contextLabel || path}: invalid JSON response from backend.`);
         }
       } catch (error: any) {
+        if (error?.__backendError) {
+          throw error;
+        }
         lastNetworkError = error instanceof Error ? error : new Error(String(error || "Network request failed"));
       }
+    }
+
+    if (lastNetworkError) {
+      throw new Error(
+        `${contextLabel || path}: backend unreachable (${lastNetworkError.message}). Restart backend on port 5000.`,
+      );
     }
 
     throw new Error(
@@ -1155,6 +1186,9 @@ export default function AdminApplications() {
                       <CreditCard className="h-5 w-5" />
                       ID Card Verifications
                     </h3>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Use the <span className="font-semibold">Zoom Card</span> button under each image to inspect details clearly.
+                    </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {renderImageTile("Ghana Card Front", selectedApplication.ghanaCardFront, "media-card-front", true)}
                       {renderImageTile("Ghana Card Back", selectedApplication.ghanaCardBack, "media-card-back", true)}
@@ -1384,6 +1418,72 @@ export default function AdminApplications() {
                 </div>
               </>
             )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(zoomedImage)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setZoomedImage(null);
+              setZoomScale(1);
+              setZoomRotation(0);
+            }
+          }}
+        >
+          <DialogContent className="w-[96vw] max-w-5xl h-[90vh] p-0 overflow-hidden">
+            <DialogHeader className="border-b px-6 py-4">
+              <DialogTitle>{zoomedImage?.label || "Image Preview"}</DialogTitle>
+              <DialogDescription>Use zoom and rotate controls to inspect verification details clearly.</DialogDescription>
+            </DialogHeader>
+            <div className="flex items-center justify-between gap-2 border-b px-6 py-3">
+              <div className="text-sm text-muted-foreground truncate">{zoomedImage?.url || ""}</div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setZoomScale((prev) => Math.max(0.5, Number((prev - 0.25).toFixed(2))))}
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setZoomScale(1)}>
+                  100%
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setZoomScale((prev) => Math.min(4, Number((prev + 0.25).toFixed(2))))}
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setZoomRotation((prev) => (prev + 90) % 360)}
+                >
+                  <RotateCw className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="h-full overflow-auto bg-black/80 p-4">
+              {zoomedImage && (
+                <div className="flex min-h-full items-center justify-center">
+                  <img
+                    src={zoomedImage.url}
+                    alt={zoomedImage.label}
+                    className="max-w-none"
+                    style={{
+                      transform: `scale(${zoomScale}) rotate(${zoomRotation}deg)`,
+                      transformOrigin: "center center",
+                      imageOrientation: "from-image" as any,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
           </DialogContent>
         </Dialog>
       </div>

@@ -40,6 +40,9 @@ import {
   platformSettings as platformSettingsTable,
   footerPages as footerPagesTable,
   adminPermissions,
+  passwordResetTokens,
+  securitySettings,
+  mediaLibrary,
 } from "@shared/schema";
 import { eq, or, isNotNull, and, desc, sql, inArray, asc } from "drizzle-orm";
 import { 
@@ -724,12 +727,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "File too large. Maximum size is 10MB" });
       }
 
+      // Normalize orientation at upload time so ID/profile cards render correctly downstream.
+      let uploadBuffer = req.file.buffer;
+      let uploadMimeType = req.file.mimetype;
+      if (req.file.mimetype !== "image/gif") {
+        try {
+          const autoOriented = await sharp(req.file.buffer).rotate().toBuffer();
+          const orientedMeta = await sharp(autoOriented).metadata();
+          const orientedWidth = orientedMeta.width || 0;
+          const orientedHeight = orientedMeta.height || 0;
+
+          // Ghana/ID cards should be landscape in admin review surfaces.
+          uploadBuffer = orientedHeight > orientedWidth
+            ? await sharp(autoOriented).rotate(90).toBuffer()
+            : autoOriented;
+        } catch (orientationError) {
+          console.warn("Public image orientation normalization skipped:", orientationError);
+          uploadBuffer = req.file.buffer;
+          uploadMimeType = req.file.mimetype;
+        }
+      }
+
       try {
-        const imageUrl = await uploadToCloudinary(req.file.buffer, "kiyumart/registration");
+        const imageUrl = await uploadToCloudinary(uploadBuffer, "kiyumart/registration");
         return res.json({ url: imageUrl, provider: "cloudinary" });
       } catch (cloudinaryError: any) {
         console.warn("Public image upload cloud provider failed, using local fallback:", cloudinaryError?.message || cloudinaryError);
-        const localUrl = await persistPublicUploadLocally(req.file.buffer, req.file.mimetype);
+        const localUrl = await persistPublicUploadLocally(uploadBuffer, uploadMimeType);
         return res.json({ url: localUrl, provider: "local" });
       }
     } catch (error: any) {
@@ -2230,6 +2254,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await tx.delete(transactions).where(eq(transactions.userId, userId));
         await tx.delete(reviews).where(eq(reviews.userId, userId));
         await tx.delete(riderReviews).where(or(eq(riderReviews.userId, userId), eq(riderReviews.riderId, userId)));
+        await tx.delete(passwordResetTokens).where(or(eq(passwordResetTokens.userId, userId), eq(passwordResetTokens.createdBy, userId)));
+        await tx.delete(securitySettings).where(eq(securitySettings.userId, userId));
+        await tx.delete(mediaLibrary).where(eq(mediaLibrary.uploaderId, userId));
+        await tx.delete(promotionalAds).where(eq(promotionalAds.createdBy, userId));
         await tx.delete(coupons).where(eq(coupons.sellerId, userId));
         await tx.delete(commissions).where(eq(commissions.sellerId, userId));
         await tx.delete(sellerPayouts).where(or(eq(sellerPayouts.sellerId, userId), eq(sellerPayouts.processedBy, userId)));
@@ -2280,6 +2308,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await tx.delete(orders).where(inArray(orders.id, orderIds));
         }
 
+        // Remove status history entries authored by this user on orders not owned by the user.
+        await tx.delete(orderStatusHistory).where(eq(orderStatusHistory.changedBy, userId));
+
         // Finally, delete the user.
         await tx.delete(users).where(eq(users.id, userId));
       });
@@ -2288,7 +2319,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "User and all related data deleted successfully" });
     } catch (error: any) {
       console.error("Error deleting user:", error);
-      res.status(400).json({ error: error.message });
+      const detail = error?.detail ? ` (${error.detail})` : "";
+      res.status(400).json({ error: `${error.message || "Failed to delete user"}${detail}` });
     }
   });
 

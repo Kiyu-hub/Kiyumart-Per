@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, MessageSquare, Send, ArrowLeft, User, Phone, Video, PhoneOff } from "lucide-react";
+import { Loader2, Search, MessageSquare, Send, ArrowLeft, User, Phone, Video, PhoneOff, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { useSocket } from "@/contexts/NotificationContext";
@@ -24,7 +24,7 @@ import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 import MessageAttachmentContent from "@/components/MessageAttachmentContent";
-import { buildChatAttachmentMessage } from "@/lib/chatAttachments";
+import { buildChatAttachmentMessage, parseChatAttachmentMessage } from "@/lib/chatAttachments";
 
 interface UserData {
   id: string;
@@ -49,12 +49,19 @@ interface Message {
   readAt?: string | null;
 }
 
+interface ProductContextData {
+  id: string;
+  name: string;
+  images?: string[];
+}
+
 export default function AdminMessages() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [showOnlineOnly, setShowOnlineOnly] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [showProductContext, setShowProductContext] = useState(true);
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -86,6 +93,11 @@ export default function AdminMessages() {
   // Get userId from URL search params if present (when clicking from AdminUsers)
   const urlParams = new URLSearchParams(window.location.search);
   const userIdFilter = urlParams.get("userId");
+  const productIdFilter = urlParams.get("productId");
+  const productNameFilter = urlParams.get("productName") || "";
+  const productImageFilter = urlParams.get("productImage") || "";
+  const productLinkFilter = urlParams.get("productLink") || (productIdFilter ? `/product/${productIdFilter}` : "");
+  const autoReferencedThreadsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -208,6 +220,18 @@ export default function AdminMessages() {
   const { data: users = [], isLoading: usersLoading } = useQuery<UserData[]>({
     queryKey: ["/api/users"],
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+  });
+
+  const { data: productContext } = useQuery<ProductContextData | null>({
+    queryKey: ["/api/products", productIdFilter, "message-context"],
+    queryFn: async () => {
+      if (!productIdFilter) return null;
+      const res = await fetch(`/api/products/${productIdFilter}`, { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: Boolean(productIdFilter),
+    staleTime: 60_000,
   });
 
   // Auto-select user when filtering by userId
@@ -411,6 +435,38 @@ export default function AdminMessages() {
     }
   };
 
+  const productReference =
+    productIdFilter || productNameFilter || productContext
+      ? {
+          id: productContext?.id || productIdFilter || "",
+          name: productContext?.name || productNameFilter || "Product reference",
+          image: productContext?.images?.[0] || productImageFilter || "",
+          link: productLinkFilter || (productContext?.id ? `/product/${productContext.id}` : ""),
+        }
+      : null;
+
+  useEffect(() => {
+    if (productReference?.link) {
+      setShowProductContext(true);
+    }
+  }, [productReference?.id, productReference?.link]);
+
+  const sendProductReference = async () => {
+    if (!selectedUserId || !productReference || !productReference.link) return;
+    await sendMessageMutation.mutateAsync({
+      receiverId: selectedUserId,
+      message: buildChatAttachmentMessage({
+        kind: "product",
+        url: productReference.link,
+        name: productReference.name,
+        size: 0,
+        productId: productReference.id,
+        productName: productReference.name,
+        productImage: productReference.image,
+      }),
+    });
+  };
+
   const handleTypingChange = (value: string) => {
     setMessage(value);
     if (!socket || !selectedUserId) return;
@@ -439,6 +495,35 @@ export default function AdminMessages() {
       }
     };
   }, [socket, selectedUserId]);
+
+  useEffect(() => {
+    if (!selectedUserId || !userIdFilter || selectedUserId !== userIdFilter) return;
+    if (!productReference?.link) return;
+    if (messagesLoading) return;
+
+    const hasReference = messages.some((msg) => {
+      const parsed = parseChatAttachmentMessage(msg.message || "");
+      if (!parsed || parsed.kind !== "product") return false;
+      if (productReference.id && parsed.productId === productReference.id) return true;
+      return parsed.url === productReference.link;
+    });
+    if (hasReference) return;
+
+    const threadKey = `${selectedUserId}:${productReference.id || productReference.link}`;
+    if (autoReferencedThreadsRef.current.has(threadKey)) return;
+    autoReferencedThreadsRef.current.add(threadKey);
+
+    void sendProductReference().catch(() => {
+      // Keep non-blocking behavior; user can send reference manually from the context card.
+    });
+  }, [
+    selectedUserId,
+    userIdFilter,
+    productReference?.id,
+    productReference?.link,
+    messages,
+    messagesLoading,
+  ]);
 
   // WebRTC Helper Functions
   const initPeerConnection = (targetUserId: string) => {
@@ -873,6 +958,47 @@ export default function AdminMessages() {
                 </Button>
               </div>
 
+              {productReference?.link && showProductContext && (
+                <div className="mx-3 mt-3 rounded-lg border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+                      Product Context
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setShowProductContext(false)}
+                      title="Close product reference"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="mt-2 flex items-center gap-3">
+                    <img
+                      src={productReference.image || "/placeholder.jpg"}
+                      alt={productReference.name}
+                      className="h-12 w-12 rounded-md border object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold truncate">{productReference.name}</p>
+                      <a href={productReference.link} className="text-xs text-primary hover:underline">
+                        Open product
+                      </a>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void sendProductReference()}
+                      disabled={sendMessageMutation.isPending}
+                    >
+                      Send Ref
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Mobile Chat Messages */}
               <ScrollArea className="flex-1 p-3">
                 {messagesLoading ? (
@@ -1150,6 +1276,47 @@ export default function AdminMessages() {
                     </Button>
                   </div>
                 </div>
+
+                {productReference?.link && showProductContext && (
+                  <div className="mb-4 rounded-lg border bg-muted/30 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+                        Product Context
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setShowProductContext(false)}
+                        title="Close product reference"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="mt-2 flex items-center gap-3">
+                      <img
+                        src={productReference.image || "/placeholder.jpg"}
+                        alt={productReference.name}
+                        className="h-14 w-14 rounded-md border object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold truncate">{productReference.name}</p>
+                        <a href={productReference.link} className="text-xs text-primary hover:underline">
+                          Open product
+                        </a>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void sendProductReference()}
+                        disabled={sendMessageMutation.isPending}
+                      >
+                        Send reference
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 <ScrollArea className="flex-1 min-h-0 mb-4">
                   {messagesLoading ? (

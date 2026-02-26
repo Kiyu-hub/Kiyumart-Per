@@ -68,6 +68,15 @@ export default function AdminProductEdit() {
 
   const { data: product, isLoading: productLoading } = useQuery<Product>({
     queryKey: ["/api/products", productId],
+    queryFn: async () => {
+      if (!productId) throw new Error("Missing product id");
+      const res = await fetch(`/api/products/${productId}`, { credentials: "include" });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load product");
+      }
+      return res.json();
+    },
     enabled: !!productId,
   });
 

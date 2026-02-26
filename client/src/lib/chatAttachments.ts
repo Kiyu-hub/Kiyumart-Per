@@ -1,8 +1,11 @@
 export interface ChatAttachment {
-  kind: "image" | "video" | "audio" | "file";
+  kind: "image" | "video" | "audio" | "file" | "product";
   url: string;
   name: string;
   size: number;
+  productId?: string;
+  productName?: string;
+  productImage?: string;
 }
 
 export const CHAT_ATTACHMENT_PREFIX = "__CHAT_ATTACHMENT__:";
