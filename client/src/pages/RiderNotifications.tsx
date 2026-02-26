@@ -65,10 +65,11 @@ export default function RiderNotifications() {
 
   const markAllAsReadMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", "/api/notifications/mark-all-read");
+      return apiRequest("PATCH", "/api/notifications/mark-all-read");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     },
   });
 

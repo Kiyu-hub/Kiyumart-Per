@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -43,6 +43,8 @@ interface Message {
   deliveredAt?: string | null;
   readAt?: string | null;
 }
+
+const SUPPORT_ROLES = new Set(["support_agent", "agent", "admin", "super_admin"]);
 
 export default function RiderMessages() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -156,21 +158,21 @@ export default function RiderMessages() {
 
   // Auto-select user only when the contact is still allowed (support or active-order stakeholder).
   useEffect(() => {
-    if (userIdFilter && users.length > 0 && !selectedUserId) {
-      const targetUser = users.find(u => u.id === userIdFilter);
+    if (userIdFilter && normalizedUsers.length > 0 && !selectedUserId) {
+      const targetUser = normalizedUsers.find(u => u.id === userIdFilter);
       if (targetUser) {
         setSelectedUserId(targetUser.id);
       }
     }
-  }, [userIdFilter, users, selectedUserId]);
+  }, [userIdFilter, normalizedUsers, selectedUserId]);
 
   useEffect(() => {
     if (!selectedUserId) return;
-    const stillAllowed = users.some((u) => u.id === selectedUserId);
+    const stillAllowed = normalizedUsers.some((u) => u.id === selectedUserId);
     if (!stillAllowed) {
       setSelectedUserId(null);
     }
-  }, [users, selectedUserId]);
+  }, [normalizedUsers, selectedUserId]);
 
   const { data: messages = [], isLoading: messagesLoading } = useQuery<Message[]>({
     queryKey: ["/api/messages", selectedUserId],
@@ -280,12 +282,33 @@ export default function RiderMessages() {
     }
   };
 
-  const filteredUsers = users.filter(u => 
+  const normalizedUsers = useMemo(() => {
+    const mapped: UserData[] = [];
+    let supportInserted = false;
+    for (const u of users) {
+      if (SUPPORT_ROLES.has(String(u.role || "").toLowerCase())) {
+        if (!supportInserted) {
+          mapped.push({
+            ...u,
+            name: "Support Agent",
+            role: "support_agent",
+            email: "support@kiyumart.com",
+          });
+          supportInserted = true;
+        }
+        continue;
+      }
+      mapped.push(u);
+    }
+    return mapped;
+  }, [users]);
+
+  const filteredUsers = normalizedUsers.filter(u => 
     u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     u.email?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const selectedUser = users.find(u => u.id === selectedUserId);
+  const selectedUser = normalizedUsers.find(u => u.id === selectedUserId);
   const selectedUserPresence = usePresence(selectedUserId || undefined);
   const userIds = filteredUsers.map((u) => u.id);
   const batchPresence = useBatchPresence(userIds);
@@ -399,7 +422,7 @@ export default function RiderMessages() {
                       <div
                         key={userData.id}
                         onClick={() => setSelectedUserId(userData.id)}
-                        className="p-3 rounded-lg cursor-pointer hover:bg-accent/50 flex items-center gap-3"
+                        className="p-3 rounded-lg cursor-pointer hover:bg-muted/70 flex items-center gap-3"
                       >
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={userData.profileImage || undefined} alt={userData.name || userData.email} />
@@ -558,8 +581,8 @@ export default function RiderMessages() {
                         onClick={() => setSelectedUserId(userData.id)}
                         className={`p-3 rounded-lg cursor-pointer ${
                           selectedUserId === userData.id
-                            ? "bg-primary/10 border-l-4 border-l-primary"
-                            : "hover:bg-accent/50"
+                            ? "bg-muted border border-border"
+                            : "hover:bg-muted/70"
                         }`}
                       >
                         <div className="flex items-center gap-3">

@@ -389,7 +389,7 @@ export default function SellerMessages() {
                       <div
                         key={userData.id}
                         onClick={() => setSelectedUserId(userData.id)}
-                        className="p-3 rounded-lg cursor-pointer hover:bg-accent/50 flex items-center gap-3"
+                        className="p-3 rounded-lg cursor-pointer hover:bg-muted/70 flex items-center gap-3"
                       >
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={userData.profileImage || undefined} alt={userData.name || userData.email} />
@@ -548,8 +548,8 @@ export default function SellerMessages() {
                         onClick={() => setSelectedUserId(userData.id)}
                         className={`p-3 rounded-lg cursor-pointer ${
                           selectedUserId === userData.id
-                            ? "bg-primary/10 border-l-4 border-l-primary"
-                            : "hover:bg-accent/50"
+                            ? "bg-muted border border-border"
+                            : "hover:bg-muted/70"
                         }`}
                       >
                         <div className="flex items-center gap-3">

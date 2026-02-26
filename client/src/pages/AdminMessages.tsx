@@ -789,7 +789,7 @@ export default function AdminMessages() {
                         <div
                           key={userData.id}
                           onClick={() => setSelectedUserId(userData.id)}
-                          className="p-3 rounded-lg cursor-pointer hover:bg-accent/50 flex items-center gap-3 active:scale-[0.98] transition-all"
+                          className="p-3 rounded-lg cursor-pointer hover:bg-muted/70 flex items-center gap-3 active:scale-[0.98] transition-all"
                           data-testid={`user-mobile-${userData.id}`}
                         >
                           {/* Avatar with presence */}

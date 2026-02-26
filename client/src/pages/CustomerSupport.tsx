@@ -693,7 +693,7 @@ export default function CustomerSupport() {
                       key={conv.id}
                       type="button"
                       className={`w-full text-left p-4 border-b transition-colors ${
-                        selectedConversation === conv.id ? "bg-primary/10 border-l-4 border-l-primary" : "hover:bg-muted"
+                        selectedConversation === conv.id ? "bg-muted border-l-4 border-l-emerald-500" : "hover:bg-muted"
                       }`}
                       onClick={() => setSelectedConversation(conv.id)}
                       data-testid={`conversation-${conv.id}`}

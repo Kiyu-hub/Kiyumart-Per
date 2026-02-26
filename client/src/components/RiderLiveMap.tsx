@@ -326,10 +326,10 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
         </div>
       </CardHeader>
 
-      <CardContent className="p-0 relative">
+      <CardContent className="p-0">
         {/* Active Delivery Info Bar */}
         {activeDelivery && (
-          <div className="absolute top-2 left-2 right-2 z-[1000] bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-lg p-3 backdrop-blur-sm">
+          <div className="mx-2 mt-2 mb-2 bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-sm border p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
@@ -364,7 +364,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
         )}
 
         {!activeDelivery && (
-          <div className="absolute top-2 left-2 right-2 z-[1000] bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-lg p-4 backdrop-blur-sm text-center">
+          <div className="mx-2 mt-2 mb-2 bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-sm border p-4 text-center">
             <Truck className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
             <p className="text-sm font-medium">No Active Delivery</p>
             <p className="text-xs text-muted-foreground">Accept a delivery to start navigation</p>
@@ -374,7 +374,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
         <MapContainer
           center={defaultCenter}
           zoom={14}
-          className={cn("w-full", isFullscreen ? "h-[calc(100vh-80px)]" : "h-[350px]")}
+          className={cn("w-full", isFullscreen ? "h-[calc(100vh-160px)]" : "h-[420px]")}
           ref={mapRef}
         >
           <TileLayer
@@ -444,8 +444,8 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
         </MapContainer>
 
         {/* Bottom stats bar */}
-        <div className="absolute bottom-2 left-2 right-2 z-[1000]">
-          <div className="bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-lg px-4 py-2 backdrop-blur-sm flex items-center justify-between">
+        <div className="mx-2 my-2">
+          <div className="bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-sm border px-4 py-2 flex items-center justify-between">
             <div className="flex items-center gap-4 text-sm">
               {routeInfo ? (
                 <>
