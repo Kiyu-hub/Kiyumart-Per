@@ -13,10 +13,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Loader2, MapPin, Navigation, Package, QrCode, Phone, User, MessageSquare, ChevronDown } from "lucide-react";
+import { Loader2, MapPin, Navigation, Package, QrCode, Phone, MessageSquare, ChevronDown } from "lucide-react";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
 import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { useToast } from "@/hooks/use-toast";
+import UserAvatar from "@/components/UserAvatar";
 
 // Lazy load heavy map components
 const RiderNavigationMap = lazy(() => import("@/components/RiderNavigationMap"));
@@ -32,6 +33,7 @@ interface ActiveDelivery {
   buyerId?: string;
   buyerName?: string;
   buyerPhone?: string;
+  buyerProfileImage?: string | null;
   qrCode?: string;
 }
 
@@ -188,7 +190,12 @@ export default function RiderActiveRoute() {
 
               {activeDelivery.buyerName && (
                 <div className="mt-3 flex items-center gap-3">
-                  <User className="h-5 w-5 text-gray-500 flex-shrink-0" />
+                  <UserAvatar
+                    profileImage={activeDelivery.buyerProfileImage || null}
+                    name={activeDelivery.buyerName || "Customer"}
+                    size="sm"
+                    className="flex-shrink-0"
+                  />
                   <div>
                     <p className="font-medium text-sm">Customer</p>
                     <p className="text-muted-foreground text-sm">{activeDelivery.buyerName}</p>

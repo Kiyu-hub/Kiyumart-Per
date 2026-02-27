@@ -14,12 +14,14 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import UserAvatar from "@/components/UserAvatar";
 
 interface Agent {
   id: string;
   name: string;
   email: string;
   phone: string | null;
+  profileImage?: string | null;
   isActive: boolean;
   isApproved: boolean;
   createdAt: string;
@@ -236,9 +238,12 @@ export default function AdminAgents() {
               <Card key={agent.id} className="p-6" data-testid={`agent-card-${agent.id}`}>
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                      <UserCog className="h-6 w-6 text-primary" />
-                    </div>
+                    <UserAvatar
+                      profileImage={agent.profileImage || null}
+                      name={agent.name}
+                      email={agent.email}
+                      size="lg"
+                    />
                     <div>
                       <h3 className="font-semibold" data-testid={`agent-name-${agent.id}`}>
                         {agent.name}

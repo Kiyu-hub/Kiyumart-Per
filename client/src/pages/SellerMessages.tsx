@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, MessageSquare, Send, ArrowLeft, User, Headphones } from "lucide-react";
+import { Loader2, Search, MessageSquare, Send, ArrowLeft, Headphones } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { useSocket } from "@/contexts/NotificationContext";
@@ -19,6 +19,7 @@ import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresen
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 import MessageAttachmentContent from "@/components/MessageAttachmentContent";
 import { buildChatAttachmentMessage } from "@/lib/chatAttachments";
+import UserAvatar from "@/components/UserAvatar";
 
 interface UserData {
   id: string;
@@ -671,9 +672,13 @@ export default function SellerMessages() {
                             key={msg.id}
                             className={`flex gap-3 ${msg.senderId === user?.id ? "flex-row-reverse" : ""}`}
                           >
-                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                              <User className="h-4 w-4 text-primary" />
-                            </div>
+                            <UserAvatar
+                              profileImage={msg.senderId === user?.id ? (user?.profileImage || null) : (selectedUser?.profileImage || null)}
+                              name={msg.senderId === user?.id ? (user?.name || "You") : (selectedUser?.name || selectedUser?.username || "User")}
+                              email={msg.senderId === user?.id ? user?.email : selectedUser?.email}
+                              size="sm"
+                              className="flex-shrink-0"
+                            />
                             <div className={`flex-1 ${msg.senderId === user?.id ? "text-right" : ""}`}>
                               <div
                                 className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${

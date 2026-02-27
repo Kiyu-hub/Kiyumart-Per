@@ -18,7 +18,6 @@ import {
   Minimize2, 
   MapPin, 
   Phone, 
-  User, 
   Package, 
   Navigation,
   AlertTriangle,
@@ -32,10 +31,12 @@ import { io, Socket } from "socket.io-client";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { fetchOrderEta } from "@/lib/eta";
+import UserAvatar from "@/components/UserAvatar";
 
 interface RiderLocation {
   riderId: string;
   riderName: string;
+  riderProfileImage?: string | null;
   orderId: string;
   orderNumber: string;
   orderStatus?: string;
@@ -70,6 +71,7 @@ interface AvailableRider {
   name: string;
   email: string;
   phone: string;
+  profileImage?: string | null;
   isAvailable: boolean;
   currentLocation?: { lat: number; lng: number };
   distanceToOrder?: number;
@@ -584,9 +586,11 @@ export default function RealTimeRiderMap() {
                     {/* Rider Info */}
                     <div className="space-y-4">
                       <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
-                        <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                          <User className="h-6 w-6 text-primary" />
-                        </div>
+                        <UserAvatar
+                          profileImage={selectedRider.riderProfileImage || null}
+                          name={selectedRider.riderName}
+                          size="lg"
+                        />
                         <div>
                           <p className="font-semibold">{selectedRider.riderName}</p>
                           <p className="text-sm text-muted-foreground">Active Delivery</p>
@@ -715,9 +719,12 @@ export default function RealTimeRiderMap() {
                         key={rider.riderId}
                         className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg"
                       >
-                        <div className="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center flex-shrink-0">
-                          <User className="h-4 w-4 text-amber-600" />
-                        </div>
+                        <UserAvatar
+                          profileImage={rider.riderProfileImage || null}
+                          name={rider.riderName}
+                          size="sm"
+                          className="flex-shrink-0"
+                        />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium truncate">{rider.riderName}</p>
                           <p className="text-xs text-muted-foreground truncate">Order #{rider.orderNumber}</p>
@@ -784,9 +791,12 @@ export default function RealTimeRiderMap() {
                         className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted transition-colors"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                            <User className="h-5 w-5 text-primary" />
-                          </div>
+                          <UserAvatar
+                            profileImage={rider.profileImage || null}
+                            name={rider.name}
+                            email={rider.email}
+                            size="md"
+                          />
                           <div>
                             <p className="font-medium">{rider.name}</p>
                             {rider.distanceToOrder && (

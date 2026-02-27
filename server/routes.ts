@@ -7272,6 +7272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deliveryLongitude: order.deliveryLongitude ? parseFloat(order.deliveryLongitude) : null,
         buyerId: order.buyerId,
         buyerName: buyer?.name || "Customer",
+        buyerProfileImage: buyer?.profileImage || null,
         buyerPhone: order.deliveryPhone || buyer?.phone || null,
         qrCode: order.qrCode || null,
       });
@@ -7548,6 +7549,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return {
             riderId: rider.id,
             riderName: rider.name,
+            riderProfileImage: rider.profileImage || null,
             orderId: order.id,
             orderNumber: order.orderNumber,
             orderStatus: order.status,
@@ -7663,6 +7665,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               name: rider.name,
               email: rider.email,
               phone: rider.phone,
+              profileImage: rider.profileImage || null,
               isAvailable: true,
               zoneId: resolveZoneByRiderProfile(rider, zones),
               zoneMatched:

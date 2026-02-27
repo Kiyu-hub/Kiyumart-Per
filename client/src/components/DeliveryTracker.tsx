@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Circle, MapPin, User, Phone } from "lucide-react";
+import { CheckCircle2, Circle, MapPin, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import UserAvatar from "@/components/UserAvatar";
 
 interface DeliveryStep {
   label: string;
@@ -13,6 +14,7 @@ interface DeliveryTrackerProps {
   orderId: string;
   riderName?: string;
   riderPhone?: string;
+  riderProfileImage?: string | null;
   steps: DeliveryStep[];
   estimatedArrival?: string;
 }
@@ -21,6 +23,7 @@ export default function DeliveryTracker({
   orderId,
   riderName,
   riderPhone,
+  riderProfileImage,
   steps,
   estimatedArrival,
 }: DeliveryTrackerProps) {
@@ -48,9 +51,7 @@ export default function DeliveryTracker({
         {riderName && (
           <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <User className="h-5 w-5 text-primary" />
-              </div>
+              <UserAvatar profileImage={riderProfileImage} name={riderName} size="md" />
               <div>
                 <p className="font-medium" data-testid="text-rider-name">
                   {riderName}
