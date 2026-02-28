@@ -6,7 +6,7 @@ import ProductCard from "@/components/ProductCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Store, Package, Star, MapPin } from "lucide-react";
+import { Store, Package, Star } from "lucide-react";
 import type { Product } from "@shared/schema";
 
 interface StoreData {
@@ -16,11 +16,21 @@ interface StoreData {
   logo?: string;
   banner?: string;
   sellerProfileImage?: string | null;
+  updatedAt?: string | null;
   category?: string;
   primarySellerId?: string;
   isActive?: boolean;
   isApproved?: boolean;
 }
+
+const withImageVersion = (url?: string | null, version?: string | null): string | undefined => {
+  const normalizedUrl = typeof url === "string" ? url.trim() : "";
+  if (!normalizedUrl) return undefined;
+  const normalizedVersion = typeof version === "string" ? version.trim() : "";
+  if (!normalizedVersion) return normalizedUrl;
+  const separator = normalizedUrl.includes("?") ? "&" : "?";
+  return `${normalizedUrl}${separator}v=${encodeURIComponent(normalizedVersion)}`;
+};
 
 export default function SellerStorePage() {
   const [, params] = useRoute("/sellers/:id");
@@ -38,6 +48,7 @@ export default function SellerStorePage() {
     retry: false,
     staleTime: 0,
     refetchOnMount: "always",
+    refetchInterval: 15000,
   });
 
   // Determine the seller ID — either from the store's primarySellerId, or the URL param itself
@@ -51,14 +62,19 @@ export default function SellerStorePage() {
       const res = await fetch(`/api/stores/by-seller/${sellerId}`);
       if (res.ok) {
         const storeData = await res.json();
+        const normalizedStoreLogo =
+          storeData.logo && storeData.logo !== storeData.banner
+            ? storeData.logo
+            : null;
         // Merge store + basic seller info
         return {
           id: sellerId,
           name: storeData.name || "Store",
           storeName: storeData.name,
           storeBanner: storeData.banner,
+          storeUpdatedAt: storeData.updatedAt || null,
           storeBio: storeData.description,
-          profilePicture: storeData.sellerProfileImage || storeData.logo,
+          profilePicture: storeData.sellerProfileImage || normalizedStoreLogo,
           ratings: "0",
         };
       }
@@ -67,16 +83,21 @@ export default function SellerStorePage() {
     enabled: !!sellerId && !storeLoading,
     staleTime: 0,
     refetchOnMount: "always",
+    refetchInterval: 15000,
   });
 
-  // Use store data directly if we have it  
+  // Use store data directly if we have it
   const displayData = store ? {
     id: storeOrSellerId,
     name: store.name,
     storeName: store.name,
     storeBanner: store.banner,
+    storeUpdatedAt: store.updatedAt || null,
     storeBio: store.description,
-    profilePicture: seller?.profilePicture || store.sellerProfileImage || store.logo,
+    profilePicture:
+      seller?.profilePicture ||
+      store.sellerProfileImage ||
+      (store.logo && store.logo !== store.banner ? store.logo : null),
     ratings: "0",
   } : seller;
 
@@ -123,6 +144,9 @@ export default function SellerStorePage() {
   }
 
   const s = displayData || {} as any;
+  const imageVersion = s.storeUpdatedAt || s.updatedAt || s.id || "";
+  const bannerSrc = withImageVersion(s.storeBanner, imageVersion);
+  const profileSrc = withImageVersion(s.profilePicture, imageVersion);
 
   return (
     <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900">
@@ -134,7 +158,7 @@ export default function SellerStorePage() {
             {s.storeBanner ? (
               <div className="h-32 md:h-40 rounded-lg overflow-hidden">
                 <img
-                  src={s.storeBanner}
+                  src={bannerSrc}
                   alt={s.storeName || s.name}
                   className="w-full h-full object-cover"
                   data-testid="img-store-banner"
@@ -148,7 +172,7 @@ export default function SellerStorePage() {
 
             <div className="absolute -bottom-8 left-4">
               <Avatar className="h-16 w-16 border-4 border-background">
-                <AvatarImage src={s.profilePicture || undefined} />
+                <AvatarImage src={profileSrc} />
                 <AvatarFallback className="bg-primary text-white text-lg">
                   {s.storeName?.[0] || s.name?.[0] || "S"}
                 </AvatarFallback>

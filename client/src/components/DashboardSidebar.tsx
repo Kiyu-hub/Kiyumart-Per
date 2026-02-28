@@ -169,13 +169,39 @@ export default function DashboardSidebar({
   const normalizedRole = (role as string) === "superadmin" ? "super_admin" : role;
   const items = menuItems[normalizedRole];
 
-  // Fetch real notification count
-  const { data: notificationData } = useQuery<{ count: number }>({
-    queryKey: ["/api/notifications/unread-count"],
-    refetchInterval: 30000, // Refetch every 30 seconds
+  // Ensure we have the current user available for the avatar and user-scoped caches.
+  const { data: currentUser } = useQuery<CurrentUserPayload>({
+    queryKey: ["/api/auth/me"],
+    queryFn: async () => {
+      const res = await fetch("/api/auth/me", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    // Use cached value if present
+    initialData: () => queryClient.getQueryData(["/api/auth/me"]),
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
   });
 
-  const notificationCount = notificationData?.count || 0;
+  const { data: notificationCount = 0 } = useQuery<number>({
+    queryKey: ["/api/notifications/unread-count", currentUser?.id || "anonymous"],
+    queryFn: async () => {
+      if (!currentUser?.id) return 0;
+      const res = await fetch("/api/notifications/unread-count", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) return 0;
+      const payload = await res.json();
+      const parsed = Number(payload?.count ?? 0);
+      return Number.isFinite(parsed) ? parsed : 0;
+    },
+    enabled: !!currentUser?.id,
+    staleTime: 0,
+    refetchInterval: 15000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+  });
 
   const { data: applicationBadgeData } = useQuery<{ count: number }>({
     queryKey: ["/api/sidebar/pending-applications-count"],
@@ -223,20 +249,6 @@ export default function DashboardSidebar({
   });
 
   const pendingAssignmentsCount = assignmentBadgeData?.count || 0;
-
-  // Ensure we have the current user available for the avatar even if parent hasn't passed it yet
-  const { data: currentUser } = useQuery<CurrentUserPayload>({
-    queryKey: ["/api/auth/me"],
-    queryFn: async () => {
-      const res = await fetch("/api/auth/me", { credentials: "include" });
-      if (!res.ok) return null;
-      return res.json();
-    },
-    // Use cached value if present
-    initialData: () => queryClient.getQueryData(["/api/auth/me"]),
-    staleTime: 30 * 1000,
-    refetchInterval: 30 * 1000,
-  });
 
   const visibleItems = (() => {
     // Seller/Rider chat visibility is controlled by super admin role features.

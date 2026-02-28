@@ -42,6 +42,7 @@ export default function RiderNotifications() {
       if (!res.ok) throw new Error("Failed to fetch notifications");
       return res.json();
     },
+    enabled: !!user,
   });
 
   const markAsReadMutation = useMutation({
@@ -50,6 +51,7 @@ export default function RiderNotifications() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     },
   });
 
@@ -60,6 +62,7 @@ export default function RiderNotifications() {
     onSuccess: () => {
       toast({ title: "Notification deleted" });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     },
   });
 

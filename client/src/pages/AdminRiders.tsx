@@ -92,6 +92,15 @@ const parseVehicleInfo = (value: unknown): Rider["vehicleInfo"] => {
   return null;
 };
 
+const withImageVersion = (url?: string | null, version?: string | null): string | undefined => {
+  const normalizedUrl = typeof url === "string" ? url.trim() : "";
+  if (!normalizedUrl) return undefined;
+  const normalizedVersion = typeof version === "string" ? version.trim() : "";
+  if (!normalizedVersion) return normalizedUrl;
+  const separator = normalizedUrl.includes("?") ? "&" : "?";
+  return `${normalizedUrl}${separator}v=${encodeURIComponent(normalizedVersion)}`;
+};
+
 const normalizeRider = (raw: any): Rider => ({
   id: String(raw?.id || ""),
   username: String(raw?.username || raw?.name || ""),
@@ -400,6 +409,10 @@ function AddRiderDialog() {
 function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
   const [open, setOpen] = useState(false);
   const vehicleInfo = parseVehicleInfo(riderData.vehicleInfo);
+  const imageVersion = riderData.id || riderData.createdAt || "rider";
+  const profileImageSrc = withImageVersion(riderData.profileImage, imageVersion);
+  const ghanaCardFrontSrc = withImageVersion(riderData.ghanaCardFront, imageVersion);
+  const ghanaCardBackSrc = withImageVersion(riderData.ghanaCardBack, imageVersion);
   const [cardRotation, setCardRotation] = useState<{ front: number; back: number }>({
     front: 0,
     back: 0,
@@ -454,9 +467,9 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
             </h3>
             <div className="rounded-lg overflow-hidden border border-border/70">
               <div className="relative h-48 flex items-center justify-center bg-muted">
-                {riderData.profileImage ? (
+                {profileImageSrc ? (
                   <img
-                    src={riderData.profileImage}
+                    src={profileImageSrc}
                     alt="Profile background"
                     className="absolute inset-0 h-full w-full object-cover"
                     onError={(event) => {
@@ -464,15 +477,15 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
                     }}
                   />
                 ) : null}
-                <div className={`absolute inset-0 ${riderData.profileImage ? "bg-black/35" : "bg-black/10"}`} />
-                {riderData.profileImage ? (
+                <div className={`absolute inset-0 ${profileImageSrc ? "bg-black/35" : "bg-black/10"}`} />
+                {profileImageSrc ? (
                   <button
                     type="button"
                     className="relative z-10 rounded-full p-1.5 bg-background/85 border border-white/30 shadow-xl backdrop-blur-sm"
-                    onClick={() => openZoom("Profile Photo", riderData.profileImage!, 0)}
+                    onClick={() => openZoom("Profile Photo", profileImageSrc, 0)}
                   >
                     <img
-                      src={riderData.profileImage}
+                      src={profileImageSrc}
                       alt="Profile"
                       className="w-32 h-32 rounded-full object-cover cursor-zoom-in"
                     />
@@ -521,7 +534,7 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
                 Ghana Card Verification
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {riderData.ghanaCardFront && (
+                {ghanaCardFrontSrc && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-sm font-medium text-muted-foreground">Front</p>
@@ -531,7 +544,7 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
                           variant="ghost"
                           size="sm"
                           className="h-7 px-2 text-xs"
-                          onClick={() => openZoom("Ghana Card Front", riderData.ghanaCardFront!, cardRotation.front)}
+                          onClick={() => openZoom("Ghana Card Front", ghanaCardFrontSrc, cardRotation.front)}
                         >
                           Zoom
                         </Button>
@@ -550,14 +563,14 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
                     </div>
                     <div className="bg-muted rounded-lg p-2 h-60 border border-border/70 flex items-center justify-center overflow-hidden">
                       <img
-                        src={riderData.ghanaCardFront}
+                        src={ghanaCardFrontSrc}
                         alt="Ghana Card Front"
                         className="max-h-[85%] max-w-[85%] rounded object-contain transition-transform duration-150 cursor-zoom-in"
                         style={{
                           transform: `rotate(${cardRotation.front}deg)`,
                           imageOrientation: "from-image" as any,
                         }}
-                        onClick={() => openZoom("Ghana Card Front", riderData.ghanaCardFront!, cardRotation.front)}
+                        onClick={() => openZoom("Ghana Card Front", ghanaCardFrontSrc, cardRotation.front)}
                         onLoad={(event) => {
                           const img = event.currentTarget;
                           const shouldRotate = img.naturalHeight > img.naturalWidth;
@@ -569,7 +582,7 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
                     </div>
                   </div>
                 )}
-                {riderData.ghanaCardBack && (
+                {ghanaCardBackSrc && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-sm font-medium text-muted-foreground">Back</p>
@@ -579,7 +592,7 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
                           variant="ghost"
                           size="sm"
                           className="h-7 px-2 text-xs"
-                          onClick={() => openZoom("Ghana Card Back", riderData.ghanaCardBack!, cardRotation.back)}
+                          onClick={() => openZoom("Ghana Card Back", ghanaCardBackSrc, cardRotation.back)}
                         >
                           Zoom
                         </Button>
@@ -598,14 +611,14 @@ function ViewApplicationDialog({ riderData }: { riderData: Rider }) {
                     </div>
                     <div className="bg-muted rounded-lg p-2 h-60 border border-border/70 flex items-center justify-center overflow-hidden">
                       <img
-                        src={riderData.ghanaCardBack}
+                        src={ghanaCardBackSrc}
                         alt="Ghana Card Back"
                         className="max-h-[85%] max-w-[85%] rounded object-contain transition-transform duration-150 cursor-zoom-in"
                         style={{
                           transform: `rotate(${cardRotation.back}deg)`,
                           imageOrientation: "from-image" as any,
                         }}
-                        onClick={() => openZoom("Ghana Card Back", riderData.ghanaCardBack!, cardRotation.back)}
+                        onClick={() => openZoom("Ghana Card Back", ghanaCardBackSrc, cardRotation.back)}
                         onLoad={(event) => {
                           const img = event.currentTarget;
                           const shouldRotate = img.naturalHeight > img.naturalWidth;
@@ -864,6 +877,7 @@ export default function AdminRiders() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+  const [imageVersionToken] = useState(() => Date.now().toString());
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -977,7 +991,7 @@ export default function AdminRiders() {
                     <div className="bg-orange-500/10 p-0 rounded-full w-12 h-12 overflow-hidden flex items-center justify-center">
                       {rider.profileImage ? (
                         <img
-                          src={rider.profileImage}
+                          src={withImageVersion(rider.profileImage, `${rider.id}-${imageVersionToken}`)}
                           alt={`${rider.name || rider.username} profile`}
                           className="h-full w-full object-cover"
                           onError={(event) => {
