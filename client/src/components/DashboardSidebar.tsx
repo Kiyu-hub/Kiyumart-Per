@@ -229,20 +229,11 @@ export default function DashboardSidebar({
     queryKey: ["/api/sidebar/pending-assignments-count"],
     queryFn: async () => {
       if (normalizedRole !== "admin" && normalizedRole !== "super_admin") return { count: 0 };
-      const ordersRes = await fetch("/api/orders", { credentials: "include" });
-      if (!ordersRes.ok) return { count: 0 };
-      const orders = await ordersRes.json();
-      if (!Array.isArray(orders)) return { count: 0 };
-
-      const actionableStatuses = new Set(["pending", "confirmed", "processing", "ready", "searching_rider"]);
-      const count = orders.filter((order: any) => {
-        const deliveryMethod = String(order?.deliveryMethod || "").toLowerCase().trim();
-        const status = String(order?.status || "").toLowerCase().trim();
-        const riderId = order?.riderId || null;
-        return deliveryMethod !== "pickup" && !riderId && actionableStatuses.has(status);
-      }).length;
-
-      return { count };
+      // Keep sidebar count aligned with dispatch center source of truth.
+      const queueRes = await fetch("/api/admin/pending-orders", { credentials: "include" });
+      if (!queueRes.ok) return { count: 0 };
+      const queue = await queueRes.json();
+      return { count: Array.isArray(queue) ? queue.length : 0 };
     },
     enabled: normalizedRole === "admin" || normalizedRole === "super_admin",
     refetchInterval: 30000,

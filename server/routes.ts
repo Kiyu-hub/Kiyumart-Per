@@ -5453,6 +5453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       pending.currentRiderId = null;
       pending.expiresAt = null;
       await emitRiderAssignmentFailure(order, pending.lastError, pending.attempts);
+      clearPendingRiderAssignment(orderId);
       return;
     }
 

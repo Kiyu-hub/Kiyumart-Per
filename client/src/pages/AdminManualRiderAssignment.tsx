@@ -820,7 +820,10 @@ export default function AdminManualRiderAssignment() {
           </div>
         </div>
 
-        <Card className="border-primary/20 bg-gradient-to-r from-primary/5 via-background to-emerald-500/5">
+        <Card
+          className="border-primary/30 bg-gradient-to-r from-primary/10 via-background to-emerald-500/10 shadow-sm"
+          data-testid="dispatch-live-status-bar"
+        >
           <CardContent className="py-4">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -846,6 +849,13 @@ export default function AdminManualRiderAssignment() {
                   Pending Queue: {unassignedOrders.length}
                 </Badge>
               </div>
+            </div>
+            <div className="mt-3 h-1.5 rounded-full bg-muted/70 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-500 ${
+                  isRealtimeSyncing ? "w-1/2 bg-amber-500 animate-pulse" : "w-full bg-emerald-500"
+                }`}
+              />
             </div>
 
             {activeAssignments.length > 0 && (

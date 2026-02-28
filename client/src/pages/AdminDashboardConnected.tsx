@@ -198,18 +198,11 @@ export default function AdminDashboardConnected() {
   const { data: pendingAssignmentsBadgeData } = useQuery<{ count: number }>({
     queryKey: ["/api/dashboard/pending-assignments-count"],
     queryFn: async () => {
-      const res = await fetch("/api/orders", { credentials: "include" });
+      // Keep dashboard queue badge aligned with dispatch center logic.
+      const res = await fetch("/api/admin/pending-orders", { credentials: "include" });
       if (!res.ok) return { count: 0 };
       const data = await res.json();
-      if (!Array.isArray(data)) return { count: 0 };
-      const actionableStatuses = new Set(["pending", "confirmed", "processing", "ready", "searching_rider"]);
-      const count = data.filter((order: any) => {
-        const deliveryMethod = String(order?.deliveryMethod || "").toLowerCase().trim();
-        const status = String(order?.status || "").toLowerCase().trim();
-        const riderId = order?.riderId || null;
-        return deliveryMethod !== "pickup" && !riderId && actionableStatuses.has(status);
-      }).length;
-      return { count };
+      return { count: Array.isArray(data) ? data.length : 0 };
     },
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
     refetchInterval: 30000,
