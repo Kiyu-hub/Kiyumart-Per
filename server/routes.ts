@@ -1688,6 +1688,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete(
+    "/api/admin/applications/:id",
+    requireAuth,
+    requireRole("super_admin"),
+    requirePermission("manage_users"),
+    async (req: AuthRequest, res) => {
+      try {
+        const user = await storage.getUser(req.params.id);
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        const requestedRole = String((user as any).requestedRole || "").toLowerCase();
+        const currentRole = String(user.role || "").toLowerCase();
+        const applicationRole =
+          requestedRole === "seller" || requestedRole === "rider"
+            ? requestedRole
+            : currentRole === "seller" || currentRole === "rider"
+              ? currentRole
+              : "";
+        const applicationStatus = String((user as any).applicationStatus || "").toLowerCase();
+
+        if (!applicationRole) {
+          return res.status(400).json({ error: "User does not have a seller/rider application record" });
+        }
+
+        if (applicationStatus !== "rejected") {
+          return res.status(400).json({ error: "Only rejected applications can be removed from the queue" });
+        }
+
+        const updateData: Record<string, any> = {
+          requestedRole: null,
+          applicationStatus: null,
+          rejectionReason: null,
+          interviewScheduledAt: null,
+          interviewScheduledBy: null,
+        };
+
+        // If this account is an unapproved operational-role shell, revert it to buyer.
+        if ((currentRole === "seller" || currentRole === "rider") && !user.isApproved) {
+          updateData.role = "buyer";
+        }
+
+        const updatedUser = await storage.updateUser(req.params.id, updateData as any);
+        if (!updatedUser) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        const roleLabel = ROLE_LABELS[applicationRole] || applicationRole;
+        await storage.createNotification({
+          userId: updatedUser.id,
+          type: "system",
+          title: `${roleLabel} Application Record Cleared`,
+          message:
+            `Your rejected ${roleLabel.toLowerCase()} application record was removed by platform administration. ` +
+            `Your account remains active and you can submit a new application when ready.`,
+          metadata: {
+            role: applicationRole,
+            status: "cleared",
+            link: applicationRole === "seller" ? "/become-seller" : "/become-rider",
+          } as any,
+        });
+
+        const { password, ...userWithoutPassword } = updatedUser;
+        res.json({
+          success: true,
+          message: "Rejected application removed. User account remains active.",
+          user: userWithoutPassword,
+        });
+      } catch (error: any) {
+        console.error("Error clearing rejected application:", error);
+        res.status(400).json({ error: error.message || "Failed to clear rejected application" });
+      }
+    },
+  );
+
   app.patch("/api/users/:id/status", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       const { isActive } = req.body;
@@ -9427,6 +9503,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/admin/promotion-applications', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_users"), async (req, res) => {
+    try {
+      const rows = await storage.getAllPromotionalAds();
+      const creatorCache = new Map<string, any>();
+      const now = new Date();
+
+      const sellerSubmittedRows = [] as any[];
+      for (const row of rows) {
+        const createdBy = String(row?.createdBy || "");
+        if (!createdBy) continue;
+
+        let creator = creatorCache.get(createdBy);
+        if (!creator) {
+          creator = await storage.getUser(createdBy);
+          creatorCache.set(createdBy, creator || null);
+        }
+
+        if (!creator || String(creator.role || "").toLowerCase() !== "seller") continue;
+        sellerSubmittedRows.push({ row, creator });
+      }
+
+      const enriched = await Promise.all(
+        sellerSubmittedRows.map(async ({ row, creator }) => {
+          let targetName = "Unknown target";
+          if (row.type === "store") {
+            const store = await storage.getStore(String(row.targetId)).catch(() => null);
+            targetName = store?.name || "Store";
+          } else if (row.type === "product") {
+            const product = await storage.getProduct(String(row.targetId)).catch(() => null);
+            targetName = product?.name || "Product";
+          }
+
+          const startAt = row.startAt ? new Date(row.startAt) : null;
+          const endAt = row.endAt ? new Date(row.endAt) : null;
+          const durationHours =
+            startAt && endAt ? Math.max(0, Math.round((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60))) : null;
+          const status =
+            row.isActive && (!endAt || endAt > now)
+              ? "active"
+              : endAt && endAt <= now
+                ? "expired"
+                : "ended";
+
+          return {
+            id: row.id,
+            type: row.type,
+            targetId: row.targetId,
+            targetName,
+            startAt: row.startAt,
+            endAt: row.endAt,
+            durationHours,
+            isActive: Boolean(row.isActive),
+            status,
+            createdAt: row.createdAt,
+            seller: {
+              id: creator.id,
+              name: creator.name,
+              email: creator.email,
+            },
+          };
+        }),
+      );
+
+      enriched.sort((a: any, b: any) => {
+        const aTs = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTs = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTs - aTs;
+      });
+
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
   app.patch('/api/admin/promotions/:id/expire', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
       const id = req.params.id;
@@ -9724,6 +9875,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/seller/promotion-applications', requireAuth, requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
+    try {
+      const user = req.user;
+      if (!user || user.role !== 'seller') {
+        return res.status(403).json({ error: "Seller access required" });
+      }
+
+      const rows = await storage.getAllPromotionalAds();
+      const mine = rows.filter((row: any) => String(row?.createdBy || "") === String(user.id));
+      const now = new Date();
+
+      const enriched = await Promise.all(
+        mine.map(async (row: any) => {
+          let targetName = "Unknown target";
+          if (row.type === "store") {
+            const store = await storage.getStore(String(row.targetId)).catch(() => null);
+            targetName = store?.name || "Store";
+          } else if (row.type === "product") {
+            const product = await storage.getProduct(String(row.targetId)).catch(() => null);
+            targetName = product?.name || "Product";
+          }
+
+          const startAt = row.startAt ? new Date(row.startAt) : null;
+          const endAt = row.endAt ? new Date(row.endAt) : null;
+          const durationHours =
+            startAt && endAt ? Math.max(0, Math.round((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60))) : null;
+          const status =
+            row.isActive && (!endAt || endAt > now)
+              ? "active"
+              : endAt && endAt <= now
+                ? "expired"
+                : "ended";
+
+          return {
+            id: row.id,
+            type: row.type,
+            targetId: row.targetId,
+            targetName,
+            startAt: row.startAt,
+            endAt: row.endAt,
+            durationHours,
+            isActive: Boolean(row.isActive),
+            status,
+            createdAt: row.createdAt,
+          };
+        }),
+      );
+
+      enriched.sort((a: any, b: any) => {
+        const aTs = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTs = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTs - aTs;
+      });
+
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
   app.post('/api/seller/apply-promotion', requireAuth, requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
       const user = req.user;
@@ -9743,16 +9954,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (typeof duration !== 'number' || duration <= 0) return res.status(400).json({ error: 'Invalid duration' });
 
       // Validate targetId belongs to seller
+      let targetName = type === "store" ? "Store" : "Product";
       if (type === 'store') {
         const store = await storage.getStore(targetId);
         if (!store || store.primarySellerId !== user.id) {
           return res.status(403).json({ error: 'You can only promote your own store' });
         }
+        targetName = store.name || "Store";
       } else if (type === 'product') {
         const product = await storage.getProduct(targetId);
         if (!product || product.sellerId !== user.id) {
           return res.status(403).json({ error: 'You can only promote your own products' });
         }
+        targetName = product.name || "Product";
       }
 
       // Get pricing
@@ -9823,6 +10037,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ctaUrl: null,
         themeColor: null,
       });
+
+      await notifyAdmins(
+        "system",
+        "New Seller Promotion Application",
+        `${user.email || "Seller"} submitted a ${type} promotion request for ${targetName}.`,
+        {
+          promotionId: promo.id,
+          sellerId: user.id,
+          type,
+          targetId,
+          targetName,
+          durationType,
+          duration,
+          paymentReference: paymentReference.trim(),
+          totalPrice: totalPrice.toFixed(2),
+          link: `/admin/applications?tab=promotions&promotionId=${encodeURIComponent(String(promo.id))}`,
+        },
+        {
+          requiredAdminPermission: "manage_users",
+          includeAgents: false,
+        },
+      );
 
       res.json({
         ...promo,

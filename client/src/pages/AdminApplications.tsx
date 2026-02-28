@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, Eraser, ZoomIn, ZoomOut, RotateCw } from "lucide-react";
+import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, Eraser, ZoomIn, ZoomOut, RotateCw, Tag } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 
 interface Application {
@@ -47,6 +47,24 @@ interface Application {
   };
 }
 
+interface PromotionApplication {
+  id: string;
+  type: "store" | "product";
+  targetId: string;
+  targetName: string;
+  startAt?: string | null;
+  endAt?: string | null;
+  durationHours?: number | null;
+  isActive: boolean;
+  status: "active" | "expired" | "ended";
+  createdAt: string;
+  seller: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
 export default function AdminApplications() {
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -58,7 +76,7 @@ export default function AdminApplications() {
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
   const [interviewDateTime, setInterviewDateTime] = useState("");
-  const [activeTab, setActiveTab] = useState<"sellers" | "riders" | "interview" | "rejected">("sellers");
+  const [activeTab, setActiveTab] = useState<"sellers" | "riders" | "interview" | "rejected" | "promotions">("sellers");
   const deepLinkHandledRef = useRef(false);
   const [rotatedImageUrls, setRotatedImageUrls] = useState<Record<string, boolean>>({});
   const [zoomedImage, setZoomedImage] = useState<{ label: string; url: string; rotation: number } | null>(null);
@@ -72,6 +90,8 @@ export default function AdminApplications() {
     return {
       userId: params.get("userId") || "",
       role: String(params.get("role") || "").toLowerCase(),
+      tab: String(params.get("tab") || "").toLowerCase(),
+      promotionId: String(params.get("promotionId") || ""),
     };
   }, [location]);
 
@@ -342,6 +362,21 @@ export default function AdminApplications() {
     enabled: canManageApplications,
   });
 
+  const { data: promotionApplications = [], isLoading: promotionApplicationsLoading } = useQuery<PromotionApplication[]>({
+    queryKey: ["/api/admin/promotion-applications"],
+    queryFn: async () => {
+      const payload = await requestJsonWithFallback<PromotionApplication[]>(
+        "GET",
+        "/api/admin/promotion-applications",
+        undefined,
+        "Promotion applications",
+      );
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: canManageApplications,
+    refetchInterval: 15000,
+  });
+
   const approveApplicationMutation = useMutation({
     mutationFn: async ({ userId }: { userId: string }) => {
       return requestJsonWithFallback("PATCH", `/api/users/${userId}/approve`, {}, "Approve application");
@@ -418,12 +453,12 @@ export default function AdminApplications() {
 
   const deleteApplicantMutation = useMutation({
     mutationFn: async ({ userId }: { userId: string }) => {
-      return requestJsonWithFallback("DELETE", `/api/users/${userId}`, undefined, "Delete applicant");
+      return requestJsonWithFallback("DELETE", `/api/admin/applications/${userId}`, undefined, "Remove rejected application");
     },
     onSuccess: async () => {
       toast({
-        title: "Deleted",
-        description: "Applicant account deleted successfully",
+        title: "Removed",
+        description: "Rejected application removed. User account was not deleted.",
       });
       await queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       setViewDetailsOpen(false);
@@ -540,18 +575,28 @@ export default function AdminApplications() {
   };
 
   useEffect(() => {
+    if (queryParams.tab === "promotions") {
+      setActiveTab("promotions");
+      return;
+    }
     if (queryParams.role === "seller") setActiveTab("sellers");
     if (queryParams.role === "rider") setActiveTab("riders");
-  }, [queryParams.role]);
+  }, [queryParams.role, queryParams.tab]);
+
+  useEffect(() => {
+    if (queryParams.promotionId) {
+      setActiveTab("promotions");
+    }
+  }, [queryParams.promotionId]);
 
   useEffect(() => {
     deepLinkHandledRef.current = false;
-  }, [queryParams.userId]);
+  }, [queryParams.userId, queryParams.promotionId]);
 
   useEffect(() => {
     if (!queryParams.userId || deepLinkHandledRef.current) return;
 
-    const allBuckets: Array<{ tab: "sellers" | "riders" | "interview" | "rejected"; items: Application[] }> = [
+    const allBuckets: Array<{ tab: "sellers" | "riders" | "interview" | "rejected" | "promotions"; items: Application[] }> = [
       { tab: "sellers", items: pendingSellerApplications },
       { tab: "riders", items: pendingRiderApplications },
       { tab: "interview", items: [...interviewSellerApplications, ...interviewRiderApplications] },
@@ -617,7 +662,9 @@ export default function AdminApplications() {
 
   const handleDeleteApplicant = (application: Application) => {
     if (user?.role !== "super_admin") return;
-    const confirmed = window.confirm(`Delete ${application.name}'s account and related records? This cannot be undone.`);
+    const confirmed = window.confirm(
+      `Remove ${application.name}'s rejected application record from this queue? Their user account will remain active.`,
+    );
     if (!confirmed) return;
     deleteApplicantMutation.mutate({ userId: application.id });
   };
@@ -798,9 +845,73 @@ export default function AdminApplications() {
                 className="gap-2"
               >
                 <Trash2 className="h-4 w-4" />
-                Delete Applicant
+                Remove Rejected Application
               </Button>
             )}
+          </div>
+        </div>
+      </Card>
+    );
+  };
+
+  const PromotionApplicationCard = ({ application }: { application: PromotionApplication }) => {
+    const isHighlighted = queryParams.promotionId && String(queryParams.promotionId) === String(application.id);
+    const createdAtText = application.createdAt ? new Date(application.createdAt).toLocaleString() : "N/A";
+    const windowText =
+      application.startAt && application.endAt
+        ? `${new Date(application.startAt).toLocaleString()} -> ${new Date(application.endAt).toLocaleString()}`
+        : "N/A";
+
+    const statusClass =
+      application.status === "active"
+        ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+        : application.status === "expired"
+          ? "border-zinc-200 bg-zinc-100 text-zinc-700"
+          : "border-amber-200 bg-amber-100 text-amber-700";
+
+    return (
+      <Card
+        className={`p-4 transition-shadow hover:shadow-md ${isHighlighted ? "ring-2 ring-primary/60 border-primary" : ""}`}
+        data-testid={`card-promotion-application-${application.id}`}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-purple-500/10 p-2">
+                <Tag className="h-4 w-4 text-purple-600" />
+              </span>
+              <div>
+                <p className="font-semibold text-foreground">
+                  {application.type === "store" ? "Store Promotion" : "Product Promotion"}
+                </p>
+                <p className="text-sm text-muted-foreground">{application.targetName}</p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium">Seller:</span> {application.seller?.name || "Unknown"} ({application.seller?.email || "N/A"})
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium">Submitted:</span> {createdAtText}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium">Promotion Window:</span> {windowText}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium">Duration:</span> {application.durationHours ?? "N/A"} hour(s)
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusClass}`}>
+              {application.status}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate("/admin/promotions")}
+              data-testid={`button-open-promotion-${application.id}`}
+            >
+              Open Promotions
+            </Button>
           </div>
         </div>
       </Card>
@@ -849,7 +960,7 @@ export default function AdminApplications() {
         </div>
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-          <TabsList className="grid w-full max-w-4xl grid-cols-4">
+          <TabsList className="grid w-full max-w-6xl grid-cols-5">
             <TabsTrigger value="sellers" data-testid="tab-sellers">
               Pending Sellers ({pendingSellerApplications.length})
             </TabsTrigger>
@@ -861,6 +972,9 @@ export default function AdminApplications() {
             </TabsTrigger>
             <TabsTrigger value="rejected" data-testid="tab-rejected">
               Rejected ({rejectedSellerApplications.length + rejectedRiderApplications.length})
+            </TabsTrigger>
+            <TabsTrigger value="promotions" data-testid="tab-promotion-applications">
+              Promotion Requests ({promotionApplications.length})
             </TabsTrigger>
           </TabsList>
 
@@ -981,6 +1095,27 @@ export default function AdminApplications() {
                   <div className="text-center py-12">
                     <p className="text-muted-foreground" data-testid="text-no-rejected">
                       No rejected applications
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="promotions" className="mt-6">
+            {promotionApplicationsLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {promotionApplications.map((promotion) => (
+                  <PromotionApplicationCard key={promotion.id} application={promotion} />
+                ))}
+                {promotionApplications.length === 0 && (
+                  <div className="text-center py-12">
+                    <p className="text-muted-foreground" data-testid="text-no-promotion-applications">
+                      No seller promotion requests found
                     </p>
                   </div>
                 )}
@@ -1405,7 +1540,7 @@ export default function AdminApplications() {
                           className="gap-2"
                         >
                           <Trash2 className="h-4 w-4" />
-                          Delete Applicant
+                          Remove Rejected Application
                         </Button>
                       )}
                     </div>

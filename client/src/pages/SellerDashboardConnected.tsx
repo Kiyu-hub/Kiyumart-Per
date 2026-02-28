@@ -92,6 +92,7 @@ const SELLER_NAV_ROUTES: Record<string, string> = {
   "media-library": "/seller/media-library",
   products: "/seller/products",
   orders: "/seller/orders",
+  promotions: "/seller/promotions",
   deliveries: "/seller/deliveries",
   "payment-setup": "/seller/payment-setup",
   messages: "/seller/messages",
@@ -134,6 +135,8 @@ export default function SellerDashboardConnected() {
       setActiveItem("products");
     } else if (path.includes("/seller/orders")) {
       setActiveItem("orders");
+    } else if (path.includes("/seller/promotions")) {
+      setActiveItem("promotions");
     } else if (path.includes("/seller/coupons")) {
       setActiveItem("coupons");
     } else if (path.includes("/seller/deliveries")) {

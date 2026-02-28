@@ -110,6 +110,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Package, label: "My Products", id: "products" },
     { icon: ShoppingBag, label: "Orders", id: "orders" },
     { icon: Tag, label: "Coupons", id: "coupons" },
+    { icon: Tag, label: "Promotions", id: "promotions" },
     { icon: Truck, label: "Deliveries", id: "deliveries" },
     { icon: DollarSign, label: "Payment Setup", id: "payment-setup", separator: true },
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart" },
@@ -255,8 +256,10 @@ export default function DashboardSidebar({
     if (normalizedRole !== "seller" && normalizedRole !== "rider") return items;
     const roleFeatures = currentUser?.roleFeatures || {};
     const canViewMessages = roleFeatures["messages.view"] === true;
+    const canManagePromotions = roleFeatures["promotions.manage"] !== false;
     return items.filter((item) => {
       if (item.id === "messages") return canViewMessages;
+      if (normalizedRole === "seller" && item.id === "promotions") return canManagePromotions;
       return true;
     });
   })();

@@ -61,6 +61,7 @@ import SellerMediaLibrary from "@/pages/SellerMediaLibrary";
 import SellerProducts from "@/pages/SellerProducts";
 import SellerOrders from "@/pages/SellerOrders";
 import SellerCoupons from "@/pages/SellerCoupons";
+import SellerPromotions from "@/pages/SellerPromotions";
 import SellerDeliveries from "@/pages/SellerDeliveries";
 import SellerNotifications from "@/pages/SellerNotifications";
 import SellerMessages from "@/pages/SellerMessages";
@@ -200,6 +201,7 @@ function Router() {
       <Route path="/seller/media-library" component={SellerMediaLibrary} />
       <Route path="/seller/orders" component={SellerOrders} />
       <Route path="/seller/coupons" component={SellerCoupons} />
+      <Route path="/seller/promotions" component={SellerPromotions} />
       <Route path="/seller/deliveries" component={SellerDeliveries} />
       <Route path="/seller/notifications" component={SellerNotifications} />
       <Route path="/seller/messages" component={SellerMessages} />
