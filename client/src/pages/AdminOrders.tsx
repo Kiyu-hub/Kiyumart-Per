@@ -860,6 +860,16 @@ function OrdersList({
     };
   };
 
+  const getRiderActionHint = (order: Order) => {
+    const status = normalize(order.status);
+    if (status === "assigned") return "Proceed to pickup location";
+    if (status === "rider_arrived") return "Confirm pickup handoff with seller";
+    if (status === "picked_up") return "Start transit to buyer";
+    if (status === "in_transit" || status === "en_route") return "Continue to buyer and prepare delivery handoff";
+    if (status === "arrived") return "Complete delivery verification with buyer";
+    return "Continue delivery workflow for this order";
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -1012,7 +1022,15 @@ function OrdersList({
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!sellerContact) return;
-                          navigate(`/admin/messages?userId=${sellerContact}`);
+                          const params = new URLSearchParams({
+                            userId: sellerContact,
+                            orderId: order.id,
+                            orderNumber: order.orderNumber,
+                            orderAction: sellerState.hint,
+                            orderActionOwner: "seller",
+                            orderLink: `/admin/orders?orderId=${order.id}`,
+                          });
+                          navigate(`/admin/messages?${params.toString()}`);
                         }}
                         data-testid={`button-message-seller-${order.id}`}
                       >
@@ -1034,7 +1052,15 @@ function OrdersList({
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!riderContact) return;
-                          navigate(`/admin/messages?userId=${riderContact}`);
+                          const params = new URLSearchParams({
+                            userId: riderContact,
+                            orderId: order.id,
+                            orderNumber: order.orderNumber,
+                            orderAction: getRiderActionHint(order),
+                            orderActionOwner: "rider",
+                            orderLink: `/admin/orders?orderId=${order.id}`,
+                          });
+                          navigate(`/admin/messages?${params.toString()}`);
                         }}
                         data-testid={`button-message-rider-${order.id}`}
                       >

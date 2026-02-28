@@ -1,4 +1,5 @@
 import { parseChatAttachmentMessage } from "@/lib/chatAttachments";
+import { useAuth } from "@/lib/auth";
 
 interface MessageAttachmentContentProps {
   message: string;
@@ -6,6 +7,7 @@ interface MessageAttachmentContentProps {
 }
 
 export default function MessageAttachmentContent({ message, className = "" }: MessageAttachmentContentProps) {
+  const { user } = useAuth();
   const attachment = parseChatAttachmentMessage(message);
 
   if (!attachment) {
@@ -59,6 +61,52 @@ export default function MessageAttachmentContent({ message, className = "" }: Me
             </a>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (attachment.kind === "order") {
+    const orderNumber = attachment.orderNumber || attachment.name || "Order";
+    const actionOwnerLabel =
+      attachment.orderActionOwner === "seller"
+        ? "Seller Action"
+        : attachment.orderActionOwner === "rider"
+          ? "Rider Action"
+          : "Required Action";
+    const role = String(user?.role || "").toLowerCase();
+    const orderLink = (() => {
+      if (!attachment.orderId) return attachment.url;
+      const params = new URLSearchParams({ orderId: attachment.orderId });
+      if (attachment.orderNumber) params.set("orderNumber", attachment.orderNumber);
+
+      if (role === "admin" || role === "super_admin") {
+        return `/admin/orders?${params.toString()}`;
+      }
+      if (role === "seller") {
+        params.set("context", "seller");
+        return `/seller/orders?${params.toString()}`;
+      }
+      if (role === "rider") {
+        return `/rider/deliveries?${params.toString()}`;
+      }
+      return attachment.url;
+    })();
+    return (
+      <div className="rounded-md border bg-muted/40 p-3 space-y-2 max-w-sm">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+          Order Reference
+        </p>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold leading-tight">#{orderNumber}</p>
+          {attachment.orderAction && (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-semibold">{actionOwnerLabel}:</span> {attachment.orderAction}
+            </p>
+          )}
+        </div>
+        <a href={orderLink} className="text-xs text-primary hover:underline" data-testid="link-order-reference">
+          Open order
+        </a>
       </div>
     );
   }

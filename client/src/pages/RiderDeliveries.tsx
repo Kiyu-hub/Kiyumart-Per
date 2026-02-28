@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -28,7 +28,11 @@ export default function RiderDeliveries() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const orderIdFromUrl = urlParams.get("orderId");
+  const orderNumberFromUrl = (urlParams.get("orderNumber") || "").trim();
   const [statusFilter, setStatusFilter] = useState("all");
+  const highlightedDeliveryRef = useRef<HTMLDivElement | null>(null);
 
   const { data: deliveries = [], isLoading } = useQuery<Delivery[]>({
     queryKey: ["/api/orders?context=rider"],
@@ -65,6 +69,15 @@ export default function RiderDeliveries() {
   const filteredDeliveries = statusFilter === "all" 
     ? deliveries 
     : deliveries.filter(d => normalizeStatus(d.status) === statusFilter);
+  const focusedDeliveryId =
+    orderIdFromUrl && filteredDeliveries.some((delivery) => delivery.id === orderIdFromUrl)
+      ? orderIdFromUrl
+      : null;
+
+  useEffect(() => {
+    if (!focusedDeliveryId || isLoading || !highlightedDeliveryRef.current) return;
+    highlightedDeliveryRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusedDeliveryId, isLoading, filteredDeliveries.length]);
 
   const getStatusColor = (status: string) => {
     switch (normalizeStatus(status)) {
@@ -119,16 +132,29 @@ export default function RiderDeliveries() {
         ) : (
           <div className="space-y-4">
             {filteredDeliveries.map((delivery) => (
-              <Card key={delivery.id} className="p-4" data-testid={`card-delivery-${delivery.id}`}>
+              <Card
+                key={delivery.id}
+                ref={delivery.id === focusedDeliveryId ? highlightedDeliveryRef : null}
+                className={`p-4 ${delivery.id === focusedDeliveryId ? "ring-2 ring-primary/70" : ""}`}
+                data-testid={`card-delivery-${delivery.id}`}
+              >
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <Package className="h-5 w-5 text-muted-foreground" />
                       <div>
                         <p className="font-semibold">Order #{delivery.orderNumber}</p>
-                        <p className="text-sm text-muted-foreground">{delivery.buyer?.name || "Customer"}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {delivery.buyer?.name || "Customer"}
+                          {orderNumberFromUrl && delivery.id === focusedDeliveryId ? ` • Ref #${orderNumberFromUrl}` : ""}
+                        </p>
                       </div>
                     </div>
+                    {delivery.id === focusedDeliveryId && (
+                      <Badge variant="outline" className="text-[10px]">
+                        Referenced
+                      </Badge>
+                    )}
                     <Badge className={`${getStatusColor(delivery.status)} text-white`}>
                       {normalizeStatus(delivery.status).replace("_", " ")}
                     </Badge>

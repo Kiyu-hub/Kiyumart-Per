@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
@@ -34,8 +34,15 @@ export default function SellerOrders() {
   const { user } = useAuth();
   const { formatPrice, t } = useLanguage();
   const [, navigate] = useLocation();
+  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const orderIdFromUrl = urlParams.get("orderId");
+  const orderNumberFromUrl = (urlParams.get("orderNumber") || "").trim();
+  const contextFromUrl = urlParams.get("context");
   const [searchQuery, setSearchQuery] = useState("");
-  const [orderContext, setOrderContext] = useState<OrderContext>("seller");
+  const [orderContext, setOrderContext] = useState<OrderContext>(
+    contextFromUrl === "buyer" ? "buyer" : "seller",
+  );
+  const highlightedOrderRef = useRef<HTMLDivElement | null>(null);
 
   const normalize = (value?: string) => (value || "").toLowerCase().trim();
   const normalizePaymentStatus = (value?: string) => {
@@ -53,6 +60,26 @@ export default function SellerOrders() {
   const filteredOrders = orders.filter(order =>
     order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const focusedOrderId =
+    orderIdFromUrl && filteredOrders.some((order) => order.id === orderIdFromUrl)
+      ? orderIdFromUrl
+      : null;
+
+  useEffect(() => {
+    if (contextFromUrl === "seller" || contextFromUrl === "buyer") {
+      setOrderContext(contextFromUrl);
+    }
+  }, [contextFromUrl]);
+
+  useEffect(() => {
+    if (!orderNumberFromUrl || searchQuery.trim().length > 0) return;
+    setSearchQuery(orderNumberFromUrl);
+  }, [orderNumberFromUrl, searchQuery]);
+
+  useEffect(() => {
+    if (!focusedOrderId || isLoading || !highlightedOrderRef.current) return;
+    highlightedOrderRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusedOrderId, isLoading, filteredOrders.length]);
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -136,7 +163,12 @@ export default function SellerOrders() {
               const contactPhone = order.deliveryPhone || order.buyer?.phone || "N/A";
 
               return (
-              <Card key={order.id} className="p-4 flex flex-col" data-testid={`card-order-${order.id}`}>
+              <Card
+                key={order.id}
+                ref={order.id === focusedOrderId ? highlightedOrderRef : null}
+                className={`p-4 flex flex-col ${order.id === focusedOrderId ? "ring-2 ring-primary/70" : ""}`}
+                data-testid={`card-order-${order.id}`}
+              >
                 <div className="flex items-start gap-3 mb-3">
                   <div className="flex-1">
                     <p className="font-bold text-sm">#{order.orderNumber}</p>
@@ -144,6 +176,11 @@ export default function SellerOrders() {
                       {new Date(order.createdAt).toLocaleDateString()}
                     </p>
                   </div>
+                  {order.id === focusedOrderId && (
+                    <Badge variant="outline" className="text-[10px]">
+                      Referenced
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <Badge className={`${getStatusColor(order.status)} text-white text-xs`}>

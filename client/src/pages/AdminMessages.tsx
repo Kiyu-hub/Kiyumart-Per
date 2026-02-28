@@ -63,6 +63,7 @@ export default function AdminMessages() {
   const [showOnlineOnly, setShowOnlineOnly] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [showOrderContext, setShowOrderContext] = useState(true);
   const [showProductContext, setShowProductContext] = useState(true);
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
@@ -92,14 +93,28 @@ export default function AdminMessages() {
   // Selected user presence status
   const selectedUserPresence = usePresence(selectedUserId || undefined);
 
-  // Get userId from URL search params if present (when clicking from AdminUsers)
+  // Get URL search params when navigating from contextual entry points (orders/products/users).
   const urlParams = new URLSearchParams(window.location.search);
   const userIdFilter = urlParams.get("userId");
+  const orderIdFilter = urlParams.get("orderId") || "";
+  const orderNumberFilter = urlParams.get("orderNumber") || "";
+  const orderActionFilter = urlParams.get("orderAction") || "";
+  const orderActionOwnerParam = urlParams.get("orderActionOwner");
+  const orderActionOwnerFilter =
+    orderActionOwnerParam === "seller" || orderActionOwnerParam === "rider" || orderActionOwnerParam === "admin"
+      ? orderActionOwnerParam
+      : "admin";
+  const orderLinkFilter =
+    urlParams.get("orderLink") ||
+    (orderIdFilter
+      ? `/admin/orders?orderId=${orderIdFilter}`
+      : "");
   const productIdFilter = urlParams.get("productId");
   const productNameFilter = urlParams.get("productName") || "";
   const productImageFilter = urlParams.get("productImage") || "";
   const productLinkFilter = urlParams.get("productLink") || (productIdFilter ? `/product/${productIdFilter}` : "");
   const autoReferencedThreadsRef = useRef<Set<string>>(new Set());
+  const autoOrderReferencedThreadsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -446,12 +461,34 @@ export default function AdminMessages() {
           link: productLinkFilter || (productContext?.id ? `/product/${productContext.id}` : ""),
         }
       : null;
+  const orderReference =
+    orderIdFilter || orderNumberFilter
+      ? {
+          id: orderIdFilter,
+          number: orderNumberFilter || orderIdFilter,
+          action: orderActionFilter || "Review and proceed with the required order step",
+          actionOwner: orderActionOwnerFilter,
+          link: orderLinkFilter,
+        }
+      : null;
+  const orderActionOwnerLabel =
+    orderReference?.actionOwner === "seller"
+      ? "Seller Action"
+      : orderReference?.actionOwner === "rider"
+        ? "Rider Action"
+        : "Required Action";
 
   useEffect(() => {
     if (productReference?.link) {
       setShowProductContext(true);
     }
   }, [productReference?.id, productReference?.link]);
+
+  useEffect(() => {
+    if (orderReference?.link) {
+      setShowOrderContext(true);
+    }
+  }, [orderReference?.id, orderReference?.link, orderReference?.action]);
 
   const sendProductReference = async () => {
     if (!selectedUserId || !productReference || !productReference.link) return;
@@ -465,6 +502,23 @@ export default function AdminMessages() {
         productId: productReference.id,
         productName: productReference.name,
         productImage: productReference.image,
+      }),
+    });
+  };
+
+  const sendOrderReference = async () => {
+    if (!selectedUserId || !orderReference || !orderReference.link) return;
+    await sendMessageMutation.mutateAsync({
+      receiverId: selectedUserId,
+      message: buildChatAttachmentMessage({
+        kind: "order",
+        url: orderReference.link,
+        name: orderReference.number,
+        size: 0,
+        orderId: orderReference.id,
+        orderNumber: orderReference.number,
+        orderAction: orderReference.action,
+        orderActionOwner: orderReference.actionOwner,
       }),
     });
   };
@@ -523,6 +577,39 @@ export default function AdminMessages() {
     userIdFilter,
     productReference?.id,
     productReference?.link,
+    messages,
+    messagesLoading,
+  ]);
+
+  useEffect(() => {
+    if (!selectedUserId || !userIdFilter || selectedUserId !== userIdFilter) return;
+    if (!orderReference?.link) return;
+    if (messagesLoading) return;
+
+    const hasReference = messages.some((msg) => {
+      const parsed = parseChatAttachmentMessage(msg.message || "");
+      if (!parsed || parsed.kind !== "order") return false;
+      if (orderReference.id && parsed.orderId === orderReference.id) return true;
+      if (orderReference.number && parsed.orderNumber === orderReference.number) return true;
+      return parsed.url === orderReference.link;
+    });
+    if (hasReference) return;
+
+    const threadKey = `${selectedUserId}:${orderReference.id || orderReference.number || orderReference.link}:${orderReference.actionOwner}`;
+    if (autoOrderReferencedThreadsRef.current.has(threadKey)) return;
+    autoOrderReferencedThreadsRef.current.add(threadKey);
+
+    void sendOrderReference().catch(() => {
+      // Keep non-blocking behavior; user can send reference manually from the context card.
+    });
+  }, [
+    selectedUserId,
+    userIdFilter,
+    orderReference?.id,
+    orderReference?.number,
+    orderReference?.action,
+    orderReference?.actionOwner,
+    orderReference?.link,
     messages,
     messagesLoading,
   ]);
@@ -962,6 +1049,45 @@ export default function AdminMessages() {
                 </Button>
               </div>
 
+              {orderReference?.link && showOrderContext && (
+                <div className="mx-3 mt-3 rounded-lg border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+                      Order Context
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setShowOrderContext(false)}
+                      title="Close order reference"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    <p className="text-sm font-semibold">Order #{orderReference.number}</p>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-semibold">{orderActionOwnerLabel}:</span> {orderReference.action}
+                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <a href={orderReference.link} className="text-xs text-primary hover:underline">
+                        Open order
+                      </a>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void sendOrderReference()}
+                        disabled={sendMessageMutation.isPending}
+                      >
+                        Send Ref
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {productReference?.link && showProductContext && (
                 <div className="mx-3 mt-3 rounded-lg border bg-muted/30 p-3">
                   <div className="flex items-center justify-between gap-2">
@@ -1282,6 +1408,45 @@ export default function AdminMessages() {
                     </Button>
                   </div>
                 </div>
+
+                {orderReference?.link && showOrderContext && (
+                  <div className="mb-4 rounded-lg border bg-muted/30 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+                        Order Context
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setShowOrderContext(false)}
+                        title="Close order reference"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      <p className="text-sm font-semibold">Order #{orderReference.number}</p>
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-semibold">{orderActionOwnerLabel}:</span> {orderReference.action}
+                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <a href={orderReference.link} className="text-xs text-primary hover:underline">
+                          Open order
+                        </a>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void sendOrderReference()}
+                          disabled={sendMessageMutation.isPending}
+                        >
+                          Send reference
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {productReference?.link && showProductContext && (
                   <div className="mb-4 rounded-lg border bg-muted/30 p-3">
