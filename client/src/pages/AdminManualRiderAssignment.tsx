@@ -80,7 +80,30 @@ interface RiderStats {
   avgLoad: number;
 }
 
-const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();
+interface ActiveAssignmentAttempt {
+  riderId: string;
+  riderName: string;
+  distanceKm: number | null;
+  offeredAt: string;
+  resolvedAt?: string;
+  status: "offered" | "accepted" | "accepted_pending_admin" | "rejected" | "timed_out" | "failed";
+  reason?: string;
+}
+
+interface ActiveAssignment {
+  orderId: string;
+  orderNumber: string;
+  startedAt: string;
+  expiresAt: string | null;
+  currentRiderId: string | null;
+  currentCandidateIndex: number;
+  currentRadiusKm: number;
+  candidateCount: number;
+  acceptedRiderId: string | null;
+  manualConfirmationRequired: boolean;
+  attempts: ActiveAssignmentAttempt[];
+  lastError: string | null;
+}
 
 function AssignRiderDialog({ order, onSuccess }: { order: Order; onSuccess: () => void }) {
   const [open, setOpen] = useState(false);
@@ -468,20 +491,52 @@ export default function AdminManualRiderAssignment() {
     }
   }, [isAuthenticated, authLoading, user, navigate]);
 
-  // Fetch all orders
-  const { data: orders = [], isLoading, refetch } = useQuery<Order[]>({
-    queryKey: ["/api/orders"],
+  // Backend-authoritative pending rider-assignment queue
+  const {
+    data: pendingOrders = [],
+    isLoading,
+    refetch: refetchPendingOrders,
+    isFetching: isPendingOrdersFetching,
+    dataUpdatedAt: pendingOrdersUpdatedAt,
+  } = useQuery<Order[]>({
+    queryKey: ["/api/admin/pending-orders"],
     queryFn: async () => {
-      const res = await fetch("/api/orders", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch orders");
-      return res.json();
+      const res = await fetch("/api/admin/pending-orders", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch pending orders");
+      const payload = await res.json();
+      if (!Array.isArray(payload)) return [];
+      return payload.map((order: any) => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        buyerId: "",
+        sellerId: order.sellerId,
+        riderId: null,
+        deliveryMethod: "rider",
+        total: order.total,
+        status: order.status,
+        createdAt: order.createdAt,
+        shippingAddress: order.deliveryAddress || null,
+        deliveryAddress: order.deliveryAddress || null,
+        deliveryPhone: order.deliveryPhone || null,
+        deliveryLatitude: order.deliveryLatitude ? String(order.deliveryLatitude) : undefined,
+        deliveryLongitude: order.deliveryLongitude ? String(order.deliveryLongitude) : undefined,
+        deliveryZoneId: order.deliveryZoneId || undefined,
+        paymentStatus: "completed",
+        buyer: {
+          id: "",
+          name: order.buyerName || "Buyer",
+          email: order.buyerEmail || undefined,
+          phone: order.buyerPhone || undefined,
+        },
+      })) as Order[];
     },
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
-    refetchInterval: 30000,
+    refetchInterval: 10000,
+    staleTime: 0,
   });
 
   // Fetch available riders
-  const { data: availableRiders = [], isLoading: ridersLoading, refetch: refetchRiders } = useQuery<AvailableRider[]>({
+  const { data: availableRiders = [], isLoading: ridersLoading, refetch: refetchRiders, isFetching: isRidersFetching, dataUpdatedAt: ridersUpdatedAt } = useQuery<AvailableRider[]>({
     queryKey: ["/api/riders/available"],
     queryFn: async () => {
       const res = await fetch("/api/riders/available", { credentials: "include" });
@@ -489,6 +544,26 @@ export default function AdminManualRiderAssignment() {
       return res.json();
     },
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchInterval: 15000,
+    staleTime: 0,
+  });
+
+  const {
+    data: activeAssignments = [],
+    refetch: refetchActiveAssignments,
+    isFetching: isActiveAssignmentsFetching,
+    dataUpdatedAt: activeAssignmentsUpdatedAt,
+  } = useQuery<ActiveAssignment[]>({
+    queryKey: ["/api/admin/rider-assignment/active"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/rider-assignment/active", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch active assignments");
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchInterval: 5000,
+    staleTime: 0,
   });
 
   // Fetch all riders for stats
@@ -514,20 +589,33 @@ export default function AdminManualRiderAssignment() {
     if (!socket) return;
 
     const handleUpdate = () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/rider-assignment/active"] });
+    };
+
+    const handleAssignmentFailure = (payload: { orderNumber?: string; reason?: string }) => {
+      toast({
+        variant: "destructive",
+        title: payload?.orderNumber ? `Assignment Failed • #${payload.orderNumber}` : "Rider Assignment Failed",
+        description: payload?.reason || "No rider accepted this order. Manual review is required.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/rider-assignment/active"] });
     };
 
     socket.on("order_rider_assigned", handleUpdate);
     socket.on("order_status_updated", handleUpdate);
     socket.on("rider_location_updated", handleUpdate);
+    socket.on("order_rider_assignment_failed", handleAssignmentFailure);
 
     return () => {
       socket.off("order_rider_assigned", handleUpdate);
       socket.off("order_status_updated", handleUpdate);
       socket.off("rider_location_updated", handleUpdate);
+      socket.off("order_rider_assignment_failed", handleAssignmentFailure);
     };
-  }, [socket]);
+  }, [socket, toast]);
 
   // Calculate rider stats
   const riderStats = useMemo<RiderStats>(() => {
@@ -545,14 +633,26 @@ export default function AdminManualRiderAssignment() {
     };
   }, [allRiders, availableRiders]);
 
-  // Filter orders that need rider assignment
+  // Orders that are already validated by backend for rider assignment
   const unassignedOrders = useMemo(() => {
-    return orders.filter(order => 
-      !order.riderId && 
-      order.deliveryMethod !== "pickup" &&
-      ["pending", "confirmed", "processing", "ready"].includes(normalizeOrderStatus(order.status))
+    return pendingOrders.filter((order) => !order.riderId);
+  }, [pendingOrders]);
+
+  const activeAssignmentsByOrderId = useMemo(() => {
+    const mapped = new Map<string, ActiveAssignment>();
+    activeAssignments.forEach((assignment) => {
+      if (assignment.orderId) mapped.set(assignment.orderId, assignment);
+    });
+    return mapped;
+  }, [activeAssignments]);
+
+  const lastSyncedAt = useMemo(() => {
+    const timestamps = [pendingOrdersUpdatedAt, ridersUpdatedAt, activeAssignmentsUpdatedAt].filter(
+      (value): value is number => typeof value === "number" && value > 0
     );
-  }, [orders]);
+    if (timestamps.length === 0) return null;
+    return new Date(Math.max(...timestamps));
+  }, [pendingOrdersUpdatedAt, ridersUpdatedAt, activeAssignmentsUpdatedAt]);
 
   // Calculate order priority based on age
   const getOrderPriority = (order: Order): "critical" | "high" | "medium" | "low" => {
@@ -611,15 +711,22 @@ export default function AdminManualRiderAssignment() {
   const autoDispatchMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/admin/auto-dispatch");
-      return res;
+      return res.json();
     },
     onSuccess: (data: any) => {
+      const matchingStarted = Number(data?.matchingStarted || 0);
+      const pending = Number(data?.pending || 0);
       toast({
         title: "Auto-Dispatch Complete",
-        description: data.message || `${data.assignedCount || 0} orders assigned automatically`,
+        description:
+          data?.message ||
+          (matchingStarted > 0
+            ? `${matchingStarted} order${matchingStarted === 1 ? "" : "s"} moved into live rider matching${pending > 0 ? ` (${pending} still pending)` : ""}`
+            : "No eligible orders required dispatch"),
       });
-      refetch();
+      refetchPendingOrders();
       refetchRiders();
+      refetchActiveAssignments();
     },
     onError: (error: any) => {
       toast({
@@ -647,6 +754,9 @@ export default function AdminManualRiderAssignment() {
       default: return <Clock className="h-4 w-4" />;
     }
   };
+
+  const isRealtimeSyncing =
+    isPendingOrdersFetching || isRidersFetching || isActiveAssignmentsFetching || autoDispatchMutation.isPending;
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
@@ -683,10 +793,16 @@ export default function AdminManualRiderAssignment() {
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={() => { refetch(); refetchRiders(); refetchZones(); }}
+              onClick={() => {
+                refetchPendingOrders();
+                refetchRiders();
+                refetchZones();
+                refetchActiveAssignments();
+              }}
+              disabled={isRealtimeSyncing}
             >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRealtimeSyncing ? "animate-spin" : ""}`} />
+              {isRealtimeSyncing ? "Syncing..." : "Refresh"}
             </Button>
             <Button 
               size="sm"
@@ -703,6 +819,59 @@ export default function AdminManualRiderAssignment() {
             </Button>
           </div>
         </div>
+
+        <Card className="border-primary/20 bg-gradient-to-r from-primary/5 via-background to-emerald-500/5">
+          <CardContent className="py-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className={`h-2.5 w-2.5 rounded-full ${isRealtimeSyncing ? "bg-amber-500 animate-pulse" : "bg-emerald-500 animate-pulse"}`} />
+                <div>
+                  <p className="text-sm font-semibold">
+                    {isRealtimeSyncing ? "Synchronizing dispatch data..." : "Live dispatch data connected"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {lastSyncedAt
+                      ? `Last sync ${formatDistanceToNow(lastSyncedAt, { addSuffix: true })}`
+                      : "Waiting for first data sync"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className="gap-1">
+                  <Activity className="h-3.5 w-3.5" />
+                  Active Matching: {activeAssignments.length}
+                </Badge>
+                <Badge variant="secondary" className="gap-1">
+                  <Package className="h-3.5 w-3.5" />
+                  Pending Queue: {unassignedOrders.length}
+                </Badge>
+              </div>
+            </div>
+
+            {activeAssignments.length > 0 && (
+              <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {activeAssignments.slice(0, 3).map((assignment) => {
+                  const pendingAttempt = assignment.attempts?.find((attempt) => attempt.status === "offered");
+                  return (
+                    <div key={assignment.orderId} className="rounded-md border bg-background/70 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium truncate">#{assignment.orderNumber}</p>
+                        <Badge variant="outline" className="text-[10px] px-2 py-0">
+                          Radius {assignment.currentRadiusKm}km
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {pendingAttempt
+                          ? `Offering ${pendingAttempt.riderName}`
+                          : "Matching in progress"}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -836,6 +1005,8 @@ export default function AdminManualRiderAssignment() {
                 {filteredOrders.map((order) => {
                   const priority = getOrderPriority(order);
                   const waitTime = differenceInMinutes(new Date(), new Date(order.createdAt));
+                  const activeAssignment = activeAssignmentsByOrderId.get(order.id);
+                  const activeOffer = activeAssignment?.attempts?.find((attempt) => attempt.status === "offered");
                   
                   return (
                     <Card 
@@ -857,6 +1028,11 @@ export default function AdminManualRiderAssignment() {
                               <span className="ml-1">{priority.toUpperCase()}</span>
                             </Badge>
                             <Badge variant="outline">{order.status}</Badge>
+                            {activeAssignment && (
+                              <Badge variant="secondary" className="bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
+                                Live Matching
+                              </Badge>
+                            )}
                             <span className="text-sm text-muted-foreground">
                               Waiting {waitTime} min
                             </span>
@@ -885,10 +1061,17 @@ export default function AdminManualRiderAssignment() {
                             {(order.deliveryPhone || order.buyer?.phone) && (
                               <span className="flex items-center gap-1">
                                 <Phone className="h-3 w-3" />
-                                {order.deliveryPhone || order.buyer?.phone}
-                              </span>
-                            )}
-                          </div>
+                              {order.deliveryPhone || order.buyer?.phone}
+                            </span>
+                          )}
+                          {activeAssignment && (
+                            <span className="text-xs text-indigo-600 dark:text-indigo-300">
+                              {activeOffer
+                                ? `Offering ${activeOffer.riderName}`
+                                : `Candidate ${Math.max(activeAssignment.currentCandidateIndex, 1)} of ${Math.max(activeAssignment.candidateCount, 1)}`}
+                            </span>
+                          )}
+                        </div>
 
                           {/* Wait time progress bar */}
                           <div className="w-full max-w-xs">
@@ -908,8 +1091,9 @@ export default function AdminManualRiderAssignment() {
                           <AssignRiderDialog
                             order={order}
                             onSuccess={() => {
-                              refetch();
+                              refetchPendingOrders();
                               refetchRiders();
+                              refetchActiveAssignments();
                             }}
                           />
                         </div>
