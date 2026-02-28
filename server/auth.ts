@@ -11,6 +11,15 @@ if (!process.env.SESSION_SECRET) {
 const JWT_SECRET = process.env.SESSION_SECRET;
 const JWT_EXPIRES_IN = "7d";
 
+function normalizeRoleValue(role?: string | null): string {
+  const raw = String(role || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, "_");
+  if (raw === "superadmin") return "super_admin";
+  return raw;
+}
+
 export interface AuthRequest extends Request {
   user?: {
     id: string;
@@ -32,7 +41,7 @@ export function generateToken(user: Pick<User, "id" | "email" | "role">): string
     {
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: normalizeRoleValue(user.role),
     },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
@@ -68,7 +77,10 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 
-  req.user = decoded;
+  req.user = {
+    ...decoded,
+    role: normalizeRoleValue(decoded?.role),
+  };
   next();
 }
 
@@ -84,8 +96,9 @@ export function requireRole(...roles: string[]) {
     }
 
     // Enforce current DB role/approval, not token snapshot role.
-    const latestRole = latestUser.role;
-    if (!roles.includes(latestRole)) {
+    const latestRole = normalizeRoleValue(latestUser.role);
+    const allowedRoles = roles.map((role) => normalizeRoleValue(role));
+    if (!allowedRoles.includes(latestRole)) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
 
@@ -106,11 +119,12 @@ export function requirePermission(...permissions: string[]) {
       return res.status(401).json({ error: "Authentication required" });
     }
 
-    if (req.user.role !== "admin" && req.user.role !== "super_admin") {
+    const requesterRole = normalizeRoleValue(req.user.role);
+    if (requesterRole !== "admin" && requesterRole !== "super_admin") {
       return res.status(403).json({ error: "Admin access required" });
     }
 
-    if (req.user.role === "super_admin") {
+    if (requesterRole === "super_admin") {
       return next();
     }
 
@@ -181,7 +195,8 @@ export function requirePermissionIfAdmin(...permissions: string[]) {
     if (!req.user) {
       return res.status(401).json({ error: "Authentication required" });
     }
-    if (req.user.role === "admin" || req.user.role === "super_admin") {
+    const requesterRole = normalizeRoleValue(req.user.role);
+    if (requesterRole === "admin" || requesterRole === "super_admin") {
       return adminPermissionMiddleware(req, res, next);
     }
     return next();
@@ -299,7 +314,7 @@ const buildSuperAdminAbsoluteFeatures = (configured: Record<string, boolean> = {
 };
 
 export async function resolveRoleFeatures(role: string): Promise<Record<string, boolean>> {
-  const normalizedRole = String(role || "").toLowerCase().trim();
+  const normalizedRole = normalizeRoleValue(role);
   const defaults = ROLE_FEATURE_DEFAULTS[normalizedRole] || {};
   try {
     const { db } = await import("../db");
@@ -347,11 +362,12 @@ export function requireRoleFeature(...features: string[]) {
       return next();
     }
 
-    if (req.user.role === "super_admin") {
+    const requesterRole = normalizeRoleValue(req.user.role);
+    if (requesterRole === "super_admin") {
       return next();
     }
 
-    const resolved = await resolveRoleFeatures(req.user.role);
+    const resolved = await resolveRoleFeatures(requesterRole);
     // Keep profile editing available even if role-feature configuration is stale.
     const missing = features.filter((f) => f !== "profile.manage" && resolved[f] !== true);
     if (missing.length > 0) {
@@ -372,7 +388,9 @@ export function requireRoleFeatureIfRole(roles: string[], ...features: string[])
     if (!req.user) {
       return res.status(401).json({ error: "Authentication required" });
     }
-    if (!roles.includes(req.user.role)) {
+    const requesterRole = normalizeRoleValue(req.user.role);
+    const normalizedRoles = roles.map((role) => normalizeRoleValue(role));
+    if (!normalizedRoles.includes(requesterRole)) {
       return next();
     }
     return featureMiddleware(req, res, next);

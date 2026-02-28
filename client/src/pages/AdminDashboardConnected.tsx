@@ -7,12 +7,13 @@ import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import OrderCard from "@/components/OrderCard";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle } from "lucide-react";
+import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { useSocket } from "@/contexts/NotificationContext";
 
 interface Analytics {
   totalOrders: number;
@@ -49,17 +50,29 @@ interface PendingPayout {
   notes?: string;
 }
 
+interface DeliveryZone {
+  id: string;
+  isActive: boolean;
+}
+
 export default function AdminDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const normalizedRole = (() => {
+    const raw = String(user?.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    return raw === "superadmin" ? "super_admin" : raw;
+  })();
+  const isAdminViewer = normalizedRole === "admin" || normalizedRole === "super_admin";
+  const isSuperAdmin = normalizedRole === "super_admin";
   const { formatPrice } = useLanguage();
+  const socket = useSocket();
 
   useEffect(() => {
-    if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
+    if (!authLoading && (!isAuthenticated || !isAdminViewer)) {
       navigate("/");
     }
-  }, [isAuthenticated, authLoading, user, navigate]);
+  }, [isAuthenticated, authLoading, isAdminViewer, navigate]);
 
   useEffect(() => {
     // Update activeItem based on current route
@@ -158,12 +171,12 @@ export default function AdminDashboardConnected() {
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminViewer,
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders", user?.id],
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminViewer,
   });
 
   const { data: buyers = [] } = useQuery<User[]>({
@@ -174,7 +187,7 @@ export default function AdminDashboardConnected() {
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminViewer,
   });
 
   const { data: pendingApplicationsBadgeData } = useQuery<{ count: number; sellers: number; riders: number }>({
@@ -190,7 +203,7 @@ export default function AdminDashboardConnected() {
       const riderCount = Array.isArray(riders) ? riders.length : 0;
       return { count: sellerCount + riderCount, sellers: sellerCount, riders: riderCount };
     },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminViewer,
     refetchInterval: 30000,
     staleTime: 15000,
   });
@@ -204,18 +217,47 @@ export default function AdminDashboardConnected() {
       const data = await res.json();
       return { count: Array.isArray(data) ? data.length : 0 };
     },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminViewer,
     refetchInterval: 30000,
     staleTime: 15000,
+  });
+
+  const { data: deliveryZones = [] } = useQuery<DeliveryZone[]>({
+    queryKey: ["/api/admin/delivery-zones"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/delivery-zones", { credentials: "include", cache: "no-store" });
+      if (!res.ok) return [];
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && isAdminViewer,
+    refetchInterval: 10000,
+    staleTime: 0,
   });
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleDeliveryZonesUpdated = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
+    };
+
+    socket.on("delivery_zones_updated", handleDeliveryZonesUpdated);
+    return () => {
+      socket.off("delivery_zones_updated", handleDeliveryZonesUpdated);
+    };
+  }, [socket, queryClient]);
+
   // Fetch pending rider payouts (super_admin only)
   const { data: pendingPayouts = [], isLoading: payoutsLoading } = useQuery<PendingPayout[]>({
     queryKey: ["/api/admin/rider-payouts/pending"],
-    enabled: isAuthenticated && user?.role === "super_admin",
+    enabled: isAuthenticated && isSuperAdmin,
     refetchInterval: 15000,
   });
 
@@ -228,7 +270,7 @@ export default function AdminDashboardConnected() {
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     },
-    enabled: isAuthenticated && user?.role === "super_admin",
+    enabled: isAuthenticated && isSuperAdmin,
   });
 
   // Approve payout mutation
@@ -277,7 +319,7 @@ export default function AdminDashboardConnected() {
   };
   const isPaidPaymentStatus = (value?: string) => normalizePaymentStatus(value) === "paid";
 
-  if (authLoading || !isAuthenticated || (user?.role !== "super_admin" && user?.role !== "admin")) {
+  if (authLoading || !isAuthenticated || !isAdminViewer) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-admin" />
@@ -295,6 +337,7 @@ export default function AdminDashboardConnected() {
   const deliveredCount = orders.filter(o => normalizeOrderStatus(o.status) === "delivered").length;
   const pendingApplicationsCount = pendingApplicationsBadgeData?.count || 0;
   const pendingAssignmentsCount = pendingAssignmentsBadgeData?.count || 0;
+  const activeZoneCount = deliveryZones.filter((zone) => zone.isActive !== false).length;
   const paidMoneyFromOrders = orders
     .filter((o) => isPaidPaymentStatus((o as any).paymentStatus))
     .reduce((sum, o) => sum + Number.parseFloat((o as any).total || "0"), 0);
@@ -305,16 +348,16 @@ export default function AdminDashboardConnected() {
   return (
     <div className="flex h-screen bg-background">
       <DashboardSidebar
-        role={user.role as any}
+        role={isSuperAdmin ? "super_admin" : "admin"}
         activeItem={activeItem}
         onItemClick={handleItemClick}
-        userName={user.name}
+        userName={user?.name || "Admin"}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="border-b p-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
-            {user.role === "super_admin" ? "Super Admin" : "Admin"} Dashboard
+            {isSuperAdmin ? "Super Admin" : "Admin"} Dashboard
           </h1>
           <div className="flex items-center gap-2">
             <ThemeToggle />
@@ -326,7 +369,7 @@ export default function AdminDashboardConnected() {
 
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-7xl mx-auto space-y-6">
-            {user.role === "super_admin" && (
+            {isSuperAdmin && (
               analyticsLoading ? (
                 <div className="flex justify-center p-8">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -375,7 +418,7 @@ export default function AdminDashboardConnected() {
             )}
 
             {/* Pending Payouts Widget - Super Admin Only, only show when there are pending payouts */}
-            {user.role === "super_admin" && pendingPayouts.length > 0 && (
+            {isSuperAdmin && pendingPayouts.length > 0 && (
               <Card className="border-orange-200 dark:border-orange-800">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <div className="flex items-center gap-2">
@@ -508,8 +551,19 @@ export default function AdminDashboardConnected() {
                         <p className="text-sm text-muted-foreground">
                           Manage payment settings, contact info, and branding
                         </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Delivery zones: {deliveryZones.length} total ({activeZoneCount} active)
+                        </p>
                       </div>
                     </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => navigate("/admin/zones")}
+                      data-testid="button-manage-delivery-zones"
+                    >
+                      <MapPin className="h-4 w-4 mr-2" />
+                      Manage Delivery Zones
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -670,3 +724,4 @@ export default function AdminDashboardConnected() {
   );
 }
   const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();
+

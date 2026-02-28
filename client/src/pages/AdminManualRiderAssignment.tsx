@@ -477,6 +477,11 @@ function AssignRiderDialog({ order, onSuccess }: { order: Order; onSuccess: () =
 export default function AdminManualRiderAssignment() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const normalizedRole = (() => {
+    const raw = String(user?.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    return raw === "superadmin" ? "super_admin" : raw;
+  })();
+  const isAdminViewer = normalizedRole === "admin" || normalizedRole === "super_admin";
   const { formatPrice } = useLanguage();
   const { toast } = useToast();
   const socket = useSocket();
@@ -486,10 +491,10 @@ export default function AdminManualRiderAssignment() {
   const [activeTab, setActiveTab] = useState("pending");
 
   useEffect(() => {
-    if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
+    if (!authLoading && (!isAuthenticated || !isAdminViewer)) {
       navigate("/auth");
     }
-  }, [isAuthenticated, authLoading, user, navigate]);
+  }, [isAuthenticated, authLoading, isAdminViewer, navigate]);
 
   // Backend-authoritative pending rider-assignment queue
   const {
@@ -530,7 +535,7 @@ export default function AdminManualRiderAssignment() {
         },
       })) as Order[];
     },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminViewer,
     refetchInterval: 10000,
     staleTime: 0,
   });
@@ -543,7 +548,7 @@ export default function AdminManualRiderAssignment() {
       if (!res.ok) throw new Error("Failed to fetch riders");
       return res.json();
     },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminViewer,
     refetchInterval: 15000,
     staleTime: 0,
   });
@@ -561,7 +566,7 @@ export default function AdminManualRiderAssignment() {
       const payload = await res.json();
       return Array.isArray(payload) ? payload : [];
     },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminViewer,
     refetchInterval: 5000,
     staleTime: 0,
   });
@@ -575,7 +580,7 @@ export default function AdminManualRiderAssignment() {
       const data = await res.json();
       return data.filter((u: any) => u.role === "rider");
     },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminViewer,
   });
 
   // Fetch delivery zones
@@ -594,6 +599,14 @@ export default function AdminManualRiderAssignment() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/rider-assignment/active"] });
     };
 
+    const handleZoneUpdate = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/rider-assignment/active"] });
+    };
+
     const handleAssignmentFailure = (payload: { orderNumber?: string; reason?: string }) => {
       toast({
         variant: "destructive",
@@ -608,12 +621,14 @@ export default function AdminManualRiderAssignment() {
     socket.on("order_status_updated", handleUpdate);
     socket.on("rider_location_updated", handleUpdate);
     socket.on("order_rider_assignment_failed", handleAssignmentFailure);
+    socket.on("delivery_zones_updated", handleZoneUpdate);
 
     return () => {
       socket.off("order_rider_assigned", handleUpdate);
       socket.off("order_status_updated", handleUpdate);
       socket.off("rider_location_updated", handleUpdate);
       socket.off("order_rider_assignment_failed", handleAssignmentFailure);
+      socket.off("delivery_zones_updated", handleZoneUpdate);
     };
   }, [socket, toast]);
 
@@ -758,7 +773,7 @@ export default function AdminManualRiderAssignment() {
   const isRealtimeSyncing =
     isPendingOrdersFetching || isRidersFetching || isActiveAssignmentsFetching || autoDispatchMutation.isPending;
 
-  if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
+  if (authLoading || !isAuthenticated || !isAdminViewer) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

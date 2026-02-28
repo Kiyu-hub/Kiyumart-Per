@@ -8,12 +8,16 @@ import AdminDashboardConnected from "./AdminDashboardConnected";
 export default function AdminDashboardRouter() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const normalizedRole = (() => {
+    const raw = String(user?.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    return raw === "superadmin" ? "super_admin" : raw;
+  })();
 
   useEffect(() => {
-    if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
+    if (!authLoading && (!isAuthenticated || (normalizedRole !== "admin" && normalizedRole !== "super_admin"))) {
       navigate("/auth");
     }
-  }, [authLoading, isAuthenticated, user, navigate]);
+  }, [authLoading, isAuthenticated, normalizedRole, navigate]);
 
   if (authLoading) {
     return (
@@ -23,7 +27,7 @@ export default function AdminDashboardRouter() {
     );
   }
 
-  if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
+  if (!isAuthenticated || (normalizedRole !== "admin" && normalizedRole !== "super_admin")) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-admin-router" />
@@ -32,7 +36,7 @@ export default function AdminDashboardRouter() {
   }
 
   // Super admin gets full AdminDashboardConnected
-  if (user.role === "super_admin") {
+  if (normalizedRole === "super_admin") {
     return <AdminDashboardConnected />;
   }
 

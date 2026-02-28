@@ -2071,7 +2071,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const normalizedCurrentRole = currentUser.role;
       const normalizedRequestedRole = typeof updateData.role === "string"
-        ? (updateData.role === "superadmin" ? "super_admin" : updateData.role)
+        ? (() => {
+            const rawRequestedRole = String(updateData.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+            return rawRequestedRole === "superadmin" ? "super_admin" : rawRequestedRole;
+          })()
         : normalizedCurrentRole;
       const roleChanged = typeof updateData.role === "string" && normalizedRequestedRole !== normalizedCurrentRole;
 
@@ -3221,6 +3224,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Storage layer handles all validation
       const zone = await storage.createDeliveryZone(req.body);
+      io.emit("delivery_zones_updated", { action: "created", zoneId: zone.id });
       res.json(zone);
     } catch (error: any) {
       // Handle storage layer errors
@@ -3249,6 +3253,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin/super_admin management endpoint (includes inactive zones)
+  app.get("/api/admin/delivery-zones", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
+    try {
+      const zones = await storage.getDeliveryZones(true);
+      res.json(zones);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.patch("/api/delivery-zones/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       // Storage layer handles all validation
@@ -3256,6 +3270,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!zone) {
         return res.status(404).json({ error: "Zone not found" });
       }
+      io.emit("delivery_zones_updated", { action: "updated", zoneId: zone.id });
       res.json(zone);
     } catch (error: any) {
       // Handle storage layer errors
@@ -3280,6 +3295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/delivery-zones/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       await storage.deleteDeliveryZone(req.params.id);
+      io.emit("delivery_zones_updated", { action: "deleted", zoneId: req.params.id });
       res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -13393,7 +13409,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Authentication required" });
       }
       const rawRole = String(freshUser.role || req.user!.role || "").toLowerCase().trim();
-      const userRole = rawRole === "superadmin" ? "super_admin" : rawRole;
+      const normalizedRawRole = rawRole.replace(/[\s-]+/g, "_");
+      const userRole = normalizedRawRole === "superadmin" ? "super_admin" : normalizedRawRole;
       const { category } = req.body;
 
       if (userRole === "seller" && category !== "product") {
@@ -13423,7 +13440,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Authentication required" });
       }
       const rawRole = String(freshUser.role || req.user!.role || "").toLowerCase().trim();
-      const userRole = rawRole === "superadmin" ? "super_admin" : rawRole;
+      const normalizedRawRole = rawRole.replace(/[\s-]+/g, "_");
+      const userRole = normalizedRawRole === "superadmin" ? "super_admin" : normalizedRawRole;
 
       // Only admin, super_admin and seller roles can access media library
       if (userRole !== "admin" && userRole !== "super_admin" && userRole !== "seller") {
@@ -13474,7 +13492,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Authentication required" });
       }
       const rawRole = String(freshUser.role || req.user!.role || "").toLowerCase().trim();
-      const userRole = rawRole === "superadmin" ? "super_admin" : rawRole;
+      const normalizedRawRole = rawRole.replace(/[\s-]+/g, "_");
+      const userRole = normalizedRawRole === "superadmin" ? "super_admin" : normalizedRawRole;
       
       // Get the item first to check ownership
       const items = await storage.getMediaLibraryItems({});

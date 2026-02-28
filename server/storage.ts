@@ -56,7 +56,7 @@ export interface IStorage {
   
   // Delivery Zone operations
   createDeliveryZone(zone: InsertDeliveryZone): Promise<DeliveryZone>;
-  getDeliveryZones(): Promise<DeliveryZone[]>;
+  getDeliveryZones(includeInactive?: boolean): Promise<DeliveryZone[]>;
   updateDeliveryZone(id: string, data: Partial<DeliveryZone>): Promise<DeliveryZone | undefined>;
   deleteDeliveryZone(id: string): Promise<boolean>;
   
@@ -667,7 +667,10 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  async getDeliveryZones(): Promise<DeliveryZone[]> {
+  async getDeliveryZones(includeInactive: boolean = false): Promise<DeliveryZone[]> {
+    if (includeInactive) {
+      return db.select().from(deliveryZones);
+    }
     return db.select().from(deliveryZones).where(eq(deliveryZones.isActive, true));
   }
 
@@ -2048,7 +2051,7 @@ export class DbStorage implements IStorage {
     // Basic analytics - can be expanded
     const result: any = {};
     const normalizedRole = (() => {
-      const raw = (role || "").toLowerCase().trim();
+      const raw = (role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
       if (raw === "superadmin") return "super_admin";
       return raw;
     })();

@@ -18,6 +18,19 @@ interface User {
   isApproved: boolean;
 }
 
+function normalizeRole(role?: string | null): string {
+  const raw = String(role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (raw === "superadmin") return "super_admin";
+  return raw;
+}
+
+function normalizeUser(user: User): User {
+  return {
+    ...user,
+    role: normalizeRole(user.role),
+  };
+}
+
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
@@ -50,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (currentUser) {
-      setUser(currentUser);
+      setUser(normalizeUser(currentUser));
     } else if ((currentUser === null && !isLoading) || isError) {
       setUser(null);
       queryClient.setQueryData(["/api/auth/me"], null);
@@ -63,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return res.json();
     },
     onSuccess: (data) => {
-      setUser(data.user);
+      setUser(normalizeUser(data.user));
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
   });
@@ -74,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return res.json();
     },
     onSuccess: (data) => {
-      setUser(data.user);
+      setUser(normalizeUser(data.user));
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
   });

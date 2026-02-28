@@ -9,6 +9,7 @@ import { z } from "zod";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useSocket } from "@/contexts/NotificationContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -61,21 +62,52 @@ interface DeliveryZone {
 export default function AdminDeliveryZones() {
   const { toast } = useToast();
   const { formatPrice, currency } = useLanguage();
+  const socket = useSocket();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<DeliveryZone | null>(null);
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const normalizedRole = (() => {
+    const raw = String(user?.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    return raw === "superadmin" ? "super_admin" : raw;
+  })();
+  const isAdminViewer = normalizedRole === "admin" || normalizedRole === "super_admin";
 
   useEffect(() => {
-    if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
+    if (!authLoading && (!isAuthenticated || !isAdminViewer)) {
       navigate("/auth");
     }
-  }, [isAuthenticated, authLoading, user, navigate]);
+  }, [isAuthenticated, authLoading, isAdminViewer, navigate]);
 
   const { data: zones = [], isLoading } = useQuery<DeliveryZone[]>({
-    queryKey: ["/api/delivery-zones"],
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    queryKey: ["/api/admin/delivery-zones"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/delivery-zones", { credentials: "include", cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch delivery zones");
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && isAdminViewer,
+    staleTime: 0,
+    refetchInterval: 10000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleZonesUpdate = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
+    };
+
+    socket.on("delivery_zones_updated", handleZonesUpdate);
+    return () => {
+      socket.off("delivery_zones_updated", handleZonesUpdate);
+    };
+  }, [socket]);
 
   const form = useForm<ZoneFormData>({
     resolver: zodResolver(zoneSchema),
@@ -95,7 +127,10 @@ export default function AdminDeliveryZones() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/delivery-zones"] });
       queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
       toast({
         title: "Delivery zone created",
         description: "New delivery zone has been added successfully.",
@@ -118,7 +153,10 @@ export default function AdminDeliveryZones() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/delivery-zones"] });
       queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
       toast({
         title: "Delivery zone updated",
         description: "Delivery zone has been updated successfully.",
@@ -142,7 +180,10 @@ export default function AdminDeliveryZones() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/delivery-zones"] });
       queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
       toast({
         title: "Delivery zone deleted",
         description: "Delivery zone has been removed successfully.",
@@ -191,7 +232,7 @@ export default function AdminDeliveryZones() {
     setIsDialogOpen(true);
   };
 
-  if (authLoading || isLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
+  if (authLoading || isLoading || !isAuthenticated || !isAdminViewer) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

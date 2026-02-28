@@ -6,7 +6,7 @@ import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import ThemeToggle from "@/components/ThemeToggle";
 import RealTimeRiderMap from "@/components/RealTimeRiderMap";
-import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle } from "lucide-react";
+import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle, MapPin } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -27,10 +27,18 @@ interface Order {
   createdAt: string;
 }
 
+interface DeliveryZone {
+  id: string;
+}
+
 export default function AdminDashboard() {
   const [, navigate] = useLocation();
   const [location] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const normalizedRole = (() => {
+    const raw = String(user?.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    return raw === "superadmin" ? "super_admin" : raw;
+  })();
   const { formatPrice } = useLanguage();
   const [activeItem, setActiveItem] = useState("dashboard");
   const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();
@@ -118,15 +126,28 @@ export default function AdminDashboard() {
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
-    enabled: isAuthenticated && user?.role === "admin",
+    enabled: isAuthenticated && (normalizedRole === "admin" || normalizedRole === "super_admin"),
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders"],
-    enabled: isAuthenticated && user?.role === "admin",
+    enabled: isAuthenticated && (normalizedRole === "admin" || normalizedRole === "super_admin"),
   });
 
-  if (authLoading || !isAuthenticated || user?.role !== "admin") {
+  const { data: deliveryZones = [] } = useQuery<DeliveryZone[]>({
+    queryKey: ["/api/admin/delivery-zones"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/delivery-zones", { credentials: "include", cache: "no-store" });
+      if (!res.ok) return [];
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && (normalizedRole === "admin" || normalizedRole === "super_admin"),
+    staleTime: 0,
+    refetchInterval: 10000,
+  });
+
+  if (authLoading || !isAuthenticated || (normalizedRole !== "admin" && normalizedRole !== "super_admin")) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-admin" />
@@ -147,10 +168,10 @@ export default function AdminDashboard() {
   return (
     <div className="flex h-screen bg-background">
       <DashboardSidebar
-        role="admin"
+        role={normalizedRole === "super_admin" ? "super_admin" : "admin"}
         activeItem={activeItem}
         onItemClick={handleItemClick}
-        userName={user.name}
+        userName={user?.name || "Admin"}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -251,6 +272,15 @@ export default function AdminDashboard() {
                   >
                     <Truck className="mr-2 h-4 w-4" />
                     Manage Riders
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start"
+                    onClick={() => navigate("/admin/zones")}
+                    data-testid="button-manage-delivery-zones-admin"
+                  >
+                    <MapPin className="mr-2 h-4 w-4" />
+                    Delivery Zones ({deliveryZones.length})
                   </Button>
                 </CardContent>
               </Card>
