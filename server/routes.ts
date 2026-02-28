@@ -9842,10 +9842,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!features || typeof features !== 'object') {
         return res.status(400).json({ error: "Features object is required" });
       }
+
+      const normalizedRole = String(role || "").toLowerCase().trim();
+      let normalizedFeatures = Object.fromEntries(
+        Object.entries(features as Record<string, unknown>).map(([key, value]) => [key, value === true]),
+      ) as Record<string, boolean>;
+
+      // Super admin is always absolute. Any submitted key is persisted as enabled.
+      if (normalizedRole === "super_admin") {
+        normalizedFeatures = Object.fromEntries(Object.keys(normalizedFeatures).map((key) => [key, true]));
+      }
       
       const updatedFeatures = await storage.updateRoleFeatures(
-        role,
-        features,
+        normalizedRole,
+        normalizedFeatures,
         req.user!.id
       );
       

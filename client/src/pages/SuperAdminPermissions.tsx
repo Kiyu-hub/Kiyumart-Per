@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -9,8 +9,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Loader2, Shield, ArrowLeft, Save } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Shield, ArrowLeft, Save, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 
 interface RoleFeature {
   id: string;
@@ -20,76 +22,32 @@ interface RoleFeature {
   updatedBy: string;
 }
 
-interface AdminPermissionPayload {
-  canManageUsers: boolean;
-  canManageProducts: boolean;
-  canManageOrders: boolean;
-  canManageStores: boolean;
-  canManageCategories: boolean;
-  canManageAdmins: boolean;
-  canEditPasswords: boolean;
-  canManageRoles: boolean;
-  canManagePlatformSettings: boolean;
-  canViewAnalytics: boolean;
-  canManagePromotions: boolean;
-  canManageReviews: boolean;
-  maxProductsPerDay: number;
-  maxOrdersPerDay: number;
-}
-
-interface AdminPermissionUser {
-  id: string;
-  name: string;
-  email: string;
-  role: "admin" | "super_admin";
-  isActive: boolean;
-  isApproved: boolean;
-  hasPermissionRecord: boolean;
-  permissions: AdminPermissionPayload;
-}
-
-// Feature manifest defining all available features by role
 const FEATURE_MANIFEST: Record<string, { label: string; description: string; category: string }> = {
-  // Product Management
   "products.create": { label: "Create Products", description: "Allow creating new products", category: "Product Management" },
   "products.edit": { label: "Edit Products", description: "Allow editing product details", category: "Product Management" },
   "products.delete": { label: "Delete Products", description: "Allow deleting products", category: "Product Management" },
   "products.viewAll": { label: "View All Products", description: "View products from all sellers", category: "Product Management" },
-  
-  // Order Management
   "orders.view": { label: "View Orders", description: "View order listings", category: "Order Management" },
   "orders.manage": { label: "Manage Orders", description: "Update order status and details", category: "Order Management" },
   "orders.cancel": { label: "Cancel Orders", description: "Cancel customer orders", category: "Order Management" },
-  
-  // User Management
   "users.view": { label: "View Users", description: "Access user listings", category: "User Management" },
   "users.create": { label: "Create Users", description: "Create new user accounts", category: "User Management" },
   "users.edit": { label: "Edit Users", description: "Edit user details", category: "User Management" },
   "users.delete": { label: "Delete Users", description: "Delete user accounts", category: "User Management" },
   "users.approve": { label: "Approve Applications", description: "Approve seller/rider applications", category: "User Management" },
-  
-  // Platform Settings
   "settings.view": { label: "View Settings", description: "View platform settings", category: "Platform Settings" },
   "settings.edit": { label: "Edit Settings", description: "Modify platform settings", category: "Platform Settings" },
   "branding.edit": { label: "Edit Branding", description: "Customize platform branding", category: "Platform Settings" },
-  
-  // Content Management
   "banners.manage": { label: "Manage Banners", description: "Create and edit banners", category: "Content Management" },
   "categories.manage": { label: "Manage Categories", description: "Create and edit categories", category: "Content Management" },
   "promotions.manage": { label: "Manage Promotions", description: "Create and manage promotions/coupons", category: "Content Management" },
   "reviews.manage": { label: "Manage Reviews", description: "Moderate and reply to reviews", category: "Content Management" },
-  
-  // Reports & Analytics
   "analytics.view": { label: "View Analytics", description: "Access analytics and reports", category: "Reports & Analytics" },
   "reports.generate": { label: "Generate Reports", description: "Create custom reports", category: "Reports & Analytics" },
-
-  // Messaging & Support
   "messages.view": { label: "View Messages", description: "Access messaging inbox and contacts", category: "Messaging & Support" },
   "messages.send": { label: "Send Messages", description: "Send chat/support messages", category: "Messaging & Support" },
   "support.view": { label: "View Support", description: "Access support conversations", category: "Messaging & Support" },
   "support.manage": { label: "Manage Support", description: "Manage support tickets and responses", category: "Messaging & Support" },
-
-  // Store / Delivery / Payout Operations
   "store.manage": { label: "Manage Store", description: "Manage store profile and settings", category: "Operations" },
   "deliveries.view": { label: "View Deliveries", description: "View delivery assignments", category: "Operations" },
   "deliveries.manage": { label: "Manage Deliveries", description: "Update delivery lifecycle", category: "Operations" },
@@ -99,8 +57,6 @@ const FEATURE_MANIFEST: Record<string, { label: string; description: string; cat
   "orders.create": { label: "Create Orders", description: "Create checkout orders", category: "Operations" },
   "wishlist.manage": { label: "Manage Wishlist", description: "Add/remove wishlist items", category: "Operations" },
   "profile.manage": { label: "Manage Profile", description: "Update profile details and media", category: "Operations" },
-
-  // Administrative Access (legacy key compatibility and expanded controls)
   "canManageUsers": { label: "Manage Users", description: "Manage user accounts and approvals", category: "Administrative Access" },
   "canManageProducts": { label: "Manage Products", description: "Manage product listings platform-wide", category: "Administrative Access" },
   "canManageOrders": { label: "Manage Orders", description: "Manage order lifecycle and issues", category: "Administrative Access" },
@@ -203,16 +159,44 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
   },
 };
 
+const ROLE_OPTIONS = ["super_admin", "admin", "agent", "seller", "rider", "buyer"] as const;
+
+const ABSOLUTE_SUPER_ADMIN_KEYS = Array.from(
+  new Set([
+    ...Object.keys(FEATURE_MANIFEST),
+    ...Object.values(DEFAULT_FEATURES).flatMap((record) => Object.keys(record || {})),
+    "manage_users",
+    "manage_products",
+    "manage_orders",
+    "manage_stores",
+    "manage_categories",
+    "manage_admins",
+    "edit_passwords",
+    "manage_roles",
+    "manage_platform_settings",
+    "view_analytics",
+    "manage_promotions",
+    "manage_reviews",
+  ]),
+);
+
+const roleLabel = (role: string) =>
+  role
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
 export default function SuperAdminPermissions() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+
   const [selectedRole, setSelectedRole] = useState<string>("admin");
   const [localFeatures, setLocalFeatures] = useState<Record<string, boolean>>({});
   const [hasChanges, setHasChanges] = useState(false);
-  const [selectedAdminId, setSelectedAdminId] = useState<string>("");
-  const [localAdminPermissions, setLocalAdminPermissions] = useState<AdminPermissionPayload | null>(null);
-  const [adminHasChanges, setAdminHasChanges] = useState(false);
+  const [featureSearch, setFeatureSearch] = useState("");
+
+  const isSuperAdminRole = selectedRole === "super_admin";
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== "super_admin")) {
@@ -223,22 +207,8 @@ export default function SuperAdminPermissions() {
   const { data: roleFeatures = [], isLoading } = useQuery<RoleFeature[]>({
     queryKey: ["/api/role-features"],
     queryFn: async () => {
-      const res = await fetch("/api/role-features", {
-        credentials: "include",
-      });
+      const res = await fetch("/api/role-features", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch role features");
-      return res.json();
-    },
-    enabled: isAuthenticated && user?.role === "super_admin",
-  });
-
-  const { data: adminPermissionUsers = [], isLoading: adminPermissionsLoading } = useQuery<AdminPermissionUser[]>({
-    queryKey: ["/api/admin/permissions"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/permissions", {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch admin permissions");
       return res.json();
     },
     enabled: isAuthenticated && user?.role === "super_admin",
@@ -265,114 +235,115 @@ export default function SuperAdminPermissions() {
     },
   });
 
-  const updateAdminPermissionsMutation = useMutation({
-    mutationFn: async ({ userId, permissions }: { userId: string; permissions: AdminPermissionPayload }) => {
-      const res = await apiRequest("PUT", `/api/admin/permissions/${userId}`, permissions);
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "Admin permissions updated successfully",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/permissions"] });
-      setAdminHasChanges(false);
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update admin permissions",
-        variant: "destructive",
-      });
-    },
-  });
-
   useEffect(() => {
-    const currentRole = roleFeatures.find(rf => rf.role === selectedRole);
-    if (currentRole) {
-      setLocalFeatures({ ...(DEFAULT_FEATURES[selectedRole] || {}), ...(currentRole.features || {}) });
-    } else {
-      // Load defaults if no configuration exists
-      setLocalFeatures(DEFAULT_FEATURES[selectedRole] || {});
-    }
-    setHasChanges(false);
-  }, [selectedRole, roleFeatures]);
-
-  useEffect(() => {
-    if (adminPermissionUsers.length === 0) {
-      setSelectedAdminId("");
-      setLocalAdminPermissions(null);
-      setAdminHasChanges(false);
+    const currentRole = roleFeatures.find((rf) => rf.role === selectedRole);
+    const base = { ...(DEFAULT_FEATURES[selectedRole] || {}), ...(currentRole?.features || {}) };
+    if (selectedRole === "super_admin") {
+      const locked = { ...base };
+      Array.from(new Set([...ABSOLUTE_SUPER_ADMIN_KEYS, ...Object.keys(base)])).forEach((key) => {
+        locked[key] = true;
+      });
+      setLocalFeatures(locked);
+      setHasChanges(false);
       return;
     }
 
-    const activeId = selectedAdminId || adminPermissionUsers[0].id;
-    const selected = adminPermissionUsers.find((u) => u.id === activeId) || adminPermissionUsers[0];
-    setSelectedAdminId(selected.id);
-    setLocalAdminPermissions({ ...selected.permissions });
-    setAdminHasChanges(false);
-  }, [adminPermissionUsers, selectedAdminId]);
+    setLocalFeatures(base);
+    setHasChanges(false);
+  }, [selectedRole, roleFeatures]);
+
+  const mergedFeatureManifest = useMemo(() => {
+    const merged: Record<string, { label: string; description: string; category: string }> = { ...FEATURE_MANIFEST };
+    const discovered = new Set<string>([
+      ...Object.keys(merged),
+      ...roleFeatures.flatMap((rf) => Object.keys(rf.features || {})),
+      ...Object.keys(localFeatures || {}),
+    ]);
+
+    discovered.forEach((key) => {
+      if (!merged[key]) {
+        merged[key] = {
+          label: key,
+          description: "Dynamically discovered permission key",
+          category: "Uncategorized",
+        };
+      }
+    });
+
+    return merged;
+  }, [localFeatures, roleFeatures]);
+
+  const featuresByCategory = useMemo(() => {
+    const grouped: Record<string, string[]> = {};
+    const query = featureSearch.trim().toLowerCase();
+    const allKeys = Object.keys(mergedFeatureManifest);
+
+    for (const key of allKeys) {
+      const feature = mergedFeatureManifest[key];
+      const haystack = `${key} ${feature.label} ${feature.description}`.toLowerCase();
+      if (query && !haystack.includes(query)) continue;
+
+      const category = feature.category;
+      if (!grouped[category]) grouped[category] = [];
+      grouped[category].push(key);
+    }
+
+    Object.keys(grouped).forEach((category) => {
+      grouped[category] = grouped[category].sort((a, b) =>
+        mergedFeatureManifest[a].label.localeCompare(mergedFeatureManifest[b].label),
+      );
+    });
+
+    return grouped;
+  }, [featureSearch, mergedFeatureManifest]);
+
+  const totalFeatureCount = useMemo(
+    () => Object.values(featuresByCategory).reduce((sum, list) => sum + list.length, 0),
+    [featuresByCategory],
+  );
+  const enabledFeatureCount = useMemo(
+    () =>
+      Object.values(featuresByCategory)
+        .flat()
+        .reduce((sum, key) => sum + (localFeatures[key] ? 1 : 0), 0),
+    [featuresByCategory, localFeatures],
+  );
 
   const handleToggleFeature = (featureKey: string, enabled: boolean) => {
-    setLocalFeatures(prev => ({ ...prev, [featureKey]: enabled }));
+    if (isSuperAdminRole) return;
+    setLocalFeatures((prev) => ({ ...prev, [featureKey]: enabled }));
     setHasChanges(true);
   };
 
   const handleSave = () => {
+    const payload =
+      selectedRole === "super_admin"
+        ? Object.fromEntries(
+            Array.from(new Set([...ABSOLUTE_SUPER_ADMIN_KEYS, ...Object.keys(localFeatures)])).map((key) => [key, true]),
+          )
+        : localFeatures;
+
     updateFeaturesMutation.mutate({
       role: selectedRole,
-      features: localFeatures,
+      features: payload,
     });
   };
 
   const handleReset = () => {
-    const currentRole = roleFeatures.find(rf => rf.role === selectedRole);
-    if (currentRole) {
-      setLocalFeatures({ ...(DEFAULT_FEATURES[selectedRole] || {}), ...(currentRole.features || {}) });
-    } else {
-      setLocalFeatures(DEFAULT_FEATURES[selectedRole] || {});
+    const currentRole = roleFeatures.find((rf) => rf.role === selectedRole);
+    const base = { ...(DEFAULT_FEATURES[selectedRole] || {}), ...(currentRole?.features || {}) };
+    if (selectedRole === "super_admin") {
+      const locked = { ...base };
+      Array.from(new Set([...ABSOLUTE_SUPER_ADMIN_KEYS, ...Object.keys(base)])).forEach((key) => {
+        locked[key] = true;
+      });
+      setLocalFeatures(locked);
+      setHasChanges(false);
+      return;
     }
+
+    setLocalFeatures(base);
     setHasChanges(false);
-  };
-
-  const handleSelectAdmin = (adminId: string) => {
-    const selected = adminPermissionUsers.find((u) => u.id === adminId);
-    if (!selected) return;
-    setSelectedAdminId(adminId);
-    setLocalAdminPermissions({ ...selected.permissions });
-    setAdminHasChanges(false);
-  };
-
-  const handleToggleAdminPermission = (key: keyof AdminPermissionPayload, value: boolean) => {
-    setLocalAdminPermissions((prev) => {
-      if (!prev) return prev;
-      return { ...prev, [key]: value };
-    });
-    setAdminHasChanges(true);
-  };
-
-  const handleAdminLimitChange = (key: "maxProductsPerDay" | "maxOrdersPerDay", value: string) => {
-    const parsed = Number(value);
-    setLocalAdminPermissions((prev) => {
-      if (!prev) return prev;
-      return { ...prev, [key]: Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0 };
-    });
-    setAdminHasChanges(true);
-  };
-
-  const handleSaveAdminPermissions = () => {
-    if (!selectedAdminId || !localAdminPermissions) return;
-    updateAdminPermissionsMutation.mutate({
-      userId: selectedAdminId,
-      permissions: localAdminPermissions,
-    });
-  };
-
-  const handleResetAdminPermissions = () => {
-    const selected = adminPermissionUsers.find((u) => u.id === selectedAdminId);
-    if (!selected) return;
-    setLocalAdminPermissions({ ...selected.permissions });
-    setAdminHasChanges(false);
   };
 
   if (authLoading || !isAuthenticated || user?.role !== "super_admin") {
@@ -383,269 +354,192 @@ export default function SuperAdminPermissions() {
     );
   }
 
-  // Group features by category
-  const mergedFeatureManifest: Record<string, { label: string; description: string; category: string }> = {
-    ...FEATURE_MANIFEST,
-  };
-  const featuresByCategory: Record<string, string[]> = {};
-  const discoveredFeatureKeys = Array.from(
-    new Set([
-      ...Object.keys(mergedFeatureManifest),
-      ...roleFeatures.flatMap((rf) => Object.keys(rf.features || {})),
-      ...Object.keys(localFeatures || {}),
-    ]),
-  );
-  discoveredFeatureKeys.forEach((key) => {
-    if (!mergedFeatureManifest[key]) {
-      mergedFeatureManifest[key] = {
-        label: key,
-        description: "Dynamically discovered permission key",
-        category: "Uncategorized",
-      };
-    }
-    const category = mergedFeatureManifest[key].category;
-    if (!featuresByCategory[category]) {
-      featuresByCategory[category] = [];
-    }
-    featuresByCategory[category].push(key);
-  });
-
   return (
     <DashboardLayout role="super_admin">
-      <div className="p-8">
-        <div className="flex items-center gap-4 mb-6">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => window.history.back()}
-            data-testid="button-back"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex-1">
-            <h1 className="text-3xl font-bold text-foreground flex items-center gap-2" data-testid="heading-permissions">
-              <Shield className="h-8 w-8 text-primary" />
-              Role Permissions Management
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Configure feature access for different user roles
-            </p>
-          </div>
-          {hasChanges && (
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={handleReset}
-                data-testid="button-reset"
-              >
-                Reset
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={updateFeaturesMutation.isPending}
-                data-testid="button-save"
-                className="gap-2"
-              >
-                {updateFeaturesMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
+      <div className="p-4 md:p-6 lg:p-8 space-y-6">
+        <Card className="border-primary/25 bg-gradient-to-r from-primary/10 via-background to-sky-500/10 overflow-hidden">
+          <CardContent className="p-6 md:p-7">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => window.history.back()}
+                    data-testid="button-back"
+                    className="h-9 w-9"
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
+                  <h1 className="text-2xl md:text-3xl font-bold text-foreground flex items-center gap-2" data-testid="heading-permissions">
+                    <Shield className="h-7 w-7 text-primary" />
+                    Permissions Control Center
+                  </h1>
+                </div>
+                <p className="text-sm md:text-base text-muted-foreground">
+                  Manage role-level capabilities from one place. Super Admin access is enforced as absolute.
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  <Badge className="bg-emerald-600 text-white gap-1">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Absolute Super Admin
+                  </Badge>
+                  <Badge variant="secondary" className="gap-1">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Role-Based Access Matrix
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {(hasChanges || isSuperAdminRole) && (
+                  <>
+                    {!isSuperAdminRole && (
+                      <Button variant="outline" onClick={handleReset} data-testid="button-reset">
+                        Reset
+                      </Button>
+                    )}
+                    <Button
+                      onClick={handleSave}
+                      disabled={updateFeaturesMutation.isPending}
+                      data-testid="button-save"
+                      className="gap-2"
+                    >
+                      {updateFeaturesMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                      {isSuperAdminRole ? "Reinforce Super Admin Access" : "Save Changes"}
+                    </Button>
+                  </>
                 )}
-                Save Changes
-              </Button>
+              </div>
             </div>
-          )}
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardContent className="p-5">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Selected Role</p>
+              <p className="mt-2 text-xl font-semibold">{roleLabel(selectedRole)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-5">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Enabled Features</p>
+              <p className="mt-2 text-xl font-semibold">
+                {enabledFeatureCount} / {totalFeatureCount || 0}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-5">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Permission Groups</p>
+              <p className="mt-2 text-xl font-semibold">{Object.keys(featuresByCategory).length}</p>
+            </CardContent>
+          </Card>
         </div>
 
-        <div className="grid gap-6">
-          {/* Role Selection */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Select Role</CardTitle>
-              <CardDescription>Choose a role to configure its permissions</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-2 flex-wrap">
-                {["super_admin", "admin", "agent", "seller", "rider", "buyer"].map((role) => (
-                  <Button
-                    key={role}
-                    variant={selectedRole === role ? "default" : "outline"}
-                    onClick={() => setSelectedRole(role)}
-                    data-testid={`button-role-${role}`}
-                  >
-                    {role
-                      .split("_")
-                      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-                      .join(" ")}
-                  </Button>
-                ))}
+        <Card>
+          <CardHeader>
+            <CardTitle>Role Selection</CardTitle>
+            <CardDescription>Choose a role and manage its feature access matrix</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2 flex-wrap">
+              {ROLE_OPTIONS.map((role) => (
+                <Button
+                  key={role}
+                  variant={selectedRole === role ? "default" : "outline"}
+                  onClick={() => setSelectedRole(role)}
+                  data-testid={`button-role-${role}`}
+                  className={cn(selectedRole === role && "shadow-sm")}
+                >
+                  {roleLabel(role)}
+                </Button>
+              ))}
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={featureSearch}
+                onChange={(e) => setFeatureSearch(e.target.value)}
+                placeholder="Search permissions by name, key, or description..."
+                className="pl-9"
+                data-testid="input-search-features"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {isSuperAdminRole && (
+          <Card className="border-emerald-500/30 bg-emerald-500/5">
+            <CardContent className="p-4 text-sm text-emerald-700 dark:text-emerald-300">
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  Super Admin role is locked to full access. Toggles are disabled and the backend enforces all permissions as enabled.
+                </span>
               </div>
             </CardContent>
           </Card>
+        )}
 
-          {/* Features by Category */}
-          {isLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              {Object.keys(featuresByCategory).map((category) => (
-                <Card key={category}>
+        {isLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : totalFeatureCount === 0 ? (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              No permissions matched your search.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-2">
+            {Object.keys(featuresByCategory)
+              .sort((a, b) => a.localeCompare(b))
+              .map((category) => (
+                <Card key={category} className="border-border/70">
                   <CardHeader>
                     <CardTitle className="text-lg">{category}</CardTitle>
+                    <CardDescription>{featuresByCategory[category].length} permissions</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
+                  <CardContent className="space-y-3">
                     {featuresByCategory[category].map((featureKey) => {
                       const feature = mergedFeatureManifest[featureKey];
-                      const isEnabled = localFeatures[featureKey] || false;
-                      
+                      const isEnabled = !!localFeatures[featureKey];
                       return (
-                        <div key={featureKey} className="flex items-center justify-between space-x-4">
-                          <div className="flex-1">
-                            <Label
-                              htmlFor={featureKey}
-                              className="text-base font-medium cursor-pointer"
-                              data-testid={`label-${featureKey}`}
-                            >
-                              {feature.label}
-                            </Label>
-                            <p className="text-sm text-muted-foreground">
-                              {feature.description}
-                            </p>
+                        <div key={featureKey} className="rounded-lg border bg-card/50 px-3 py-2.5">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <Label
+                                htmlFor={featureKey}
+                                className="text-sm font-medium cursor-pointer"
+                                data-testid={`label-${featureKey}`}
+                              >
+                                {feature.label}
+                              </Label>
+                              <p className="text-xs text-muted-foreground mt-1">{feature.description}</p>
+                              <p className="text-[11px] text-muted-foreground/80 mt-1 font-mono">{featureKey}</p>
+                            </div>
+                            <Switch
+                              id={featureKey}
+                              checked={isEnabled}
+                              disabled={isSuperAdminRole}
+                              onCheckedChange={(checked) => handleToggleFeature(featureKey, checked)}
+                              data-testid={`switch-${featureKey}`}
+                            />
                           </div>
-                          <Switch
-                            id={featureKey}
-                            checked={isEnabled}
-                            onCheckedChange={(checked) => handleToggleFeature(featureKey, checked)}
-                            data-testid={`switch-${featureKey}`}
-                          />
                         </div>
                       );
                     })}
                   </CardContent>
                 </Card>
               ))}
-            </div>
-          )}
-
-          {/* Per-Admin Permissions (admin_permissions table) */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Per-Admin Permission Controls</CardTitle>
-              <CardDescription>
-                Super admin controls for individual admin/super admin permission flags and operation limits.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {adminPermissionsLoading ? (
-                <div className="flex justify-center py-6">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                </div>
-              ) : adminPermissionUsers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No admin or super admin users found.</p>
-              ) : (
-                <>
-                  <div className="flex gap-2 flex-wrap">
-                    {adminPermissionUsers.map((adminUser) => (
-                      <Button
-                        key={adminUser.id}
-                        variant={selectedAdminId === adminUser.id ? "default" : "outline"}
-                        onClick={() => handleSelectAdmin(adminUser.id)}
-                        data-testid={`button-admin-user-${adminUser.id}`}
-                      >
-                        {adminUser.name || adminUser.email} ({adminUser.role})
-                      </Button>
-                    ))}
-                  </div>
-
-                  {localAdminPermissions && (
-                    <div className="grid gap-4">
-                      {(
-                        [
-                          ["canManageUsers", "Manage Users"],
-                          ["canManageProducts", "Manage Products"],
-                          ["canManageOrders", "Manage Orders"],
-                          ["canManageStores", "Manage Stores"],
-                          ["canManageCategories", "Manage Categories"],
-                          ["canManageAdmins", "Manage Admins"],
-                          ["canEditPasswords", "Edit Passwords"],
-                          ["canManageRoles", "Manage Roles"],
-                          ["canManagePlatformSettings", "Manage Platform Settings"],
-                          ["canViewAnalytics", "View Analytics"],
-                          ["canManagePromotions", "Manage Promotions"],
-                          ["canManageReviews", "Manage Reviews"],
-                        ] as Array<[keyof AdminPermissionPayload, string]>
-                      ).map(([key, label]) => (
-                        <div key={key} className="flex items-center justify-between gap-4">
-                          <Label htmlFor={`admin-perm-${key}`} className="text-sm font-medium">
-                            {label}
-                          </Label>
-                          <Switch
-                            id={`admin-perm-${key}`}
-                            checked={!!localAdminPermissions[key]}
-                            onCheckedChange={(checked) => handleToggleAdminPermission(key, checked)}
-                            data-testid={`switch-admin-${key}`}
-                          />
-                        </div>
-                      ))}
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="maxProductsPerDay">Max Products Per Day</Label>
-                          <Input
-                            id="maxProductsPerDay"
-                            type="number"
-                            min={0}
-                            value={localAdminPermissions.maxProductsPerDay}
-                            onChange={(e) => handleAdminLimitChange("maxProductsPerDay", e.target.value)}
-                            data-testid="input-max-products-per-day"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="maxOrdersPerDay">Max Orders Per Day</Label>
-                          <Input
-                            id="maxOrdersPerDay"
-                            type="number"
-                            min={0}
-                            value={localAdminPermissions.maxOrdersPerDay}
-                            onChange={(e) => handleAdminLimitChange("maxOrdersPerDay", e.target.value)}
-                            data-testid="input-max-orders-per-day"
-                          />
-                        </div>
-                      </div>
-
-                      {adminHasChanges && (
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            onClick={handleResetAdminPermissions}
-                            data-testid="button-reset-admin-permissions"
-                          >
-                            Reset
-                          </Button>
-                          <Button
-                            onClick={handleSaveAdminPermissions}
-                            disabled={updateAdminPermissionsMutation.isPending}
-                            className="gap-2"
-                            data-testid="button-save-admin-permissions"
-                          >
-                            {updateAdminPermissionsMutation.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Save className="h-4 w-4" />
-                            )}
-                            Save Admin Permissions
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

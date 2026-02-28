@@ -257,19 +257,79 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
   },
 };
 
+const SUPER_ADMIN_ABSOLUTE_KEYS = Array.from(
+  new Set([
+    ...Object.values(ROLE_FEATURE_DEFAULTS).flatMap((record) => Object.keys(record || {})),
+    "canManageUsers",
+    "canManageProducts",
+    "canManageOrders",
+    "canManageStores",
+    "canManageCategories",
+    "canManageAdmins",
+    "canEditPasswords",
+    "canManageRoles",
+    "canManagePlatformSettings",
+    "canViewAnalytics",
+    "canManagePromotions",
+    "canManageReviews",
+    "canManagePayouts",
+    "canViewPayouts",
+    "canManageFeatures",
+    "manage_users",
+    "manage_products",
+    "manage_orders",
+    "manage_stores",
+    "manage_categories",
+    "manage_admins",
+    "edit_passwords",
+    "manage_roles",
+    "manage_platform_settings",
+    "view_analytics",
+    "manage_promotions",
+    "manage_reviews",
+  ]),
+);
+
+const buildSuperAdminAbsoluteFeatures = (configured: Record<string, boolean> = {}): Record<string, boolean> => {
+  const absolute = {} as Record<string, boolean>;
+  Array.from(new Set([...SUPER_ADMIN_ABSOLUTE_KEYS, ...Object.keys(configured || {})])).forEach((key) => {
+    absolute[key] = true;
+  });
+  return absolute;
+};
+
 export async function resolveRoleFeatures(role: string): Promise<Record<string, boolean>> {
-  const defaults = ROLE_FEATURE_DEFAULTS[role] || {};
+  const normalizedRole = String(role || "").toLowerCase().trim();
+  const defaults = ROLE_FEATURE_DEFAULTS[normalizedRole] || {};
   try {
     const { db } = await import("../db");
     const { roleFeatures } = await import("@shared/schema");
     const { eq } = await import("drizzle-orm");
+    if (normalizedRole === "super_admin") {
+      const configuredRows = await db
+        .select({ features: roleFeatures.features })
+        .from(roleFeatures);
+      const discoveredKeys = configuredRows.flatMap((row: any) =>
+        Object.keys((row?.features || {}) as Record<string, boolean>),
+      );
+      const discoveredFeatureMap = Object.fromEntries(discoveredKeys.map((key) => [key, true])) as Record<
+        string,
+        boolean
+      >;
+      return buildSuperAdminAbsoluteFeatures(discoveredFeatureMap);
+    }
+
     const [configured] = await db
       .select({ features: roleFeatures.features })
       .from(roleFeatures)
-      .where(eq(roleFeatures.role, role as any))
+      .where(eq(roleFeatures.role, normalizedRole as any))
       .limit(1);
-    return { ...defaults, ...(configured?.features || {}) };
+    const configuredFeatures = (configured?.features || {}) as Record<string, boolean>;
+    return { ...defaults, ...configuredFeatures };
   } catch {
+    if (normalizedRole === "super_admin") {
+      return buildSuperAdminAbsoluteFeatures();
+    }
     return defaults;
   }
 }
