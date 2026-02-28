@@ -1,5 +1,6 @@
 import { parseChatAttachmentMessage } from "@/lib/chatAttachments";
 import { useAuth } from "@/lib/auth";
+import { useLocation } from "wouter";
 
 interface MessageAttachmentContentProps {
   message: string;
@@ -8,6 +9,7 @@ interface MessageAttachmentContentProps {
 
 export default function MessageAttachmentContent({ message, className = "" }: MessageAttachmentContentProps) {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const attachment = parseChatAttachmentMessage(message);
 
   if (!attachment) {
@@ -91,6 +93,14 @@ export default function MessageAttachmentContent({ message, className = "" }: Me
       }
       return attachment.url;
     })();
+    const handleOrderOpen = () => {
+      if (!orderLink) return;
+      if (orderLink.startsWith("http://") || orderLink.startsWith("https://")) {
+        window.open(orderLink, "_blank", "noopener,noreferrer");
+        return;
+      }
+      navigate(orderLink);
+    };
     return (
       <div className="rounded-md border bg-muted/40 p-3 space-y-2 max-w-sm">
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
@@ -104,9 +114,14 @@ export default function MessageAttachmentContent({ message, className = "" }: Me
             </p>
           )}
         </div>
-        <a href={orderLink} className="text-xs text-primary hover:underline" data-testid="link-order-reference">
+        <button
+          type="button"
+          onClick={handleOrderOpen}
+          className="text-xs text-primary hover:underline bg-transparent border-0 p-0"
+          data-testid="link-order-reference"
+        >
           Open order
-        </a>
+        </button>
       </div>
     );
   }

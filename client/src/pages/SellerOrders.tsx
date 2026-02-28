@@ -33,8 +33,8 @@ type OrderContext = "seller" | "buyer";
 export default function SellerOrders() {
   const { user } = useAuth();
   const { formatPrice, t } = useLanguage();
-  const [, navigate] = useLocation();
-  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const [location, navigate] = useLocation();
+  const urlParams = useMemo(() => new URLSearchParams(location.split("?")[1] || ""), [location]);
   const orderIdFromUrl = urlParams.get("orderId");
   const orderNumberFromUrl = (urlParams.get("orderNumber") || "").trim();
   const contextFromUrl = urlParams.get("context");

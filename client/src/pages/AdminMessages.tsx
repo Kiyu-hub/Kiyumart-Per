@@ -1072,9 +1072,13 @@ export default function AdminMessages() {
                       <span className="font-semibold">{orderActionOwnerLabel}:</span> {orderReference.action}
                     </p>
                     <div className="flex items-center justify-between gap-2">
-                      <a href={orderReference.link} className="text-xs text-primary hover:underline">
+                      <button
+                        type="button"
+                        className="text-xs text-primary hover:underline bg-transparent border-0 p-0"
+                        onClick={() => navigate(orderReference.link)}
+                      >
                         Open order
-                      </a>
+                      </button>
                       <Button
                         size="sm"
                         variant="outline"
@@ -1432,9 +1436,13 @@ export default function AdminMessages() {
                         <span className="font-semibold">{orderActionOwnerLabel}:</span> {orderReference.action}
                       </p>
                       <div className="flex items-center justify-between gap-2">
-                        <a href={orderReference.link} className="text-xs text-primary hover:underline">
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline bg-transparent border-0 p-0"
+                          onClick={() => navigate(orderReference.link)}
+                        >
                           Open order
-                        </a>
+                        </button>
                         <Button
                           size="sm"
                           variant="outline"

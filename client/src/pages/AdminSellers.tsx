@@ -350,6 +350,12 @@ function CreateSellerDialog() {
 function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
+  const normalizeMediaUrl = (value?: string | null) => {
+    if (!value) return "";
+    const normalized = String(value).trim();
+    if (!normalized || normalized === "null" || normalized === "undefined") return "";
+    return normalized;
+  };
 
   const form = useForm<EditSellerFormData>({
     resolver: zodResolver(editSellerSchema),
@@ -369,6 +375,38 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
       ghanaCardBack: sellerData.ghanaCardBack || "",
     },
   });
+
+  const { data: sellerStore } = useQuery<{ banner?: string | null; logo?: string | null; name?: string | null; description?: string | null } | null>({
+    queryKey: ["/api/stores/by-seller", sellerData.id, "edit"],
+    queryFn: async () => {
+      const res = await fetch(`/api/stores/by-seller/${sellerData.id}`, { credentials: "include" });
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load seller store");
+      }
+      return res.json();
+    },
+    enabled: open,
+    retry: false,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    if (!open) return;
+
+    const currentStoreBanner = normalizeMediaUrl(form.getValues("storeBanner"));
+    const fallbackBanner = normalizeMediaUrl(sellerStore?.banner || sellerData.storeBanner);
+    if (!currentStoreBanner && fallbackBanner && !form.getFieldState("storeBanner").isDirty) {
+      form.setValue("storeBanner", fallbackBanner, { shouldDirty: false });
+    }
+
+    const currentProfileImage = normalizeMediaUrl(form.getValues("profileImage"));
+    const fallbackProfile = normalizeMediaUrl(sellerData.profileImage || sellerStore?.logo);
+    if (!currentProfileImage && fallbackProfile && !form.getFieldState("profileImage").isDirty) {
+      form.setValue("profileImage", fallbackProfile, { shouldDirty: false });
+    }
+  }, [open, sellerStore, sellerData.storeBanner, sellerData.profileImage, form]);
 
   const editSellerMutation = useMutation({
     mutationFn: async (data: EditSellerFormData) => {
@@ -715,7 +753,6 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
   const [zoomedImage, setZoomedImage] = useState<{ label: string; url: string } | null>(null);
   const [zoomScale, setZoomScale] = useState(1);
   const [zoomRotation, setZoomRotation] = useState(0);
-  const [bannerIndex, setBannerIndex] = useState(0);
 
   const { data: sellerStore } = useQuery<{ banner?: string | null; logo?: string | null } | null>({
     queryKey: ["/api/stores/by-seller", sellerData.id],
@@ -739,12 +776,14 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
     if (!normalized || normalized === "null" || normalized === "undefined") return null;
     return normalized;
   };
-  const bannerCandidates = [
-    normalizeBannerUrl(sellerStore?.banner),
-    normalizeBannerUrl(sellerStore?.logo),
-    normalizeBannerUrl(sellerData.storeBanner),
-  ].filter((value): value is string => Boolean(value));
-  const resolvedStoreBanner = bannerCandidates[bannerIndex] || null;
+  const resolvedProfileImage =
+    normalizeBannerUrl(sellerData.profileImage) ||
+    normalizeBannerUrl(sellerStore?.logo) ||
+    null;
+  const resolvedStoreBanner =
+    normalizeBannerUrl(sellerStore?.banner) ||
+    normalizeBannerUrl(sellerData.storeBanner) ||
+    null;
 
   const openZoom = (label: string, url: string, rotation: number) => {
     setZoomedImage({ label, url });
@@ -759,12 +798,10 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
         setOpen(nextOpen);
         if (nextOpen) {
           setCardRotation({ front: 0, back: 0 });
-          setBannerIndex(0);
         } else {
           setZoomedImage(null);
           setZoomScale(1);
           setZoomRotation(0);
-          setBannerIndex(0);
         }
       }}
     >
@@ -787,52 +824,57 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
         </DialogHeader>
         
         <div className="space-y-6">
-          {/* Profile Image + Store Banner */}
+          {/* Profile Image */}
           <div>
             <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
               <User className="h-5 w-5" />
               Profile Photo
             </h3>
-            <div className="rounded-lg overflow-hidden border border-border/70">
-              <div className="relative h-48 flex items-center justify-center bg-muted">
-                {resolvedStoreBanner ? (
-                  <img
-                    src={resolvedStoreBanner}
-                    alt="Store banner"
-                    className="absolute inset-0 h-full w-full object-cover"
-                    onError={(event) => {
-                      if (bannerIndex < bannerCandidates.length - 1) {
-                        setBannerIndex((prev) => prev + 1);
-                      } else {
-                        event.currentTarget.style.display = "none";
-                      }
-                    }}
-                  />
-                ) : null}
-                <div className={`absolute inset-0 ${resolvedStoreBanner ? "bg-black/35" : "bg-black/10"}`} />
-                {sellerData.profileImage ? (
+            <div className="rounded-lg overflow-hidden border border-border/70 bg-muted/30 p-6">
+              <div className="relative h-40 flex items-center justify-center">
+                {resolvedProfileImage ? (
                   <button
                     type="button"
-                    className="relative z-10 rounded-full p-1.5 bg-background/85 border border-white/30 shadow-xl backdrop-blur-sm"
-                    onClick={() => openZoom("Profile Photo", sellerData.profileImage!, 0)}
+                    className="rounded-full p-1.5 bg-background border border-border shadow-lg"
+                    onClick={() => openZoom("Profile Photo", resolvedProfileImage, 0)}
                   >
                     <img
-                      src={sellerData.profileImage}
+                      src={resolvedProfileImage}
                       alt="Profile"
                       className="w-32 h-32 rounded-full object-cover cursor-zoom-in"
                     />
                   </button>
                 ) : (
-                  <div className="relative z-10 w-32 h-32 rounded-full bg-background/90 border-4 border-background shadow-lg flex items-center justify-center">
+                  <div className="w-32 h-32 rounded-full bg-background border-2 border-border shadow-sm flex items-center justify-center">
                     <User className="h-12 w-12 text-muted-foreground" />
                   </div>
                 )}
               </div>
-              {resolvedStoreBanner && (
-                <div className="px-3 py-2 border-t bg-background/70">
-                  <p className="text-xs text-muted-foreground truncate">
-                    Store banner applied
-                  </p>
+            </div>
+          </div>
+
+          {/* Store Banner */}
+          <div>
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <Store className="h-5 w-5" />
+              Store Banner
+            </h3>
+            <div className="rounded-lg overflow-hidden border border-border/70 bg-muted/30">
+              {resolvedStoreBanner ? (
+                <button
+                  type="button"
+                  className="block w-full text-left"
+                  onClick={() => openZoom("Store Banner", resolvedStoreBanner, 0)}
+                >
+                  <img
+                    src={resolvedStoreBanner}
+                    alt="Store banner"
+                    className="h-48 w-full object-cover cursor-zoom-in"
+                  />
+                </button>
+              ) : (
+                <div className="h-32 flex items-center justify-center text-sm text-muted-foreground">
+                  No store banner set
                 </div>
               )}
             </div>
@@ -1419,14 +1461,13 @@ export default function AdminSellers() {
                         const linkedStore = sellerStoreDetailsMap.get(seller.id);
                         const sellerImage =
                           seller.profileImage ||
-                          linkedStore?.banner ||
                           linkedStore?.logo ||
-                          seller.storeBanner;
+                          null;
                         if (sellerImage) {
                           return (
                             <img
                               src={sellerImage}
-                              alt={`${seller.name} store`}
+                              alt={`${seller.name} profile`}
                               className="h-full w-full object-cover"
                               onError={(event) => {
                                 event.currentTarget.style.display = "none";
