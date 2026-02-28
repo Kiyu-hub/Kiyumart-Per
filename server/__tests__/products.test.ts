@@ -25,6 +25,11 @@ async function run() {
 
   storageModule.storage.getProducts = async (filters?: any) => [product];
   storageModule.storage.getProduct = async (id: string) => id === product.id ? product : undefined;
+  storageModule.storage.getPlatformSettings = async () => ({
+    isMultiVendor: true,
+    primaryStoreId: null,
+  } as any);
+  storageModule.storage.getStore = async () => undefined as any;
 
   const app = express();
   app.use(express.json({ verify: (req: any, _res: any, buf: any) => { req.rawBody = buf; } }));

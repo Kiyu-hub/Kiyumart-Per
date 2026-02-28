@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,28 +57,75 @@ export default function MediaUploadInput({
   minDimensions = { width: 200, height: 200 },
   mediaCategory,
 }: MediaUploadInputProps) {
+  const apiBase = ((import.meta.env as any).VITE_API_URL || "").trim().replace(/\/$/, "");
+  const toApiUrl = (path: string) => (path.startsWith("http") ? path : `${apiBase}${path}`);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [validationStatus, setValidationStatus] = useState("");
   const [fileInfo, setFileInfo] = useState<{ name: string; size: string } | null>(null);
   const [activeTab, setActiveTab] = useState<"url" | "upload" | "library">("url");
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const mediaLibraryPath = mediaCategory ? `/api/media-library?category=${encodeURIComponent(mediaCategory)}` : "/api/media-library";
+  const resolvedMediaCategory =
+    mediaCategory && ["banner", "category", "logo", "product", "general"].includes(mediaCategory)
+      ? mediaCategory
+      : "general";
+
+  const buildEndpointUrls = (path: string): string[] => {
+    const absolute = toApiUrl(path);
+    if (absolute === path) return [path];
+    return [absolute, path];
+  };
+
+  const fetchJsonWithFallback = async (path: string, init?: RequestInit) => {
+    let lastError: Error | null = null;
+    for (const url of buildEndpointUrls(path)) {
+      try {
+        const res = await fetch(url, init);
+        const bodyText = await res.text();
+        let parsed: any = null;
+        try {
+          parsed = bodyText ? JSON.parse(bodyText) : null;
+        } catch {
+          parsed = null;
+        }
+        if (!res.ok) {
+          throw new Error(parsed?.error || bodyText || `Request failed with status ${res.status}`);
+        }
+        return parsed;
+      } catch (error: any) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    throw lastError || new Error("Request failed");
+  };
 
   // Fetch media library items
-  const { data: mediaItems = [], isLoading: mediaLoading } = useQuery<MediaLibraryItem[]>({
+  const {
+    data: mediaItems = [],
+    isLoading: mediaLoading,
+    isError: mediaError,
+  } = useQuery<MediaLibraryItem[]>({
     queryKey: ["/api/media-library", mediaCategory || "all"],
     queryFn: async () => {
-      const params = mediaCategory ? `?category=${mediaCategory}` : "";
-      const res = await fetch(`/api/media-library${params}`);
-      if (!res.ok) return [];
-      return res.json();
+      const result = await fetchJsonWithFallback(mediaLibraryPath, {
+        credentials: "include",
+      });
+      return Array.isArray(result) ? result : [];
     },
     enabled: activeTab === "library",
   });
 
   // Fetch asset images (stock images)
-  const { data: assetImages = [], isLoading: assetsLoading } = useQuery<AssetImage[]>({
+  const { data: assetImages = [], isLoading: assetsLoading, isError: assetsError } = useQuery<AssetImage[]>({
     queryKey: ["/api/assets/images"],
+    queryFn: async () => {
+      const result = await fetchJsonWithFallback("/api/assets/images", {
+        credentials: "include",
+      });
+      return Array.isArray(result) ? result : [];
+    },
     enabled: activeTab === "library",
   });
 
@@ -137,12 +184,10 @@ export default function MediaUploadInput({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Reset states
     setUploadProgress(0);
     setValidationStatus("");
     setFileInfo({ name: file.name, size: formatFileSize(file.size) });
 
-    // Validate file type
     const isImage = file.type.startsWith("image/");
     const isVideo = file.type.startsWith("video/");
 
@@ -168,7 +213,6 @@ export default function MediaUploadInput({
       return;
     }
 
-    // Validate file size (max 10MB for images, 30MB for videos)
     setValidationStatus("Checking file size...");
     const maxSize = isVideo ? 30 * 1024 * 1024 : 10 * 1024 * 1024;
     if (file.size > maxSize) {
@@ -181,39 +225,34 @@ export default function MediaUploadInput({
       return;
     }
 
-    // Validate image dimensions
     if (isImage) {
       try {
         setValidationStatus("Checking image dimensions...");
         const { width, height } = await validateImageDimensions(file);
-        
+
         if (skip4KValidation) {
-          // Use minimum dimensions check when 4K is not required
           if (width < minDimensions.width || height < minDimensions.height) {
             toast({
               title: "Image resolution too low",
-              description: `Image is ${width}×${height}px. Minimum required: ${minDimensions.width}×${minDimensions.height}px`,
+              description: `Image is ${width}x${height}px. Minimum required: ${minDimensions.width}x${minDimensions.height}px`,
               variant: "destructive",
             });
             e.target.value = "";
             setFileInfo(null);
             return;
           }
-        } else {
-          // Default 4K validation (3840x2160 minimum)
-          if (width < 3840 || height < 2160) {
-            toast({
-              title: "Image resolution too low",
-              description: `Image is ${width}×${height}px. Minimum required: 3840×2160px (4K)`,
-              variant: "destructive",
-            });
-            e.target.value = "";
-            setFileInfo(null);
-            return;
-          }
+        } else if (width < 3840 || height < 2160) {
+          toast({
+            title: "Image resolution too low",
+            description: `Image is ${width}x${height}px. Minimum required: 3840x2160px (4K)`,
+            variant: "destructive",
+          });
+          e.target.value = "";
+          setFileInfo(null);
+          return;
         }
-        setValidationStatus(`✓ Image validated (${width}×${height}px)`);
-      } catch (error) {
+        setValidationStatus(`Image validated (${width}x${height}px)`);
+      } catch {
         toast({
           title: "Validation failed",
           description: "Could not validate image dimensions",
@@ -224,7 +263,6 @@ export default function MediaUploadInput({
       }
     }
 
-    // Validate video duration (under 30 seconds)
     if (isVideo) {
       try {
         setValidationStatus("Checking video duration...");
@@ -239,8 +277,8 @@ export default function MediaUploadInput({
           setFileInfo(null);
           return;
         }
-        setValidationStatus(`✓ Video validated (${duration.toFixed(1)}s)`);
-      } catch (error) {
+        setValidationStatus(`Video validated (${duration.toFixed(1)}s)`);
+      } catch {
         toast({
           title: "Validation failed",
           description: "Could not validate video duration",
@@ -253,64 +291,90 @@ export default function MediaUploadInput({
 
     setIsUploading(true);
     setValidationStatus("Uploading to cloud storage...");
+    setUploadProgress(10);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const endpoint = isVideo ? "/api/upload/video" : "/api/upload/image";
-      
-      // Use XMLHttpRequest for upload progress tracking
-      const uploadPromise = new Promise<string>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-
-        xhr.upload.addEventListener("progress", (e) => {
-          if (e.lengthComputable) {
-            const percentComplete = Math.round((e.loaded / e.total) * 100);
-            setUploadProgress(percentComplete);
-          }
-        });
-
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
+      const uploadViaEndpoint = async (endpointPath: string, includeCredentials: boolean): Promise<string> => {
+        let lastError: Error | null = null;
+        for (const endpointUrl of buildEndpointUrls(endpointPath)) {
+          try {
+            const formData = new FormData();
+            formData.append("file", file);
+            const res = await fetch(endpointUrl, {
+              method: "POST",
+              body: formData,
+              credentials: includeCredentials ? "include" : "omit",
+            });
+            const bodyText = await res.text();
+            let parsed: any = null;
             try {
-              const data = JSON.parse(xhr.responseText);
-              resolve(data.url);
-            } catch (error) {
-              reject(new Error("Invalid response from server"));
-            }
-          } else {
-            try {
-              const error = JSON.parse(xhr.responseText);
-              reject(new Error(error.error || "Upload failed"));
+              parsed = bodyText ? JSON.parse(bodyText) : null;
             } catch {
-              reject(new Error(`Upload failed with status ${xhr.status}`));
+              parsed = null;
             }
+            if (!res.ok) {
+              throw new Error(parsed?.error || bodyText || `Upload failed with status ${res.status}`);
+            }
+            if (!parsed?.url) {
+              throw new Error("Upload succeeded but no URL was returned");
+            }
+            return parsed.url;
+          } catch (error: any) {
+            lastError = error instanceof Error ? error : new Error(String(error));
           }
-        });
+        }
+        throw lastError || new Error("Network error during upload");
+      };
 
-        xhr.addEventListener("error", () => {
-          reject(new Error("Network error during upload"));
-        });
+      const primaryEndpoint = isVideo
+        ? "/api/upload/video"
+        : (skip4KValidation ? "/api/upload/public" : "/api/upload/image");
 
-        xhr.addEventListener("abort", () => {
-          reject(new Error("Upload cancelled"));
-        });
+      setUploadProgress(45);
+      let url: string;
+      try {
+        url = await uploadViaEndpoint(primaryEndpoint, primaryEndpoint !== "/api/upload/public");
+      } catch (primaryError) {
+        if (!isVideo && primaryEndpoint !== "/api/upload/public") {
+          setValidationStatus("Primary upload failed. Retrying with fallback endpoint...");
+          url = await uploadViaEndpoint("/api/upload/public", false);
+        } else {
+          throw primaryError;
+        }
+      }
 
-        xhr.open("POST", endpoint);
-        xhr.send(formData);
-      });
-
-      const url = await uploadPromise;
+      setUploadProgress(85);
       onChange(url);
 
-      setValidationStatus("✓ Upload complete!");
+      if (isImage) {
+        try {
+          await fetchJsonWithFallback("/api/media-library", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              url,
+              filename: file.name,
+              category: resolvedMediaCategory,
+              altText: file.name,
+              tags: [],
+              isTemporary: false,
+            }),
+          });
+          await queryClient.invalidateQueries({ queryKey: ["/api/media-library"] });
+          await queryClient.invalidateQueries({ queryKey: ["/api/media-library", mediaCategory || "all"] });
+        } catch {
+          // Upload is still usable even if media library persistence fails.
+        }
+      }
+
+      setUploadProgress(100);
+      setValidationStatus("Upload complete");
       toast({
         title: "Upload successful",
         description: `${isVideo ? "Video" : "Image"} uploaded successfully`,
       });
 
-      // Clear status after a short delay
       setTimeout(() => {
         setValidationStatus("");
         setFileInfo(null);
@@ -318,7 +382,7 @@ export default function MediaUploadInput({
     } catch (error: any) {
       toast({
         title: "Upload failed",
-        description: error.message,
+        description: error.message || "Network error during upload",
         variant: "destructive",
       });
       setValidationStatus("");
@@ -326,10 +390,9 @@ export default function MediaUploadInput({
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
-      e.target.value = ""; // Reset input
+      e.target.value = "";
     }
   };
-
   const handleClearValue = () => {
     onChange("");
   };
@@ -480,6 +543,11 @@ export default function MediaUploadInput({
         </TabsContent>
 
         <TabsContent value="library" className="space-y-2">
+          {(mediaError || assetsError) && (
+            <div className="text-xs text-muted-foreground">
+              Some library sources could not be loaded. Try refreshing or signing in again.
+            </div>
+          )}
           {(mediaLoading || assetsLoading) ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -572,3 +640,4 @@ export default function MediaUploadInput({
     </div>
   );
 }
+

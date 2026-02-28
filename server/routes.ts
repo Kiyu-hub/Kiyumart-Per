@@ -9043,8 +9043,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (Object.keys(toUpdate).length > 0) {
-        // Persist imported env settings so they become manageable via dashboard
-        console.info('GET /api/settings: toUpdate keys', Object.keys(toUpdate), 'toUpdate preview', JSON.stringify(toUpdate));
+        // Persist imported env settings so they become manageable via dashboard.
         settings = await storage.updatePlatformSettings(toUpdate);
       }
 
@@ -9246,15 +9245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Remove the internal flag before storing
       delete updateData._clearSocialKeys;
 
-      console.warn('DEBUG-UPDATE-PATCH-SETTINGS', JSON.stringify(updateData, null, 2));
       const settings = await storage.updatePlatformSettings(updateData);
-
-      const duration = Date.now() - start;
-      const userId = (req as any).user?.id || 'unknown';
-      console.info(`PATCH /api/settings by user=${userId} keys=${Object.keys(req.body).join(',') || 'none'} duration=${duration}ms`);
-      if (duration > 500) {
-        console.warn(`PATCH /api/settings took ${duration}ms - investigate potential latency`);
-      }
 
       // Handle automatic store updates when multi-vendor mode is toggled
       if (previousSettings.isMultiVendor !== settings.isMultiVendor) {
@@ -13086,7 +13077,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/media-library", requireAuth, async (req: AuthRequest, res) => {
     try {
       // Validate role - admin/super_admin can upload all types, seller can only upload product images
-      const userRole = req.user!.role;
+      const freshUser = await storage.getUser(req.user!.id);
+      if (!freshUser || !freshUser.isActive) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const rawRole = String(freshUser.role || req.user!.role || "").toLowerCase().trim();
+      const userRole = rawRole === "superadmin" ? "super_admin" : rawRole;
       const { category } = req.body;
 
       if (userRole === "seller" && category !== "product") {
@@ -13100,7 +13096,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mediaItem = await storage.createMediaLibraryItem({
         ...req.body,
         uploaderRole: userRole,
-        uploaderId: req.user!.id,
+        uploaderId: freshUser.id,
       });
       res.json(mediaItem);
     } catch (error: any) {
@@ -13111,7 +13107,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/media-library", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { category, uploaderRole } = req.query;
-      const userRole = req.user!.role;
+      const freshUser = await storage.getUser(req.user!.id);
+      if (!freshUser || !freshUser.isActive) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const rawRole = String(freshUser.role || req.user!.role || "").toLowerCase().trim();
+      const userRole = rawRole === "superadmin" ? "super_admin" : rawRole;
 
       // Only admin, super_admin and seller roles can access media library
       if (userRole !== "admin" && userRole !== "super_admin" && userRole !== "seller") {
@@ -13132,7 +13133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const items = await storage.getMediaLibraryItems({ category: "product" });
           // Filter to only show seller's own or admin/super_admin uploaded
           const filtered = items.filter(
-            item => item.uploaderId === req.user!.id || item.uploaderRole === "admin" || item.uploaderRole === "super_admin"
+            item => item.uploaderId === freshUser.id || item.uploaderRole === "admin" || item.uploaderRole === "super_admin"
           );
           return res.json(filtered);
         } else {
@@ -13157,7 +13158,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/media-library/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const userRole = req.user!.role;
+      const freshUser = await storage.getUser(req.user!.id);
+      if (!freshUser || !freshUser.isActive) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const rawRole = String(freshUser.role || req.user!.role || "").toLowerCase().trim();
+      const userRole = rawRole === "superadmin" ? "super_admin" : rawRole;
       
       // Get the item first to check ownership
       const items = await storage.getMediaLibraryItems({});
@@ -13169,7 +13175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Admin and super_admin can delete anything, sellers can only delete their own product images
       if (userRole === "seller") {
-        if (item.uploaderId !== req.user!.id) {
+        if (item.uploaderId !== freshUser.id) {
           return res.status(403).json({ error: "Unauthorized to delete this item" });
         }
       } else if (userRole !== "admin" && userRole !== "super_admin") {

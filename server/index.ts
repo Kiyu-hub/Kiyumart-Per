@@ -32,9 +32,11 @@ app.use((req, res, next) => {
     const isErrorStatus = res.statusCode >= 400;
     const isNoisyPollPath =
       path === "/api/platform-settings" ||
+      path === "/api/settings" ||
       path === "/api/homepage/promotional" ||
       path === "/api/notifications/unread-count" ||
-      path.startsWith("/api/presence");
+      path.startsWith("/api/presence") ||
+      path === "/api/auth/me";
 
     // Keep errors visible, but suppress high-frequency successful polling logs by default.
     if (!isApiPath && !isErrorStatus) return;
