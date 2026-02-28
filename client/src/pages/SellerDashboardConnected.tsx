@@ -222,12 +222,12 @@ export default function SellerDashboardConnected() {
     }
   }, [activeItem, navigate]);
 
-  const { data: store } = useQuery<{ paystackSubaccountId?: string; isPayoutVerified?: boolean }>({
+  const { data: store, refetch: refetchStore, isFetching: isStoreRefreshing } = useQuery<{ paystackSubaccountId?: string; isPayoutVerified?: boolean }>({
     queryKey: ["/api/stores/my-store"],
     enabled: isAuthenticated && user?.role === "seller",
   });
 
-  const { data: sellerProfile } = useQuery<SellerProfileSummary>({
+  const { data: sellerProfile, refetch: refetchSellerProfile } = useQuery<SellerProfileSummary>({
     queryKey: ["/api/auth/me", "seller-completeness", user?.id],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/auth/me");
@@ -531,11 +531,14 @@ export default function SellerDashboardConnected() {
                     <Button 
                       size="sm"
                       variant="outline"
-                      onClick={() => window.location.reload()}
+                      onClick={async () => {
+                        await Promise.all([refetchStore(), refetchSellerProfile()]);
+                      }}
+                      disabled={isStoreRefreshing}
                       data-testid="button-refresh-store"
                       className="border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30"
                     >
-                      Refresh Page
+                      {isStoreRefreshing ? "Refreshing..." : "Refresh Page"}
                     </Button>
                   </div>
                 </div>

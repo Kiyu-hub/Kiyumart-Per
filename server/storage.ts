@@ -2328,7 +2328,7 @@ export class DbStorage implements IStorage {
       primarySellerId: sellerId,
       name: seller.storeName || `${seller.name}'s Store`,
       description: seller.storeDescription || `Welcome to ${seller.name}'s store`,
-      logo: seller.storeBanner || undefined,
+      logo: seller.profileImage || seller.storeBanner || undefined,
       banner: seller.storeBanner || undefined,
       storeType: seller.storeType,
       storeTypeMetadata: seller.storeTypeMetadata,

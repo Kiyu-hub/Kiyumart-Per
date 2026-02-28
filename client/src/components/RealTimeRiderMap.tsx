@@ -56,11 +56,13 @@ interface RiderLocation {
 interface PendingOrder {
   id: string;
   orderNumber: string;
+  sellerId: string;
   buyerName: string;
   deliveryAddress: string;
   deliveryPhone: string;
   deliveryLatitude: number;
   deliveryLongitude: number;
+  deliveryZoneId?: string | null;
   createdAt: string;
   total: string;
   status: string;
@@ -73,6 +75,8 @@ interface AvailableRider {
   phone: string;
   profileImage?: string | null;
   isAvailable: boolean;
+  zoneMatched?: boolean;
+  sellerZoneMatched?: boolean;
   currentLocation?: { lat: number; lng: number };
   distanceToOrder?: number;
 }
@@ -186,8 +190,26 @@ export default function RealTimeRiderMap() {
 
   // Fetch available riders for dispatch
   const { data: availableRidersData = [], refetch: refetchAvailableRiders } = useQuery<AvailableRider[]>({
-    queryKey: ["/api/admin/available-riders"],
-    enabled: showDispatchPanel,
+    queryKey: [
+      "/api/admin/available-riders",
+      selectedOrder?.id,
+      selectedOrder?.deliveryLatitude,
+      selectedOrder?.deliveryLongitude,
+      selectedOrder?.deliveryZoneId,
+      selectedOrder?.sellerId,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedOrder?.deliveryLatitude != null) params.set("orderLat", String(selectedOrder.deliveryLatitude));
+      if (selectedOrder?.deliveryLongitude != null) params.set("orderLng", String(selectedOrder.deliveryLongitude));
+      if (selectedOrder?.deliveryZoneId) params.set("orderZoneId", String(selectedOrder.deliveryZoneId));
+      if (selectedOrder?.sellerId) params.set("sellerId", String(selectedOrder.sellerId));
+      const suffix = params.toString();
+      const res = await fetch(`/api/admin/available-riders${suffix ? `?${suffix}` : ""}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch available riders");
+      return res.json();
+    },
+    enabled: showDispatchPanel && !!selectedOrder,
   });
 
   // Assign rider mutation
@@ -218,21 +240,15 @@ export default function RealTimeRiderMap() {
   });
 
   useEffect(() => {
-    if (initialRiders.length > 0) {
-      setRiders(initialRiders);
-    }
+    setRiders(initialRiders);
   }, [initialRiders]);
 
   useEffect(() => {
-    if (pendingOrdersData.length > 0) {
-      setPendingOrders(pendingOrdersData);
-    }
+    setPendingOrders(pendingOrdersData);
   }, [pendingOrdersData]);
 
   useEffect(() => {
-    if (availableRidersData.length > 0) {
-      setAvailableRiders(availableRidersData);
-    }
+    setAvailableRiders(availableRidersData);
   }, [availableRidersData]);
 
   // Socket.IO for real-time updates
@@ -785,7 +801,7 @@ export default function RealTimeRiderMap() {
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {availableRiders.map((rider) => (
+                    {availableRiders.map((rider, index) => (
                       <div
                         key={rider.id}
                         className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted transition-colors"
@@ -798,8 +814,15 @@ export default function RealTimeRiderMap() {
                             size="md"
                           />
                           <div>
-                            <p className="font-medium">{rider.name}</p>
-                            {rider.distanceToOrder && (
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{rider.name}</p>
+                              {index === 0 && (
+                                <Badge className="text-[10px] px-2 py-0.5 bg-emerald-600 text-white">
+                                  Recommended
+                                </Badge>
+                              )}
+                            </div>
+                            {typeof rider.distanceToOrder === "number" && (
                               <p className="text-xs text-muted-foreground">
                                 {rider.distanceToOrder.toFixed(1)} km away
                               </p>

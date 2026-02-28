@@ -59,8 +59,11 @@ export default function AdminPlatformEarnings() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await Promise.all([refetchSummary(), refetchEarnings(), refetchTransactions()]);
-    setIsRefreshing(false);
+    try {
+      await Promise.all([refetchSummary(), refetchEarnings(), refetchTransactions()]);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const { data: stores = [] } = useQuery({ 
@@ -141,7 +144,10 @@ export default function AdminPlatformEarnings() {
             <CardHeader><CardTitle className="text-destructive">Error Loading Data</CardTitle></CardHeader>
             <CardContent>
               <p className="text-muted-foreground mb-4">{earningsError}</p>
-              <Button onClick={() => window.location.reload()}><RotateCcw className="h-4 w-4 mr-2" />Retry</Button>
+              <Button onClick={handleRefresh} disabled={isRefreshing}>
+                <RotateCcw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+                {isRefreshing ? "Retrying..." : "Retry"}
+              </Button>
             </CardContent>
           </Card>
         </div>

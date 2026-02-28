@@ -682,9 +682,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   ? updateData.storeBanner.trim()
                   : "";
                 storeUpdate.banner = normalizedBanner || null;
-                if (!existingStore.logo && normalizedBanner) {
-                  storeUpdate.logo = normalizedBanner;
-                }
               }
 
               if (Object.keys(storeUpdate).length > 0) {
@@ -2179,9 +2176,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 ? updateData.storeBanner.trim()
                 : "";
               storeUpdate.banner = normalizedBanner || null;
-              if (!existingStore.logo && normalizedBanner) {
-                storeUpdate.logo = normalizedBanner;
-              }
             }
             if (Object.keys(storeUpdate).length > 0) {
               await storage.updateStore(existingStore.id, storeUpdate);
@@ -4381,7 +4375,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 primarySellerId: newUser.id,
                 name: user.storeName || "Test Store",
                 description: "Test store description",
-                logo: user.storeBanner || "",
+                logo: (user as any).profileImage || user.storeBanner || "",
                 isActive: true,
                 isApproved: true
               });
@@ -5212,6 +5206,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (city) {
       const cityZone = zones.find((z) => normalizeZoneText(z.city) === city || normalizeZoneText(z.name) === city);
       if (cityZone) return String(cityZone.id);
+    }
+    return null;
+  };
+
+  const resolveZoneBySellerProfile = (seller: any, zones: any[]): string | null => {
+    if (!seller) return null;
+    if (seller.deliveryZoneId) return String(seller.deliveryZoneId);
+
+    const addressParts = String(seller.businessAddress || "")
+      .split(",")
+      .map((part) => normalizeZoneText(part))
+      .filter(Boolean);
+
+    if (addressParts.length === 0) return null;
+
+    for (const part of addressParts) {
+      const zone = zones.find(
+        (z) =>
+          normalizeZoneText(z.city) === part ||
+          normalizeZoneText(z.region) === part ||
+          normalizeZoneText(z.name) === part
+      );
+      if (zone?.id) return String(zone.id);
     }
     return null;
   };
@@ -7589,6 +7606,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .map(order => ({
           id: order.id,
           orderNumber: order.orderNumber,
+          sellerId: order.sellerId,
           buyerName: "Buyer", // Will be populated below
           buyerEmail: null as string | null,
           buyerPhone: null as string | null,
@@ -7596,6 +7614,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           deliveryPhone: order.deliveryPhone,
           deliveryLatitude: order.deliveryLatitude,
           deliveryLongitude: order.deliveryLongitude,
+          deliveryZoneId: order.deliveryZoneId,
           createdAt: order.createdAt,
           total: order.total,
           status: order.status,
@@ -7628,12 +7647,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get available riders for dispatch (approved, active, not currently on delivery)
   app.get("/api/admin/available-riders", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
     try {
-      const { orderLat, orderLng, orderZoneId } = req.query;
+      const { orderLat, orderLng, orderZoneId, sellerId } = req.query;
       
       // Get all approved and active riders
       const allRiders = await storage.getUsersByRole("rider");
       const activeRiders = allRiders.filter(r => r.isApproved && r.isActive && r.riderOnline !== false);
       const zones = await storage.getDeliveryZones();
+      const seller = sellerId ? await storage.getUser(String(sellerId)) : null;
+      const sellerZoneId = resolveZoneBySellerProfile(seller, zones);
       
       // Get orders currently being delivered
       const allOrders = await storage.getAllOrders();
@@ -7672,6 +7693,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 ENABLE_SOFT_ZONE_MATCH &&
                 !!orderZoneId &&
                 String(resolveZoneByRiderProfile(rider, zones) || "") === String(orderZoneId),
+              sellerZoneMatched:
+                ENABLE_SOFT_ZONE_MATCH &&
+                !!sellerZoneId &&
+                String(resolveZoneByRiderProfile(rider, zones) || "") === String(sellerZoneId),
               distanceToOrder,
             };
           })
@@ -7680,6 +7705,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       availableRiders.sort((a, b) => {
         if ((a as any).zoneMatched !== (b as any).zoneMatched) {
           return (a as any).zoneMatched ? -1 : 1;
+        }
+        if ((a as any).sellerZoneMatched !== (b as any).sellerZoneMatched) {
+          return (a as any).sellerZoneMatched ? -1 : 1;
         }
         const distanceA = typeof a.distanceToOrder === "number" ? a.distanceToOrder : Number.MAX_SAFE_INTEGER;
         const distanceB = typeof b.distanceToOrder === "number" ? b.distanceToOrder : Number.MAX_SAFE_INTEGER;
@@ -9260,7 +9288,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   primarySellerId: seller.id,
                   name: seller.storeName || seller.name + "'s Store",
                   description: seller.storeDescription || "",
-                  logo: seller.storeBanner || "",
+                  logo: seller.profileImage || seller.storeBanner || "",
                   storeType: seller.storeType,
                   storeTypeMetadata: seller.storeTypeMetadata,
                   isActive: true,
@@ -12788,7 +12816,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!store) {
         return res.status(404).json({ error: "Store not found" });
       }
-      res.json(store);
+      const seller = await storage.getUser(req.params.sellerId);
+      res.json({
+        ...store,
+        sellerProfileImage: seller?.profileImage || null,
+      });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -12818,10 +12850,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (req.body.description !== undefined) {
             userPatch.storeDescription = req.body.description || "";
           }
-          if (req.body.banner !== undefined || req.body.logo !== undefined) {
+          if (req.body.banner !== undefined) {
             const bannerValue = typeof req.body.banner === "string" ? req.body.banner.trim() : "";
+            userPatch.storeBanner = bannerValue || null;
+          }
+          if (req.body.logo !== undefined) {
             const logoValue = typeof req.body.logo === "string" ? req.body.logo.trim() : "";
-            userPatch.storeBanner = bannerValue || logoValue || null;
+            userPatch.profileImage = logoValue || null;
           }
           if (Object.keys(userPatch).length > 0) {
             await storage.updateUser(updated.primarySellerId, userPatch);

@@ -15,6 +15,7 @@ interface StoreData {
   description?: string;
   logo?: string;
   banner?: string;
+  sellerProfileImage?: string | null;
   category?: string;
   primarySellerId?: string;
   isActive?: boolean;
@@ -55,7 +56,7 @@ export default function SellerStorePage() {
           storeName: storeData.name,
           storeBanner: storeData.banner,
           storeBio: storeData.description,
-          profilePicture: storeData.logo,
+          profilePicture: storeData.sellerProfileImage || storeData.logo,
           ratings: "0",
         };
       }
@@ -71,7 +72,7 @@ export default function SellerStorePage() {
     storeName: store.name,
     storeBanner: store.banner,
     storeBio: store.description,
-    profilePicture: store.logo,
+    profilePicture: seller?.profilePicture || store.sellerProfileImage || store.logo,
     ratings: "0",
   } : seller;
 

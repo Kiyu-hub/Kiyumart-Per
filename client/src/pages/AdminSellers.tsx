@@ -402,7 +402,13 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
     }
 
     const currentProfileImage = normalizeMediaUrl(form.getValues("profileImage"));
-    const fallbackProfile = normalizeMediaUrl(sellerData.profileImage || sellerStore?.logo);
+    const normalizedStoreLogo = normalizeMediaUrl(sellerStore?.logo);
+    const normalizedStoreBanner = normalizeMediaUrl(sellerStore?.banner || sellerData.storeBanner);
+    const fallbackStoreLogo =
+      normalizedStoreLogo && normalizedStoreLogo !== normalizedStoreBanner
+        ? normalizedStoreLogo
+        : null;
+    const fallbackProfile = normalizeMediaUrl(sellerData.profileImage || fallbackStoreLogo);
     if (!currentProfileImage && fallbackProfile && !form.getFieldState("profileImage").isDirty) {
       form.setValue("profileImage", fallbackProfile, { shouldDirty: false });
     }
@@ -776,13 +782,18 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
     if (!normalized || normalized === "null" || normalized === "undefined") return null;
     return normalized;
   };
+  const normalizedStoreLogo = normalizeBannerUrl(sellerStore?.logo);
+  const normalizedStoreBanner = normalizeBannerUrl(sellerStore?.banner) || normalizeBannerUrl(sellerData.storeBanner);
+  const storeLogoCandidate =
+    normalizedStoreLogo && normalizedStoreLogo !== normalizedStoreBanner
+      ? normalizedStoreLogo
+      : null;
   const resolvedProfileImage =
     normalizeBannerUrl(sellerData.profileImage) ||
-    normalizeBannerUrl(sellerStore?.logo) ||
+    storeLogoCandidate ||
     null;
   const resolvedStoreBanner =
-    normalizeBannerUrl(sellerStore?.banner) ||
-    normalizeBannerUrl(sellerData.storeBanner) ||
+    normalizedStoreBanner ||
     null;
 
   const openZoom = (label: string, url: string, rotation: number) => {
@@ -824,59 +835,62 @@ function ViewApplicationDialog({ sellerData }: { sellerData: SellerData }) {
         </DialogHeader>
         
         <div className="space-y-6">
-          {/* Profile Image */}
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <User className="h-5 w-5" />
-              Profile Photo
-            </h3>
-            <div className="rounded-lg overflow-hidden border border-border/70 bg-muted/30 p-6">
-              <div className="relative h-40 flex items-center justify-center">
-                {resolvedProfileImage ? (
-                  <button
-                    type="button"
-                    className="rounded-full p-1.5 bg-background border border-border shadow-lg"
-                    onClick={() => openZoom("Profile Photo", resolvedProfileImage, 0)}
-                  >
-                    <img
-                      src={resolvedProfileImage}
-                      alt="Profile"
-                      className="w-32 h-32 rounded-full object-cover cursor-zoom-in"
-                    />
-                  </button>
-                ) : (
-                  <div className="w-32 h-32 rounded-full bg-background border-2 border-border shadow-sm flex items-center justify-center">
-                    <User className="h-12 w-12 text-muted-foreground" />
+          {/* Profile + Banner (wrapped together, still separate fields) */}
+          <div className="rounded-lg border border-border/70 bg-muted/20 p-4 md:p-5 space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
+              <div>
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Profile Photo
+                </h3>
+                <div className="rounded-lg overflow-hidden border border-border/70 bg-muted/30 p-6 h-full">
+                  <div className="relative h-40 flex items-center justify-center">
+                    {resolvedProfileImage ? (
+                      <button
+                        type="button"
+                        className="rounded-full p-1.5 bg-background border border-border shadow-lg"
+                        onClick={() => openZoom("Profile Photo", resolvedProfileImage, 0)}
+                      >
+                        <img
+                          src={resolvedProfileImage}
+                          alt="Profile"
+                          className="w-32 h-32 rounded-full object-cover cursor-zoom-in"
+                        />
+                      </button>
+                    ) : (
+                      <div className="w-32 h-32 rounded-full bg-background border-2 border-border shadow-sm flex items-center justify-center">
+                        <User className="h-12 w-12 text-muted-foreground" />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Store Banner */}
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Store className="h-5 w-5" />
-              Store Banner
-            </h3>
-            <div className="rounded-lg overflow-hidden border border-border/70 bg-muted/30">
-              {resolvedStoreBanner ? (
-                <button
-                  type="button"
-                  className="block w-full text-left"
-                  onClick={() => openZoom("Store Banner", resolvedStoreBanner, 0)}
-                >
-                  <img
-                    src={resolvedStoreBanner}
-                    alt="Store banner"
-                    className="h-48 w-full object-cover cursor-zoom-in"
-                  />
-                </button>
-              ) : (
-                <div className="h-32 flex items-center justify-center text-sm text-muted-foreground">
-                  No store banner set
                 </div>
-              )}
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <Store className="h-5 w-5" />
+                  Store Banner
+                </h3>
+                <div className="rounded-lg overflow-hidden border border-border/70 bg-muted/30 h-full">
+                  {resolvedStoreBanner ? (
+                    <button
+                      type="button"
+                      className="block w-full text-left h-full"
+                      onClick={() => openZoom("Store Banner", resolvedStoreBanner, 0)}
+                    >
+                      <img
+                        src={resolvedStoreBanner}
+                        alt="Store banner"
+                        className="h-48 w-full object-cover cursor-zoom-in"
+                      />
+                    </button>
+                  ) : (
+                    <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">
+                      No store banner set
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1459,9 +1473,13 @@ export default function AdminSellers() {
                     <div className="bg-primary/10 p-0 rounded-full w-12 h-12 overflow-hidden flex items-center justify-center">
                       {(() => {
                         const linkedStore = sellerStoreDetailsMap.get(seller.id);
+                        const linkedStoreLogo =
+                          linkedStore?.logo && linkedStore.logo !== linkedStore?.banner
+                            ? linkedStore.logo
+                            : null;
                         const sellerImage =
                           seller.profileImage ||
-                          linkedStore?.logo ||
+                          linkedStoreLogo ||
                           null;
                         if (sellerImage) {
                           return (

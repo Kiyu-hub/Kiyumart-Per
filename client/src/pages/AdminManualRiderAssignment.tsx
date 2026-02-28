@@ -58,6 +58,9 @@ interface AvailableRider {
   activeOrderCount: number;
   totalDeliveries?: number;
   avgRating?: number;
+  distanceToOrder?: number;
+  zoneMatched?: boolean;
+  sellerZoneMatched?: boolean;
 }
 
 interface DeliveryZone {
@@ -77,35 +80,113 @@ interface RiderStats {
   avgLoad: number;
 }
 
-function AssignRiderDialog({ order, availableRiders: parentRiders, onSuccess }: { order: Order; availableRiders?: AvailableRider[]; onSuccess: () => void }) {
+const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();
+
+function AssignRiderDialog({ order, onSuccess }: { order: Order; onSuccess: () => void }) {
   const [open, setOpen] = useState(false);
   const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [sortBy, setSortBy] = useState<"load" | "rating" | "name">("load");
+  const [sortBy, setSortBy] = useState<"recommended" | "load" | "rating" | "distance" | "name">("recommended");
   const { toast } = useToast();
 
-  // Use parent riders if provided, otherwise fetch
-  const { data: fetchedRiders = [], isLoading: loadingRiders } = useQuery<AvailableRider[]>({
-    queryKey: ["/api/riders/available"],
-    enabled: open && !parentRiders,
+  const { data: availableRiders = [], isLoading: loadingRiders, refetch: refetchRidersForOrder, isFetching: ridersRefreshing } = useQuery<AvailableRider[]>({
+    queryKey: [
+      "/api/admin/available-riders",
+      order.id,
+      order.deliveryLatitude,
+      order.deliveryLongitude,
+      order.deliveryZoneId,
+      order.sellerId,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (order.deliveryLatitude) params.set("orderLat", String(order.deliveryLatitude));
+      if (order.deliveryLongitude) params.set("orderLng", String(order.deliveryLongitude));
+      if (order.deliveryZoneId) params.set("orderZoneId", String(order.deliveryZoneId));
+      if (order.sellerId) params.set("sellerId", String(order.sellerId));
+
+      const endpoint = `/api/admin/available-riders${params.toString() ? `?${params.toString()}` : ""}`;
+      try {
+        const res = await fetch(endpoint, { credentials: "include" });
+        if (!res.ok) throw new Error("Failed to fetch ranked riders");
+        const data = await res.json();
+        if (!Array.isArray(data)) return [];
+        return data.map((item: any) => ({
+          rider: {
+            id: String(item.id || ""),
+            name: String(item.name || ""),
+            email: String(item.email || ""),
+            phone: item.phone ? String(item.phone) : null,
+            profileImage: item.profileImage || null,
+            isActive: item.isAvailable !== false,
+            deliveryZoneId: item.zoneId || undefined,
+          },
+          activeOrderCount: Number(item.activeOrderCount || 0),
+          totalDeliveries: Number.isFinite(Number(item.totalDeliveries)) ? Number(item.totalDeliveries) : undefined,
+          avgRating: Number.isFinite(Number(item.avgRating)) ? Number(item.avgRating) : undefined,
+          distanceToOrder: Number.isFinite(Number(item.distanceToOrder)) ? Number(item.distanceToOrder) : undefined,
+          zoneMatched: Boolean(item.zoneMatched),
+          sellerZoneMatched: Boolean(item.sellerZoneMatched),
+        })) as AvailableRider[];
+      } catch {
+        // Legacy fallback for environments where ranked endpoint is unavailable.
+        const res = await fetch("/api/riders/available", { credentials: "include" });
+        if (!res.ok) throw new Error("Failed to fetch available riders");
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      }
+    },
+    enabled: open,
+    staleTime: 0,
   });
 
-  const availableRiders = parentRiders || fetchedRiders;
+  const recommendedRiderId = useMemo(() => availableRiders[0]?.rider?.id || null, [availableRiders]);
+
+  useEffect(() => {
+    if (!open) {
+      setSelectedRiderId(null);
+      return;
+    }
+    const selectedStillAvailable = selectedRiderId && availableRiders.some((r) => r.rider.id === selectedRiderId);
+    if (!selectedStillAvailable && recommendedRiderId) {
+      setSelectedRiderId(recommendedRiderId);
+    }
+  }, [open, availableRiders, selectedRiderId, recommendedRiderId]);
 
   // Sort riders based on selected criteria
   const sortedRiders = useMemo(() => {
     const riders = [...availableRiders];
     switch (sortBy) {
+      case "recommended":
+        return riders.sort((a, b) => {
+          const aRecommended = a.rider.id === recommendedRiderId;
+          const bRecommended = b.rider.id === recommendedRiderId;
+          if (aRecommended !== bRecommended) return aRecommended ? -1 : 1;
+          if (!!a.zoneMatched !== !!b.zoneMatched) return a.zoneMatched ? -1 : 1;
+          if (!!a.sellerZoneMatched !== !!b.sellerZoneMatched) return a.sellerZoneMatched ? -1 : 1;
+          const distanceA = typeof a.distanceToOrder === "number" ? a.distanceToOrder : Number.MAX_SAFE_INTEGER;
+          const distanceB = typeof b.distanceToOrder === "number" ? b.distanceToOrder : Number.MAX_SAFE_INTEGER;
+          if (distanceA !== distanceB) return distanceA - distanceB;
+          if (a.activeOrderCount !== b.activeOrderCount) return a.activeOrderCount - b.activeOrderCount;
+          return (a.rider.name || "").localeCompare(b.rider.name || "");
+        });
       case "load":
         return riders.sort((a, b) => a.activeOrderCount - b.activeOrderCount);
       case "rating":
         return riders.sort((a, b) => (b.avgRating || 0) - (a.avgRating || 0));
+      case "distance":
+        return riders.sort((a, b) => {
+          const distanceA = typeof a.distanceToOrder === "number" ? a.distanceToOrder : Number.MAX_SAFE_INTEGER;
+          const distanceB = typeof b.distanceToOrder === "number" ? b.distanceToOrder : Number.MAX_SAFE_INTEGER;
+          if (distanceA !== distanceB) return distanceA - distanceB;
+          return a.activeOrderCount - b.activeOrderCount;
+        });
       case "name":
         return riders.sort((a, b) => (a.rider.name || "").localeCompare(b.rider.name || ""));
       default:
         return riders;
     }
-  }, [availableRiders, sortBy]);
+  }, [availableRiders, sortBy, recommendedRiderId]);
 
   const assignMutation = useMutation({
     mutationFn: async (riderId: string) => {
@@ -185,19 +266,33 @@ function AssignRiderDialog({ order, availableRiders: parentRiders, onSuccess }: 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-sm">Available Riders ({sortedRiders.length})</h3>
-                <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
-                  <SelectTrigger className="w-[140px] h-8 text-xs">
-                    <SelectValue placeholder="Sort by" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="load">Lowest Load</SelectItem>
-                    <SelectItem value="rating">Highest Rating</SelectItem>
-                    <SelectItem value="name">Name A-Z</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => refetchRidersForOrder()}
+                    disabled={ridersRefreshing}
+                  >
+                    {ridersRefreshing ? "Refreshing..." : "Refresh"}
+                  </Button>
+                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
+                    <SelectTrigger className="w-[160px] h-8 text-xs">
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="recommended">Recommended</SelectItem>
+                      <SelectItem value="distance">Nearest First</SelectItem>
+                      <SelectItem value="load">Lowest Load</SelectItem>
+                      <SelectItem value="rating">Highest Rating</SelectItem>
+                      <SelectItem value="name">Name A-Z</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               
-              {loadingRiders && !parentRiders ? (
+              {loadingRiders ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
@@ -209,7 +304,7 @@ function AssignRiderDialog({ order, availableRiders: parentRiders, onSuccess }: 
               ) : (
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {sortedRiders.map((riderData) => {
-                    const isRecommended = riderData.activeOrderCount === 0;
+                    const isRecommended = riderData.rider.id === recommendedRiderId;
                     return (
                       <Card
                         key={riderData.rider.id}
@@ -236,13 +331,24 @@ function AssignRiderDialog({ order, availableRiders: parentRiders, onSuccess }: 
                               <div className="flex items-center gap-2">
                                 <h4 className="font-semibold truncate">{riderData.rider.name}</h4>
                                 {isRecommended && (
-                                  <Badge className="bg-green-500 text-white text-xs">Available</Badge>
+                                  <Badge className="bg-emerald-600 text-white text-xs">Recommended</Badge>
+                                )}
+                                {!isRecommended && riderData.zoneMatched && (
+                                  <Badge variant="secondary" className="text-xs">Zone Match</Badge>
                                 )}
                               </div>
                               <p className="text-sm text-muted-foreground truncate">{riderData.rider.email}</p>
                               {riderData.rider.phone && (
                                 <p className="text-xs text-muted-foreground">{riderData.rider.phone}</p>
                               )}
+                              <div className="flex items-center gap-2 mt-1">
+                                {typeof riderData.distanceToOrder === "number" && (
+                                  <p className="text-xs text-muted-foreground">{riderData.distanceToOrder.toFixed(1)} km away</p>
+                                )}
+                                {riderData.sellerZoneMatched && (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">Seller Zone</Badge>
+                                )}
+                              </div>
                             </div>
                             <div className="flex items-center gap-3">
                               <div className="text-center px-2">
@@ -398,7 +504,7 @@ export default function AdminManualRiderAssignment() {
   });
 
   // Fetch delivery zones
-  const { data: zones = [] } = useQuery<DeliveryZone[]>({
+  const { data: zones = [], refetch: refetchZones } = useQuery<DeliveryZone[]>({
     queryKey: ["/api/delivery-zones"],
     enabled: isAuthenticated,
   });
@@ -577,7 +683,7 @@ export default function AdminManualRiderAssignment() {
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={() => { refetch(); refetchRiders(); }}
+              onClick={() => { refetch(); refetchRiders(); refetchZones(); }}
             >
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
@@ -801,7 +907,6 @@ export default function AdminManualRiderAssignment() {
                         <div className="flex items-center gap-3">
                           <AssignRiderDialog
                             order={order}
-                            availableRiders={availableRiders}
                             onSuccess={() => {
                               refetch();
                               refetchRiders();
@@ -950,4 +1055,3 @@ export default function AdminManualRiderAssignment() {
     </DashboardLayout>
   );
 }
-  const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();
