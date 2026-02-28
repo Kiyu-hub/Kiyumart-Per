@@ -36,6 +36,8 @@ export default function SellerStorePage() {
     },
     enabled: !!storeOrSellerId,
     retry: false,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Determine the seller ID — either from the store's primarySellerId, or the URL param itself
@@ -63,6 +65,8 @@ export default function SellerStorePage() {
       return null;
     },
     enabled: !!sellerId && !storeLoading,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Use store data directly if we have it  

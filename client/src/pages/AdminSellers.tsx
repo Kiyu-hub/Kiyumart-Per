@@ -444,6 +444,9 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
         description: "Seller updated successfully",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stores/by-seller", sellerData.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/seller-profile", sellerData.id] });
       setOpen(false);
     },
     onError: (error: any) => {

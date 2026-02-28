@@ -564,6 +564,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'city',
         'country',
         'email',
+        'profileImage',
         'storeName',
         'storeDescription',
         'storeBanner',
@@ -654,6 +655,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const shouldSyncSellerStore =
           ("storeType" in updateData) ||
           ("storeTypeMetadata" in updateData) ||
+          ("profileImage" in updateData) ||
           ("storeName" in updateData) ||
           ("storeDescription" in updateData) ||
           ("storeBanner" in updateData);
@@ -682,6 +684,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   ? updateData.storeBanner.trim()
                   : "";
                 storeUpdate.banner = normalizedBanner || null;
+              }
+              if ("profileImage" in updateData) {
+                const normalizedLogo = typeof updateData.profileImage === "string"
+                  ? updateData.profileImage.trim()
+                  : "";
+                storeUpdate.logo = normalizedLogo || null;
               }
 
               if (Object.keys(storeUpdate).length > 0) {
@@ -728,6 +736,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!updatedUser) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      if (updatedUser.role === "seller") {
+        try {
+          const existingStore = await storage.getStoreByPrimarySeller(updatedUser.id);
+          if (existingStore) {
+            await storage.updateStore(existingStore.id, { logo: imageUrl });
+          }
+        } catch (profileSyncError) {
+          console.error("Failed syncing seller profile upload to store logo:", profileSyncError);
+        }
       }
 
       const { password, ...userWithoutPassword } = updatedUser;
@@ -2176,6 +2195,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 ? updateData.storeBanner.trim()
                 : "";
               storeUpdate.banner = normalizedBanner || null;
+            }
+            if ("profileImage" in updateData) {
+              const normalizedLogo = typeof updateData.profileImage === "string"
+                ? updateData.profileImage.trim()
+                : "";
+              storeUpdate.logo = normalizedLogo || null;
             }
             if (Object.keys(storeUpdate).length > 0) {
               await storage.updateStore(existingStore.id, storeUpdate);
@@ -12795,7 +12820,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!store) {
         return res.status(404).json({ error: "Store not found" });
       }
-      res.json(store);
+      const seller = store.primarySellerId ? await storage.getUser(store.primarySellerId) : null;
+      res.json({
+        ...store,
+        sellerProfileImage: seller?.profileImage || null,
+      });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
