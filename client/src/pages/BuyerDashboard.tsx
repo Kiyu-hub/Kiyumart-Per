@@ -85,8 +85,9 @@ export default function BuyerDashboard() {
   return (
     <DashboardLayout role="buyer">
       <div className="p-6 space-y-6">
-        <Card className="overflow-hidden border-0 bg-gradient-to-r from-emerald-600 via-emerald-500 to-cyan-500 text-white">
-          <CardContent className="p-4 md:p-5">
+        <Card className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-[linear-gradient(90deg,rgba(6,78,59,0.42)_0%,rgba(2,6,23,0.98)_48%,rgba(8,47,73,0.48)_100%)] text-white shadow-[0_0_0_1px_rgba(20,184,166,0.08)]">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_50%,rgba(16,185,129,0.14),transparent_40%),radial-gradient(circle_at_85%_50%,rgba(6,182,212,0.14),transparent_42%)]" />
+          <CardContent className="relative p-4 md:p-5">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
                 <p className="text-white/80 text-sm">Welcome back</p>

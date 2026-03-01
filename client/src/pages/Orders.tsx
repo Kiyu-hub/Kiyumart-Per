@@ -215,11 +215,27 @@ export default function Orders() {
     };
   };
 
+  const getDisplayOrderNumber = (order: Order) => {
+    const raw = String(order.orderNumber || "").replace(/^#/, "").trim();
+    const orderIdToken = String(order.id || "").replace(/-/g, "").slice(0, 4).toUpperCase() || "XXXX";
+    const normalizedRaw = raw.toUpperCase();
+    const ordMatch = normalizedRaw.match(/^ORD-(\d{10,17})(?:-([A-Z0-9]+))?$/);
+
+    if (ordMatch) {
+      const timestampPart = ordMatch[1];
+      const suffixPart = (ordMatch[2] || orderIdToken).replace(/[^A-Z0-9]/g, "").slice(0, 4) || orderIdToken;
+      return `ORD-${timestampPart}-${suffixPart}`;
+    }
+
+    if (normalizedRaw.length > 0) return normalizedRaw;
+    return `ORD-${String(order.id || "").replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+  };
+
   const OrderCard = ({ order }: { order: Order }) => {
     const paymentButtonConfig = getPaymentButtonConfig(order);
     const orderStatus = getEffectiveOrderStatus(order);
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
-    const displayOrderNumber = order.orderNumber || `ORD-${order.id.slice(0, 8).toUpperCase()}`;
+    const displayOrderNumber = getDisplayOrderNumber(order);
     const isPickup = normalize(order.deliveryMethod) === "pickup";
     const verification = order.verificationSummary;
     const showVerificationBlock = ["delivered", "completed"].includes(orderStatus);
@@ -234,21 +250,23 @@ export default function Orders() {
         data-testid={`order-card-${order.id}`}
       >
         <CardHeader>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               <div className="p-2 rounded-lg bg-muted">
                 {getStatusIcon(orderStatus, order.deliveryMethod)}
               </div>
-              <div>
-                <CardTitle className="text-lg">
-                  <span className="whitespace-nowrap">#{displayOrderNumber}</span>
+              <div className="min-w-0">
+                <CardTitle className="text-lg leading-tight">
+                  <span className="block truncate" title={`#${displayOrderNumber}`}>
+                    #{displayOrderNumber}
+                  </span>
                 </CardTitle>
                 <p className="text-sm text-muted-foreground">
                   {new Date(order.createdAt).toLocaleDateString()}
                 </p>
               </div>
             </div>
-            <Badge className={getStatusColor(orderStatus)} data-testid={`badge-status-${order.id}`}>
+            <Badge className={`${getStatusColor(orderStatus)} shrink-0 whitespace-nowrap`} data-testid={`badge-status-${order.id}`}>
               {getStatusLabel(orderStatus, order.deliveryMethod)}
             </Badge>
           </div>
