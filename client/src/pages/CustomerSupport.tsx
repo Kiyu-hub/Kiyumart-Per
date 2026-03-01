@@ -13,7 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useSocket } from "@/contexts/NotificationContext";
 import { formatLastSeen, useBatchPresence, usePresence } from "@/hooks/usePresence";
-import { AlertCircle, CheckCircle2, Clock, Loader2, MessageCircle, Paperclip, Phone, Send, User, Video } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Loader2, MessageCircle, Paperclip, Phone, RefreshCw, Send, ShieldCheck, User, Video } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
@@ -126,7 +126,13 @@ export default function CustomerSupport() {
     }
   }, [isAuthenticated, authLoading, navigate]);
 
-  const { data: conversations = [], isLoading: conversationsLoading } = useQuery<SupportConversation[]>({
+  const {
+    data: conversations = [],
+    isLoading: conversationsLoading,
+    isFetching: conversationsRefreshing,
+    refetch: refetchConversations,
+    dataUpdatedAt: conversationsUpdatedAt,
+  } = useQuery<SupportConversation[]>({
     queryKey: ["/api/support/conversations"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/support/conversations");
@@ -294,6 +300,31 @@ export default function CustomerSupport() {
       });
       return res.json();
     },
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/support/conversations"] });
+      const previousConversations = queryClient.getQueryData<SupportConversation[]>(["/api/support/conversations"]);
+      const assignedAgentId =
+        payload.mode === "specific_staff" && payload.routingUserIds.length > 0
+          ? payload.routingUserIds[0]
+          : null;
+
+      queryClient.setQueryData<SupportConversation[]>(["/api/support/conversations"], (current = []) =>
+        current.map((conversation) =>
+          conversation.id === payload.conversationId
+            ? {
+                ...conversation,
+                routingMode: payload.mode,
+                routingUserIds: payload.mode === "specific_staff" ? payload.routingUserIds : [],
+                agentId: assignedAgentId,
+                status: conversation.status === "resolved" ? "resolved" : assignedAgentId ? "assigned" : "open",
+                updatedAt: new Date().toISOString(),
+              }
+            : conversation,
+        ),
+      );
+
+      return { previousConversations };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
       toast({
@@ -301,7 +332,10 @@ export default function CustomerSupport() {
         description: "Conversation recipients were updated successfully.",
       });
     },
-    onError: (error: Error) => {
+    onError: (error: Error, _payload, context) => {
+      if (context?.previousConversations) {
+        queryClient.setQueryData(["/api/support/conversations"], context.previousConversations);
+      }
       toast({
         title: "Routing update failed",
         description: error.message,
@@ -497,6 +531,15 @@ export default function CustomerSupport() {
   };
 
   const selectedConv = conversations.find(c => c.id === selectedConversation);
+  const selectableSupportStaff = useMemo(
+    () =>
+      supportStaff.filter((staff) => Boolean(staff.isActive) && staff.role !== "super_admin"),
+    [supportStaff],
+  );
+  const selectableStaffIdSet = useMemo(
+    () => new Set(selectableSupportStaff.map((staff) => String(staff.id))),
+    [selectableSupportStaff],
+  );
   const activeTicketCount = conversations.filter((c) => c.status === "open" || c.status === "assigned").length;
   const resolvedTicketCount = conversations.filter((c) => c.status === "resolved").length;
   const visibleConversations =
@@ -523,8 +566,10 @@ export default function CustomerSupport() {
   useEffect(() => {
     if (!selectedConv) return;
     setRoutingMode((selectedConv.routingMode as any) || "all_support");
-    setRoutingUserIds(Array.isArray(selectedConv.routingUserIds) ? selectedConv.routingUserIds : []);
-  }, [selectedConv?.id, selectedConv?.routingMode, selectedConv?.routingUserIds]);
+    const rawIds = Array.isArray(selectedConv.routingUserIds) ? selectedConv.routingUserIds.map(String) : [];
+    const validIds = rawIds.filter((id) => selectableStaffIdSet.has(String(id)));
+    setRoutingUserIds(validIds.length > 0 ? [validIds[0]] : []);
+  }, [selectedConv?.id, selectedConv?.routingMode, selectedConv?.routingUserIds, selectableStaffIdSet]);
 
   const presenceUserIds = useMemo(
     () =>
@@ -638,19 +683,34 @@ export default function CustomerSupport() {
   };
 
   const toggleRoutingUser = (staffId: string) => {
-    setRoutingUserIds((prev) =>
-      prev.includes(staffId) ? prev.filter((id) => id !== staffId) : [...prev, staffId]
-    );
+    if (!selectableStaffIdSet.has(String(staffId))) return;
+    setRoutingUserIds((prev) => (prev.includes(staffId) ? [] : [staffId]));
   };
 
   const handleApplyRouting = () => {
     if (!selectedConv) return;
+    const sanitizedRoutingIds =
+      routingMode === "specific_staff"
+        ? routingUserIds.filter((candidate) => selectableStaffIdSet.has(String(candidate)))
+        : [];
+    if (routingMode === "specific_staff" && sanitizedRoutingIds.length === 0) {
+      toast({
+        title: "Select staff",
+        description: "Pick one admin or agent before applying specific staff routing.",
+        variant: "destructive",
+      });
+      return;
+    }
     updateRoutingMutation.mutate({
       conversationId: selectedConv.id,
       mode: routingMode,
-      routingUserIds: routingMode === "specific_staff" ? routingUserIds : [],
+      routingUserIds: routingMode === "specific_staff" ? [sanitizedRoutingIds[0]] : [],
     });
   };
+
+  const syncLabel = conversationsUpdatedAt
+    ? formatDistanceToNow(new Date(conversationsUpdatedAt), { addSuffix: true })
+    : "just now";
 
   if (authLoading || !isAuthenticated) {
     return null;
@@ -658,32 +718,60 @@ export default function CustomerSupport() {
 
   return (
     <DashboardLayout role={normalizedRole as any} showBackButton={false}>
-      <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
-        <div className="flex items-center justify-between p-4 pb-0 md:p-6 md:pb-0 flex-shrink-0">
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold" data-testid="text-page-title">
-              {isSupportStaff ? "Support Dashboard" : "Customer Support"}
-            </h1>
-            <p className="text-muted-foreground text-sm">
-              {isSupportStaff
-                ? "Manage and respond to customer requests"
-                : "Get help from our support team"}
-            </p>
-          </div>
-          {!isSupportStaff && (
-            <Button
-              size="sm"
-              onClick={() => setShowNewTicketForm((prev) => !prev)}
-              data-testid="button-new-ticket"
-            >
-              {showNewTicketForm ? "Close" : "New Ticket"}
-            </Button>
-          )}
+      <div className="flex flex-col h-[calc(100vh-34px)] overflow-hidden">
+        <div className="p-4 pb-0 md:p-6 md:pb-0 flex-shrink-0">
+          <Card className="border-emerald-500/25 bg-[linear-gradient(105deg,rgba(16,185,129,0.16)_0%,rgba(16,185,129,0.06)_38%,rgba(15,23,42,0.92)_100%)] p-4 md:p-5 shadow-lg shadow-emerald-900/10">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold" data-testid="text-page-title">
+                  {isSupportStaff ? "Support Dashboard" : "Customer Support"}
+                </h1>
+                <p className="text-muted-foreground text-sm mt-1">
+                  {isSupportStaff
+                    ? "Manage and respond to customer requests"
+                    : "Get help from our support team"}
+                </p>
+                {isSupportStaff && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Badge className="bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">
+                      <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                      Support Operations
+                    </Badge>
+                    <Badge variant="secondary">Synced {syncLabel}</Badge>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {isSupportStaff && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-emerald-500/40 hover:bg-emerald-500/10"
+                    onClick={() => void refetchConversations()}
+                    disabled={conversationsRefreshing}
+                    data-testid="button-refresh-support-conversations"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${conversationsRefreshing ? "animate-spin" : ""}`} />
+                    Refresh
+                  </Button>
+                )}
+                {!isSupportStaff && (
+                  <Button
+                    size="sm"
+                    onClick={() => setShowNewTicketForm((prev) => !prev)}
+                    data-testid="button-new-ticket"
+                  >
+                    {showNewTicketForm ? "Close" : "New Ticket"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </Card>
         </div>
 
         <div className="flex-1 min-h-0 p-4 md:p-6 pt-4 overflow-hidden">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full min-h-0">
-            <Card className="md:col-span-1 p-0 flex flex-col overflow-hidden" data-testid="card-conversations">
+            <Card className="md:col-span-1 p-0 flex flex-col overflow-hidden border-emerald-500/20 bg-card/95 backdrop-blur-sm" data-testid="card-conversations">
               {!isSupportStaff && showNewTicketForm && (
                 <div className="p-4 border-b space-y-3">
                   <Input
@@ -797,8 +885,8 @@ export default function CustomerSupport() {
                     <button
                       key={conv.id}
                       type="button"
-                      className={`w-full text-left p-4 border-b transition-colors ${
-                        selectedConversation === conv.id ? "bg-muted border-l-4 border-l-emerald-500" : "hover:bg-muted"
+                      className={`w-full text-left p-4 pr-3 border-b transition-colors ${
+                        selectedConversation === conv.id ? "bg-muted border-l-4 border-l-emerald-500" : "hover:bg-muted/70"
                       }`}
                       onClick={() => setSelectedConversation(conv.id)}
                       data-testid={`conversation-${conv.id}`}
@@ -843,23 +931,23 @@ export default function CustomerSupport() {
                             })()}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap shrink-0 max-w-[46%]">
                           {Number(conv.unreadCount || 0) > 0 && (
-                            <Badge variant="secondary" className="bg-primary text-primary-foreground">
+                            <Badge variant="secondary" className="bg-primary text-primary-foreground whitespace-nowrap">
                               {conv.unreadCount}
                             </Badge>
                           )}
-                          <Badge className={`${getStatusColor(conv.status)} text-white`}>
+                          <Badge className={`${getStatusColor(conv.status)} text-white whitespace-nowrap`}>
                             {getStatusLabel(conv.status)}
                           </Badge>
                         </div>
                       </div>
                       {isSupportStaff && conv.status === "assigned" && (
-                        <div className="mb-2 flex items-center gap-2">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
                           <Badge variant="secondary" className="bg-blue-100 text-blue-900 border-blue-200">
                             Assigned
                           </Badge>
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-[11px] text-muted-foreground break-words">
                             Assigned by Super Admin: {conv.agentName || "Unspecified assignee"}
                           </span>
                         </div>
@@ -889,10 +977,10 @@ export default function CustomerSupport() {
               </ScrollArea>
             </Card>
 
-            <Card className="md:col-span-2 p-0 flex flex-col overflow-hidden" data-testid="card-messages">
+            <Card className="md:col-span-2 p-0 flex flex-col overflow-hidden border-emerald-500/20 bg-card/95 backdrop-blur-sm" data-testid="card-messages">
               {selectedConv ? (
                 <div className="flex flex-col h-full min-h-0">
-                  <div className="p-4 border-b flex items-start justify-between gap-3 flex-shrink-0">
+                  <div className="p-4 border-b flex flex-wrap items-start justify-between gap-3 flex-shrink-0">
                     <div className="min-w-0 flex items-start gap-3">
                       <div className="relative mt-0.5">
                         {peerProfileImage ? (
@@ -913,18 +1001,18 @@ export default function CustomerSupport() {
                         />
                       </div>
                       <div className="min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h2 className="font-semibold truncate">{selectedConv.subject}</h2>
-                        <Badge className={`${getStatusColor(selectedConv.status)} text-white`}>
+                        <Badge className={`${getStatusColor(selectedConv.status)} text-white whitespace-nowrap`}>
                           {getStatusLabel(selectedConv.status)}
                         </Badge>
                       </div>
                       {isSupportStaff && selectedConv.status === "assigned" && (
-                        <div className="mb-1 flex items-center gap-2">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
                           <Badge variant="secondary" className="bg-blue-100 text-blue-900 border-blue-200">
                             Assigned
                           </Badge>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-muted-foreground break-words">
                             Assigned by Super Admin: {selectedConv.agentName || "Unspecified assignee"}
                           </span>
                         </div>
@@ -967,11 +1055,11 @@ export default function CustomerSupport() {
                     {isSupportStaff && (
                       <div className="flex items-center gap-2 flex-wrap justify-end">
                         {isSuperAdmin && (
-                          <div className="flex items-center gap-2 mr-2">
+                          <div className="flex items-center gap-2 mr-2 flex-wrap justify-end">
                             <select
                               value={routingMode}
                               onChange={(e) => setRoutingMode(e.target.value as any)}
-                              className="h-8 rounded-md border bg-background px-2 text-xs"
+                              className="h-8 min-w-[140px] rounded-md border bg-background px-2 text-xs"
                               data-testid="select-support-routing-mode"
                             >
                               <option value="all_support">All Support</option>
@@ -986,7 +1074,7 @@ export default function CustomerSupport() {
                               disabled={updateRoutingMutation.isPending}
                               data-testid="button-apply-support-routing"
                             >
-                              Apply
+                              {updateRoutingMutation.isPending ? "Applying..." : "Apply"}
                             </Button>
                           </div>
                         )}
@@ -1026,14 +1114,18 @@ export default function CustomerSupport() {
                     )}
                   </div>
                   {isSuperAdmin && routingMode === "specific_staff" && (
-                    <div className="px-4 pb-3 border-b flex flex-wrap items-center gap-2">
-                      {supportStaff.map((staff) => {
+                    <div className="px-4 pb-3 border-b space-y-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        Super Admin access is automatic. Select one admin or agent to assign this ticket.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 max-h-28 overflow-y-auto pr-1">
+                      {selectableSupportStaff.map((staff) => {
                         const selected = routingUserIds.includes(staff.id);
                         return (
                           <button
                             key={staff.id}
                             type="button"
-                            className={`text-xs px-2 py-1 rounded border ${
+                            className={`text-xs px-2 py-1 rounded border whitespace-nowrap ${
                               selected ? "bg-primary text-primary-foreground border-primary" : "bg-background"
                             }`}
                             onClick={() => toggleRoutingUser(staff.id)}
@@ -1043,6 +1135,10 @@ export default function CustomerSupport() {
                           </button>
                         );
                       })}
+                      {selectableSupportStaff.length === 0 && (
+                        <span className="text-xs text-muted-foreground">No active agents/admins available.</span>
+                      )}
+                      </div>
                     </div>
                   )}
                   {isSupportStaff && selectedConv?.lastSupportResponderName && (

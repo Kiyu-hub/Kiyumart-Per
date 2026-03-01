@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, MessageSquare, Send, ArrowLeft, User, Phone, Video, PhoneOff, X } from "lucide-react";
+import { Loader2, Search, MessageSquare, Send, ArrowLeft, User, Phone, Video, PhoneOff, X, RefreshCw, ShieldCheck, Wifi } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { useSocket } from "@/contexts/NotificationContext";
@@ -57,6 +57,16 @@ interface ProductContextData {
   images?: string[];
 }
 
+type OrderActionOwner = "seller" | "rider" | "admin";
+
+interface OrderReferenceData {
+  id: string;
+  number: string;
+  action: string;
+  actionOwner: OrderActionOwner;
+  link: string;
+}
+
 export default function AdminMessages() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRole, setSelectedRole] = useState<string>("all");
@@ -100,7 +110,7 @@ export default function AdminMessages() {
   const orderNumberFilter = urlParams.get("orderNumber") || "";
   const orderActionFilter = urlParams.get("orderAction") || "";
   const orderActionOwnerParam = urlParams.get("orderActionOwner");
-  const orderActionOwnerFilter =
+  const orderActionOwnerFilter: OrderActionOwner =
     orderActionOwnerParam === "seller" || orderActionOwnerParam === "rider" || orderActionOwnerParam === "admin"
       ? orderActionOwnerParam
       : "admin";
@@ -234,9 +244,20 @@ export default function AdminMessages() {
     };
   }, []);
 
-  const { data: users = [], isLoading: usersLoading } = useQuery<UserData[]>({
+  const {
+    data: users = [],
+    isLoading: usersLoading,
+    isFetching: usersRefreshing,
+    refetch: refetchUsers,
+    dataUpdatedAt: usersUpdatedAt,
+  } = useQuery<UserData[]>({
     queryKey: ["/api/users"],
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
+    refetchInterval: 30000,
+    refetchIntervalInBackground: true,
   });
 
   const { data: productContext } = useQuery<ProductContextData | null>({
@@ -261,7 +282,13 @@ export default function AdminMessages() {
     }
   }, [userIdFilter, users, selectedUserId]);
 
-  const { data: messages = [], isLoading: messagesLoading } = useQuery<Message[]>({
+  const {
+    data: messages = [],
+    isLoading: messagesLoading,
+    isFetching: messagesRefreshing,
+    refetch: refetchMessages,
+    dataUpdatedAt: messagesUpdatedAt,
+  } = useQuery<Message[]>({
     queryKey: ["/api/messages", selectedUserId],
     queryFn: async () => {
       if (!selectedUserId) return [];
@@ -272,6 +299,11 @@ export default function AdminMessages() {
       return res.json();
     },
     enabled: !!selectedUserId,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
+    refetchInterval: selectedUserId ? 10000 : false,
+    refetchIntervalInBackground: true,
   });
 
   const sendMessageMutation = useMutation({
@@ -346,6 +378,24 @@ export default function AdminMessages() {
       socket.off("missed_call", handleMissedCall);
     };
   }, [socket, selectedUserId, toast, user?.id]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNotificationSync = (payload: any) => {
+      if (payload?.type !== "message") return;
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      if (selectedUserId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedUserId] });
+      }
+    };
+
+    socket.on("notification", handleNotificationSync);
+
+    return () => {
+      socket.off("notification", handleNotificationSync);
+    };
+  }, [socket, selectedUserId]);
 
   useEffect(() => {
     if (!socket || !selectedUserId || messages.length === 0) return;
@@ -461,7 +511,7 @@ export default function AdminMessages() {
           link: productLinkFilter || (productContext?.id ? `/product/${productContext.id}` : ""),
         }
       : null;
-  const orderReference =
+  const orderReference: OrderReferenceData | null =
     orderIdFilter || orderNumberFilter
       ? {
           id: orderIdFilter,
@@ -868,6 +918,18 @@ export default function AdminMessages() {
     agent: otherUsers.filter(u => u.role === "agent").length,
   };
 
+  const onlineUsersCount = roleAndSearchFilteredUsers.filter(
+    (u) => batchPresence.getPresence(u.id).status === "online",
+  ).length;
+  const usersLastSyncedLabel = usersUpdatedAt
+    ? formatDistanceToNow(new Date(usersUpdatedAt), { addSuffix: true })
+    : "just now";
+  const messagesLastSyncedLabel = messagesUpdatedAt
+    ? formatDistanceToNow(new Date(messagesUpdatedAt), { addSuffix: true })
+    : "just now";
+  const activeLastSyncedLabel = selectedUserId ? messagesLastSyncedLabel : usersLastSyncedLabel;
+  const isSyncingNow = usersRefreshing || messagesRefreshing;
+
   const selectedUser = users.find((u) => u.id === selectedUserId);
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
@@ -881,35 +943,70 @@ export default function AdminMessages() {
   return (
     <DashboardLayout role={user?.role as any}>
       <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
-        <div className="flex items-center gap-4 p-4 pb-0 md:p-6 md:pb-0 flex-shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => selectedUserId ? setSelectedUserId(null) : window.history.back()}
-            data-testid="button-back"
-            className="md:hidden"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => window.history.back()}
-            data-testid="button-back-desktop"
-            className="hidden md:flex"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex-1">
-            <h1 className="text-xl md:text-2xl font-bold text-foreground" data-testid="heading-messages">Messages</h1>
-            <p className="text-muted-foreground text-sm hidden md:block">Chat with users on the platform</p>
+        <div className="p-4 pb-0 md:p-6 md:pb-0 flex-shrink-0">
+          <div className="rounded-2xl border border-emerald-500/25 bg-[linear-gradient(105deg,rgba(16,185,129,0.16)_0%,rgba(16,185,129,0.06)_38%,rgba(15,23,42,0.92)_100%)] px-4 py-4 md:px-6 md:py-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3 flex-1 min-w-[240px]">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => selectedUserId ? setSelectedUserId(null) : window.history.back()}
+                  data-testid="button-back"
+                  className="md:hidden text-foreground/90 hover:bg-white/10"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => window.history.back()}
+                  data-testid="button-back-desktop"
+                  className="hidden md:flex text-foreground/90 hover:bg-white/10"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+                <div className="flex-1">
+                  <h1 className="text-xl md:text-2xl font-bold text-foreground" data-testid="heading-messages">Messages Hub</h1>
+                  <p className="text-sm text-muted-foreground">Real-time conversation center for super admin operations.</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Badge className="bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">
+                      <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                      Super Admin Messaging
+                    </Badge>
+                    <Badge variant="secondary">
+                      <Wifi className="h-3.5 w-3.5 mr-1" />
+                      {onlineUsersCount} online
+                    </Badge>
+                    <Badge variant="secondary">
+                      Synced {activeLastSyncedLabel}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-emerald-500/40 hover:bg-emerald-500/10"
+                onClick={() => {
+                  void refetchUsers();
+                  if (selectedUserId) {
+                    void refetchMessages();
+                  }
+                }}
+                data-testid="button-refresh-messages"
+                disabled={isSyncingNow}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isSyncingNow ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
           </div>
         </div>
 
         {/* Mobile: Show user list or chat based on selection */}
         <div className="md:hidden flex-1 min-h-0 flex flex-col p-4 pt-4">
           {!selectedUserId ? (
-            <Card className="flex-1 min-h-0 p-4 flex flex-col overflow-hidden">
+            <Card className="flex-1 min-h-0 p-4 flex flex-col overflow-hidden border-emerald-500/20 bg-card/95 backdrop-blur-sm">
               <div className="mb-4">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1236,7 +1333,7 @@ export default function AdminMessages() {
                 placeholder="Search users..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="pl-10 border-emerald-500/20"
                 data-testid="input-search-messages"
               />
             </div>
@@ -1252,7 +1349,7 @@ export default function AdminMessages() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0 overflow-hidden">
-            <Card className="md:col-span-1 p-4 flex flex-col overflow-hidden">
+            <Card className="md:col-span-1 p-4 flex flex-col overflow-hidden border-emerald-500/20 bg-card/95 backdrop-blur-sm">
               <div className="flex items-center justify-between mb-4 flex-shrink-0">
                 <h3 className="font-semibold">Users</h3>
                 <Badge variant="secondary" data-testid="badge-total-count">
@@ -1296,10 +1393,10 @@ export default function AdminMessages() {
                       <div
                         key={userData.id}
                         onClick={() => setSelectedUserId(userData.id)}
-                        className={`p-3 rounded-lg cursor-pointer transition-all ${
+                        className={`p-3 rounded-lg cursor-pointer transition-all border ${
                           selectedUserId === userData.id
-                            ? "bg-green-900/40 border-l-4 border-l-green-500"
-                            : "hover:bg-green-900/20"
+                            ? "bg-emerald-500/12 border-emerald-500/45 shadow-sm"
+                            : "border-transparent hover:border-emerald-500/25 hover:bg-emerald-500/5"
                         }`}
                         data-testid={`user-${userData.id}`}
                       >
@@ -1341,7 +1438,7 @@ export default function AdminMessages() {
             </ScrollArea>
           </Card>
 
-          <Card className="md:col-span-2 p-4 flex flex-col overflow-hidden">
+            <Card className="md:col-span-2 p-4 flex flex-col overflow-hidden border-emerald-500/20 bg-card/95 backdrop-blur-sm">
             {selectedUser ? (
               <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
                 <div className="flex items-center justify-between pb-4 border-b mb-4">
@@ -1370,7 +1467,7 @@ export default function AdminMessages() {
                            selectedUserPresence.isAway ? 'Away' :
                            selectedUserPresence.presence?.lastSeen ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}` : 'Offline'}
                         </span>
-                        <span className="text-muted-foreground">•</span>
+                        <span className="text-muted-foreground">|</span>
                         <Badge className={getRoleBadgeColor(selectedUser.role)} variant="secondary">
                           {selectedUser.role}
                         </Badge>

@@ -79,6 +79,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 const PROFILE_IMAGE_MAX_BYTES = runtimeConfig.upload.profileImageMaxBytes;
 const AUDIO_UPLOAD_MAX_BYTES = runtimeConfig.upload.audioMaxBytes;
 const SUPPORT_MEDIA_MAX_BYTES = runtimeConfig.upload.supportMediaMaxBytes;
+const SOCKET_VERBOSE_LOGS = process.env.SOCKET_VERBOSE_LOGS === "true";
 const AUTO_DISPATCH_MINUTES = runtimeConfig.dispatch.autoDispatchMinutes;
 const RIDER_OFFER_TIMEOUT_MS = 12_000;
 const RIDER_MATCH_RADIUS_STEPS_KM = [3, 5, 8] as const;
@@ -138,6 +139,76 @@ function decodeAttachmentNotificationPreview(rawMessage: string): string | null 
   return senderPrefix ? `${senderPrefix}: ${attachmentLabel}` : attachmentLabel;
 }
 
+type MinimalSuperAdminRecord = {
+  id: string;
+  email: string;
+  name: string;
+  createdAt: Date | string | null;
+  isActive: boolean | null;
+};
+
+const normalizeIdentityText = (value: unknown): string =>
+  String(value || "")
+    .toLowerCase()
+    .trim();
+
+const isLikelySystemIdentity = (user: Pick<MinimalSuperAdminRecord, "email" | "name">): boolean => {
+  const combined = `${user.name || ""} ${user.email || ""}`.toLowerCase();
+  return combined.includes("system");
+};
+
+const sortByCreatedAtAscending = (a: MinimalSuperAdminRecord, b: MinimalSuperAdminRecord) => {
+  const aMs = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+  const bMs = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+  return aMs - bMs;
+};
+
+async function enforceSingleSuperAdminAccount(): Promise<string | null> {
+  const superAdmins = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      createdAt: users.createdAt,
+      isActive: users.isActive,
+    })
+    .from(users)
+    .where(eq(users.role, "super_admin"))
+    .orderBy(asc(users.createdAt));
+
+  if (superAdmins.length === 0) {
+    return null;
+  }
+
+  if (superAdmins.length === 1) {
+    return superAdmins[0].id;
+  }
+
+  const preferredEmail = normalizeIdentityText(process.env.SUPER_ADMIN_EMAIL);
+  const sorted = [...superAdmins].sort(sortByCreatedAtAscending);
+  const canonical =
+    sorted.find((candidate) => preferredEmail && normalizeIdentityText(candidate.email) === preferredEmail) ||
+    sorted.find((candidate) => !isLikelySystemIdentity(candidate)) ||
+    sorted[0];
+
+  const demotedIds = sorted
+    .filter((candidate) => candidate.id !== canonical.id)
+    .map((candidate) => candidate.id);
+
+  if (demotedIds.length > 0) {
+    await db
+      .update(users)
+      .set({ role: "admin", isApproved: true, isActive: true })
+      .where(inArray(users.id, demotedIds));
+
+    console.warn(
+      `[SECURITY] Detected ${superAdmins.length} super_admin accounts; kept ${canonical.email} (${canonical.id}) and demoted ${demotedIds.length} duplicate(s) to admin.`,
+    );
+  }
+
+  return canonical.id;
+}
+
 function resolveMessageNotificationActor(
   receiver: Pick<User, "role"> | null | undefined,
   sender: Pick<User, "id" | "role" | "name" | "email"> | null | undefined
@@ -188,6 +259,16 @@ type RiderAssignmentAttempt = {
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  let canonicalSuperAdminId: string | null = null;
+  try {
+    canonicalSuperAdminId = await enforceSingleSuperAdminAccount();
+  } catch (superAdminNormalizationError) {
+    console.error(
+      "[SECURITY] Failed to normalize super admin accounts:",
+      (superAdminNormalizationError as any)?.message || superAdminNormalizationError,
+    );
+  }
+
   const httpServer = createServer(app);
   const io = new SocketIOServer(httpServer, {
     cors: {
@@ -236,7 +317,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-join user's personal room for targeted messages
       socket.join(decoded.id);
       
-      console.log(`✅ Socket authenticated: ${decoded.email} (${decoded.id})`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`Socket authenticated: ${decoded.email} (${decoded.id})`);
+      }
       next();
     } catch (error) {
       console.error("Socket.IO authentication error:", error);
@@ -2078,6 +2161,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : normalizedCurrentRole;
       const roleChanged = typeof updateData.role === "string" && normalizedRequestedRole !== normalizedCurrentRole;
 
+      if (
+        normalizedCurrentRole === "super_admin" &&
+        roleChanged &&
+        normalizedRequestedRole !== "super_admin"
+      ) {
+        const existingSuperAdmins = await storage.getUsersByRole("super_admin");
+        if (existingSuperAdmins.length <= 1) {
+          return res.status(400).json({
+            error: "Platform requires one super admin account. Reassign another user to super admin first.",
+          });
+        }
+      }
+
       if (typeof updateData.role === "string") {
         updateData.role = normalizedRequestedRole;
       }
@@ -2365,6 +2461,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(req.params.id);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.role === "super_admin") {
+        const existingSuperAdmins = await storage.getUsersByRole("super_admin");
+        if (existingSuperAdmins.length <= 1) {
+          return res.status(400).json({
+            error: "Platform requires one super admin account. Create or promote another super admin first.",
+          });
+        }
       }
 
       console.log(`Starting hard delete for user ${req.params.id} (${user.role})`);
@@ -11435,7 +11540,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const userId = socket.data.userId; // From authentication middleware
     const userEmail = socket.data.userEmail;
     
-    console.log(`✅ User connected: ${userEmail} (${userId})`);
+    if (SOCKET_VERBOSE_LOGS) {
+      console.log(`User connected: ${userEmail} (${userId})`);
+    }
     
     // Track user socket for online status (legacy)
     userSockets.set(userId, socket.id);
@@ -11476,7 +11583,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     messageDeliveryService.onUserOnline(userId);
 
     socket.on("disconnect", () => {
-      console.log(`User disconnected: ${userEmail} (${userId})`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`User disconnected: ${userEmail} (${userId})`);
+      }
       userSockets.delete(userId);
       io.emit("user_offline", userId);
       
@@ -11688,7 +11797,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     socket.on("call-answer", ({ callerId, answer }) => {
-      console.log(`Call answer sent to ${callerId}`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`Call answer sent to ${callerId}`);
+      }
       io.to(callerId).emit("call-answered", { answer });
     });
 
@@ -11697,12 +11808,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     socket.on("call-rejected", ({ callerId }) => {
-      console.log(`Call rejected, notifying ${callerId}`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`Call rejected, notifying ${callerId}`);
+      }
       io.to(callerId).emit("call-rejected");
     });
 
     socket.on("call-ended", ({ targetId }) => {
-      console.log(`Call ended, notifying ${targetId}`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`Call ended, notifying ${targetId}`);
+      }
       io.to(targetId).emit("call-ended");
     });
 
@@ -11719,7 +11834,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
-        console.log(`📞 Call initiated from ${caller.name} (${callerId}) to ${targetUserId}`);
+        if (SOCKET_VERBOSE_LOGS) {
+          console.log(`Call initiated from ${caller.name} (${callerId}) to ${targetUserId}`);
+        }
         
         io.to(targetUserId).emit("call_initiate", {
           callerId,
@@ -11743,7 +11860,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
-        console.log(`📞 Call offer (${callType}) from ${caller.name} to ${targetUserId}`);
+        if (SOCKET_VERBOSE_LOGS) {
+          console.log(`Call offer (${callType}) from ${caller.name} to ${targetUserId}`);
+        }
         io.to(targetUserId).emit("call_offer", {
           offer,
           callerId,
@@ -11757,7 +11876,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     socket.on("call_answer", ({ answer, targetUserId }) => {
-      console.log(`📞 Call answer from ${socket.data.userId} to ${targetUserId}`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`Call answer from ${socket.data.userId} to ${targetUserId}`);
+      }
       io.to(targetUserId).emit("call_answer", { answer });
     });
 
@@ -11766,7 +11887,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     socket.on("call_end", ({ targetUserId }) => {
-      console.log(`📞 Call ended by ${socket.data.userId}, notifying ${targetUserId}`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`Call ended by ${socket.data.userId}, notifying ${targetUserId}`);
+      }
       if (targetUserId) {
         io.to(targetUserId).emit("call_end");
       }
@@ -11802,7 +11925,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           callType
         });
 
-        console.log(`🎥 Group call ${callId} started by ${host.name} with ${participants.size} participants`);
+        if (SOCKET_VERBOSE_LOGS) {
+          console.log(`Group call ${callId} started by ${host.name} with ${participants.size} participants`);
+        }
 
         // Notify all participants (excluding host who initiated)
         for (const participantId of participantIds) {
@@ -11845,7 +11970,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         call.participants.add(userId);
 
-        console.log(`🎥 ${user.name} joined group call ${callId}`);
+        if (SOCKET_VERBOSE_LOGS) {
+          console.log(`${user.name} joined group call ${callId}`);
+        }
 
         // Notify all existing participants about the new joiner
         for (const participantId of Array.from(call.participants)) {
@@ -11879,7 +12006,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      console.log(`🎥 Group call offer: ${userId} → ${targetUserId} in ${callId}`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`Group call offer: ${userId} -> ${targetUserId} in ${callId}`);
+      }
       io.to(targetUserId).emit("group_call_offer", {
         callId,
         fromUserId: userId,
@@ -11895,7 +12024,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      console.log(`🎥 Group call answer: ${userId} → ${targetUserId} in ${callId}`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`Group call answer: ${userId} -> ${targetUserId} in ${callId}`);
+      }
       io.to(targetUserId).emit("group_call_answer", {
         callId,
         fromUserId: userId,
@@ -11927,7 +12058,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       call.participants.delete(userId);
-      console.log(`🎥 User ${userId} left group call ${callId}`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`User ${userId} left group call ${callId}`);
+      }
 
       // Notify remaining participants
       for (const participantId of Array.from(call.participants)) {
@@ -11941,7 +12074,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Clean up call if no participants remain
       if (call.participants.size === 0) {
         activeGroupCalls.delete(callId);
-        console.log(`🎥 Group call ${callId} ended (no participants)`);
+        if (SOCKET_VERBOSE_LOGS) {
+          console.log(`Group call ${callId} ended (no participants)`);
+        }
       }
     });
 
@@ -11959,7 +12094,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      console.log(`🎥 Group call ${callId} ended by host ${userId}`);
+      if (SOCKET_VERBOSE_LOGS) {
+        console.log(`Group call ${callId} ended by host ${userId}`);
+      }
 
       // Notify all participants
       for (const participantId of Array.from(call.participants)) {
@@ -12012,7 +12149,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         io.to(message.senderId).emit("message_status_updated", payload);
         io.to(receiverId).emit("message_status_updated", payload);
 
-        console.debug(`✅ Message delivered: ${messageId} from ${message.senderId} to ${receiverId}`);
+        if (SOCKET_VERBOSE_LOGS) {
+          console.debug(`Message delivered: ${messageId} from ${message.senderId} to ${receiverId}`);
+        }
       } catch (error) {
         console.error("Error marking message as delivered:", error);
         socket.emit("error", { message: "Failed to update message status" });
@@ -12060,7 +12199,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         io.to(message.senderId).emit("message_status_updated", payload);
         io.to(receiverId).emit("message_status_updated", payload);
 
-        console.debug(`✅ Message read: ${messageId} from ${message.senderId} to ${receiverId}`);
+        if (SOCKET_VERBOSE_LOGS) {
+          console.debug(`Message read: ${messageId} from ${message.senderId} to ${receiverId}`);
+        }
       } catch (error) {
         console.error("Error marking message as read:", error);
         socket.emit("error", { message: "Failed to update message status" });
@@ -12213,7 +12354,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       storage.getUsersByRole("super_admin"),
       storage.getUsersByRole("agent"),
     ]);
-    return [...admins, ...superAdmins, ...agents]
+
+    const normalizedSuperAdmins = canonicalSuperAdminId
+      ? superAdmins.filter((staff) => String(staff.id) === String(canonicalSuperAdminId))
+      : superAdmins.slice(0, 1);
+
+    return [...admins, ...normalizedSuperAdmins, ...agents]
       .filter((staff, index, arr) => Boolean(staff?.isActive) && arr.findIndex((x) => x.id === staff.id) === index);
   };
 
@@ -12810,18 +12956,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const roster = await getSupportStaffRoster();
-      const rosterSet = new Set(roster.map((member) => String(member.id)));
+      const selectableRoster = roster.filter((member) => member.role !== "super_admin");
+      const rosterSet = new Set(selectableRoster.map((member) => String(member.id)));
       const validIds = requestedIds.filter((candidate) => rosterSet.has(String(candidate)));
 
       if (mode === "specific_staff" && validIds.length === 0) {
         return res.status(400).json({ error: "At least one support user must be selected for specific_staff routing" });
       }
 
+      const primaryAssigneeId =
+        mode === "specific_staff"
+          ? validIds[0] || null
+          : null;
+      const nextStatus =
+        existing.status === "resolved"
+          ? "resolved"
+          : primaryAssigneeId
+            ? "assigned"
+            : "open";
+
       const [updated] = await db
         .update(supportConversations)
         .set({
           routingMode: mode,
           routingUserIds: mode === "specific_staff" ? validIds : [],
+          agentId: primaryAssigneeId,
+          status: nextStatus as any,
           updatedAt: new Date(),
         })
         .where(eq(supportConversations.id, id))
