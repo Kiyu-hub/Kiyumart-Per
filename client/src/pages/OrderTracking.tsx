@@ -32,6 +32,10 @@ interface Order {
   qrCode: string;
   deliveryOtp?: string | null;
   pickupOtp?: string | null;
+  busDeliveryWorkflow?: {
+    stage?: string;
+    proofSubmitted?: boolean;
+  } | null;
   createdAt: string;
   deliveredAt?: string;
   updatedAt?: string;
@@ -64,10 +68,23 @@ export default function OrderTracking() {
     return s || "pending";
   };
   const normalizeDeliveryMethod = (value?: string) => (value || "").toLowerCase().trim();
+  const getBusStage = (order?: Order | null) => String(order?.busDeliveryWorkflow?.stage || "").toUpperCase();
   const toCustomerStatus = (value?: string, deliveryMethod?: string) => {
     const s = normalizeStatus(value);
     const isPickup = normalizeDeliveryMethod(deliveryMethod) === "pickup";
+    const isBus = normalizeDeliveryMethod(deliveryMethod) === "bus";
     if (["pending"].includes(s)) return "pending";
+    if (isBus) {
+      if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) {
+        return "processing";
+      }
+      if (["picked_up", "in_transit", "en_route", "delivered"].includes(s)) {
+        return "en_route";
+      }
+      if (["completed"].includes(s)) return "delivered";
+      if (["cancelled", "disputed"].includes(s)) return s;
+      return "pending";
+    }
     if (isPickup) {
       if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
       if (["picked_up", "in_transit", "en_route"].includes(s)) return "processing";
@@ -84,13 +101,14 @@ export default function OrderTracking() {
   const toCustomerStatusLabel = (value?: string, deliveryMethod?: string) => {
     const s = toCustomerStatus(value, deliveryMethod);
     const isPickup = normalizeDeliveryMethod(deliveryMethod) === "pickup";
+    const isBus = normalizeDeliveryMethod(deliveryMethod) === "bus";
     switch (s) {
       case "pending":
         return "Pending";
       case "processing":
-        return isPickup ? "Preparing Order" : "Preparing Delivery";
+        return isPickup ? "Preparing Order" : isBus ? "Preparing BUS Handoff" : "Preparing Delivery";
       case "en_route":
-        return isPickup ? "Ready for Pickup" : "On the Way";
+        return isPickup ? "Ready for Pickup" : isBus ? "In Transit (Bus)" : "On the Way";
       case "delivered":
         return "Delivered";
       case "cancelled":
@@ -363,6 +381,9 @@ export default function OrderTracking() {
                   {filteredOrders.map((order) => (
                     (() => {
                       const isPickup = normalizeDeliveryMethod(order.deliveryMethod) === "pickup";
+                      const isBus = normalizeDeliveryMethod(order.deliveryMethod) === "bus";
+                      const busStage = getBusStage(order);
+                      const statusForDisplay = isBus ? toCustomerStatus(order.status, order.deliveryMethod) : order.status;
                       const resolvedOtp = isPickup
                         ? (order.pickupOtp || order.deliveryOtp || null)
                         : (order.deliveryOtp || order.pickupOtp || null);
@@ -377,7 +398,7 @@ export default function OrderTracking() {
                               #{order.orderNumber}
                             </p>
                           </div>
-                          <OrderStatusBadge status={order.status} deliveryMethod={order.deliveryMethod} />
+                          <OrderStatusBadge status={statusForDisplay} deliveryMethod={order.deliveryMethod} />
                         </div>
                       </CardHeader>
 
@@ -386,7 +407,7 @@ export default function OrderTracking() {
                         <div>
                           <h3 className="text-sm font-medium mb-4">Order Progress</h3>
                           <OrderStatusTimeline 
-                            currentStatus={order.status}
+                            currentStatus={statusForDisplay}
                             deliveryMethod={order.deliveryMethod}
                             createdAt={order.createdAt}
                             updatedAt={order.updatedAt}
@@ -401,6 +422,11 @@ export default function OrderTracking() {
                             <p className="font-medium capitalize" data-testid={`text-fulfillment-${order.id}`}>
                               {order.deliveryMethod || "pickup"}
                             </p>
+                            {isBus && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                BUS Stage: <span className="font-medium text-foreground">{busStage || "READY"}</span>
+                              </p>
+                            )}
                             {normalizeDeliveryMethod(order.deliveryMethod) !== "pickup" && (
                               <>
                                 <p className="text-sm text-muted-foreground mt-2">Delivery Address</p>
@@ -462,7 +488,7 @@ export default function OrderTracking() {
                         )}
 
                         {/* Verification Codes */}
-                        {order.status !== "cancelled" && (order.qrCode || resolvedOtp) && (
+                        {!isBus && order.status !== "cancelled" && (order.qrCode || resolvedOtp) && (
                           <div className="pt-4 border-t">
                             <p className="text-sm font-medium mb-3">
                               {normalizeDeliveryMethod(order.deliveryMethod) === "pickup"

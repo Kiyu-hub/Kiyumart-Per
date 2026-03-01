@@ -26,7 +26,7 @@ export default function RiderSettings() {
   
   const [deliveryNotifications, setDeliveryNotifications] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(true);
-  const [locationSharing, setLocationSharing] = useState(true);
+  const [locationSharing] = useState(true);
 
   const { data: settings, isLoading } = useQuery<RiderSettingsPayload>({
     queryKey: ["/api/rider/settings"],
@@ -41,7 +41,6 @@ export default function RiderSettings() {
     if (!settings) return;
     setDeliveryNotifications(settings.deliveryNotifications !== false);
     setEmailNotifications(settings.emailNotifications !== false);
-    setLocationSharing(settings.locationSharing !== false);
   }, [settings]);
 
   const saveSettingsMutation = useMutation({
@@ -164,13 +163,13 @@ export default function RiderSettings() {
                     Location Sharing
                   </Label>
                   <p className="text-sm text-muted-foreground">
-                    Share your location during deliveries
+                    Always On During Delivery (required for active orders)
                   </p>
                 </div>
                 <Switch
                   id="location-sharing"
-                  checked={locationSharing}
-                  onCheckedChange={setLocationSharing}
+                  checked={true}
+                  disabled
                   data-testid="switch-location-sharing"
                 />
               </div>

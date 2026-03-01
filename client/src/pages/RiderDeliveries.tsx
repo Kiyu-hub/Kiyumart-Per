@@ -16,11 +16,16 @@ interface Delivery {
   id: string;
   orderNumber: string;
   status: string;
+  deliveryMethod?: string;
   deliveryAddress?: string;
   buyer?: {
     name?: string;
     phone?: string;
   };
+  busDeliveryWorkflow?: {
+    stage?: string;
+    proofSubmitted?: boolean;
+  } | null;
   createdAt: string;
 }
 
@@ -91,6 +96,11 @@ export default function RiderDeliveries() {
       default: return "bg-gray-500";
     }
   };
+
+  const isBusDelivery = (delivery: Delivery) =>
+    String(delivery.deliveryMethod || "").toLowerCase().trim() === "bus";
+  const busStageLabel = (delivery: Delivery) =>
+    String(delivery.busDeliveryWorkflow?.stage || "").toUpperCase() || "READY";
 
   return (
     <DashboardLayout role="rider">
@@ -164,8 +174,13 @@ export default function RiderDeliveries() {
                     <div className="flex items-start gap-2">
                       <MapPin className="h-4 w-4 mt-0.5 text-red-500" />
                       <div>
-                        <p className="font-medium">Delivery</p>
+                        <p className="font-medium">{isBusDelivery(delivery) ? "Bus Station / Handoff" : "Delivery"}</p>
                         <p className="text-muted-foreground">{delivery.deliveryAddress || "N/A"}</p>
+                        {isBusDelivery(delivery) && (
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            BUS Stage: <span className="font-medium text-foreground">{busStageLabel(delivery)}</span>
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -207,25 +222,47 @@ export default function RiderDeliveries() {
                       </Button>
                     )}
                     {normalizeStatus(delivery.status) === "in_transit" && (
-                      <div className="w-full space-y-3">
-                        <Button
-                          size="sm"
-                          className="bg-amber-600 hover:bg-amber-700 text-white"
-                          onClick={() => navigate(`/rider/route?orderId=${delivery.id}`)}
-                          data-testid={`button-complete-verified-${delivery.id}`}
-                        >
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          Pending completion (QR or OTP)
-                        </Button>
-                        <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-3 text-xs">
-                          <p className="font-semibold text-amber-900 dark:text-amber-200 mb-2">Completion Required</p>
-                          <ol className="list-decimal pl-4 space-y-1 text-amber-800 dark:text-amber-100">
-                            <li>Ask buyer for either QR code or OTP.</li>
-                            <li>Scan QR code or enter OTP in the verification tab.</li>
-                            <li>Submit verification to complete delivery.</li>
-                          </ol>
+                      isBusDelivery(delivery) ? (
+                        <div className="w-full space-y-3">
+                          <Button
+                            size="sm"
+                            className="bg-amber-600 hover:bg-amber-700 text-white"
+                            onClick={() => navigate(`/rider/route?orderId=${delivery.id}`)}
+                            data-testid={`button-bus-proof-${delivery.id}`}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Submit BUS Transport Proof
+                          </Button>
+                          <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-3 text-xs">
+                            <p className="font-semibold text-amber-900 dark:text-amber-200 mb-2">BUS Delivery Workflow</p>
+                            <ol className="list-decimal pl-4 space-y-1 text-amber-800 dark:text-amber-100">
+                              <li>Deliver package to bus station and handoff to transport operator.</li>
+                              <li>Submit receipt photo and bus driver phone in the Bus Proof tab.</li>
+                              <li>Super admin verifies and completes the order.</li>
+                            </ol>
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="w-full space-y-3">
+                          <Button
+                            size="sm"
+                            className="bg-amber-600 hover:bg-amber-700 text-white"
+                            onClick={() => navigate(`/rider/route?orderId=${delivery.id}`)}
+                            data-testid={`button-complete-verified-${delivery.id}`}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Pending completion (QR or OTP)
+                          </Button>
+                          <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-3 text-xs">
+                            <p className="font-semibold text-amber-900 dark:text-amber-200 mb-2">Completion Required</p>
+                            <ol className="list-decimal pl-4 space-y-1 text-amber-800 dark:text-amber-100">
+                              <li>Ask buyer for either QR code or OTP.</li>
+                              <li>Scan QR code or enter OTP in the verification tab.</li>
+                              <li>Submit verification to complete delivery.</li>
+                            </ol>
+                          </div>
+                        </div>
+                      )
                     )}
                   </div>
                 </div>

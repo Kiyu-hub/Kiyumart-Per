@@ -237,6 +237,7 @@ export default function Orders() {
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const displayOrderNumber = getDisplayOrderNumber(order);
     const isPickup = normalize(order.deliveryMethod) === "pickup";
+    const isBus = normalize(order.deliveryMethod) === "bus";
     const verification = order.verificationSummary;
     const showVerificationBlock = ["delivered", "completed"].includes(orderStatus);
     const handleCardClick = () => {
@@ -314,6 +315,18 @@ export default function Orders() {
                       {verification?.sellerToBuyer || "Not recorded"}
                     </span>
                   </p>
+                ) : isBus ? (
+                  <>
+                    <p className="text-muted-foreground">
+                      Seller verified rider at pickup:{" "}
+                      <span className="font-medium text-foreground">
+                        {verification?.sellerToRider || "Not recorded"}
+                      </span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      BUS handoff monitored by super admin (no rider-to-buyer QR/OTP).
+                    </p>
+                  </>
                 ) : (
                   <>
                     <p className="text-muted-foreground">

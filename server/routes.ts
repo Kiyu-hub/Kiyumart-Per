@@ -5139,6 +5139,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const isPaidPaymentStatus = (value?: string | null) =>
     ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
   const isPickupMethod = (value?: string | null) => (value || "").toLowerCase().trim() === "pickup";
+  const isBusMethod = (value?: string | null) => (value || "").toLowerCase().trim() === "bus";
+  type BusDeliveryWorkflowStage =
+    | "READY"
+    | "ASSIGNED"
+    | "AT_BUS_STATION"
+    | "IN_TRANSIT_BUS"
+    | "AWAITING_CONFIRMATION"
+    | "COMPLETED";
+  const BUS_STAGE_REASON_PREFIX = "bus_stage:";
+  const BUS_STAGE_REASONS = {
+    atBusStation: `${BUS_STAGE_REASON_PREFIX}AT_BUS_STATION`,
+    inTransit: `${BUS_STAGE_REASON_PREFIX}IN_TRANSIT_BUS`,
+    awaitingConfirmation: `${BUS_STAGE_REASON_PREFIX}AWAITING_CONFIRMATION`,
+    completed: `${BUS_STAGE_REASON_PREFIX}COMPLETED`,
+  } as const;
+  const BUS_TRANSPORT_PROOF_REASON = "bus_transport_proof_submitted";
+  const BUS_SUPER_ADMIN_COMPLETED_REASON = "bus_super_admin_completed";
+  const isBusWorkflowStage = (value?: string | null): value is BusDeliveryWorkflowStage => {
+    const normalized = String(value || "").trim().toUpperCase();
+    return (
+      normalized === "READY" ||
+      normalized === "ASSIGNED" ||
+      normalized === "AT_BUS_STATION" ||
+      normalized === "IN_TRANSIT_BUS" ||
+      normalized === "AWAITING_CONFIRMATION" ||
+      normalized === "COMPLETED"
+    );
+  };
+  const resolveBusStageFromOrderState = (status?: string | null): BusDeliveryWorkflowStage => {
+    const canonical = canonicalizeOrderStatus(status || "");
+    if (canonical === "completed") return "COMPLETED";
+    if (canonical === "delivered") return "AWAITING_CONFIRMATION";
+    if (canonical === "in_transit" || canonical === "en_route") return "IN_TRANSIT_BUS";
+    if (canonical === "rider_arrived") return "AT_BUS_STATION";
+    if (canonical === "assigned" || canonical === "picked_up") return "ASSIGNED";
+    return "READY";
+  };
+  const extractBusDeliveryWorkflow = (history: Array<any>, orderLike?: { status?: string | null }) => {
+    const chronological = [...(history || [])].sort(
+      (a, b) => new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime()
+    );
+    let stage: BusDeliveryWorkflowStage = resolveBusStageFromOrderState(orderLike?.status);
+    let latestProof: Record<string, any> | null = null;
+
+    for (const entry of chronological) {
+      const reason = String(entry?.reason || "").trim();
+      if (reason.startsWith(BUS_STAGE_REASON_PREFIX)) {
+        const candidate = reason.slice(BUS_STAGE_REASON_PREFIX.length).trim().toUpperCase();
+        if (isBusWorkflowStage(candidate)) {
+          stage = candidate;
+        }
+      }
+      if (reason === BUS_TRANSPORT_PROOF_REASON) {
+        latestProof =
+          entry?.metadata && typeof entry.metadata === "object"
+            ? ({ ...entry.metadata } as Record<string, any>)
+            : null;
+        stage = "AWAITING_CONFIRMATION";
+      }
+      if (reason === BUS_SUPER_ADMIN_COMPLETED_REASON) {
+        stage = "COMPLETED";
+      }
+    }
+
+    if (canonicalizeOrderStatus(orderLike?.status || "") === "completed") {
+      stage = "COMPLETED";
+    } else if (latestProof && stage !== "COMPLETED") {
+      stage = "AWAITING_CONFIRMATION";
+    }
+
+    return {
+      stage,
+      proofSubmitted: Boolean(latestProof),
+      proof: latestProof
+        ? {
+            receiptImageUrl: latestProof.receiptImageUrl || null,
+            driverPhone: latestProof.driverPhone || null,
+            busNumber: latestProof.busNumber || null,
+            stationName: latestProof.stationName || null,
+            submittedAt: latestProof.submittedAt || null,
+            latitude: latestProof.latitude ?? null,
+            longitude: latestProof.longitude ?? null,
+            riderId: latestProof.riderId || null,
+            riderName: latestProof.riderName || null,
+          }
+        : null,
+      completionRestrictedTo: "super_admin",
+    };
+  };
   const resolveVisibleOrderStateForRole = (
     orderLike: { status?: string | null; paymentStatus?: string | null; deliveryMethod?: string | null },
     viewerRole?: string | null
@@ -5146,12 +5235,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const canonicalStatus = canonicalizeOrderStatus(orderLike?.status || "");
     const paid = isPaidPaymentStatus(orderLike?.paymentStatus);
     const pickup = isPickupMethod(orderLike?.deliveryMethod);
+    const bus = isBusMethod(orderLike?.deliveryMethod);
 
     if (isPrivilegedOpsRole(viewerRole)) return { status: canonicalStatus, hidden: false };
 
     if (viewerRole === "seller") {
       if (!paid) return { status: canonicalStatus, hidden: true };
       if (canonicalStatus === "searching_rider") return { status: "ready", hidden: false };
+      if (bus && canonicalStatus === "delivered") return { status: "in_transit", hidden: false };
       if (["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes(canonicalStatus)) {
         return { status: "in_transit", hidden: false };
       }
@@ -5164,6 +5255,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (["searching_rider", "created", "confirmed", "processing", "ready"].includes(canonicalStatus)) {
         return { status: canonicalStatus, hidden: true };
       }
+      if (bus && canonicalStatus === "delivered") return { status: "in_transit", hidden: false };
       if (["delivered", "completed"].includes(canonicalStatus)) return { status: "completed", hidden: false };
       return { status: canonicalStatus, hidden: false };
     }
@@ -5172,6 +5264,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!paid) return { status: "pending", hidden: false };
       if (pickup) {
         if (["delivered", "completed"].includes(canonicalStatus)) return { status: "delivered", hidden: false };
+        return { status: canonicalStatus, hidden: false };
+      }
+      if (bus) {
+        if (["searching_rider", "assigned", "rider_arrived", "ready", "confirmed", "processing"].includes(canonicalStatus)) {
+          return { status: "processing", hidden: false };
+        }
+        if (["picked_up", "in_transit", "en_route", "delivered"].includes(canonicalStatus)) {
+          return { status: "en_route", hidden: false };
+        }
+        if (canonicalStatus === "completed") return { status: "delivered", hidden: false };
         return { status: canonicalStatus, hidden: false };
       }
       if (["searching_rider", "assigned", "rider_arrived", "ready", "confirmed", "processing"].includes(canonicalStatus)) {
@@ -5317,6 +5419,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const isSellerViewer = order?.sellerId === viewer.id;
     const isRiderViewer = order?.riderId && order.riderId === viewer.id;
     const sanitized = { ...order } as any;
+    const busDelivery = isBusMethod(order?.deliveryMethod);
+
+    if (busDelivery) {
+      sanitized.qrCode = null;
+      sanitized.deliveryOtp = null;
+      sanitized.pickupOtp = null;
+    }
 
     if (isAdminViewer) {
       return sanitized;
@@ -5634,7 +5743,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!order) {
       throw new Error("Order not found");
     }
-    if (order.deliveryMethod !== "rider") {
+    if (!["rider", "bus"].includes(String(order.deliveryMethod || "").toLowerCase().trim())) {
       throw new Error("Order does not require rider delivery");
     }
     if (order.riderId) {
@@ -5680,7 +5789,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const order = await storage.getOrder(orderId);
         if (!order) continue;
-        if (order.deliveryMethod !== "rider") continue;
+        if (!["rider", "bus"].includes(String(order.deliveryMethod || "").toLowerCase().trim())) continue;
         if (order.riderId) continue;
         if (order.paymentStatus !== "completed") continue;
         await startRiderMatching(order.id, order.sellerId, "seller");
@@ -5843,11 +5952,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   };
 
+  const createRiderPayoutIfMissing = async (order: any, riderId: string | null | undefined) => {
+    if (!order?.deliveryFee || !riderId) return;
+
+    const existingPayout = await db
+      .select({ id: riderPayouts.id })
+      .from(riderPayouts)
+      .where(and(eq(riderPayouts.orderId, order.id), eq(riderPayouts.riderId, riderId)))
+      .limit(1);
+    if (existingPayout.length > 0) return;
+
+    try {
+      const rider = await storage.getUser(riderId);
+      const payout = await storage.createRiderPayout({
+        riderId,
+        orderId: order.id,
+        amount: order.deliveryFee,
+        currency: order.currency || "GHS",
+        method: "mobile_money",
+        status: "pending_approval",
+        notes: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Completed & Verified.`,
+      });
+
+      const superAdmins = await storage.getUsersByRole("super_admin");
+      const buyer = await storage.getUser(order.buyerId);
+      for (const admin of superAdmins) {
+        if (!admin.isActive) continue;
+        await storage.createNotification({
+          userId: admin.id,
+          type: "payout",
+          title: "Payout Action Required",
+          message: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Completed & Verified.`,
+          metadata: {
+            link: `/admin/riders-payouts`,
+            payoutId: payout.id,
+            orderId: order.id,
+            riderId,
+            riderName: rider?.name || "Rider",
+            amount: order.deliveryFee,
+            currency: order.currency || "GHS",
+            orderNumber: order.orderNumber,
+            buyerName: buyer?.name || "Customer",
+            deliveryAddress: order.deliveryAddress || "",
+          } as any,
+        });
+      }
+      io.emit("admin_payout_pending", {
+        payoutId: payout.id,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        riderId,
+        riderName: rider?.name || "Rider",
+        amount: order.deliveryFee,
+        currency: order.currency || "GHS",
+        createdAt: new Date().toISOString(),
+      });
+    } catch (payoutError) {
+      console.error("[PAYOUT] Failed to create rider payout after delivery:", payoutError);
+    }
+  };
+
   const finalizeRiderDelivery = async (orderId: string, riderId: string, reason: string) => {
     const order = await storage.getOrder(orderId);
     if (!order) {
       const error = new Error("Order not found");
       (error as any).code = 404;
+      throw error;
+    }
+    if (isBusMethod(order.deliveryMethod)) {
+      const error = new Error(
+        "BUS delivery is handoff-based. Riders cannot complete BUS orders; submit transport proof and wait for super admin confirmation."
+      );
+      (error as any).code = 409;
       throw error;
     }
     if (order.riderId !== riderId) {
@@ -5922,63 +6098,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await emitOrderStatusUpdateToStakeholders(updatedOrder, "completed");
 
     // Keep payout creation idempotent across all delivery completion entry points.
-    if (order.deliveryFee) {
-      const existingPayout = await db
-        .select({ id: riderPayouts.id })
-        .from(riderPayouts)
-        .where(and(eq(riderPayouts.orderId, orderId), eq(riderPayouts.riderId, riderId)))
-        .limit(1);
-      if (existingPayout.length === 0) {
-        try {
-          const rider = await storage.getUser(riderId);
-          const payout = await storage.createRiderPayout({
-            riderId,
-            orderId,
-            amount: order.deliveryFee,
-            currency: order.currency || "GHS",
-            method: "mobile_money",
-            status: "pending_approval",
-            notes: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Completed & Verified.`,
-          });
-
-          const superAdmins = await storage.getUsersByRole("super_admin");
-          const buyer = await storage.getUser(order.buyerId);
-          for (const admin of superAdmins) {
-            if (!admin.isActive) continue;
-            await storage.createNotification({
-              userId: admin.id,
-              type: "payout",
-              title: "📦 Payout Action Required",
-              message: `Order #${order.orderNumber} delivered by ${rider?.name || "Rider"}. Amount: ${order.currency || "GHS"} ${order.deliveryFee}. Status: Completed & Verified.`,
-              metadata: {
-                link: `/admin/riders-payouts`,
-                payoutId: payout.id,
-                orderId,
-                riderId,
-                riderName: rider?.name || "Rider",
-                amount: order.deliveryFee,
-                currency: order.currency || "GHS",
-                orderNumber: order.orderNumber,
-                buyerName: buyer?.name || "Customer",
-                deliveryAddress: order.deliveryAddress || "",
-              } as any,
-            });
-          }
-          io.emit("admin_payout_pending", {
-            payoutId: payout.id,
-            orderId,
-            orderNumber: order.orderNumber,
-            riderId,
-            riderName: rider?.name || "Rider",
-            amount: order.deliveryFee,
-            currency: order.currency || "GHS",
-            createdAt: new Date().toISOString(),
-          });
-        } catch (payoutError) {
-          console.error("[PAYOUT] Failed to create rider payout after delivery:", payoutError);
-        }
-      }
-    }
+    await createRiderPayoutIfMissing(order, riderId);
 
     return updatedOrder;
   };
@@ -6406,6 +6526,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const items = await storage.getOrderItems(order.id);
           const orderHistory = await storage.getOrderStatusHistory(order.id);
           const verificationSummary = extractVerificationSummary(orderHistory);
+          const busDeliveryWorkflow = isBusMethod(order.deliveryMethod)
+            ? extractBusDeliveryWorkflow(orderHistory, order)
+            : null;
+          const normalizedVerificationSummary = isBusMethod(order.deliveryMethod)
+            ? {
+                sellerToRider: verificationSummary.sellerToRider || null,
+                riderToBuyer: null,
+                sellerToBuyer: null,
+              }
+            : verificationSummary;
           const buyer = buyersById.get(order.buyerId);
           const seller = sellersById.get(order.sellerId);
           const orderStore = order.storeId ? storesById.get(order.storeId) : null;
@@ -6429,6 +6559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
           const deliveryMethod = String(order?.deliveryMethod || "").toLowerCase().trim();
           const isPickup = deliveryMethod === "pickup";
+          const isBus = deliveryMethod === "bus";
           const isBuyerOrAdminViewer =
             req.user!.role === "buyer" ||
             req.user!.role === "customer" ||
@@ -6441,17 +6572,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
               await storage.updateOrder(order.id, { pickupOtp: newPickupOtp } as any);
               securedOrder.pickupOtp = newPickupOtp;
             }
-            if (!isPickup && !securedOrder.deliveryOtp) {
+            if (!isPickup && !isBus && !securedOrder.deliveryOtp) {
               const newDeliveryOtp = generateOrderOtp();
               await storage.updateOrder(order.id, { deliveryOtp: newDeliveryOtp } as any);
               securedOrder.deliveryOtp = newDeliveryOtp;
             }
-            if (!securedOrder.pickupOtp) {
+            if (isPickup && !securedOrder.pickupOtp) {
               const newPickupOtp = generateOrderOtp();
               await storage.updateOrder(order.id, { pickupOtp: newPickupOtp } as any);
               securedOrder.pickupOtp = newPickupOtp;
             }
-            if (!securedOrder.deliveryOtp) {
+            if (!isPickup && !isBus && !securedOrder.deliveryOtp) {
               const newDeliveryOtp = generateOrderOtp();
               await storage.updateOrder(order.id, { deliveryOtp: newDeliveryOtp } as any);
               securedOrder.deliveryOtp = newDeliveryOtp;
@@ -6464,7 +6595,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             _hiddenForViewer: visible.hidden,
             totalAmount: order.total,
             items,
-            verificationSummary,
+            verificationSummary: normalizedVerificationSummary,
+            busDeliveryWorkflow,
             seller: (resolvedSeller || resolvedStore)
               ? {
                   id: resolvedSeller?.id || resolvedStore?.primarySellerId || order.sellerId || null,
@@ -6517,6 +6649,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const securedOrder = sanitizeOrderVerificationSecrets(finalOrder, req.user!);
       const deliveryMethod = String(finalOrder?.deliveryMethod || "").toLowerCase().trim();
       const isPickup = deliveryMethod === "pickup";
+      const isBus = deliveryMethod === "bus";
       const isBuyerOrAdminViewer =
         req.user!.role === "buyer" ||
         req.user!.role === "customer" ||
@@ -6529,17 +6662,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.updateOrder(finalOrder.id, { pickupOtp: newPickupOtp } as any);
           securedOrder.pickupOtp = newPickupOtp;
         }
-        if (!isPickup && !securedOrder.deliveryOtp) {
+        if (!isPickup && !isBus && !securedOrder.deliveryOtp) {
           const newDeliveryOtp = generateOrderOtp();
           await storage.updateOrder(finalOrder.id, { deliveryOtp: newDeliveryOtp } as any);
           securedOrder.deliveryOtp = newDeliveryOtp;
         }
-        if (!securedOrder.pickupOtp) {
+        if (isPickup && !securedOrder.pickupOtp) {
           const newPickupOtp = generateOrderOtp();
           await storage.updateOrder(finalOrder.id, { pickupOtp: newPickupOtp } as any);
           securedOrder.pickupOtp = newPickupOtp;
         }
-        if (!securedOrder.deliveryOtp) {
+        if (!isPickup && !isBus && !securedOrder.deliveryOtp) {
           const newDeliveryOtp = generateOrderOtp();
           await storage.updateOrder(finalOrder.id, { deliveryOtp: newDeliveryOtp } as any);
           securedOrder.deliveryOtp = newDeliveryOtp;
@@ -6548,6 +6681,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
       const orderHistory = await storage.getOrderStatusHistory(securedOrder.id);
       const verificationSummary = extractVerificationSummary(orderHistory);
+      const busDeliveryWorkflow = isBusMethod(securedOrder.deliveryMethod)
+        ? extractBusDeliveryWorkflow(orderHistory, securedOrder)
+        : null;
+      const normalizedVerificationSummary = isBusMethod(securedOrder.deliveryMethod)
+        ? {
+            sellerToRider: verificationSummary.sellerToRider || null,
+            riderToBuyer: null,
+            sellerToBuyer: null,
+          }
+        : verificationSummary;
       
       // Enforce stakeholder access for order detail reads.
       const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
@@ -6632,7 +6775,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...securedOrder,
           riderInfo,
           sellerInfo,
-          verificationSummary,
+          verificationSummary: normalizedVerificationSummary,
+          busDeliveryWorkflow,
           customerInfo: buyer ? {
             name: buyer.name,
             email: buyer.email,
@@ -6646,7 +6790,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...securedOrder,
           riderInfo,
           sellerInfo,
-          verificationSummary,
+          verificationSummary: normalizedVerificationSummary,
+          busDeliveryWorkflow,
         });
       }
     } catch (error: any) {
@@ -6827,6 +6972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
       }
+      const isBusDelivery = isBusMethod(order.deliveryMethod);
       const actorRole = req.user!.role;
       const actorId = req.user!.id;
       const isAdminActor = actorRole === "admin" || actorRole === "super_admin";
@@ -6838,6 +6984,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!isStakeholder) {
           return res.status(403).json({ error: "Unauthorized to update this order status" });
         }
+      }
+
+      if (isBusDelivery && (normalizedStatus === "completed" || normalizedStatus === "delivered")) {
+        return res.status(409).json({
+          error: "BUS delivery completion is restricted to super admin. Use /api/orders/:id/bus-complete after transport proof verification.",
+        });
       }
 
       // Completion is verification-gated and must go through dedicated QR/OTP verification endpoints.
@@ -6906,7 +7058,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await emitOrderStatusUpdateToStakeholders(updatedOrder, canonicalStatus);
 
       if (
-        updatedOrder.deliveryMethod === "rider" &&
+        ["rider", "bus"].includes(String(updatedOrder.deliveryMethod || "").toLowerCase().trim()) &&
         !updatedOrder.riderId &&
         updatedOrder.paymentStatus === "completed" &&
         ["processing", "ready", "confirmed", "searching_rider"].includes(canonicalStatus)
@@ -7059,12 +7211,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
+    const busDelivery = isBusMethod(order.deliveryMethod);
     await storage.createNotification({
       userId: riderId,
       type: "order",
       title: "New Delivery Assigned",
-      message: `You have been assigned to deliver order #${order.orderNumber}. Please pick up the order from the seller.`,
-      metadata: { link: `/rider/deliveries?orderId=${orderId}` } as any,
+      message: busDelivery
+        ? `BUS delivery assigned for order #${order.orderNumber}. Deliver to approved bus station, submit transport receipt + driver phone, and await super admin completion.`
+        : `You have been assigned to deliver order #${order.orderNumber}. Please pick up the order from the seller.`,
+      metadata: { link: `/rider/deliveries?orderId=${orderId}`, busDelivery } as any,
     });
 
     await storage.createNotification({
@@ -7174,14 +7329,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const riderId = req.user!.id;
       const normalizedOtp = normalizeOtp(otp);
 
-      if (!qrCode && !normalizedOtp) {
-        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=missing_qr_and_otp`);
-        return res.status(400).json({ error: "Provide at least one verification method: QR code or OTP" });
-      }
-
       const order = await storage.getOrder(orderId);
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
+      }
+      if (isBusMethod(order.deliveryMethod)) {
+        return res.status(409).json({
+          error: "BUS delivery does not use rider-to-buyer QR/OTP verification. Submit transport proof and wait for super admin confirmation.",
+        });
+      }
+      if (!qrCode && !normalizedOtp) {
+        console.warn(`[DELIVERY_VERIFY_DENIED] order=${orderId} rider=${riderId} reason=missing_qr_and_otp`);
+        return res.status(400).json({ error: "Provide at least one verification method: QR code or OTP" });
       }
 
       // Verify the rider is assigned to this order
@@ -7222,6 +7381,334 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post(
+    "/api/orders/:id/bus-transport-proof",
+    requireAuth,
+    requireRole("rider"),
+    requireRoleFeature("deliveries.manage"),
+    async (req: AuthRequest, res) => {
+      try {
+        const orderId = req.params.id;
+        const riderId = req.user!.id;
+        const receiptImageUrl = String(req.body?.receiptImageUrl || "").trim();
+        const driverPhone = String(req.body?.driverPhone || "").trim();
+        const busNumber = String(req.body?.busNumber || "").trim() || null;
+        const stationName = String(req.body?.stationName || "").trim() || null;
+        const latitudeFromBody = toFiniteNumber(req.body?.latitude);
+        const longitudeFromBody = toFiniteNumber(req.body?.longitude);
+
+        if (!receiptImageUrl || !driverPhone) {
+          return res.status(400).json({
+            error: "receiptImageUrl and driverPhone are required for BUS transport proof submission.",
+          });
+        }
+
+        const order = await storage.getOrder(orderId);
+        if (!order) return res.status(404).json({ error: "Order not found" });
+        if (!isBusMethod(order.deliveryMethod)) {
+          return res.status(409).json({ error: "This endpoint is only valid for BUS delivery orders." });
+        }
+        if (order.riderId !== riderId) {
+          return res.status(403).json({ error: "You are not assigned to this BUS delivery order." });
+        }
+
+        let workingOrder = order;
+        let current = canonicalizeOrderStatus(workingOrder.status);
+        if (current === "cancelled" || current === "completed") {
+          return res.status(409).json({ error: `Cannot submit BUS proof when order is ${current}.` });
+        }
+
+        if (current === "assigned") {
+          const moved = await storage.applyOrderStatusTransition(
+            orderId,
+            "rider_arrived",
+            riderId,
+            "rider",
+            BUS_STAGE_REASONS.atBusStation
+          );
+          if (moved) {
+            workingOrder = moved as any;
+            current = canonicalizeOrderStatus(workingOrder.status);
+          }
+        }
+
+        if (current === "rider_arrived") {
+          const moved = await storage.applyOrderStatusTransition(
+            orderId,
+            "picked_up",
+            riderId,
+            "rider",
+            "bus_handoff_to_transport_operator"
+          );
+          if (moved) {
+            workingOrder = moved as any;
+            current = canonicalizeOrderStatus(workingOrder.status);
+          }
+        }
+
+        if (current === "picked_up") {
+          const moved = await storage.applyOrderStatusTransition(
+            orderId,
+            "in_transit",
+            riderId,
+            "rider",
+            BUS_STAGE_REASONS.inTransit
+          );
+          if (moved) {
+            workingOrder = moved as any;
+            current = canonicalizeOrderStatus(workingOrder.status);
+          }
+        }
+
+        if (!["in_transit", "en_route", "delivered"].includes(current)) {
+          return res.status(409).json({
+            error: "BUS proof can only be submitted after assignment and handoff progression (assigned -> rider_arrived -> picked_up -> in_transit).",
+            details: { currentStatus: current },
+          });
+        }
+
+        const latestTracking = await storage.getLatestDeliveryLocation(orderId);
+        const latitude = latitudeFromBody ?? toFiniteNumber((latestTracking as any)?.latitude);
+        const longitude = longitudeFromBody ?? toFiniteNumber((latestTracking as any)?.longitude);
+        const rider = await storage.getUser(riderId);
+        const submittedAt = new Date().toISOString();
+        const proofMetadata = {
+          receiptImageUrl,
+          driverPhone,
+          busNumber,
+          stationName,
+          submittedAt,
+          latitude,
+          longitude,
+          riderId,
+          riderName: rider ? resolveUserDisplayName(rider as any) : null,
+          orderId,
+          orderNumber: workingOrder.orderNumber,
+          awaitingConfirmation: true,
+        };
+
+        await storage.createOrderStatusHistory({
+          orderId,
+          fromStatus: workingOrder.status as any,
+          toStatus: workingOrder.status as any,
+          changedBy: riderId,
+          changedByRole: "rider",
+          reason: BUS_TRANSPORT_PROOF_REASON,
+          metadata: proofMetadata as any,
+        } as any);
+        await storage.createOrderStatusHistory({
+          orderId,
+          fromStatus: workingOrder.status as any,
+          toStatus: workingOrder.status as any,
+          changedBy: riderId,
+          changedByRole: "rider",
+          reason: BUS_STAGE_REASONS.awaitingConfirmation,
+          metadata: { submittedAt } as any,
+        } as any);
+
+        const superAdmins = await storage.getUsersByRole("super_admin");
+        for (const admin of superAdmins) {
+          if (!admin?.isActive) continue;
+          await storage.createNotification({
+            userId: admin.id,
+            type: "order",
+            title: "BUS Transport Proof Submitted",
+            message: `Order #${workingOrder.orderNumber} BUS transport proof is ready for verification.`,
+            metadata: {
+              orderId,
+              orderNumber: workingOrder.orderNumber,
+              link: `/admin/orders?orderId=${orderId}`,
+              proof: proofMetadata,
+            } as any,
+          });
+        }
+
+        const refreshedOrder = (await storage.getOrder(orderId)) || workingOrder;
+        const refreshedHistory = await storage.getOrderStatusHistory(orderId);
+        const busDeliveryWorkflow = extractBusDeliveryWorkflow(refreshedHistory, refreshedOrder);
+
+        io.emit("admin_bus_transport_proof_submitted", {
+          orderId,
+          orderNumber: refreshedOrder.orderNumber,
+          riderId,
+          submittedAt,
+        });
+        await emitOrderStatusUpdateToStakeholders(refreshedOrder, refreshedOrder.status);
+
+        return res.json({
+          success: true,
+          order: {
+            ...refreshedOrder,
+            status: mapOrderStatusForViewerRole(refreshedOrder as any, req.user!.role),
+          },
+          busDeliveryWorkflow,
+        });
+      } catch (error: any) {
+        return res.status((error as any)?.code || 400).json({ error: error.message });
+      }
+    }
+  );
+
+  app.post(
+    "/api/orders/:id/bus-complete",
+    requireAuth,
+    requireRole("super_admin"),
+    async (req: AuthRequest, res) => {
+      try {
+        const orderId = req.params.id;
+        const actorId = req.user!.id;
+        const confirmationNote = String(req.body?.confirmationNote || "").trim() || null;
+
+        const order = await storage.getOrder(orderId);
+        if (!order) return res.status(404).json({ error: "Order not found" });
+        if (!isBusMethod(order.deliveryMethod)) {
+          return res.status(409).json({ error: "This endpoint is only valid for BUS delivery orders." });
+        }
+
+        const history = await storage.getOrderStatusHistory(orderId);
+        const busWorkflow = extractBusDeliveryWorkflow(history, order);
+        const proof = busWorkflow.proof;
+        if (!proof?.receiptImageUrl || !proof?.driverPhone) {
+          return res.status(422).json({
+            error: "BUS completion requires transport proof (receipt image + driver phone).",
+          });
+        }
+
+        let workingOrder = order;
+        let current = canonicalizeOrderStatus(workingOrder.status);
+        if (current === "cancelled") {
+          return res.status(409).json({ error: "Cancelled BUS orders cannot be completed." });
+        }
+        if (current !== "completed") {
+          if (current === "assigned") {
+            const moved = await storage.applyOrderStatusTransition(
+              orderId,
+              "rider_arrived",
+              actorId,
+              "super_admin",
+              BUS_STAGE_REASONS.atBusStation
+            );
+            if (moved) {
+              workingOrder = moved as any;
+              current = canonicalizeOrderStatus(workingOrder.status);
+            }
+          }
+          if (current === "rider_arrived") {
+            const moved = await storage.applyOrderStatusTransition(
+              orderId,
+              "picked_up",
+              actorId,
+              "super_admin",
+              "bus_super_admin_progress_pickup"
+            );
+            if (moved) {
+              workingOrder = moved as any;
+              current = canonicalizeOrderStatus(workingOrder.status);
+            }
+          }
+          if (current === "picked_up") {
+            const moved = await storage.applyOrderStatusTransition(
+              orderId,
+              "in_transit",
+              actorId,
+              "super_admin",
+              BUS_STAGE_REASONS.inTransit
+            );
+            if (moved) {
+              workingOrder = moved as any;
+              current = canonicalizeOrderStatus(workingOrder.status);
+            }
+          }
+          if (current === "in_transit" || current === "en_route") {
+            const moved = await storage.applyOrderStatusTransition(
+              orderId,
+              "delivered",
+              actorId,
+              "super_admin",
+              BUS_STAGE_REASONS.awaitingConfirmation
+            );
+            if (moved) {
+              workingOrder = moved as any;
+              current = canonicalizeOrderStatus(workingOrder.status);
+            }
+          }
+          if (current !== "delivered" && current !== "completed") {
+            return res.status(409).json({
+              error: "BUS order is not ready for completion. Ensure transport handoff and in-transit progression are complete.",
+              details: { currentStatus: current },
+            });
+          }
+
+          const completed = await storage.applyOrderStatusTransition(
+            orderId,
+            "completed",
+            actorId,
+            "super_admin",
+            BUS_SUPER_ADMIN_COMPLETED_REASON
+          );
+          if (!completed) return res.status(404).json({ error: "Order not found" });
+          workingOrder = completed as any;
+        }
+
+        const completedAt = new Date().toISOString();
+        await storage.createOrderStatusHistory({
+          orderId,
+          fromStatus: workingOrder.status as any,
+          toStatus: workingOrder.status as any,
+          changedBy: actorId,
+          changedByRole: "super_admin",
+          reason: BUS_STAGE_REASONS.completed,
+          metadata: {
+            completedAt,
+            confirmationNote,
+            proof,
+          } as any,
+        } as any);
+
+        await Promise.all(
+          [
+            { userId: workingOrder.buyerId, audience: "buyer" },
+            { userId: workingOrder.sellerId, audience: "seller" },
+            { userId: workingOrder.riderId, audience: "rider" },
+          ]
+            .filter((target) => Boolean(target.userId))
+            .map((target) =>
+              storage.createNotification({
+                userId: target.userId!,
+                type: "order",
+                title: "BUS Delivery Completed",
+                message: `Order #${workingOrder.orderNumber} was confirmed and completed by super admin.`,
+                metadata: {
+                  orderId,
+                  orderNumber: workingOrder.orderNumber,
+                  audience: target.audience,
+                  link:
+                    target.audience === "seller"
+                      ? `/seller/orders?orderId=${orderId}`
+                      : target.audience === "rider"
+                      ? `/rider/deliveries?orderId=${orderId}`
+                      : `/orders?orderId=${orderId}`,
+                } as any,
+              })
+            )
+        );
+
+        await createRiderPayoutIfMissing(workingOrder, workingOrder.riderId);
+        await emitOrderStatusUpdateToStakeholders(workingOrder, "completed");
+
+        const refreshedHistory = await storage.getOrderStatusHistory(orderId);
+        const busDeliveryWorkflow = extractBusDeliveryWorkflow(refreshedHistory, workingOrder);
+        return res.json({
+          success: true,
+          order: workingOrder,
+          busDeliveryWorkflow,
+        });
+      } catch (error: any) {
+        return res.status((error as any)?.code || 400).json({ error: error.message });
+      }
+    }
+  );
+
   // Seller verifies assigned rider pickup using QR + OTP before handoff.
   app.post(
     "/api/orders/:id/verify-rider-pickup",
@@ -7249,9 +7736,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=not_owner`);
           return res.status(403).json({ error: "Unauthorized to verify this order pickup" });
         }
-        if (order.deliveryMethod !== "rider") {
+        const normalizedDeliveryMethod = String(order.deliveryMethod || "").toLowerCase().trim();
+        if (!["rider", "bus"].includes(normalizedDeliveryMethod)) {
           console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=wrong_delivery_method method=${order.deliveryMethod}`);
-          return res.status(409).json({ error: "Rider pickup verification is only valid for rider deliveries" });
+          return res.status(409).json({ error: "Rider pickup verification is only valid for rider or bus deliveries" });
         }
         if (order.riderId !== riderId) {
           console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=rider_mismatch`);
@@ -7421,7 +7909,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         riderOnline: (rider as any).riderOnline !== false,
         deliveryNotifications: prefs.deliveryNotifications !== false,
         emailNotifications: prefs.emailNotifications !== false,
-        locationSharing: prefs.locationSharing !== false,
+        locationSharing: true,
       });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -7436,7 +7924,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const nextPrefs = {
         deliveryNotifications: req.body?.deliveryNotifications !== undefined ? Boolean(req.body.deliveryNotifications) : currentPrefs.deliveryNotifications !== false,
         emailNotifications: req.body?.emailNotifications !== undefined ? Boolean(req.body.emailNotifications) : currentPrefs.emailNotifications !== false,
-        locationSharing: req.body?.locationSharing !== undefined ? Boolean(req.body.locationSharing) : currentPrefs.locationSharing !== false,
+        locationSharing: true,
       };
       const updated = await storage.updateUser(req.user!.id, {
         riderPreferences: nextPrefs as any,
@@ -7477,6 +7965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: orders.id,
           orderNumber: orders.orderNumber,
           status: orders.status,
+          deliveryMethod: orders.deliveryMethod,
           deliveryAddress: orders.deliveryAddress,
           deliveryPhone: orders.deliveryPhone,
           deliveryLatitude: orders.deliveryLatitude,
@@ -7502,11 +7991,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get buyer info
       const buyer = await storage.getUser(order.buyerId);
+      const orderHistory = await storage.getOrderStatusHistory(order.id);
+      const busDeliveryWorkflow = isBusMethod(order.deliveryMethod)
+        ? extractBusDeliveryWorkflow(orderHistory, order as any)
+        : null;
       
       res.json({
         id: order.id,
         orderNumber: order.orderNumber,
         status: canonicalizeOrderStatus(order.status),
+        deliveryMethod: order.deliveryMethod,
         deliveryAddress: order.deliveryAddress || "Address not available",
         deliveryLatitude: order.deliveryLatitude ? parseFloat(order.deliveryLatitude) : null,
         deliveryLongitude: order.deliveryLongitude ? parseFloat(order.deliveryLongitude) : null,
@@ -7514,7 +8008,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         buyerName: buyer?.name || "Customer",
         buyerProfileImage: buyer?.profileImage || null,
         buyerPhone: order.deliveryPhone || buyer?.phone || null,
-        qrCode: order.qrCode || null,
+        qrCode: isBusMethod(order.deliveryMethod) ? null : order.qrCode || null,
+        busDeliveryWorkflow,
       });
     } catch (error: any) {
       console.error("Error fetching active delivery:", error);
@@ -7822,7 +8317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // - no rider assigned yet
       const pendingOrders = allOrders
         .filter(order => 
-          order.deliveryMethod === "rider" &&
+          ["rider", "bus"].includes(String(order.deliveryMethod || "").toLowerCase().trim()) &&
           ["ready", "searching_rider"].includes(canonicalizeOrderStatus(order.status)) &&
           !order.riderId
         )
@@ -7971,7 +8466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Find orders that need auto-dispatch
       const overdueOrders = allOrders.filter(order => {
-        if (order.deliveryMethod !== "rider") return false;
+        if (!["rider", "bus"].includes(String(order.deliveryMethod || "").toLowerCase().trim())) return false;
         if (order.riderId) return false; // Already assigned
         if (!["processing", "ready", "confirmed", "searching_rider"].includes((order.status || "").toLowerCase().trim())) return false;
         
@@ -9183,7 +9678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allOrders = await storage.getAllOrders();
       const dispatchBacklog = allOrders.filter((o: any) => {
         const status = (o.status || "").toString().toLowerCase().trim();
-        return o.deliveryMethod === "rider" && !o.riderId && ["processing", "ready", "confirmed"].includes(status);
+        return ["rider", "bus"].includes(String(o.deliveryMethod || "").toLowerCase().trim()) && !o.riderId && ["processing", "ready", "confirmed"].includes(status);
       }).length;
       const alerts = {
         messageQueueWarning: deliveryStats.queueSize >= runtimeConfig.alerts.messageQueueWarnSize,
@@ -14053,6 +14548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   return httpServer;
 }
+
 
 
 

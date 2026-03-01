@@ -45,6 +45,17 @@ interface Order {
     riderToBuyer?: string | null;
     sellerToBuyer?: string | null;
   };
+  busDeliveryWorkflow?: {
+    stage?: string;
+    proofSubmitted?: boolean;
+    proof?: {
+      receiptImageUrl?: string | null;
+      driverPhone?: string | null;
+      busNumber?: string | null;
+      stationName?: string | null;
+      submittedAt?: string | null;
+    } | null;
+  } | null;
 }
 
 interface OrderStats {
@@ -84,6 +95,7 @@ function ViewOrderDialog({
   open: boolean; 
   onOpenChange: (open: boolean) => void; 
 }) {
+  const { user } = useAuth();
   const { toast } = useToast();
   const { formatPrice } = useLanguage();
 
@@ -149,6 +161,26 @@ function ViewOrderDialog({
       });
     },
   });
+  const completeBusOrderMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/orders/${orderId}/bus-complete`, {});
+    },
+    onSuccess: () => {
+      toast({
+        title: "BUS order completed",
+        description: "Super admin verification completed successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Completion failed",
+        description: error.message || "Failed to complete BUS order",
+        variant: "destructive",
+      });
+    },
+  });
 
   const normalize = (value?: string) => (value || "").toLowerCase().trim();
   const isPickupMethod = (value?: string) => {
@@ -156,6 +188,8 @@ function ViewOrderDialog({
     return method === "pickup" || method === "store_pickup";
   };
   const status = normalize(orderDetails?.status);
+  const isBusDelivery = normalize(orderDetails?.deliveryMethod) === "bus";
+  const busStage = String(orderDetails?.busDeliveryWorkflow?.stage || "").toUpperCase();
   const paymentStatus = normalizePaymentStatus(orderDetails?.paymentStatus);
   const sellerActionRequired =
     !isPickupMethod(orderDetails?.deliveryMethod) &&
@@ -186,7 +220,7 @@ function ViewOrderDialog({
                 <Select
                   defaultValue={orderDetails.status}
                   onValueChange={(value) => updateStatusMutation.mutate(value)}
-                  disabled={updateStatusMutation.isPending}
+                  disabled={updateStatusMutation.isPending || isBusDelivery}
                 >
                   <SelectTrigger data-testid="select-order-status">
                     <SelectValue />
@@ -198,6 +232,11 @@ function ViewOrderDialog({
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
+                {isBusDelivery && (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    BUS lifecycle is controlled by proof submission and super admin completion.
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Payment Status</p>
@@ -224,7 +263,7 @@ function ViewOrderDialog({
               </div>
             </div>
 
-            {orderDetails.deliveryMethod === "rider" && (
+            {["rider", "bus"].includes(normalize(orderDetails.deliveryMethod)) && (
               <div className="border-t pt-4">
                 <p className="text-sm font-medium text-muted-foreground mb-2">Assign Rider</p>
                 <div className={sellerActionRequired ? "opacity-60 blur-[1px] pointer-events-none select-none" : ""}>
@@ -256,6 +295,61 @@ function ViewOrderDialog({
                       Seller action required first. Rider assignment unlocks after seller marks the order ready for dispatch.
                     </p>
                   </div>
+                )}
+              </div>
+            )}
+
+            {isBusDelivery && (
+              <div className="border-t pt-4 space-y-3">
+                <div className="rounded-md border border-cyan-400/40 bg-cyan-500/10 px-3 py-2">
+                  <p className="text-xs font-medium text-cyan-100">
+                    BUS Stage: {busStage || "READY"}
+                  </p>
+                </div>
+                {orderDetails.busDeliveryWorkflow?.proof ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <p>
+                      Driver Phone:{" "}
+                      <span className="font-semibold">{orderDetails.busDeliveryWorkflow.proof.driverPhone || "N/A"}</span>
+                    </p>
+                    <p>
+                      Bus Number:{" "}
+                      <span className="font-semibold">{orderDetails.busDeliveryWorkflow.proof.busNumber || "N/A"}</span>
+                    </p>
+                    <p>
+                      Station:{" "}
+                      <span className="font-semibold">{orderDetails.busDeliveryWorkflow.proof.stationName || "N/A"}</span>
+                    </p>
+                    <p>
+                      Submitted:{" "}
+                      <span className="font-semibold">{orderDetails.busDeliveryWorkflow.proof.submittedAt || "N/A"}</span>
+                    </p>
+                    {orderDetails.busDeliveryWorkflow.proof.receiptImageUrl && (
+                      <a
+                        href={orderDetails.busDeliveryWorkflow.proof.receiptImageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline md:col-span-2"
+                      >
+                        View Transport Receipt
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No BUS transport proof submitted yet.</p>
+                )}
+                {user?.role === "super_admin" && (
+                  <Button
+                    onClick={() => completeBusOrderMutation.mutate()}
+                    disabled={
+                      completeBusOrderMutation.isPending ||
+                      !orderDetails.busDeliveryWorkflow?.proofSubmitted ||
+                      busStage === "COMPLETED"
+                    }
+                    data-testid="button-complete-bus-order"
+                  >
+                    {completeBusOrderMutation.isPending ? "Completing..." : "Complete BUS Order (Super Admin)"}
+                  </Button>
                 )}
               </div>
             )}
@@ -955,6 +1049,8 @@ function OrdersList({
             </div>
             {(() => {
               const isPickup = String(order.deliveryMethod || "").toLowerCase().trim() === "pickup";
+              const isBus = String(order.deliveryMethod || "").toLowerCase().trim() === "bus";
+              const busStage = String(order.busDeliveryWorkflow?.stage || "").toUpperCase();
               const verification = order.verificationSummary;
               const hasAnyVerification = Boolean(
                 verification?.sellerToRider || verification?.riderToBuyer || verification?.sellerToBuyer
@@ -970,6 +1066,18 @@ function OrdersList({
                     <p className="text-muted-foreground">
                       Seller to Buyer: <span className="font-medium text-foreground">{verification?.sellerToBuyer ? `Verified (${verification.sellerToBuyer})` : "Pending"}</span>
                     </p>
+                  ) : isBus ? (
+                    <>
+                      <p className="text-muted-foreground">
+                        Seller to Rider: <span className="font-medium text-foreground">{verification?.sellerToRider ? `Verified (${verification.sellerToRider})` : "Pending"}</span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        BUS Transport Proof: <span className="font-medium text-foreground">{order.busDeliveryWorkflow?.proofSubmitted ? "Submitted" : "Pending"}</span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        BUS Stage: <span className="font-medium text-foreground">{busStage || "READY"}</span>
+                      </p>
+                    </>
                   ) : (
                     <>
                       <p className="text-muted-foreground">
