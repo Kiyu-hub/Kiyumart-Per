@@ -409,6 +409,7 @@ export default function OrderTracking() {
                           <OrderStatusTimeline 
                             currentStatus={statusForDisplay}
                             deliveryMethod={order.deliveryMethod}
+                            busDeliveryWorkflow={order.busDeliveryWorkflow}
                             createdAt={order.createdAt}
                             updatedAt={order.updatedAt}
                             deliveredAt={order.deliveredAt}

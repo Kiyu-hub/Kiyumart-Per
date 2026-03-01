@@ -4,6 +4,10 @@ import { cn } from "@/lib/utils";
 interface OrderStatusTimelineProps {
   currentStatus: string;
   deliveryMethod?: string;
+  busDeliveryWorkflow?: {
+    stage?: string | null;
+    proofSubmitted?: boolean;
+  } | null;
   createdAt?: string;
   updatedAt?: string;
   deliveredAt?: string;
@@ -19,11 +23,24 @@ const normalizeStatus = (status?: string) => {
   return s || "pending";
 };
 
-const toCustomerTimelineStatus = (status?: string, deliveryMethod?: string) => {
+const normalizeBusStage = (value?: string | null) => String(value || "").trim().toUpperCase();
+
+const toCustomerTimelineStatus = (status?: string, deliveryMethod?: string, busStage?: string | null) => {
   const s = normalizeStatus(status);
   const isPickup = (deliveryMethod || "").toLowerCase().trim() === "pickup";
+  const isBus = (deliveryMethod || "").toLowerCase().trim() === "bus";
   if (s === "cancelled" || s === "disputed") return s;
   if (["pending"].includes(s)) return "pending";
+  if (isBus) {
+    const stage = normalizeBusStage(busStage);
+    if (stage === "COMPLETED") return "delivered";
+    if (stage === "IN_TRANSIT_BUS" || stage === "AWAITING_CONFIRMATION") return "en_route";
+    if (stage === "READY" || stage === "ASSIGNED" || stage === "AT_BUS_STATION") return "processing";
+    if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
+    if (["picked_up", "in_transit", "en_route", "delivered"].includes(s)) return "en_route";
+    if (["completed"].includes(s)) return "delivered";
+    return "pending";
+  }
   if (isPickup) {
     if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return s === "ready" ? "ready_for_pickup" : "processing";
     if (["picked_up", "in_transit", "en_route"].includes(s)) return "ready_for_pickup";
@@ -56,13 +73,16 @@ const pickupStatusOrder = ["pending", "processing", "ready_for_pickup", "deliver
 export default function OrderStatusTimeline({ 
   currentStatus, 
   deliveryMethod,
+  busDeliveryWorkflow,
   createdAt, 
   updatedAt,
   deliveredAt,
   className 
 }: OrderStatusTimelineProps) {
   const isPickup = (deliveryMethod || "").toLowerCase().trim() === "pickup";
-  const normalizedStatus = toCustomerTimelineStatus(currentStatus, deliveryMethod);
+  const isBus = (deliveryMethod || "").toLowerCase().trim() === "bus";
+  const busStage = normalizeBusStage(busDeliveryWorkflow?.stage);
+  const normalizedStatus = toCustomerTimelineStatus(currentStatus, deliveryMethod, busStage);
   const statusSteps = isPickup ? pickupStatusSteps : deliveryStatusSteps;
   const statusOrder = isPickup ? pickupStatusOrder : deliveryStatusOrder;
   // Handle cancelled and disputed separately
@@ -167,6 +187,13 @@ export default function OrderStatusTimeline({
           <p className="text-sm text-muted-foreground">
             Delivered on {new Date(deliveredAt).toLocaleDateString()} at{" "}
             {new Date(deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        </div>
+      )}
+      {isBus && busStage && (
+        <div className="mt-3 text-center">
+          <p className="text-xs text-muted-foreground">
+            BUS Stage: <span className="font-medium text-foreground">{busStage}</span>
           </p>
         </div>
       )}

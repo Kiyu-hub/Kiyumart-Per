@@ -25,6 +25,10 @@ interface Order {
   deliveredAt?: string | null;
   updatedAt?: string | null;
   deliveryAddress?: string | null;
+  busDeliveryWorkflow?: {
+    stage?: string | null;
+    proofSubmitted?: boolean;
+  } | null;
   buyer?: {
     id: string;
     name: string;
@@ -181,6 +185,7 @@ export default function RiderDashboard() {
                     <OrderStatusTimeline
                       currentStatus={currentOrder.status}
                       deliveryMethod={currentOrder.deliveryMethod}
+                      busDeliveryWorkflow={currentOrder.busDeliveryWorkflow}
                       createdAt={currentOrder.createdAt}
                       updatedAt={currentOrder.updatedAt || undefined}
                       deliveredAt={currentOrder.deliveredAt || undefined}

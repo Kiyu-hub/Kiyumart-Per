@@ -11800,6 +11800,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/revenue/views/order-ledger", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
+    try {
+      const limit = Math.min(1000, Math.max(1, Number(req.query.limit || 300)));
+      const actor =
+        req.user!.role === "admin"
+          ? await storage.getUser(req.user!.id)
+          : null;
+      const scopedZoneId =
+        req.user!.role === "admin" ? String((actor as any)?.deliveryZoneId || "").trim() : "";
+
+      const zoneFilter = scopedZoneId
+        ? sql`where o.delivery_zone_id = ${scopedZoneId}`
+        : sql``;
+
+      const rows = await db.execute(sql`
+        select
+          o.id as order_id,
+          o.order_number,
+          o.status as order_status,
+          o.payment_status,
+          o.delivery_method,
+          o.delivery_zone_id,
+          o.total,
+          o.currency,
+          o.created_at as order_created_at,
+          o.updated_at as order_updated_at,
+          o.delivered_at,
+          case when o.status = 'completed' then true else false end as is_completed,
+          tx.transaction_id,
+          tx.transaction_status,
+          tx.transaction_amount,
+          tx.payment_provider,
+          tx.payment_reference,
+          pc.commission_amount,
+          pc.platform_amount,
+          pc.seller_amount,
+          pc.commission_status,
+          pc.commission_rate,
+          pc.commission_created_at,
+          seller.name as seller_name,
+          store.name as store_name,
+          (
+            select string_agg(h.to_status::text, ' -> ' order by h.created_at asc)
+            from order_status_history h
+            where h.order_id = o.id
+          ) as status_flow
+        from orders o
+        left join lateral (
+          select
+            op.transaction_id,
+            op.transaction_status,
+            op.transaction_amount,
+            op.payment_provider,
+            op.payment_reference
+          from order_payments op
+          where op.order_id = o.id
+          order by op.transaction_created_at desc nulls last
+          limit 1
+        ) tx on true
+        left join lateral (
+          select
+            c.commission_amount,
+            c.platform_amount,
+            c.seller_amount,
+            c.commission_status,
+            c.commission_rate,
+            c.commission_created_at
+          from platform_commission c
+          where c.order_id = o.id
+          order by c.commission_created_at desc nulls last
+          limit 1
+        ) pc on true
+        left join users seller on seller.id = o.seller_id
+        left join stores store on store.id = o.store_id
+        ${zoneFilter}
+        order by o.created_at desc
+        limit ${limit}
+      `);
+
+      res.json((rows as any).rows || []);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // ============ Socket.IO for Real-time Chat ============
   const userSockets = new Map<string, string>();
 
