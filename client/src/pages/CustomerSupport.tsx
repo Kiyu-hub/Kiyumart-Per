@@ -1094,67 +1094,73 @@ export default function CustomerSupport() {
                       </div>
                     </div>
                     {isSupportStaff && (
-                      <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-                        {isSuperAdmin && (
-                          <>
-                            <select
-                              value={routingMode}
-                              onChange={(e) => setRoutingMode(e.target.value as any)}
-                              className="h-8 min-w-[140px] rounded-md border bg-background px-2 text-xs"
-                              data-testid="select-support-routing-mode"
-                            >
-                              <option value="all_support">All Support</option>
-                              <option value="all_agents">All Agents</option>
-                              <option value="all_admins">All Admins</option>
-                              <option value="specific_staff">Specific Staff</option>
-                            </select>
+                      <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isSuperAdmin && (
+                              <>
+                                <select
+                                  value={routingMode}
+                                  onChange={(e) => setRoutingMode(e.target.value as any)}
+                                  className="h-9 min-w-[160px] rounded-md border bg-background px-2.5 text-sm"
+                                  data-testid="select-support-routing-mode"
+                                >
+                                  <option value="all_support">All Support</option>
+                                  <option value="all_agents">All Agents</option>
+                                  <option value="all_admins">All Admins</option>
+                                  <option value="specific_staff">Specific Staff</option>
+                                </select>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={handleApplyRouting}
+                                  disabled={updateRoutingMutation.isPending}
+                                  data-testid="button-apply-support-routing"
+                                  className="h-9 px-4 whitespace-nowrap"
+                                >
+                                  {updateRoutingMutation.isPending ? "Applying..." : "Apply"}
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={handleApplyRouting}
-                              disabled={updateRoutingMutation.isPending}
-                              data-testid="button-apply-support-routing"
-                              className="whitespace-nowrap"
+                              onClick={() => handleStartSupportCall("voice")}
+                              disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
+                              data-testid="button-support-voice-call"
+                              title="Start voice call"
+                              className="h-9 w-10 px-0"
                             >
-                              {updateRoutingMutation.isPending ? "Applying..." : "Apply"}
+                              <Phone className="h-4 w-4" />
                             </Button>
-                          </>
-                        )}
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          onClick={() => handleStartSupportCall("voice")}
-                          disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
-                          data-testid="button-support-voice-call"
-                          title="Start voice call"
-                          className="flex-shrink-0"
-                        >
-                          <Phone className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          onClick={() => handleStartSupportCall("video")}
-                          disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
-                          data-testid="button-support-video-call"
-                          title="Start video call"
-                          className="flex-shrink-0"
-                        >
-                          <Video className="h-4 w-4" />
-                        </Button>
-                        {canCurrentUserResolve && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => resolveConversationMutation.mutate(selectedConv.id)}
-                            disabled={resolveConversationMutation.isPending}
-                            data-testid="button-resolve"
-                            className="whitespace-nowrap"
-                          >
-                            <CheckCircle2 className="h-4 w-4 mr-1" />
-                            Resolve
-                          </Button>
-                        )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleStartSupportCall("video")}
+                              disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
+                              data-testid="button-support-video-call"
+                              title="Start video call"
+                              className="h-9 w-10 px-0"
+                            >
+                              <Video className="h-4 w-4" />
+                            </Button>
+                            {canCurrentUserResolve && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => resolveConversationMutation.mutate(selectedConv.id)}
+                                disabled={resolveConversationMutation.isPending}
+                                data-testid="button-resolve"
+                                className="h-9 px-4 whitespace-nowrap"
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-1" />
+                                Resolve
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
