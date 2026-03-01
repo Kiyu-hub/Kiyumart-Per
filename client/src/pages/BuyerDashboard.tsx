@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 interface Order {
   id: string;
@@ -80,6 +82,20 @@ export default function BuyerDashboard() {
   const recentOrders = [...orders]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 6);
+  const monthlySpend = Array.from(
+    orders.reduce((map, order) => {
+      const d = new Date(order.createdAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      map.set(key, (map.get(key) || 0) + (Number(order.total) || 0));
+      return map;
+    }, new Map<string, number>())
+  )
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-6)
+    .map(([month, spend]) => ({ month: month.slice(5), spend }));
+  const deliverySuccessRate = stats.totalOrders
+    ? (stats.completedOrders / stats.totalOrders) * 100
+    : 0;
   const buyerButtonClass = "!hover:bg-muted !hover:text-foreground";
 
   return (
@@ -166,6 +182,41 @@ export default function BuyerDashboard() {
               <div className="text-2xl font-bold">{formatPrice(stats.totalSpend)}</div>
               <p className="text-xs text-muted-foreground">
                 {stats.pendingPayments} order(s) need payment
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Spending Overview</CardTitle>
+              <p className="text-sm text-muted-foreground">Last 6 months spending trend</p>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={{ spend: { label: "Spend", color: "#10b981" } }} className="h-[220px] w-full">
+                <AreaChart data={monthlySpend}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} />
+                  <YAxis tickLine={false} axisLine={false} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Area dataKey="spend" stroke="var(--color-spend)" fill="var(--color-spend)" fillOpacity={0.2} />
+                </AreaChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Delivery Success Rate</CardTitle>
+              <p className="text-sm text-muted-foreground">Order completion quality</p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="text-3xl font-semibold">{deliverySuccessRate.toFixed(1)}%</div>
+              <div className="h-2 rounded-full bg-muted">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, deliverySuccessRate)}%` }} />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {stats.completedOrders} completed out of {stats.totalOrders} total orders
               </p>
             </CardContent>
           </Card>
