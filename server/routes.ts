@@ -12923,7 +12923,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/support/staff", requireAuth, requireRole("super_admin"), async (_req: AuthRequest, res) => {
     try {
       const roster = await getSupportStaffRoster();
-      const staff = roster.map((member) => ({
+      const staff = roster
+        .filter((member) => !isLikelySystemIdentity(member))
+        .map((member) => ({
         id: member.id,
         name: member.name,
         email: member.email,
@@ -12956,7 +12958,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const roster = await getSupportStaffRoster();
-      const selectableRoster = roster.filter((member) => member.role !== "super_admin");
+      const selectableRoster = roster.filter(
+        (member) => member.role !== "super_admin" && !isLikelySystemIdentity(member),
+      );
       const rosterSet = new Set(selectableRoster.map((member) => String(member.id)));
       const validIds = requestedIds.filter((candidate) => rosterSet.has(String(candidate)));
 
@@ -13030,16 +13034,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Resolution policy:
       // - super admin can always resolve
-      // - when a ticket is explicitly assigned, only that assignee can resolve
-      // - when unassigned (default all_support routing), any routed support staff can resolve
-      const hasExplicitAssignee = Boolean(existing.agentId);
+      // - when a ticket is explicitly assigned to specific staff, any assigned staff member can resolve
+      // - when unassigned (default/all_* routing), any routed support staff can resolve
+      const explicitAssigneeIds = new Set(parseRoutingUserIds((existing as any).routingUserIds));
+      if ((existing as any).agentId) explicitAssigneeIds.add(String((existing as any).agentId));
+      const hasExplicitAssignees =
+        normalizeSupportRoutingMode((existing as any).routingMode) === "specific_staff" &&
+        explicitAssigneeIds.size > 0;
       if (
         user.role !== "super_admin" &&
-        hasExplicitAssignee &&
-        String(existing.agentId || "") !== String(user.id)
+        hasExplicitAssignees &&
+        !explicitAssigneeIds.has(String(user.id))
       ) {
         return res.status(403).json({
-          error: "Only the staff member assigned by super admin can resolve this conversation",
+          error: "Only staff assigned by super admin can resolve this conversation",
         });
       }
 
