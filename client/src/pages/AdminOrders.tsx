@@ -102,7 +102,7 @@ function ViewOrderDialog({
   const { data: orderDetails, isLoading } = useQuery({
     queryKey: ["/api/orders", orderId],
     queryFn: async () => {
-      const res = await fetch(`/api/orders/${orderId}`);
+      const res = await fetch(`/api/orders/${orderId}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch order details");
       return res.json();
     },
@@ -462,7 +462,7 @@ export default function AdminOrders() {
     if (!socket) return;
 
     const handleOrderUpdate = (data: any) => {
-      console.log("📦 Order update received:", data);
+      console.log("[orders] update received:", data);
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       toast({
         title: "Order Updated",
@@ -471,7 +471,7 @@ export default function AdminOrders() {
     };
 
     const handleRiderAssigned = (data: any) => {
-      console.log("🏍️ Rider assigned:", data);
+      console.log("[orders] rider assigned:", data);
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       toast({
         title: "Rider Assigned",
@@ -480,7 +480,7 @@ export default function AdminOrders() {
     };
 
     const handleDeliveryCompleted = (data: any) => {
-      console.log("✅ Delivery completed:", data);
+      console.log("[orders] delivery completed:", data);
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       toast({
         title: "Delivery Completed",
@@ -488,15 +488,25 @@ export default function AdminOrders() {
       });
     };
 
+    const handleBusProofSubmitted = (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({
+        title: "BUS Proof Submitted",
+        description: `Order #${data.orderNumber || data.orderId} proof is ready for verification`,
+      });
+    };
+
     socket.on("order_status_updated", handleOrderUpdate);
     socket.on("order_rider_assigned", handleRiderAssigned);
     socket.on("admin_delivery_completed", handleDeliveryCompleted);
+    socket.on("admin_bus_transport_proof_submitted", handleBusProofSubmitted);
     socket.on("new_order", handleOrderUpdate);
 
     return () => {
       socket.off("order_status_updated", handleOrderUpdate);
       socket.off("order_rider_assigned", handleRiderAssigned);
       socket.off("admin_delivery_completed", handleDeliveryCompleted);
+      socket.off("admin_bus_transport_proof_submitted", handleBusProofSubmitted);
       socket.off("new_order", handleOrderUpdate);
     };
   }, [socket, toast]);
@@ -512,8 +522,8 @@ export default function AdminOrders() {
       total: allOrders.length,
       pending: allOrders.filter(o => normalize(o.status) === "pending").length,
       processing: allOrders.filter(o => normalize(o.status) === "processing").length,
-      enRoute: allOrders.filter(o => ["en_route", "picked_up"].includes(normalize(o.status))).length,
-      delivered: allOrders.filter(o => normalize(o.status) === "delivered").length,
+      enRoute: allOrders.filter(o => ["in_transit", "en_route", "picked_up"].includes(normalize(o.status))).length,
+      delivered: allOrders.filter(o => ["delivered", "completed"].includes(normalize(o.status))).length,
       cancelled: allOrders.filter(o => normalize(o.status) === "cancelled").length,
       totalRevenue: Number(analytics?.totalRevenue || 0),
       todayOrders: allOrders.filter(o => new Date(o.createdAt) >= today).length,
@@ -571,7 +581,13 @@ export default function AdminOrders() {
     let orders = activeTab === "my-orders" ? myOrders : allOrders;
 
     if (statusFilter !== "all") {
-      orders = orders.filter(o => normalize(o.status) === normalize(statusFilter));
+      const target = normalize(statusFilter);
+      orders = orders.filter((o) => {
+        const current = normalize(o.status);
+        if (target === "delivered") return ["delivered", "completed"].includes(current);
+        if (target === "in_transit") return ["in_transit", "en_route"].includes(current);
+        return current === target;
+      });
     }
 
     if (actionFilter !== "all") {
@@ -632,8 +648,10 @@ export default function AdminOrders() {
       case "ready": return "bg-indigo-500";
       case "assigned": return "bg-violet-500";
       case "picked_up": return "bg-purple-500";
+      case "in_transit": return "bg-amber-500";
       case "en_route": return "bg-orange-500";
       case "delivered": return "bg-green-500";
+      case "completed": return "bg-emerald-600";
       case "cancelled": return "bg-red-500";
       case "refunded": return "bg-gray-500";
       default: return "bg-gray-500";
@@ -644,8 +662,10 @@ export default function AdminOrders() {
     switch(status.toLowerCase()) {
       case "pending": return <Clock className="h-4 w-4" />;
       case "processing": return <Package className="h-4 w-4" />;
+      case "in_transit": return <Truck className="h-4 w-4" />;
       case "en_route": return <Truck className="h-4 w-4" />;
       case "delivered": return <CheckCircle className="h-4 w-4" />;
+      case "completed": return <CheckCircle className="h-4 w-4" />;
       case "cancelled": return <XCircle className="h-4 w-4" />;
       default: return <Package className="h-4 w-4" />;
     }
@@ -786,8 +806,11 @@ export default function AdminOrders() {
                   <SelectItem value="all">All Statuses</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="processing">Processing</SelectItem>
+                  <SelectItem value="assigned">Assigned</SelectItem>
+                  <SelectItem value="in_transit">In Transit</SelectItem>
                   <SelectItem value="en_route">Out for Delivery</SelectItem>
                   <SelectItem value="delivered">Delivered</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
                   <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
@@ -1268,5 +1291,6 @@ function OrdersList({
     </div>
   );
 }
+
 
 

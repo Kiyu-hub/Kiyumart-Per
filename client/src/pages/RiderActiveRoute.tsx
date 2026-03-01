@@ -84,6 +84,7 @@ export default function RiderActiveRoute() {
       }
       return res.json();
     },
+    refetchInterval: 15000,
   });
 
   const handleDeliveryComplete = () => {
@@ -114,9 +115,13 @@ export default function RiderActiveRoute() {
         description: "Transport receipt and driver details were sent for super admin verification.",
       });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["/api/rider/active-delivery"] }),
-        queryClient.invalidateQueries({ queryKey: ["/api/orders?context=rider"] }),
-        queryClient.invalidateQueries({ queryKey: ["/api/orders"] }),
+        queryClient.invalidateQueries({
+          predicate: (query) => {
+            const key = query.queryKey?.[0];
+            if (typeof key !== "string") return false;
+            return key.startsWith("/api/orders") || key.startsWith("/api/rider/active-delivery");
+          },
+        }),
       ]);
       refetch();
     },
@@ -170,6 +175,7 @@ export default function RiderActiveRoute() {
   const canUseDeliveryComms = COMMUNICATION_ACTIVE_STATUSES.has(normalizedStatus);
   const isBusDelivery = String(activeDelivery?.deliveryMethod || "").toLowerCase().trim() === "bus";
   const busStage = String(activeDelivery?.busDeliveryWorkflow?.stage || "").toUpperCase();
+  const busProofSubmitted = Boolean(activeDelivery?.busDeliveryWorkflow?.proofSubmitted) || ["AWAITING_CONFIRMATION", "COMPLETED"].includes(busStage);
 
   useEffect(() => {
     const proof = activeDelivery?.busDeliveryWorkflow?.proof;
@@ -435,7 +441,7 @@ export default function RiderActiveRoute() {
                     <div className="flex flex-wrap items-center gap-3">
                       <Button
                         onClick={handleSubmitBusProof}
-                        disabled={submitBusProofMutation.isPending}
+                        disabled={submitBusProofMutation.isPending || busProofSubmitted}
                         data-testid="button-submit-bus-proof"
                       >
                         {submitBusProofMutation.isPending ? (
@@ -443,14 +449,24 @@ export default function RiderActiveRoute() {
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                             Submitting...
                           </>
+                        ) : busProofSubmitted ? (
+                          "Proof Submitted"
                         ) : (
                           "Submit BUS Proof"
                         )}
                       </Button>
-                      {activeDelivery.busDeliveryWorkflow?.proofSubmitted && (
+                      {busProofSubmitted && (
                         <Badge variant="secondary">Proof submitted</Badge>
                       )}
                     </div>
+                    {busProofSubmitted && (
+                      <div className="rounded-md border border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30 p-3 text-xs">
+                        <p className="font-semibold text-blue-900 dark:text-blue-200 mb-1">Awaiting Super Admin Confirmation</p>
+                        <p className="text-blue-800 dark:text-blue-100">
+                          Current BUS stage: {busStage || "AWAITING_CONFIRMATION"}. Super admin will verify and complete this order.
+                        </p>
+                      </div>
+                    )}
                   </Card>
                 ) : (
                   <Suspense fallback={

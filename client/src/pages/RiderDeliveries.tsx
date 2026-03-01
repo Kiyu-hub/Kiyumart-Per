@@ -40,12 +40,13 @@ export default function RiderDeliveries() {
   const highlightedDeliveryRef = useRef<HTMLDivElement | null>(null);
 
   const { data: deliveries = [], isLoading } = useQuery<Delivery[]>({
-    queryKey: ["/api/orders?context=rider"],
+    queryKey: ["/api/orders", "rider"],
     queryFn: async () => {
       const res = await fetch("/api/orders?context=rider", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch deliveries");
       return res.json();
     },
+    refetchInterval: 20000,
   });
 
   const normalizeStatus = (value?: string) => {
@@ -54,6 +55,7 @@ export default function RiderDeliveries() {
     if (s === "ready_for_pickup") return "assigned";
     if (s === "assigned_to_rider") return "assigned";
     if (s === "out_for_delivery" || s === "en_route") return "in_transit";
+    if (s === "completed") return "completed";
     return s || "pending";
   };
 
@@ -63,8 +65,13 @@ export default function RiderDeliveries() {
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Delivery status updated" });
-      queryClient.invalidateQueries({ queryKey: ["/api/orders?context=rider"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          if (typeof key !== "string") return false;
+          return key.startsWith("/api/orders") || key.startsWith("/api/rider/active-delivery");
+        },
+      });
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -93,14 +100,19 @@ export default function RiderDeliveries() {
       case "picked_up": return "bg-purple-500";
       case "in_transit": return "bg-orange-500";
       case "delivered": return "bg-green-500";
+      case "completed": return "bg-emerald-600";
       default: return "bg-gray-500";
     }
   };
 
   const isBusDelivery = (delivery: Delivery) =>
     String(delivery.deliveryMethod || "").toLowerCase().trim() === "bus";
-  const busStageLabel = (delivery: Delivery) =>
+  const busStage = (delivery: Delivery) =>
     String(delivery.busDeliveryWorkflow?.stage || "").toUpperCase() || "READY";
+  const busStageLabel = (delivery: Delivery) =>
+    busStage(delivery).replace(/_/g, " ");
+  const busProofSubmitted = (delivery: Delivery) =>
+    Boolean(delivery.busDeliveryWorkflow?.proofSubmitted) || ["AWAITING_CONFIRMATION", "COMPLETED"].includes(busStage(delivery));
 
   return (
     <DashboardLayout role="rider">
@@ -121,6 +133,7 @@ export default function RiderDeliveries() {
               <SelectItem value="picked_up">Picked Up</SelectItem>
               <SelectItem value="in_transit">In Transit</SelectItem>
               <SelectItem value="delivered">Delivered</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -224,15 +237,24 @@ export default function RiderDeliveries() {
                     {normalizeStatus(delivery.status) === "in_transit" && (
                       isBusDelivery(delivery) ? (
                         <div className="w-full space-y-3">
-                          <Button
-                            size="sm"
-                            className="bg-amber-600 hover:bg-amber-700 text-white"
-                            onClick={() => navigate(`/rider/route?orderId=${delivery.id}`)}
-                            data-testid={`button-bus-proof-${delivery.id}`}
-                          >
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Submit BUS Transport Proof
-                          </Button>
+                          {busProofSubmitted(delivery) ? (
+                            <div className="rounded-md border border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30 p-3 text-xs">
+                              <p className="font-semibold text-blue-900 dark:text-blue-200 mb-1">Awaiting Super Admin Confirmation</p>
+                              <p className="text-blue-800 dark:text-blue-100">
+                                BUS proof already submitted. Current stage: {busStageLabel(delivery)}.
+                              </p>
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              className="bg-amber-600 hover:bg-amber-700 text-white"
+                              onClick={() => navigate(`/rider/route?orderId=${delivery.id}`)}
+                              data-testid={`button-bus-proof-${delivery.id}`}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Submit BUS Transport Proof
+                            </Button>
+                          )}
                           <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-3 text-xs">
                             <p className="font-semibold text-amber-900 dark:text-amber-200 mb-2">BUS Delivery Workflow</p>
                             <ol className="list-decimal pl-4 space-y-1 text-amber-800 dark:text-amber-100">

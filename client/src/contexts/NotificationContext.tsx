@@ -78,6 +78,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const invalidateOrderQueries = useCallback(() => {
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const key = query.queryKey?.[0];
+        if (typeof key !== "string") return false;
+        return key.startsWith("/api/orders") || key.startsWith("/api/rider/active-delivery");
+      },
+    });
+  }, []);
+
   useEffect(() => {
     if (!user) {
       if (socket) {
@@ -112,7 +122,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }) => {
       console.log("📦 Order status updated:", data);
       
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      invalidateOrderQueries();
       
       toast({
         title: "Order Status Updated",
@@ -138,7 +148,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }) => {
       console.log("💳 Payment completed:", data);
       
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      invalidateOrderQueries();
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
       
       toast({
@@ -197,7 +207,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }) => {
       console.log("📮 Order out for delivery:", data);
       
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      invalidateOrderQueries();
       
       toast({
         title: "Order Out for Delivery",
@@ -207,6 +217,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     };
     newSocket.on("order_en_route", handleOrderEnRoute);
     newSocket.on("order_delivering", handleOrderEnRoute);
+    newSocket.on("admin_bus_transport_proof_submitted", (data: { orderId: string; orderNumber: string }) => {
+      invalidateOrderQueries();
+      if (user.role === "admin" || user.role === "super_admin") {
+        toast({
+          title: "BUS proof submitted",
+          description: `Order #${data.orderNumber} transport proof is ready for verification.`,
+          duration: 5000,
+        });
+      }
+    });
 
     // New Product Available (for wishlist items)
     newSocket.on("product_back_in_stock", (data: {
@@ -330,7 +350,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setSocket(null);
       setIsConnected(false);
     };
-  }, [user?.id, user?.role, toast, playNotificationSound, showDeviceNotification]);
+  }, [user?.id, user?.role, toast, playNotificationSound, showDeviceNotification, invalidateOrderQueries]);
 
   return (
     <NotificationContext.Provider value={{ socket, isConnected }}>

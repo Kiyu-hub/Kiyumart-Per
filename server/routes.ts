@@ -7977,7 +7977,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(orders.riderId, riderId),
-            sql`lower(cast(${orders.status} as text)) in ('processing','ready','confirmed','searching_rider','assigned','rider_arrived','picked_up','in_transit','en_route','delivering')`
+            sql`(
+              lower(cast(${orders.status} as text)) in ('processing','ready','confirmed','searching_rider','assigned','rider_arrived','picked_up','in_transit','en_route','delivering')
+              or (
+                lower(cast(${orders.deliveryMethod} as text)) = 'bus'
+                and lower(cast(${orders.status} as text)) = 'delivered'
+              )
+            )`
           )
         )
         .orderBy(desc(orders.createdAt))

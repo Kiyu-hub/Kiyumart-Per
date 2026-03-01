@@ -75,6 +75,7 @@ export default function RiderDashboard() {
       return res.json();
     },
     enabled: isAuthenticated && user?.role === "rider",
+    refetchInterval: 20000,
   });
 
   const { data: earnings } = useQuery<RiderEarningsPayload>({
