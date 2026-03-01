@@ -1029,83 +1029,74 @@ export default function CustomerSupport() {
             <Card className="md:col-span-2 p-0 flex flex-col overflow-hidden border-emerald-500/20 bg-card/95 backdrop-blur-sm" data-testid="card-messages">
               {selectedConv ? (
                 <div className="flex flex-col h-full min-h-0">
-                  <div className="p-4 border-b flex flex-wrap items-start justify-between gap-3 flex-shrink-0">
-                    <div className="min-w-0 flex items-start gap-3">
-                      <div className="relative mt-0.5">
+                  <div className="px-4 py-3 border-b space-y-2 flex-shrink-0">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="relative mt-0.5 flex-shrink-0">
                         {peerProfileImage ? (
                           <img
                             src={peerProfileImage}
                             alt={peerDisplayName}
-                            className="h-10 w-10 rounded-full object-cover border"
+                            className="h-9 w-9 rounded-full object-cover border"
                           />
                         ) : (
-                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                            <User className="h-5 w-5 text-muted-foreground" />
+                          <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center">
+                            <User className="h-4 w-4 text-muted-foreground" />
                           </div>
                         )}
                         <span
-                          className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border border-background ${
+                          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-background ${
                             peerPresence.isOnline ? "bg-[#25D366]" : peerPresence.isAway ? "bg-yellow-500" : "bg-gray-400"
                           }`}
                         />
                       </div>
-                      <div className="min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h2 className="font-semibold truncate">{selectedConv.subject}</h2>
-                        <Badge className={`${getStatusColor(selectedConv.status)} text-white whitespace-nowrap`}>
-                          {getStatusLabel(selectedConv.status)}
-                        </Badge>
-                      </div>
-                      {isSupportStaff && (
-                        <div className="mb-1 space-y-1">
-                          <p className="text-xs text-muted-foreground break-words">
-                            Assigned: {getAssignedStaffNames(selectedConv).length > 0 ? getAssignedStaffNames(selectedConv).join(", ") : "Unassigned"}
-                          </p>
-                          <p className="text-xs text-muted-foreground break-words">
-                            Last attended: {selectedConv.lastSupportResponderName ? sanitizeSupportDisplayName(selectedConv.lastSupportResponderName, "Support Team") : "No support response yet"}
-                            {selectedConv.lastSupportResponderRole ? ` (${selectedConv.lastSupportResponderRole})` : ""}
-                          </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="font-semibold truncate">{selectedConv.subject}</h2>
+                          <Badge className={`${getStatusColor(selectedConv.status)} text-white whitespace-nowrap`}>
+                            {getStatusLabel(selectedConv.status)}
+                          </Badge>
                         </div>
-                      )}
-                      <div className="text-sm truncate text-muted-foreground">
-                        {isPeerTyping ? (
-                          <span className="text-[#25D366] font-medium">typing...</span>
-                        ) : isSupportStaff ? (
-                          <>
-                            <span>{`Customer: ${peerDisplayName}`}</span>
-                            {peerStatusText === "Online" ? (
-                              <span className="ml-2 text-[#25D366] font-medium">Online</span>
-                            ) : (
-                              <span className="ml-2">{peerStatusText}</span>
-                            )}
-                          </>
-                        ) : selectedConv.agentName ? (
-                          <>
-                            <span>{`Agent: ${peerDisplayName}`}</span>
-                            {peerStatusText === "Online" ? (
-                              <span className="ml-2 text-[#25D366] font-medium">Online</span>
-                            ) : (
-                              <span className="ml-2">{peerStatusText}</span>
-                            )}
-                          </>
-                        ) : (
-                          <span>Waiting for agent assignment</span>
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                          {isPeerTyping ? (
+                            <span className="text-[#25D366] font-medium">typing...</span>
+                          ) : isSupportStaff ? (
+                            <>
+                              <span>{`Customer: ${peerDisplayName}`}</span>
+                              {peerStatusText === "Online" ? (
+                                <span className="ml-2 text-[#25D366] font-medium">Online</span>
+                              ) : (
+                                <span className="ml-2">{peerStatusText}</span>
+                              )}
+                            </>
+                          ) : selectedConv.agentName ? (
+                            <>
+                              <span>{`Agent: ${peerDisplayName}`}</span>
+                              {peerStatusText === "Online" ? (
+                                <span className="ml-2 text-[#25D366] font-medium">Online</span>
+                              ) : (
+                                <span className="ml-2">{peerStatusText}</span>
+                              )}
+                            </>
+                          ) : (
+                            <span>Waiting for agent assignment</span>
+                          )}
+                        </p>
+                        {isSupportStaff && (
+                          <div className="mt-1 grid grid-cols-1 md:grid-cols-2 gap-1 text-[11px] text-muted-foreground">
+                            <p className="truncate">
+                              Assigned: {getAssignedStaffNames(selectedConv).length > 0 ? getAssignedStaffNames(selectedConv).join(", ") : "Unassigned"}
+                            </p>
+                            <p className="truncate md:text-right">
+                              Last attended: {selectedConv.lastSupportResponderName ? sanitizeSupportDisplayName(selectedConv.lastSupportResponderName, "Support Team") : "No support response yet"}
+                            </p>
+                          </div>
                         )}
                       </div>
-                      {isPeerTyping && (
-                        <div className="flex items-center gap-1 text-xs text-[#25D366] mt-1">
-                          <span>typing</span>
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#25D366] animate-bounce [animation-delay:-0.3s]" />
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#25D366] animate-bounce [animation-delay:-0.15s]" />
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#25D366] animate-bounce" />
-                        </div>
-                      )}
-                    </div>
                     </div>
                     {isSupportStaff && (
-                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                      <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
                         {isSuperAdmin && (
-                          <div className="flex items-center gap-2 mr-2 flex-wrap justify-end">
+                          <>
                             <select
                               value={routingMode}
                               onChange={(e) => setRoutingMode(e.target.value as any)}
@@ -1123,10 +1114,11 @@ export default function CustomerSupport() {
                               onClick={handleApplyRouting}
                               disabled={updateRoutingMutation.isPending}
                               data-testid="button-apply-support-routing"
+                              className="whitespace-nowrap"
                             >
                               {updateRoutingMutation.isPending ? "Applying..." : "Apply"}
                             </Button>
-                          </div>
+                          </>
                         )}
                         <Button
                           size="icon"
@@ -1135,6 +1127,7 @@ export default function CustomerSupport() {
                           disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
                           data-testid="button-support-voice-call"
                           title="Start voice call"
+                          className="flex-shrink-0"
                         >
                           <Phone className="h-4 w-4" />
                         </Button>
@@ -1145,6 +1138,7 @@ export default function CustomerSupport() {
                           disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
                           data-testid="button-support-video-call"
                           title="Start video call"
+                          className="flex-shrink-0"
                         >
                           <Video className="h-4 w-4" />
                         </Button>
@@ -1155,6 +1149,7 @@ export default function CustomerSupport() {
                             onClick={() => resolveConversationMutation.mutate(selectedConv.id)}
                             disabled={resolveConversationMutation.isPending}
                             data-testid="button-resolve"
+                            className="whitespace-nowrap"
                           >
                             <CheckCircle2 className="h-4 w-4 mr-1" />
                             Resolve
@@ -1164,11 +1159,11 @@ export default function CustomerSupport() {
                     )}
                   </div>
                   {isSuperAdmin && routingMode === "specific_staff" && (
-                    <div className="px-4 pb-3 border-b space-y-2">
+                    <div className="px-4 py-2 border-b space-y-2">
                       <p className="text-[11px] text-muted-foreground">
                         Super Admin access is automatic. Select one or more admins/agents to assign this ticket.
                       </p>
-                      <div className="flex flex-wrap items-center gap-2 max-h-28 overflow-y-auto pr-1">
+                      <div className="flex flex-wrap items-center gap-2 max-h-20 overflow-y-auto pr-1">
                       {selectableSupportStaff.map((staff) => {
                         const selected = routingUserIds.includes(staff.id);
                         return (
@@ -1189,12 +1184,6 @@ export default function CustomerSupport() {
                         <span className="text-xs text-muted-foreground">No active agents/admins available.</span>
                       )}
                       </div>
-                    </div>
-                  )}
-                  {isSupportStaff && selectedConv?.lastSupportResponderName && (
-                    <div className="px-4 py-2 border-b text-xs text-muted-foreground">
-                      Last attended by: {sanitizeSupportDisplayName(selectedConv.lastSupportResponderName, "Support Team")}
-                      {selectedConv.lastSupportResponderRole ? ` (${selectedConv.lastSupportResponderRole})` : ""}
                     </div>
                   )}
                   <ScrollArea className="flex-1 min-h-0 p-4">
