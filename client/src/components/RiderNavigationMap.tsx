@@ -23,6 +23,8 @@ import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
+import { isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
+import MapboxSingleTripMap from "@/tracking/mapbox/MapboxSingleTripMap";
 
 interface DeliveryDetails {
   orderId: string;
@@ -94,6 +96,7 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
   } | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const usageSnapshot = useUsageMonitorSnapshot();
+  const shouldUseMapboxGl = isMapboxGlPreferred();
 
   const normalizedStatus = String(delivery.status || "").toLowerCase().trim();
   const tripPhase =
@@ -300,72 +303,82 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
 
         {/* Map */}
         <div style={{ height: mapHeight }} className="relative">
-          <MapContainer
-            center={animatedCurrentPosition || [5.6037, -0.1870]}
-            zoom={15}
-            style={{ height: "100%", width: "100%" }}
-          >
-            <MapTileLayer />
-            <MapUsageTracker />
-            
-            {animatedCurrentPosition && <MapCenterController position={animatedCurrentPosition} />}
-            
-            {/* Route polyline */}
-            {!usageSnapshot.freezeSecondaryLayers && routeGeometry.length > 1 && (
-              <Polyline 
-                positions={routeGeometry}
-                color="#3b82f6" 
-                weight={5}
-                opacity={0.8}
-              />
-            )}
-            
-            {/* Current position marker */}
-            {animatedCurrentPosition && (
-              <Marker position={animatedCurrentPosition} icon={riderIcon}>
-                <Popup>
-                  <div className="p-2 text-center">
-                    <p className="font-bold">Your Location</p>
-                    {lastUpdateTime && (
-                      <p className="text-xs text-muted-foreground">
-                        Updated: {lastUpdateTime.toLocaleTimeString()}
-                      </p>
-                    )}
-                  </div>
-                </Popup>
-              </Marker>
-            )}
-            
-            {/* Pickup location marker (if available) */}
-            {delivery.sellerLatitude && delivery.sellerLongitude && delivery.status === "assigned" && (
-              <Marker 
-                position={[delivery.sellerLatitude, delivery.sellerLongitude]} 
-                icon={pickupIcon}
-              >
-                <Popup>
-                  <div className="p-2">
-                    <p className="font-bold text-sm">Pickup Location</p>
-                    <p className="text-xs text-muted-foreground">{delivery.sellerAddress || delivery.sellerName}</p>
-                  </div>
-                </Popup>
-              </Marker>
-            )}
-            
-            {/* Destination marker */}
-            {delivery.deliveryLatitude && delivery.deliveryLongitude && (
-              <Marker 
-                position={[delivery.deliveryLatitude, delivery.deliveryLongitude]} 
-                icon={destinationIcon}
-              >
-                <Popup>
-                  <div className="p-2">
-                    <p className="font-bold text-sm">Delivery Destination</p>
-                    <p className="text-xs text-muted-foreground">{delivery.deliveryAddress}</p>
-                  </div>
-                </Popup>
-              </Marker>
-            )}
-          </MapContainer>
+          {shouldUseMapboxGl ? (
+            <MapboxSingleTripMap
+              center={animatedCurrentPosition || [delivery.deliveryLatitude, delivery.deliveryLongitude]}
+              riderPos={animatedCurrentPosition}
+              destinationPos={[delivery.deliveryLatitude, delivery.deliveryLongitude]}
+              routeGeometry={usageSnapshot.freezeSecondaryLayers ? [] : routeGeometry}
+              style={{ height: "100%", width: "100%" }}
+            />
+          ) : (
+            <MapContainer
+              center={animatedCurrentPosition || [5.6037, -0.1870]}
+              zoom={15}
+              style={{ height: "100%", width: "100%" }}
+            >
+              <MapTileLayer />
+              <MapUsageTracker />
+              
+              {animatedCurrentPosition && <MapCenterController position={animatedCurrentPosition} />}
+              
+              {/* Route polyline */}
+              {!usageSnapshot.freezeSecondaryLayers && routeGeometry.length > 1 && (
+                <Polyline 
+                  positions={routeGeometry}
+                  color="#3b82f6" 
+                  weight={5}
+                  opacity={0.8}
+                />
+              )}
+              
+              {/* Current position marker */}
+              {animatedCurrentPosition && (
+                <Marker position={animatedCurrentPosition} icon={riderIcon}>
+                  <Popup>
+                    <div className="p-2 text-center">
+                      <p className="font-bold">Your Location</p>
+                      {lastUpdateTime && (
+                        <p className="text-xs text-muted-foreground">
+                          Updated: {lastUpdateTime.toLocaleTimeString()}
+                        </p>
+                      )}
+                    </div>
+                  </Popup>
+                </Marker>
+              )}
+              
+              {/* Pickup location marker (if available) */}
+              {delivery.sellerLatitude && delivery.sellerLongitude && delivery.status === "assigned" && (
+                <Marker 
+                  position={[delivery.sellerLatitude, delivery.sellerLongitude]} 
+                  icon={pickupIcon}
+                >
+                  <Popup>
+                    <div className="p-2">
+                      <p className="font-bold text-sm">Pickup Location</p>
+                      <p className="text-xs text-muted-foreground">{delivery.sellerAddress || delivery.sellerName}</p>
+                    </div>
+                  </Popup>
+                </Marker>
+              )}
+              
+              {/* Destination marker */}
+              {delivery.deliveryLatitude && delivery.deliveryLongitude && (
+                <Marker 
+                  position={[delivery.deliveryLatitude, delivery.deliveryLongitude]} 
+                  icon={destinationIcon}
+                >
+                  <Popup>
+                    <div className="p-2">
+                      <p className="font-bold text-sm">Delivery Destination</p>
+                      <p className="text-xs text-muted-foreground">{delivery.deliveryAddress}</p>
+                    </div>
+                  </Popup>
+                </Marker>
+              )}
+            </MapContainer>
+          )}
 
           {/* Recenter button */}
           <Button

@@ -26,6 +26,8 @@ import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
+import { isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
+import MapboxSingleTripMap from "@/tracking/mapbox/MapboxSingleTripMap";
 
 interface ActiveDelivery {
   id: string;
@@ -113,6 +115,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     heading?: number | null;
   } | null>(null);
   const usageSnapshot = useUsageMonitorSnapshot();
+  const shouldUseMapboxGl = isMapboxGlPreferred();
 
   // Fetch active delivery
   const { data: activeDelivery, isLoading, refetch } = useQuery<ActiveDelivery | null>({
@@ -364,75 +367,85 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
           </div>
         )}
 
-        <MapContainer
-          center={defaultCenter}
-          zoom={14}
-          className={cn("w-full", isFullscreen ? "h-[calc(100vh-160px)]" : "h-[420px]")}
-          ref={mapRef}
-        >
-          <MapTileLayer />
-          <MapUsageTracker />
-          
-          <MapInvalidator />
-          <MapBoundsController riderPos={animatedRiderPos} destPos={destPos} />
+        {shouldUseMapboxGl && destPos ? (
+          <MapboxSingleTripMap
+            center={animatedRiderPos || destPos}
+            riderPos={animatedRiderPos}
+            destinationPos={destPos}
+            routeGeometry={usageSnapshot.freezeSecondaryLayers ? [] : routeGeometry}
+            className={cn("w-full", isFullscreen ? "h-[calc(100vh-160px)]" : "h-[420px]")}
+          />
+        ) : (
+          <MapContainer
+            center={defaultCenter}
+            zoom={14}
+            className={cn("w-full", isFullscreen ? "h-[calc(100vh-160px)]" : "h-[420px]")}
+            ref={mapRef}
+          >
+            <MapTileLayer />
+            <MapUsageTracker />
+            
+            <MapInvalidator />
+            <MapBoundsController riderPos={animatedRiderPos} destPos={destPos} />
 
-          {/* Route polyline */}
-          {!usageSnapshot.freezeSecondaryLayers && routeGeometry.length > 1 && (
-            <Polyline 
-              positions={routeGeometry} 
-              color="#3b82f6" 
-              weight={5} 
-              opacity={0.8}
-              dashArray="10, 10"
-            />
-          )}
+            {/* Route polyline */}
+            {!usageSnapshot.freezeSecondaryLayers && routeGeometry.length > 1 && (
+              <Polyline 
+                positions={routeGeometry} 
+                color="#3b82f6" 
+                weight={5} 
+                opacity={0.8}
+                dashArray="10, 10"
+              />
+            )}
 
-          {/* Rider position marker */}
-          {animatedRiderPos && (
-            <Marker position={animatedRiderPos} icon={riderIcon}>
-              <Popup>
-                <div className="text-center">
-                  <strong>Your Location</strong>
-                  {lastUpdate && (
-                    <p className="text-xs text-muted-foreground">
-                      Updated: {lastUpdate.toLocaleTimeString()}
+            {/* Rider position marker */}
+            {animatedRiderPos && (
+              <Marker position={animatedRiderPos} icon={riderIcon}>
+                <Popup>
+                  <div className="text-center">
+                    <strong>Your Location</strong>
+                    {lastUpdate && (
+                      <p className="text-xs text-muted-foreground">
+                        Updated: {lastUpdate.toLocaleTimeString()}
+                      </p>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+
+            {/* Destination marker */}
+            {destPos && activeDelivery && (
+              <Marker position={destPos} icon={destinationIcon}>
+                <Popup>
+                  <div className="min-w-[180px]">
+                    <strong className="text-sm">Delivery Destination</strong>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {activeDelivery.deliveryAddress}
                     </p>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          )}
-
-          {/* Destination marker */}
-          {destPos && activeDelivery && (
-            <Marker position={destPos} icon={destinationIcon}>
-              <Popup>
-                <div className="min-w-[180px]">
-                  <strong className="text-sm">Delivery Destination</strong>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {activeDelivery.deliveryAddress}
-                  </p>
-                  {activeDelivery.buyerName && (
-                    <p className="text-xs mt-1">
-                      <strong>Customer:</strong> {activeDelivery.buyerName}
-                    </p>
-                  )}
-                  {routeGeometry.length > 1 && (
-                    <div className="flex gap-3 mt-2 text-xs">
-                      <span className="text-primary font-medium">
-                        <Clock className="h-3 w-3 inline mr-1" />
-                        {etaMinutes} min
-                      </span>
-                      <span className="text-primary font-medium">
-                        {distanceKm.toFixed(1)} km
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          )}
-        </MapContainer>
+                    {activeDelivery.buyerName && (
+                      <p className="text-xs mt-1">
+                        <strong>Customer:</strong> {activeDelivery.buyerName}
+                      </p>
+                    )}
+                    {routeGeometry.length > 1 && (
+                      <div className="flex gap-3 mt-2 text-xs">
+                        <span className="text-primary font-medium">
+                          <Clock className="h-3 w-3 inline mr-1" />
+                          {etaMinutes} min
+                        </span>
+                        <span className="text-primary font-medium">
+                          {distanceKm.toFixed(1)} km
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+          </MapContainer>
+        )}
 
         {/* Bottom stats bar */}
         <div className="mx-2 my-2">

@@ -8,6 +8,8 @@ import { Loader2, MapPin, Navigation, Star, Car, Clock } from "lucide-react";
 import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
+import { isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
+import MapboxSingleTripMap from "@/tracking/mapbox/MapboxSingleTripMap";
 
 // Fix Leaflet icon issue
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -84,6 +86,7 @@ export default function DeliveryMap({
   compact = false
 }: DeliveryMapProps) {
   const [isLoading, setIsLoading] = useState(true);
+  const shouldUseMapboxGl = isMapboxGlPreferred();
 
   const deliveryPos: [number, number] = [deliveryLocation.latitude, deliveryLocation.longitude];
   const riderPos: [number, number] | undefined = riderLocation
@@ -175,39 +178,49 @@ export default function DeliveryMap({
     return (
       <div className={`relative h-screen w-full ${className}`} data-testid="map-container-compact">
         {/* Map Container */}
-        <MapContainer
-          center={deliveryPos}
-          zoom={15}
-          style={{ height: "100%", width: "100%" }}
-          scrollWheelZoom={true}
-          zoomControl={false}
-        >
-          <MapTileLayer />
-          <MapUsageTracker />
-          
-          {/* Delivery destination marker */}
-          <Marker position={deliveryPos} icon={deliveryIcon}>
-            <Popup>
-              <div className="text-sm" data-testid="popup-delivery">
-                <p className="font-semibold">Delivery Destination</p>
-                <p className="text-muted-foreground">{deliveryLocation.address}</p>
-              </div>
-            </Popup>
-          </Marker>
+        {shouldUseMapboxGl ? (
+          <MapboxSingleTripMap
+            center={animatedRiderPos || deliveryPos}
+            riderPos={animatedRiderPos || null}
+            destinationPos={deliveryPos}
+            routeGeometry={routePolyline}
+            style={{ height: "100%", width: "100%" }}
+          />
+        ) : (
+          <MapContainer
+            center={deliveryPos}
+            zoom={15}
+            style={{ height: "100%", width: "100%" }}
+            scrollWheelZoom={true}
+            zoomControl={false}
+          >
+            <MapTileLayer />
+            <MapUsageTracker />
+            
+            {/* Delivery destination marker */}
+            <Marker position={deliveryPos} icon={deliveryIcon}>
+              <Popup>
+                <div className="text-sm" data-testid="popup-delivery">
+                  <p className="font-semibold">Delivery Destination</p>
+                  <p className="text-muted-foreground">{deliveryLocation.address}</p>
+                </div>
+              </Popup>
+            </Marker>
 
-          {/* Rider location marker */}
-          {animatedRiderPos && (
-            <>
-              <Marker position={animatedRiderPos} icon={riderIcon} />
-              
-              {routePolyline.length > 1 && (
-                <Polyline positions={routePolyline} color="#10B981" weight={4} opacity={0.8} />
-              )}
-            </>
-          )}
+            {/* Rider location marker */}
+            {animatedRiderPos && (
+              <>
+                <Marker position={animatedRiderPos} icon={riderIcon} />
+                
+                {routePolyline.length > 1 && (
+                  <Polyline positions={routePolyline} color="#10B981" weight={4} opacity={0.8} />
+                )}
+              </>
+            )}
 
-          <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={animatedRiderPos} />
-        </MapContainer>
+            <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={animatedRiderPos} />
+          </MapContainer>
+        )}
 
         {/* Delivery Address Banner (Top) */}
         <div className="absolute top-0 left-0 right-0 bg-black/80 text-white p-4 z-[1000]" data-testid="address-banner">
@@ -295,59 +308,69 @@ export default function DeliveryMap({
       </CardHeader>
       <CardContent>
         <div className="relative h-96 rounded-lg overflow-hidden border" data-testid="map-container">
-          <MapContainer
-            center={deliveryPos}
-            zoom={15}
-            style={{ height: "100%", width: "100%" }}
-            scrollWheelZoom={false}
-          >
-            <MapTileLayer />
-            <MapUsageTracker />
-            
-            {/* Delivery destination marker */}
-            <Marker position={deliveryPos} icon={deliveryIcon}>
-              <Popup>
-                <div className="text-sm" data-testid="popup-delivery">
-                  <p className="font-semibold">Delivery Destination</p>
-                  <p className="text-muted-foreground">{deliveryLocation.address}</p>
-                </div>
-              </Popup>
-            </Marker>
+          {shouldUseMapboxGl ? (
+            <MapboxSingleTripMap
+              center={animatedRiderPos || deliveryPos}
+              riderPos={animatedRiderPos || null}
+              destinationPos={deliveryPos}
+              routeGeometry={routePolyline}
+              style={{ height: "100%", width: "100%" }}
+            />
+          ) : (
+            <MapContainer
+              center={deliveryPos}
+              zoom={15}
+              style={{ height: "100%", width: "100%" }}
+              scrollWheelZoom={false}
+            >
+              <MapTileLayer />
+              <MapUsageTracker />
+              
+              {/* Delivery destination marker */}
+              <Marker position={deliveryPos} icon={deliveryIcon}>
+                <Popup>
+                  <div className="text-sm" data-testid="popup-delivery">
+                    <p className="font-semibold">Delivery Destination</p>
+                    <p className="text-muted-foreground">{deliveryLocation.address}</p>
+                  </div>
+                </Popup>
+              </Marker>
 
-            {/* Rider location marker */}
-            {animatedRiderPos && (
-              <>
-                <Marker position={animatedRiderPos} icon={riderIcon}>
-                  <Popup>
-                    <div className="text-sm" data-testid="popup-rider">
-                      <p className="font-semibold flex items-center gap-1">
-                        <Navigation className="h-3 w-3" />
-                        Rider Location
-                      </p>
-                      {riderLocation?.timestamp && (
-                        <p className="text-xs text-muted-foreground">
-                          Updated: {new Date(riderLocation.timestamp).toLocaleTimeString()}
+              {/* Rider location marker */}
+              {animatedRiderPos && (
+                <>
+                  <Marker position={animatedRiderPos} icon={riderIcon}>
+                    <Popup>
+                      <div className="text-sm" data-testid="popup-rider">
+                        <p className="font-semibold flex items-center gap-1">
+                          <Navigation className="h-3 w-3" />
+                          Rider Location
                         </p>
-                      )}
-                    </div>
-                  </Popup>
-                </Marker>
-                
-                {/* Line connecting rider to destination */}
-                {routePolyline.length > 1 && (
-                  <Polyline
-                    positions={routePolyline}
-                    color="#10B981"
-                    weight={3}
-                    opacity={0.6}
-                    dashArray="10, 10"
-                  />
-                )}
-              </>
-            )}
+                        {riderLocation?.timestamp && (
+                          <p className="text-xs text-muted-foreground">
+                            Updated: {new Date(riderLocation.timestamp).toLocaleTimeString()}
+                          </p>
+                        )}
+                      </div>
+                    </Popup>
+                  </Marker>
+                  
+                  {/* Line connecting rider to destination */}
+                  {routePolyline.length > 1 && (
+                    <Polyline
+                      positions={routePolyline}
+                      color="#10B981"
+                      weight={3}
+                      opacity={0.6}
+                      dashArray="10, 10"
+                    />
+                  )}
+                </>
+              )}
 
-            <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={animatedRiderPos} />
-          </MapContainer>
+              <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={animatedRiderPos} />
+            </MapContainer>
+          )}
 
           {/* ETA Overlay for standard view */}
           {animatedRiderPos && (

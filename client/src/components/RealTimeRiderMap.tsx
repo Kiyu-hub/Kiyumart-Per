@@ -37,6 +37,8 @@ import { useAnimatedFleetPositions } from "@/tracking/hooks/useAnimatedFleetPosi
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
+import { isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
+import MapboxFleetMap from "@/tracking/mapbox/MapboxFleetMap";
 
 interface RiderLocation {
   riderId: string;
@@ -161,6 +163,7 @@ export default function RealTimeRiderMap() {
   const socketRef = useRef<Socket | null>(null);
   const { toast } = useToast();
   const usageSnapshot = useUsageMonitorSnapshot();
+  const shouldUseMapboxGl = isMapboxGlPreferred();
 
   // Fetch initial active riders
   const { data: initialRiders = [], isLoading, refetch: refetchActiveRiders } = useQuery<RiderLocation[]>({
@@ -425,112 +428,153 @@ export default function RealTimeRiderMap() {
                   <p className="text-muted-foreground">Loading map...</p>
                 </div>
               ) : (
-                <MapContainer
-                  center={center}
-                  zoom={12}
-                  style={{ height: "100%", width: "100%" }}
-                >
-                  <MapTileLayer />
-                  <MapUsageTracker />
-                  
-                  <MapInvalidator />
-                  <MapBoundsController riders={riders} pendingOrders={pendingOrders} />
-                  
-                  {/* Route polyline */}
-                  {!usageSnapshot.freezeSecondaryLayers && selectedRouteGeometry.length > 1 && (
-                    <Polyline 
-                      positions={selectedRouteGeometry} 
-                      color="#3b82f6" 
-                      weight={4}
-                      opacity={0.8}
-                    />
-                  )}
-                  
-                  {/* Clustered rider markers */}
-                  <MarkerClusterGroup chunkedLoading>
-                    {riders.filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => 
-                      rider.latitude !== null && rider.longitude !== null
-                    ).map((rider) => (
-                      <Marker
-                        key={rider.riderId}
-                        position={
-                          animatedFleetPositions[rider.riderId]
-                            ? [animatedFleetPositions[rider.riderId].lat, animatedFleetPositions[rider.riderId].lng]
-                            : [rider.latitude, rider.longitude]
-                        }
-                        icon={riderIcon}
-                        eventHandlers={{
-                          click: () => setSelectedRider(rider),
-                        }}
-                      >
-                        <Popup>
-                          <div className="p-2 min-w-[200px]">
-                            <h3 className="font-bold text-sm mb-1">{rider.riderName}</h3>
-                            <p className="text-xs text-muted-foreground mb-2">
-                              Order #{rider.orderNumber}
-                            </p>
-                            <Button 
-                              size="sm" 
-                              className="w-full mt-2"
-                              onClick={() => setSelectedRider(rider)}
-                            >
-                              View Details
-                            </Button>
-                          </div>
-                        </Popup>
-                      </Marker>
-                    ))}
-                  </MarkerClusterGroup>
-
-                  {/* Pending order markers */}
-                  {!usageSnapshot.freezeSecondaryLayers &&
-                    pendingOrders.filter(o => o.deliveryLatitude && o.deliveryLongitude).map((order) => (
-                    <Marker
-                      key={order.id}
-                      position={[Number(order.deliveryLatitude), Number(order.deliveryLongitude)]}
-                      icon={pendingOrderIcon}
-                      eventHandlers={{
-                        click: () => handleDispatchOrder(order),
+                <>
+                  {shouldUseMapboxGl ? (
+                    <MapboxFleetMap
+                      center={[center.lat, center.lng]}
+                      riders={riders
+                        .filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => rider.latitude !== null && rider.longitude !== null)
+                        .map((rider) => ({
+                          riderId: rider.riderId,
+                          latitude: animatedFleetPositions[rider.riderId]?.lat ?? rider.latitude,
+                          longitude: animatedFleetPositions[rider.riderId]?.lng ?? rider.longitude,
+                        }))}
+                      pendingOrders={
+                        usageSnapshot.freezeSecondaryLayers
+                          ? []
+                          : pendingOrders
+                              .filter((order) => order.deliveryLatitude && order.deliveryLongitude)
+                              .map((order) => ({
+                                id: order.id,
+                                latitude: Number(order.deliveryLatitude),
+                                longitude: Number(order.deliveryLongitude),
+                              }))
+                      }
+                      routeGeometry={usageSnapshot.freezeSecondaryLayers ? [] : selectedRouteGeometry}
+                      selectedDestination={
+                        selectedRiderOrder
+                          ? [Number(selectedRiderOrder.deliveryLatitude), Number(selectedRiderOrder.deliveryLongitude)]
+                          : null
+                      }
+                      style={{ height: "100%", width: "100%" }}
+                      onRiderClick={(riderId) => {
+                        const rider = riders.find((entry) => entry.riderId === riderId);
+                        if (rider) setSelectedRider(rider);
                       }}
+                      onOrderClick={(orderId) => {
+                        const order = pendingOrders.find((entry) => entry.id === orderId);
+                        if (order) handleDispatchOrder(order);
+                      }}
+                    />
+                  ) : (
+                    <MapContainer
+                      center={center}
+                      zoom={12}
+                      style={{ height: "100%", width: "100%" }}
                     >
-                      <Popup>
-                        <div className="p-2 min-w-[200px]">
-                          <div className="flex items-center gap-2 mb-2">
-                            <AlertTriangle className="h-4 w-4 text-amber-500" />
-                            <span className="font-bold text-sm">Pending Order</span>
-                          </div>
-                          <p className="text-xs mb-1">#{order.orderNumber}</p>
-                          <p className="text-xs text-muted-foreground mb-2">{order.deliveryAddress}</p>
-                          <Button 
-                            size="sm" 
-                            className="w-full"
-                            onClick={() => handleDispatchOrder(order)}
+                      <MapTileLayer />
+                      <MapUsageTracker />
+                      
+                      <MapInvalidator />
+                      <MapBoundsController riders={riders} pendingOrders={pendingOrders} />
+                      
+                      {/* Route polyline */}
+                      {!usageSnapshot.freezeSecondaryLayers && selectedRouteGeometry.length > 1 && (
+                        <Polyline 
+                          positions={selectedRouteGeometry} 
+                          color="#3b82f6" 
+                          weight={4}
+                          opacity={0.8}
+                        />
+                      )}
+                      
+                      {/* Clustered rider markers */}
+                      <MarkerClusterGroup chunkedLoading>
+                        {riders.filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => 
+                          rider.latitude !== null && rider.longitude !== null
+                        ).map((rider) => (
+                          <Marker
+                            key={rider.riderId}
+                            position={
+                              animatedFleetPositions[rider.riderId]
+                                ? [animatedFleetPositions[rider.riderId].lat, animatedFleetPositions[rider.riderId].lng]
+                                : [rider.latitude, rider.longitude]
+                            }
+                            icon={riderIcon}
+                            eventHandlers={{
+                              click: () => setSelectedRider(rider),
+                            }}
                           >
-                            Assign Rider
-                          </Button>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))}
+                            <Popup>
+                              <div className="p-2 min-w-[200px]">
+                                <h3 className="font-bold text-sm mb-1">{rider.riderName}</h3>
+                                <p className="text-xs text-muted-foreground mb-2">
+                                  Order #{rider.orderNumber}
+                                </p>
+                                <Button 
+                                  size="sm" 
+                                  className="w-full mt-2"
+                                  onClick={() => setSelectedRider(rider)}
+                                >
+                                  View Details
+                                </Button>
+                              </div>
+                            </Popup>
+                          </Marker>
+                        ))}
+                      </MarkerClusterGroup>
 
-                  {/* Destination marker for selected rider */}
-                  {selectedRider && selectedRiderOrder && (
-                    <Marker
-                      position={[
-                        Number(selectedRiderOrder.deliveryLatitude),
-                        Number(selectedRiderOrder.deliveryLongitude)
-                      ]}
-                      icon={destinationIcon}
-                    >
-                      <Popup>
-                        <div className="p-2">
-                          <p className="font-bold text-sm">Delivery Destination</p>
-                          <p className="text-xs text-muted-foreground">
-                            {selectedRiderOrder.deliveryAddress}
-                          </p>
-                        </div>
-                      </Popup>
-                    </Marker>
+                      {/* Pending order markers */}
+                      {!usageSnapshot.freezeSecondaryLayers &&
+                        pendingOrders.filter(o => o.deliveryLatitude && o.deliveryLongitude).map((order) => (
+                        <Marker
+                          key={order.id}
+                          position={[Number(order.deliveryLatitude), Number(order.deliveryLongitude)]}
+                          icon={pendingOrderIcon}
+                          eventHandlers={{
+                            click: () => handleDispatchOrder(order),
+                          }}
+                        >
+                          <Popup>
+                            <div className="p-2 min-w-[200px]">
+                              <div className="flex items-center gap-2 mb-2">
+                                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                                <span className="font-bold text-sm">Pending Order</span>
+                              </div>
+                              <p className="text-xs mb-1">#{order.orderNumber}</p>
+                              <p className="text-xs text-muted-foreground mb-2">{order.deliveryAddress}</p>
+                              <Button 
+                                size="sm" 
+                                className="w-full"
+                                onClick={() => handleDispatchOrder(order)}
+                              >
+                                Assign Rider
+                              </Button>
+                            </div>
+                          </Popup>
+                        </Marker>
+                      ))}
+
+                      {/* Destination marker for selected rider */}
+                      {selectedRider && selectedRiderOrder && (
+                        <Marker
+                          position={[
+                            Number(selectedRiderOrder.deliveryLatitude),
+                            Number(selectedRiderOrder.deliveryLongitude)
+                          ]}
+                          icon={destinationIcon}
+                        >
+                          <Popup>
+                            <div className="p-2">
+                              <p className="font-bold text-sm">Delivery Destination</p>
+                              <p className="text-xs text-muted-foreground">
+                                {selectedRiderOrder.deliveryAddress}
+                              </p>
+                            </div>
+                          </Popup>
+                        </Marker>
+                      )}
+                    </MapContainer>
                   )}
 
                   {/* Empty state overlay */}
@@ -553,7 +597,7 @@ export default function RealTimeRiderMap() {
                       </div>
                     </div>
                   )}
-                </MapContainer>
+                </>
               )}
             </div>
 
