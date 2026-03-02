@@ -98,11 +98,13 @@ app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "fonts.googleapis.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://api.mapbox.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://api.mapbox.com", "fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
       fontSrc: ["'self'", "fonts.gstatic.com"],
-      connectSrc: ["'self'", "https:"],
+      connectSrc: ["'self'", "https:", "wss:"],
+      workerSrc: ["'self'", "blob:"],
+      childSrc: ["'self'", "blob:"],
     },
   } : undefined,
   hsts: process.env.NODE_ENV === 'production' ? {
@@ -164,7 +166,7 @@ app.set('trust proxy', 1);
 
 // Security Headers - Helmet.js
 app.use(helmet({
-  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
 

@@ -159,6 +159,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [riders, setRiders] = useState<RiderLocation[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [center] = useState<LatLng>(new LatLng(5.6037, -0.1870)); // Accra, Ghana
+  const [mapboxInitFailed, setMapboxInitFailed] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedRider, setSelectedRider] = useState<RiderLocation | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null);
@@ -167,7 +168,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const socketRef = useRef<Socket | null>(null);
   const { toast } = useToast();
   const usageSnapshot = useUsageMonitorSnapshot();
-  const shouldUseMapboxGl = forceMapboxGl || isMapboxGlPreferred();
+  const shouldUseMapboxGl = (forceMapboxGl || isMapboxGlPreferred()) && !mapboxInitFailed;
 
   // Fetch initial active riders
   const { data: initialRiders = [], isLoading, refetch: refetchActiveRiders } = useQuery<RiderLocation[]>({
@@ -468,6 +469,11 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                       onOrderClick={(orderId) => {
                         const order = pendingOrders.find((entry) => entry.id === orderId);
                         if (order) handleDispatchOrder(order);
+                      }}
+                      onLoad={() => setMapboxInitFailed(false)}
+                      onError={(error) => {
+                        console.error("Mapbox fleet map failed; falling back to Leaflet renderer", error);
+                        setMapboxInitFailed(true);
                       }}
                     />
                   ) : (

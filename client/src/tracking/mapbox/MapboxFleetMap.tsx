@@ -25,6 +25,8 @@ interface MapboxFleetMapProps {
   style?: React.CSSProperties;
   onRiderClick?: (riderId: string) => void;
   onOrderClick?: (orderId: string) => void;
+  onLoad?: () => void;
+  onError?: (error: unknown) => void;
 }
 
 const ROUTE_SOURCE_ID = "fleet-route-source";
@@ -67,6 +69,8 @@ export default function MapboxFleetMap({
   style,
   onRiderClick,
   onOrderClick,
+  onLoad,
+  onError,
 }: MapboxFleetMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -110,6 +114,7 @@ export default function MapboxFleetMap({
         map.on("load", () => {
           if (disposed) return;
           loadedRef.current = true;
+          onLoad?.();
           if (!map.getSource(ROUTE_SOURCE_ID)) {
             map.addSource(ROUTE_SOURCE_ID, {
               type: "geojson",
@@ -129,8 +134,8 @@ export default function MapboxFleetMap({
             });
           }
         });
-      } catch {
-        // Leaflet fallback is handled by caller.
+      } catch (error) {
+        onError?.(error);
       }
     })();
 
@@ -146,7 +151,7 @@ export default function MapboxFleetMap({
         mapRef.current = null;
       }
     };
-  }, [center, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, mapStyle]);
+  }, [center, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, mapStyle, onError, onLoad]);
 
   useEffect(() => {
     const map = mapRef.current;
