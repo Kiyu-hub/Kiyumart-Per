@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { usageMonitor } from "@/tracking/usage/usageMonitor";
-import { loadMapboxGl } from "@/tracking/mapbox/mapboxLoader";
+import { getMapRenderer } from "@/tracking/providers/factory";
+import { loadMapboxGl, resolveMapboxAccessToken, toMapboxRasterStyle } from "@/tracking/mapbox/mapboxLoader";
 
 type LatLngTuple = [number, number];
 
@@ -61,6 +62,7 @@ export default function MapboxSingleTripMap({
     () => String((import.meta.env as any).VITE_MAPBOX_STYLE_URL || "mapbox://styles/mapbox/dark-v11"),
     [],
   );
+  const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
 
   useEffect(() => {
     let disposed = false;
@@ -69,13 +71,18 @@ export default function MapboxSingleTripMap({
 
     (async () => {
       try {
-        const token = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
+        const token = resolveMapboxAccessToken();
         const mapboxgl = await loadMapboxGl();
         if (disposed || !containerRef.current) return;
-        mapboxgl.accessToken = token;
+        if (token) {
+          mapboxgl.accessToken = token;
+        }
+        const styleValue = token
+          ? mapStyle
+          : toMapboxRasterStyle(fallbackMapRenderConfig.tileUrl, fallbackMapRenderConfig.attribution);
         const map = new mapboxgl.Map({
           container: containerRef.current,
-          style: mapStyle,
+          style: styleValue,
           center: [center[1], center[0]],
           zoom: 14,
           pitch: 45,
@@ -120,7 +127,7 @@ export default function MapboxSingleTripMap({
         mapRef.current = null;
       }
     };
-  }, [center, mapStyle]);
+  }, [center, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, mapStyle]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -174,4 +181,3 @@ export default function MapboxSingleTripMap({
 
   return <div ref={containerRef} className={className} style={style} />;
 }
-

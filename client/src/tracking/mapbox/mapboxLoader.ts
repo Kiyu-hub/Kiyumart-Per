@@ -1,3 +1,5 @@
+import { USE_PROVIDER } from "@/tracking/config";
+
 let loaderPromise: Promise<any> | null = null;
 
 function appendScript(src: string): Promise<void> {
@@ -56,10 +58,53 @@ export async function loadMapboxGl(): Promise<any> {
   return loaderPromise;
 }
 
-export function isMapboxGlPreferred(): boolean {
-  const provider = String((import.meta.env as any).VITE_MAP_PROVIDER || "PROVIDER_A").toUpperCase();
-  const token = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
-  const disable = String((import.meta.env as any).VITE_DISABLE_MAPBOX_GL || "").toLowerCase().trim() === "true";
-  return provider === "PROVIDER_A" && Boolean(token) && !disable;
+export function resolveMapboxAccessToken(): string {
+  const envToken = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
+  if (envToken) return envToken;
+  if (typeof window === "undefined") return "";
+  const winToken = String(
+    (window as any).__MAPBOX_ACCESS_TOKEN__ ||
+      (window as any).MAPBOX_ACCESS_TOKEN ||
+      "",
+  ).trim();
+  if (winToken) return winToken;
+  try {
+    const stored = String(window.localStorage.getItem("mapbox_access_token") || "").trim();
+    if (stored) return stored;
+  } catch {
+    // Ignore storage read errors.
+  }
+  return "";
 }
 
+export function toMapboxRasterStyle(tileUrl: string, attribution?: string) {
+  const normalized = String(tileUrl || "").replace("{r}", "");
+  const tiles = normalized.includes("{s}")
+    ? ["a", "b", "c"].map((subdomain) => normalized.replace("{s}", subdomain))
+    : [normalized];
+
+  return {
+    version: 8,
+    sources: {
+      "raster-base": {
+        type: "raster",
+        tiles,
+        tileSize: 256,
+        attribution: attribution || "",
+      },
+    },
+    layers: [
+      {
+        id: "raster-base-layer",
+        type: "raster",
+        source: "raster-base",
+      },
+    ],
+  };
+}
+
+export function isMapboxGlPreferred(): boolean {
+  const disable = String((import.meta.env as any).VITE_DISABLE_MAPBOX_GL || "").toLowerCase().trim() === "true";
+  const forceEnable = String((import.meta.env as any).VITE_FORCE_MAPBOX_GL || "").toLowerCase().trim() === "true";
+  return !disable && (forceEnable || USE_PROVIDER === "PROVIDER_A");
+}
