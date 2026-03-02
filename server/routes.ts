@@ -76,6 +76,7 @@ import { chatPermissionService } from "./services/chatPermissionService";
 import { jitsiMeetService } from "./services/jitsiMeetService";
 import { hasSupportFirstResponse, isSupportStaffRole, resolveSupportDisplayName, shouldMaskSupportIdentityForViewer } from "./services/supportMessagingService";
 import { canonicalizeOrderStatus } from "./services/orderStateMachine";
+import { getRiderRiskScore, listRiderRiskScores, recordRiderRiskSignal } from "./services/riderRiskEngine";
 
 const upload = multer({ storage: multer.memoryStorage() });
 const PROFILE_IMAGE_MAX_BYTES = runtimeConfig.upload.profileImageMaxBytes;
@@ -5501,6 +5502,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
   };
 
+  const mapCanonicalStatusToTripLifecycleEvent = (canonicalStatus: string): string | null => {
+    const normalized = canonicalizeOrderStatus(canonicalStatus as any);
+    if (normalized === "created") return "ORDER_CREATED";
+    if (normalized === "processing" || normalized === "confirmed") return "PAYMENT_CONFIRMED";
+    if (normalized === "searching_rider") return "MATCHING_RIDER";
+    if (normalized === "assigned") return "RIDER_ASSIGNED";
+    if (normalized === "rider_arrived") return "RIDER_ARRIVED_PICKUP";
+    if (normalized === "picked_up") return "PICKUP_VERIFIED";
+    if (normalized === "in_transit" || normalized === "en_route") return "IN_TRANSIT";
+    if (normalized === "delivered" || normalized === "completed") return "COMPLETED";
+    if (normalized === "cancelled") return "CANCELLED";
+    return null;
+  };
+
+  type EtaRoleKey = "customer" | "rider" | "agent" | "admin" | "super_admin";
+  const toEtaRoleKey = (role: string): EtaRoleKey => {
+    const normalized = String(role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    if (normalized === "buyer" || normalized === "customer") return "customer";
+    if (normalized === "rider") return "rider";
+    if (normalized === "agent") return "agent";
+    if (normalized === "admin") return "admin";
+    return "super_admin";
+  };
+
+  const etaControls = {
+    aiEnabledGlobal: true,
+    aiEnabledByRegion: {} as Record<string, boolean>,
+    aiEnabledByRole: {
+      customer: true,
+      rider: true,
+      agent: true,
+      admin: true,
+      super_admin: true,
+    } as Record<EtaRoleKey, boolean>,
+    aiVisibleByRole: {
+      customer: false,
+      rider: false,
+      agent: true,
+      admin: true,
+      super_admin: true,
+    } as Record<EtaRoleKey, boolean>,
+  };
+
+  const getRegionKeyForEta = (order: any): string => {
+    const region = String(order?.deliveryRegion || order?.deliveryCity || "global").toLowerCase().trim();
+    return region || "global";
+  };
+
+  const isAiEtaEnabledFor = (role: string, regionKey: string): boolean => {
+    const roleKey = toEtaRoleKey(role);
+    const roleEnabled = etaControls.aiEnabledByRole[roleKey] !== false;
+    const regionEnabled = etaControls.aiEnabledByRegion[regionKey] !== false;
+    return Boolean(etaControls.aiEnabledGlobal && roleEnabled && regionEnabled);
+  };
+
+  const isAiEtaVisibleFor = (role: string): boolean => {
+    const roleKey = toEtaRoleKey(role);
+    return etaControls.aiVisibleByRole[roleKey] !== false;
+  };
+
+  const computeAiEtaAdjustment = (params: {
+    rawEtaMinutes: number;
+    speedKmh: number;
+    distanceKm: number;
+    timestampMs: number;
+  }) => {
+    const date = new Date(params.timestampMs);
+    const hour = date.getHours();
+    const peakTraffic = (hour >= 7 && hour <= 9) || (hour >= 16 && hour <= 19);
+    const congestionFactor = peakTraffic ? 1.12 : 1.03;
+    const lowSpeedPenalty = params.speedKmh < 18 ? 1.08 : 1.0;
+    const shortTripStability = params.distanceKm < 2 ? 0.94 : 1.0;
+    const adjusted = Math.max(1, Math.round(params.rawEtaMinutes * congestionFactor * lowSpeedPenalty * shortTripStability));
+    const confidenceScore = Math.max(
+      0.45,
+      Math.min(0.98, 0.92 - (peakTraffic ? 0.08 : 0.03) - (params.speedKmh < 10 ? 0.1 : 0.0)),
+    );
+    return { adjustedEtaMinutes: adjusted, confidenceScore: Number(confidenceScore.toFixed(2)) };
+  };
+
   const clearPendingRiderAssignment = (orderId: string) => {
     const pending = pendingRiderAssignments.get(orderId);
     if (pending?.timer) {
@@ -6154,6 +6235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const emitOrderStatusUpdateToStakeholders = async (order: any, statusOverride?: string) => {
     const canonicalStatus = canonicalizeOrderStatus(statusOverride || order.status);
+    const lifecycleEvent = mapCanonicalStatusToTripLifecycleEvent(canonicalStatus);
     const payload = {
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -6180,6 +6262,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
             viewerRole
           ),
         });
+        if (lifecycleEvent) {
+          io.to(userId).emit("trip_lifecycle_event", {
+            event: lifecycleEvent,
+            trip_id: order.id,
+            orderNumber: order.orderNumber,
+            rider_id: order.riderId || null,
+            state: canonicalStatus,
+            timestamp: payload.updatedAt,
+            vehicle: {
+              type: order?.vehicleType || null,
+              color: order?.vehicleColor || null,
+              model: order?.vehicleModel || null,
+            },
+          });
+        }
       })
     );
 
@@ -6201,6 +6298,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       io.to(adminUser.id).emit("order_status_updated", adminPayload);
       io.to(adminUser.id).emit("admin_order_status_updated", adminPayload);
+      if (lifecycleEvent) {
+        io.to(adminUser.id).emit("trip_lifecycle_event", {
+          event: lifecycleEvent,
+          trip_id: order.id,
+          orderNumber: order.orderNumber,
+          rider_id: order.riderId || null,
+          state: canonicalStatus,
+          timestamp: payload.updatedAt,
+          vehicle: {
+            type: order?.vehicleType || null,
+            color: order?.vehicleColor || null,
+            model: order?.vehicleModel || null,
+          },
+        });
+      }
     });
   };
 
@@ -7105,17 +7217,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
         destinationLng,
         speedRaw: riderSpeed,
       });
+      const regionKey = getRegionKeyForEta(order);
+      const aiEnabled = isAiEtaEnabledFor(req.user!.role, regionKey);
+      const ai = computeAiEtaAdjustment({
+        rawEtaMinutes: eta.etaMinutes,
+        speedKmh: eta.speedKmh,
+        distanceKm: eta.distanceKm,
+        timestampMs: Date.now(),
+      });
+      const finalEtaMinutes = aiEnabled ? ai.adjustedEtaMinutes : eta.etaMinutes;
+      const aiVisible = isAiEtaVisibleFor(req.user!.role);
 
       res.json({
         orderId: order.id,
         orderNumber: order.orderNumber,
         ...eta,
+        etaMinutes: finalEtaMinutes,
+        rawEtaMinutes: eta.etaMinutes,
+        aiEtaMinutes: aiEnabled ? ai.adjustedEtaMinutes : eta.etaMinutes,
+        etaConfidenceScore: aiEnabled ? ai.confidenceScore : 1,
+        aiEtaEnabled: aiEnabled,
+        aiEtaVisible: aiVisible,
+        etaRegion: regionKey,
         calculatedAt: new Date().toISOString(),
       });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
+
+  app.get(
+    "/api/admin/eta-controls",
+    requireAuth,
+    requireRole("super_admin"),
+    async (_req: AuthRequest, res) => {
+      return res.json({
+        ...etaControls,
+      });
+    },
+  );
+
+  app.patch(
+    "/api/admin/eta-controls",
+    requireAuth,
+    requireRole("super_admin"),
+    async (req: AuthRequest, res) => {
+      const body = req.body || {};
+      if (typeof body.aiEnabledGlobal === "boolean") {
+        etaControls.aiEnabledGlobal = body.aiEnabledGlobal;
+      }
+      if (body.aiEnabledByRegion && typeof body.aiEnabledByRegion === "object") {
+        Object.entries(body.aiEnabledByRegion).forEach(([region, enabled]) => {
+          if (typeof enabled === "boolean") {
+            etaControls.aiEnabledByRegion[String(region).toLowerCase().trim()] = enabled;
+          }
+        });
+      }
+      if (body.aiEnabledByRole && typeof body.aiEnabledByRole === "object") {
+        (Object.keys(etaControls.aiEnabledByRole) as EtaRoleKey[]).forEach((roleKey) => {
+          const incoming = (body.aiEnabledByRole as any)[roleKey];
+          if (typeof incoming === "boolean") {
+            etaControls.aiEnabledByRole[roleKey] = incoming;
+          }
+        });
+      }
+      if (body.aiVisibleByRole && typeof body.aiVisibleByRole === "object") {
+        (Object.keys(etaControls.aiVisibleByRole) as EtaRoleKey[]).forEach((roleKey) => {
+          const incoming = (body.aiVisibleByRole as any)[roleKey];
+          if (typeof incoming === "boolean") {
+            etaControls.aiVisibleByRole[roleKey] = incoming;
+          }
+        });
+      }
+
+      return res.json({
+        ...etaControls,
+      });
+    },
+  );
 
   // Dev-only payment completion hook for deterministic local QA without external webhooks.
   app.post(
@@ -8331,6 +8510,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             effectiveLat = prevLat;
             effectiveLng = prevLng;
             ignoredGpsSpike = true;
+            recordRiderRiskSignal(req.user!.id, "impossible_speed", 2.1);
           } else if (distanceKm < 0.03) {
             // Apply light smoothing for short jitter jumps.
             effectiveLat = Number((prevLat * 0.65 + currentLat * 0.35).toFixed(7));
@@ -8402,6 +8582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             [...admins, ...superAdmins].forEach((adminUser) => {
               io.to(adminUser.id).emit("geofence_alert", alert);
             });
+            recordRiderRiskSignal(req.user!.id, "route_deviation", 1.4);
           }
         }
       }
@@ -8582,6 +8763,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ error: error.message });
     }
   });
+
+  app.get(
+    "/api/admin/rider-risk-scores",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("manage_orders"),
+    async (req, res) => {
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
+      const riderId = String(req.query.riderId || "").trim();
+      if (riderId) {
+        return res.json(getRiderRiskScore(riderId));
+      }
+      return res.json(listRiderRiskScores(limit));
+    },
+  );
 
   // Get pending orders that need rider assignment (for Command Center dispatch)
   app.get("/api/admin/pending-orders", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
@@ -12714,6 +12910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (impliedSpeed > 160) {
               effectiveLat = prevLat;
               effectiveLng = prevLng;
+              recordRiderRiskSignal(userId, "impossible_speed", 2.1);
             }
           }
         }

@@ -36,6 +36,7 @@ import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useAnimatedFleetPositions } from "@/tracking/hooks/useAnimatedFleetPositions";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
+import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
 
 interface RiderLocation {
   riderId: string;
@@ -681,13 +682,23 @@ export default function RealTimeRiderMap() {
                           disabled={!selectedRider.latitude || !selectedRider.longitude}
                           onClick={() => {
                             if (selectedRider.latitude && selectedRider.longitude) {
-                              const url = `https://www.openstreetmap.org/?mlat=${selectedRider.latitude}&mlon=${selectedRider.longitude}#map=16/${selectedRider.latitude}/${selectedRider.longitude}`;
+                              const destination = selectedRiderOrder
+                                ? {
+                                    destinationLat: Number(selectedRiderOrder.deliveryLatitude),
+                                    destinationLng: Number(selectedRiderOrder.deliveryLongitude),
+                                  }
+                                : {};
+                              const url = buildExternalNavigationUrl({
+                                lat: selectedRider.latitude,
+                                lng: selectedRider.longitude,
+                                ...destination,
+                              });
                               window.open(url, '_blank');
                             }
                           }}
                         >
                           <ExternalLink className="h-4 w-4 mr-2" />
-                          Open in OpenStreetMap
+                          Open in External Map
                         </Button>
                       </div>
                     </div>

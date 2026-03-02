@@ -56,6 +56,19 @@ interface DeliveryZone {
   isActive: boolean;
 }
 
+interface EtaControls {
+  aiEnabledGlobal: boolean;
+  aiEnabledByRole: Record<string, boolean>;
+  aiVisibleByRole: Record<string, boolean>;
+}
+
+interface RiderRiskScore {
+  riderId: string;
+  score: number;
+  updatedAt: number;
+  signals: Array<{ signal: string; weight: number; at: number }>;
+}
+
 export default function AdminDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
   const [location, navigate] = useLocation();
@@ -238,6 +251,47 @@ export default function AdminDashboardConnected() {
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { data: riderRiskScores = [] } = useQuery<RiderRiskScore[]>({
+    queryKey: ["/api/admin/rider-risk-scores"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/rider-risk-scores?limit=5", { credentials: "include" });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: isAuthenticated && isSuperAdmin,
+    refetchInterval: 30000,
+  });
+  const { data: etaControls } = useQuery<EtaControls>({
+    queryKey: ["/api/admin/eta-controls"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/eta-controls", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load ETA controls");
+      return res.json();
+    },
+    enabled: isAuthenticated && isSuperAdmin,
+    refetchInterval: 30000,
+  });
+
+  const updateEtaControlsMutation = useMutation({
+    mutationFn: async (next: Partial<EtaControls>) => {
+      const res = await fetch("/api/admin/eta-controls", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(next),
+      });
+      if (!res.ok) throw new Error("Failed to update ETA controls");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/eta-controls"] });
+      toast({ title: "ETA Controls Updated", description: "AI ETA settings were applied." });
+    },
+    onError: () => {
+      toast({ title: "Update Failed", description: "Could not update ETA controls.", variant: "destructive" });
+    },
+  });
 
   useEffect(() => {
     if (!socket) return;
@@ -422,6 +476,89 @@ export default function AdminDashboardConnected() {
               role={isSuperAdmin ? "super_admin" : "admin"}
               title={isSuperAdmin ? "Fleet Control Intelligence" : "Zone Dispatch Intelligence"}
             />
+
+            {isSuperAdmin && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">AI ETA Control Center</CardTitle>
+                  <CardDescription>Global and role-level control for AI-assisted ETA predictions.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={etaControls?.aiEnabledGlobal ? "default" : "outline"}>
+                      AI ETA {etaControls?.aiEnabledGlobal ? "Enabled" : "Disabled"}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant={etaControls?.aiEnabledGlobal ? "outline" : "default"}
+                      disabled={updateEtaControlsMutation.isPending}
+                      onClick={() =>
+                        updateEtaControlsMutation.mutate({
+                          aiEnabledGlobal: !etaControls?.aiEnabledGlobal,
+                        })
+                      }
+                    >
+                      {etaControls?.aiEnabledGlobal ? "Disable Global AI ETA" : "Enable Global AI ETA"}
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {(["customer", "rider", "agent", "admin", "super_admin"] as const).map((roleKey) => {
+                      const enabled = etaControls?.aiEnabledByRole?.[roleKey] !== false;
+                      return (
+                        <div key={roleKey} className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">{roleKey}</p>
+                          <p className="text-sm font-semibold">{enabled ? "AI ETA On" : "AI ETA Off"}</p>
+                          <Button
+                            className="mt-2"
+                            size="sm"
+                            variant="outline"
+                            disabled={updateEtaControlsMutation.isPending}
+                            onClick={() =>
+                              updateEtaControlsMutation.mutate({
+                                aiEnabledByRole: {
+                                  ...(etaControls?.aiEnabledByRole || {}),
+                                  [roleKey]: !enabled,
+                                },
+                              } as any)
+                            }
+                          >
+                            Toggle
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {isSuperAdmin && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Rider Risk Overlay</CardTitle>
+                  <CardDescription>Silent fraud/anomaly score feed for manual intervention.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {riderRiskScores.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No active risk signals.</p>
+                  ) : (
+                    riderRiskScores.map((risk) => (
+                      <div key={risk.riderId} className="rounded-lg border p-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium">{risk.riderId}</p>
+                          <Badge variant={risk.score >= 6 ? "destructive" : risk.score >= 3 ? "default" : "outline"}>
+                            Score {risk.score.toFixed(1)}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Last signal: {risk.signals[risk.signals.length - 1]?.signal || "none"}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Pending Payouts Widget - Super Admin Only, only show when there are pending payouts */}
             {isSuperAdmin && pendingPayouts.length > 0 && (

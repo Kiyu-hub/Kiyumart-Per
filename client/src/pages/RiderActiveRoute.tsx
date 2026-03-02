@@ -20,6 +20,7 @@ import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { useToast } from "@/hooks/use-toast";
 import UserAvatar from "@/components/UserAvatar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
 
 // Lazy load heavy map components
 const RiderNavigationMap = lazy(() => import("@/components/RiderNavigationMap"));
@@ -369,13 +370,16 @@ export default function RiderActiveRoute() {
                         </p>
                         <Button 
                           onClick={() => {
-                            const mapsUrl = `https://www.openstreetmap.org/search?query=${encodeURIComponent(activeDelivery.deliveryAddress)}`;
+                            const mapsUrl = buildExternalNavigationUrl({
+                              lat: Number(activeDelivery.deliveryLatitude || 0) || 5.6037,
+                              lng: Number(activeDelivery.deliveryLongitude || 0) || -0.187,
+                            });
                             window.open(mapsUrl, '_blank');
                           }}
                           data-testid="button-navigate"
                         >
                           <Navigation className="h-4 w-4 mr-2" />
-                          Open in OpenStreetMap
+                          Open in External Map
                         </Button>
                       </div>
                     </Card>

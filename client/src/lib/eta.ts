@@ -3,6 +3,12 @@ export interface OrderEtaResponse {
   orderNumber: string;
   distanceKm: number;
   etaMinutes: number;
+  rawEtaMinutes?: number;
+  aiEtaMinutes?: number;
+  etaConfidenceScore?: number;
+  aiEtaEnabled?: boolean;
+  aiEtaVisible?: boolean;
+  etaRegion?: string;
   speedKmh: number;
   source: string;
   calculatedAt: string;

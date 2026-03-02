@@ -248,6 +248,25 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       playNotificationSound();
     });
 
+    newSocket.on("trip_lifecycle_event", (data: {
+      event: string;
+      trip_id: string;
+      orderNumber?: string;
+      state?: string;
+      timestamp?: string;
+    }) => {
+      invalidateOrderQueries();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/active-riders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-orders"] });
+      if (user.role === "admin" || user.role === "super_admin" || user.role === "agent") {
+        toast({
+          title: "Trip Lifecycle Update",
+          description: `Order #${data.orderNumber || data.trip_id}: ${String(data.event || data.state || "updated").replace(/_/g, " ")}`,
+          duration: 4500,
+        });
+      }
+    });
+
     // Order Out for Delivery (canonical + legacy event names)
     const handleOrderEnRoute = (data: {
       orderId: string;

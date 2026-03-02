@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, useMapEvents, useMap } from "react-leaflet";
 import { useToast } from "@/hooks/use-toast";
 import { Icon, LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
+import MapTileLayer from "@/tracking/components/MapTileLayer";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
@@ -86,16 +87,30 @@ export default function AddressMap({ address, onAddressChange, onLocationChange,
 
   async function geocode(q: string): Promise<{ lat: number; lon: number; display_name: string } | null> {
     try {
-      // Restrict geocoding to Ghana using countrycodes=gh and bounded=1
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1&countrycodes=gh&bounded=1`;
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
-      const data = await res.json();
-      if (data && data.length > 0) {
-        const lat = parseFloat(data[0].lat);
-        const lon = parseFloat(data[0].lon);
-        // Ensure result is inside Ghana bounds
+      const mapboxToken = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
+      if (mapboxToken) {
+        const proximity = `${-0.1869644},${5.6037168}`;
+        const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?country=gh&limit=1&proximity=${proximity}&access_token=${mapboxToken}`;
+        const mapboxRes = await fetch(mapboxUrl, { headers: { Accept: "application/json" } });
+        const mapboxData = await mapboxRes.json();
+        const feature = Array.isArray(mapboxData?.features) ? mapboxData.features[0] : null;
+        if (feature?.center?.length >= 2) {
+          const lon = Number(feature.center[0]);
+          const lat = Number(feature.center[1]);
+          if (!inGhana(lat, lon)) return null;
+          return { lat, lon, display_name: String(feature.place_name || q) };
+        }
+      }
+
+      // Fallback geocoder for non-configured environments
+      const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1&countrycodes=gh&bounded=1`;
+      const fallbackRes = await fetch(fallbackUrl, { headers: { Accept: "application/json" } });
+      const fallbackData = await fallbackRes.json();
+      if (fallbackData && fallbackData.length > 0) {
+        const lat = parseFloat(fallbackData[0].lat);
+        const lon = parseFloat(fallbackData[0].lon);
         if (!inGhana(lat, lon)) return null;
-        return { lat, lon, display_name: data[0].display_name };
+        return { lat, lon, display_name: fallbackData[0].display_name };
       }
     } catch (e) {}
     return null;
@@ -103,17 +118,26 @@ export default function AddressMap({ address, onAddressChange, onLocationChange,
 
   async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
     try {
-      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`;
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
-      const data = await res.json();
-      if (data) {
+      const mapboxToken = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
+      if (mapboxToken) {
+        const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=address,poi,neighborhood,place&limit=1&access_token=${mapboxToken}`;
+        const mapboxRes = await fetch(mapboxUrl, { headers: { Accept: "application/json" } });
+        const mapboxData = await mapboxRes.json();
+        const feature = Array.isArray(mapboxData?.features) ? mapboxData.features[0] : null;
+        if (feature?.place_name) return String(feature.place_name);
+      }
+
+      const fallbackUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`;
+      const fallbackRes = await fetch(fallbackUrl, { headers: { Accept: "application/json" } });
+      const fallbackData = await fallbackRes.json();
+      if (fallbackData) {
         // Prefer specific address parts (neighbourhood/suburb/road + city/county/state)
-        const addr = (data as any).address || {};
+        const addr = (fallbackData as any).address || {};
         const partA = addr.neighbourhood || addr.suburb || addr.road || addr.village || addr.town || addr.hamlet || null;
         const partB = addr.city || addr.town || addr.village || addr.county || addr.state || null;
         const parts = [partA, partB].filter(Boolean);
         if (parts.length > 0) return parts.join(', ');
-        if (data.display_name) return data.display_name;
+        if (fallbackData.display_name) return fallbackData.display_name;
       }
     } catch (e) {}
     return null;
@@ -210,10 +234,7 @@ export default function AddressMap({ address, onAddressChange, onLocationChange,
           maxBounds={[[GH_BOUNDS.south, GH_BOUNDS.west], [GH_BOUNDS.north, GH_BOUNDS.east]]}
           maxBoundsViscosity={0.8}
         >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          />
+          <MapTileLayer />
           <MapEvents />
           <RecenterMap pos={position} />
           {position && (

@@ -25,6 +25,7 @@ import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
+import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
 
 interface ActiveDelivery {
   id: string;
@@ -239,7 +240,13 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
 
   const openOsmNav = () => {
     if (destPos) {
-      const url = `https://www.openstreetmap.org/?mlat=${destPos[0]}&mlon=${destPos[1]}#map=16/${destPos[0]}/${destPos[1]}`;
+      const from = animatedRiderPos || destPos;
+      const url = buildExternalNavigationUrl({
+        lat: from[0],
+        lng: from[1],
+        destinationLat: destPos[0],
+        destinationLng: destPos[1],
+      });
       window.open(url, "_blank");
     }
   };
