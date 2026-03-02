@@ -352,8 +352,6 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen(prev => !prev);
   }, []);
-
-  const mapHeight = isFullscreen ? "100vh" : "600px";
   
   // Count riders with valid location data
   const ridersWithLocation = riders.filter(r => r.latitude !== null && r.longitude !== null);
@@ -371,10 +369,10 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       
       <Card 
         data-testid="card-rider-map"
-        className={isFullscreen ? "fixed inset-0 z-[9999] rounded-none" : ""}
+        className={isFullscreen ? "fixed inset-0 z-[9999] rounded-none h-screen flex flex-col overflow-hidden" : ""}
       >
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
+        <CardHeader className="pb-2 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Truck className="h-5 w-5 text-primary" />
@@ -384,7 +382,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                 Real-time monitoring of all active deliveries and pending orders
               </CardDescription>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 justify-end">
               <Badge variant="secondary" data-testid="badge-active-riders">
                 {ridersWithLocation.length}/{riders.length} On Map
               </Badge>
@@ -423,12 +421,11 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="flex">
+        <CardContent className={`p-0 ${isFullscreen ? "flex-1 min-h-0 overflow-hidden flex flex-col" : ""}`}>
+          <div className={`flex ${isFullscreen ? "flex-1 min-h-0" : ""}`}>
             {/* Map Container */}
             <div 
-              className={`relative ${selectedRider ? 'w-2/3' : 'w-full'} transition-all duration-300`}
-              style={{ height: mapHeight }}
+              className={`relative transition-all duration-300 ${selectedRider ? "flex-1" : "w-full"} ${isFullscreen ? "h-full min-h-0" : "h-[600px]"}`}
               data-testid="map-container"
             >
               {isLoading ? (
@@ -658,8 +655,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
             {/* Rider Detail Sidebar */}
             {selectedRider && (
               <div 
-                className="w-1/3 border-l bg-background overflow-hidden"
-                style={{ height: mapHeight }}
+                className={`${isFullscreen ? "w-[360px] xl:w-[420px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[600px]"} border-l bg-background overflow-hidden`}
               >
                 <ScrollArea className="h-full">
                   <div className="p-4">
@@ -807,7 +803,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           </div>
           
           {/* Riders without GPS section */}
-          {ridersWithoutLocation.length > 0 && (
+          {!isFullscreen && ridersWithoutLocation.length > 0 && (
             <div className="border-t p-4">
               <Collapsible>
                 <CollapsibleTrigger className="flex items-center justify-between w-full text-left">
