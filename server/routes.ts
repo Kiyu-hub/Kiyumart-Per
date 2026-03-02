@@ -12208,6 +12208,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reportId,
       });
 
+      if (action === "request") {
+        const [admins, superAdmins, requester] = await Promise.all([
+          storage.getUsersByRole("admin"),
+          storage.getUsersByRole("super_admin"),
+          storage.getUser(req.user!.id),
+        ]);
+        const requesterName = requester?.name || req.user!.email || req.user!.id;
+        const message = `${requesterName} requested report "${reportType}"${reportId ? ` (${reportId})` : ""}`;
+        const recipients = [...admins, ...superAdmins];
+        recipients.forEach((recipient) => {
+          io.to(recipient.id).emit("notification", {
+            title: "Report Request",
+            message,
+            type: "warning",
+            metadata: {
+              requestedBy: req.user!.id,
+              requesterRole: req.user!.role,
+              reportType,
+              reportId,
+              scope,
+            },
+          });
+        });
+      }
+
       return res.json(entry);
     } catch (error: any) {
       return res.status(400).json({ error: error.message });

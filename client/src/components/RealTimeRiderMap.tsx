@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import { Icon, LatLng } from "leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import "leaflet/dist/leaflet.css";
@@ -30,8 +30,12 @@ import {
 import { io, Socket } from "socket.io-client";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { fetchOrderEta } from "@/lib/eta";
 import UserAvatar from "@/components/UserAvatar";
+import MapTileLayer from "@/tracking/components/MapTileLayer";
+import MapUsageTracker from "@/tracking/components/MapUsageTracker";
+import { useAnimatedFleetPositions } from "@/tracking/hooks/useAnimatedFleetPositions";
+import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
+import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 
 interface RiderLocation {
   riderId: string;
@@ -144,25 +148,6 @@ function MapBoundsController({ riders, pendingOrders }: { riders: RiderLocation[
   return null;
 }
 
-// OSRM route geometry for visual path only. ETA is backend-computed.
-async function calculateRoute(from: [number, number], to: [number, number]): Promise<[number, number][] | null> {
-  try {
-    const response = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`
-    );
-    const data = await response.json();
-    
-    if (data.code === "Ok" && data.routes?.[0]) {
-      const route = data.routes[0];
-      return route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number]);
-    }
-    return null;
-  } catch (error) {
-    console.error("OSRM route calculation failed:", error);
-    return null;
-  }
-}
-
 export default function RealTimeRiderMap() {
   const [riders, setRiders] = useState<RiderLocation[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
@@ -170,11 +155,11 @@ export default function RealTimeRiderMap() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedRider, setSelectedRider] = useState<RiderLocation | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null);
-  const [routeGeometry, setRouteGeometry] = useState<[number, number][] | null>(null);
   const [showDispatchPanel, setShowDispatchPanel] = useState(false);
   const [availableRiders, setAvailableRiders] = useState<AvailableRider[]>([]);
   const socketRef = useRef<Socket | null>(null);
   const { toast } = useToast();
+  const usageSnapshot = useUsageMonitorSnapshot();
 
   // Fetch initial active riders
   const { data: initialRiders = [], isLoading, refetch: refetchActiveRiders } = useQuery<RiderLocation[]>({
@@ -251,6 +236,49 @@ export default function RealTimeRiderMap() {
     setAvailableRiders(availableRidersData);
   }, [availableRidersData]);
 
+  const fleetAnimationInput = useMemo(
+    () => riders.map((rider) => ({
+      vehicleId: rider.riderId,
+      orderId: rider.orderId,
+      latitude: rider.latitude,
+      longitude: rider.longitude,
+      speed: rider.speed,
+      heading: rider.heading,
+      timestamp: rider.timestamp,
+    })),
+    [riders],
+  );
+  const animatedFleetPositions = useAnimatedFleetPositions(fleetAnimationInput);
+
+  const selectedRiderOrder = selectedRider ? pendingOrders.find((order) => order.id === selectedRider.orderId) : null;
+  const selectedTripPhase =
+    selectedRider?.orderStatus === "assigned" ? "assigned" :
+    selectedRider?.orderStatus === "rider_arrived" || selectedRider?.orderStatus === "picked_up" ? "pickup" :
+    selectedRider?.orderStatus === "arrived" ? "arrived" :
+    selectedRider?.orderStatus === "delivered" ? "delivered" :
+    "en_route";
+
+  const trackedSelectedRider = useVehicleTracking({
+    vehicleId: selectedRider?.riderId || "admin-selected-rider",
+    orderId: selectedRider?.orderId,
+    destination:
+      selectedRiderOrder && selectedRiderOrder.deliveryLatitude != null && selectedRiderOrder.deliveryLongitude != null
+        ? { lat: Number(selectedRiderOrder.deliveryLatitude), lng: Number(selectedRiderOrder.deliveryLongitude) }
+        : null,
+    tripPhase: selectedTripPhase,
+    gps:
+      selectedRider?.latitude != null && selectedRider?.longitude != null
+        ? {
+            lat: selectedRider.latitude,
+            lng: selectedRider.longitude,
+            speedMps: selectedRider.speed ?? 0,
+            bearingDeg: selectedRider.heading ?? 0,
+            timestampMs: selectedRider.timestamp ? new Date(selectedRider.timestamp).getTime() : Date.now(),
+          }
+        : undefined,
+  });
+  const selectedRouteGeometry = trackedSelectedRider?.route?.geometry?.map((point) => [point.lat, point.lng] as [number, number]) || [];
+
   // Socket.IO for real-time updates
   useEffect(() => {
     socketRef.current = io();
@@ -274,62 +302,10 @@ export default function RealTimeRiderMap() {
       }
     });
 
-    // Listen for geofencing alerts
-    socketRef.current.on("geofence_alert", (alert: { riderId: string; riderName: string; message: string }) => {
-      toast({
-        title: "Geofence Alert",
-        description: `${alert.riderName}: ${alert.message}`,
-        variant: "destructive",
-      });
-    });
-
     return () => {
       socketRef.current?.disconnect();
     };
   }, [selectedRider, toast]);
-
-  // Calculate route when rider is selected
-  useEffect(() => {
-    if (selectedRider && selectedRider.deliveryAddress && selectedRider.latitude && selectedRider.longitude) {
-      const order = pendingOrders.find(o => o.id === selectedRider.orderId);
-      if (order && order.deliveryLatitude && order.deliveryLongitude) {
-        calculateRoute(
-          [selectedRider.latitude, selectedRider.longitude],
-          [Number(order.deliveryLatitude), Number(order.deliveryLongitude)]
-        ).then(route => {
-          setRouteGeometry(route);
-        });
-      }
-    } else {
-      setRouteGeometry(null);
-    }
-  }, [selectedRider?.riderId, pendingOrders]);
-
-  useEffect(() => {
-    const loadSelectedRiderEta = async () => {
-      if (!selectedRider?.orderId || selectedRider.latitude == null || selectedRider.longitude == null) return;
-      try {
-        const eta = await fetchOrderEta({
-          orderId: selectedRider.orderId,
-          riderLat: selectedRider.latitude,
-          riderLng: selectedRider.longitude,
-          speed: selectedRider.speed,
-        });
-        setSelectedRider((prev) =>
-          prev
-            ? {
-                ...prev,
-                eta: eta.etaMinutes,
-                distance: eta.distanceKm,
-              }
-            : null
-        );
-      } catch {
-        // Keep rendering location data even if ETA fetch temporarily fails.
-      }
-    };
-    loadSelectedRiderEta();
-  }, [selectedRider?.orderId, selectedRider?.latitude, selectedRider?.longitude, selectedRider?.speed]);
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -453,18 +429,16 @@ export default function RealTimeRiderMap() {
                   zoom={12}
                   style={{ height: "100%", width: "100%" }}
                 >
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
+                  <MapTileLayer />
+                  <MapUsageTracker />
                   
                   <MapInvalidator />
                   <MapBoundsController riders={riders} pendingOrders={pendingOrders} />
                   
                   {/* Route polyline */}
-                  {routeGeometry && (
+                  {!usageSnapshot.freezeSecondaryLayers && selectedRouteGeometry.length > 1 && (
                     <Polyline 
-                      positions={routeGeometry} 
+                      positions={selectedRouteGeometry} 
                       color="#3b82f6" 
                       weight={4}
                       opacity={0.8}
@@ -478,7 +452,11 @@ export default function RealTimeRiderMap() {
                     ).map((rider) => (
                       <Marker
                         key={rider.riderId}
-                        position={[rider.latitude, rider.longitude]}
+                        position={
+                          animatedFleetPositions[rider.riderId]
+                            ? [animatedFleetPositions[rider.riderId].lat, animatedFleetPositions[rider.riderId].lng]
+                            : [rider.latitude, rider.longitude]
+                        }
                         icon={riderIcon}
                         eventHandlers={{
                           click: () => setSelectedRider(rider),
@@ -504,7 +482,8 @@ export default function RealTimeRiderMap() {
                   </MarkerClusterGroup>
 
                   {/* Pending order markers */}
-                  {pendingOrders.filter(o => o.deliveryLatitude && o.deliveryLongitude).map((order) => (
+                  {!usageSnapshot.freezeSecondaryLayers &&
+                    pendingOrders.filter(o => o.deliveryLatitude && o.deliveryLongitude).map((order) => (
                     <Marker
                       key={order.id}
                       position={[Number(order.deliveryLatitude), Number(order.deliveryLongitude)]}
@@ -534,11 +513,11 @@ export default function RealTimeRiderMap() {
                   ))}
 
                   {/* Destination marker for selected rider */}
-                  {selectedRider && pendingOrders.find(o => o.id === selectedRider.orderId) && (
+                  {selectedRider && selectedRiderOrder && (
                     <Marker
                       position={[
-                        Number(pendingOrders.find(o => o.id === selectedRider.orderId)!.deliveryLatitude),
-                        Number(pendingOrders.find(o => o.id === selectedRider.orderId)!.deliveryLongitude)
+                        Number(selectedRiderOrder.deliveryLatitude),
+                        Number(selectedRiderOrder.deliveryLongitude)
                       ]}
                       icon={destinationIcon}
                     >
@@ -546,7 +525,7 @@ export default function RealTimeRiderMap() {
                         <div className="p-2">
                           <p className="font-bold text-sm">Delivery Destination</p>
                           <p className="text-xs text-muted-foreground">
-                            {pendingOrders.find(o => o.id === selectedRider.orderId)?.deliveryAddress}
+                            {selectedRiderOrder.deliveryAddress}
                           </p>
                         </div>
                       </Popup>
@@ -592,7 +571,6 @@ export default function RealTimeRiderMap() {
                         size="icon"
                         onClick={() => {
                           setSelectedRider(null);
-                          setRouteGeometry(null);
                         }}
                       >
                         <X className="h-4 w-4" />
@@ -649,14 +627,18 @@ export default function RealTimeRiderMap() {
                         <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg text-center">
                           <Navigation className="h-5 w-5 mx-auto text-blue-600 mb-1" />
                           <p className="text-lg font-bold text-blue-600">
-                            {selectedRider.distance ? `${selectedRider.distance.toFixed(1)} km` : '--'}
+                            {typeof trackedSelectedRider?.eta?.distanceKm === "number"
+                              ? `${trackedSelectedRider.eta.distanceKm.toFixed(1)} km`
+                              : "--"}
                           </p>
                           <p className="text-xs text-muted-foreground">Distance</p>
                         </div>
                         <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg text-center">
                           <Clock className="h-5 w-5 mx-auto text-green-600 mb-1" />
                           <p className="text-lg font-bold text-green-600">
-                            {selectedRider.eta ? `${selectedRider.eta} min` : '--'}
+                            {typeof trackedSelectedRider?.eta?.minutes === "number"
+                              ? `${trackedSelectedRider.eta.minutes} min`
+                              : "--"}
                           </p>
                           <p className="text-xs text-muted-foreground">ETA</p>
                         </div>

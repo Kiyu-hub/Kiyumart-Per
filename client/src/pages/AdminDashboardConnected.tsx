@@ -6,6 +6,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import OrderCard from "@/components/OrderCard";
+import TrackingMetricsPanel from "@/components/TrackingMetricsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
 import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -416,6 +417,11 @@ export default function AdminDashboardConnected() {
                 </Card>
               )
             )}
+
+            <TrackingMetricsPanel
+              role={isSuperAdmin ? "super_admin" : "admin"}
+              title={isSuperAdmin ? "Fleet Control Intelligence" : "Zone Dispatch Intelligence"}
+            />
 
             {/* Pending Payouts Widget - Super Admin Only, only show when there are pending payouts */}
             {isSuperAdmin && pendingPayouts.length > 0 && (

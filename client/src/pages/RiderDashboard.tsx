@@ -7,6 +7,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import MetricCard from "@/components/MetricCard";
 import OrderCard from "@/components/OrderCard";
 import OrderStatusTimeline from "@/components/OrderStatusTimeline";
+import TrackingMetricsPanel from "@/components/TrackingMetricsPanel";
 import { Card } from "@/components/ui/card";
 import { DollarSign, Package, MapPin, Star, Loader2 } from "lucide-react";
 
@@ -136,6 +137,10 @@ export default function RiderDashboard() {
                 value={String((user as any)?.ratings || "0.0")}
                 icon={Star}
               />
+            </div>
+
+            <div className="mt-6">
+              <TrackingMetricsPanel role="rider" title="Live Route Intelligence" />
             </div>
 
             <div className="mt-6">

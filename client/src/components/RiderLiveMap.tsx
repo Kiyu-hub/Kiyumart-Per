@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import { Icon, LatLng } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +21,10 @@ import {
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import { fetchOrderEta } from "@/lib/eta";
+import MapTileLayer from "@/tracking/components/MapTileLayer";
+import MapUsageTracker from "@/tracking/components/MapUsageTracker";
+import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
+import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 
 interface ActiveDelivery {
   id: string;
@@ -32,10 +35,6 @@ interface ActiveDelivery {
   deliveryLongitude: number | null;
   buyerName?: string;
   buyerPhone?: string;
-}
-
-interface RouteInfo {
-  geometry: [number, number][];
 }
 
 const riderIcon = new Icon({
@@ -92,27 +91,6 @@ function MapBoundsController({ riderPos, destPos }: { riderPos: [number, number]
   return null;
 }
 
-// OSRM route geometry for path visualization only. ETA is backend-computed.
-async function calculateRoute(from: [number, number], to: [number, number]): Promise<RouteInfo | null> {
-  try {
-    const response = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`
-    );
-    const data = await response.json();
-    
-    if (data.code === "Ok" && data.routes?.[0]) {
-      const route = data.routes[0];
-      return {
-        geometry: route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number])
-      };
-    }
-    return null;
-  } catch (error) {
-    console.error("Route calculation failed:", error);
-    return null;
-  }
-}
-
 interface RiderLiveMapProps {
   className?: string;
 }
@@ -120,7 +98,6 @@ interface RiderLiveMapProps {
 export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   const { user } = useAuth();
   const [riderPosition, setRiderPosition] = useState<[number, number] | null>(null);
-  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<"acquiring" | "active" | "error">("acquiring");
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
@@ -134,6 +111,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     speed?: number | null;
     heading?: number | null;
   } | null>(null);
+  const usageSnapshot = useUsageMonitorSnapshot();
 
   // Fetch active delivery
   const { data: activeDelivery, isLoading, refetch } = useQuery<ActiveDelivery | null>({
@@ -141,21 +119,38 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     refetchInterval: 30000,
   });
 
-  const etaQuery = useQuery({
-    queryKey: ["/api/orders/eta", activeDelivery?.id, riderPosition?.[0], riderPosition?.[1]],
-    queryFn: () =>
-      fetchOrderEta({
-        orderId: activeDelivery!.id,
-        riderLat: riderPosition?.[0],
-        riderLng: riderPosition?.[1],
-      }),
-    enabled: Boolean(activeDelivery?.id && riderPosition?.[0] != null && riderPosition?.[1] != null),
-    refetchInterval: 10000,
-  });
-
   const destPos: [number, number] | null = activeDelivery?.deliveryLatitude && activeDelivery?.deliveryLongitude
     ? [activeDelivery.deliveryLatitude, activeDelivery.deliveryLongitude]
     : null;
+  const normalizedStatus = String(activeDelivery?.status || "").toLowerCase().trim();
+  const tripPhase =
+    normalizedStatus === "assigned" ? "assigned" :
+    normalizedStatus === "rider_arrived" || normalizedStatus === "picked_up" ? "pickup" :
+    normalizedStatus === "arrived" ? "arrived" :
+    normalizedStatus === "delivered" || normalizedStatus === "completed" ? "delivered" :
+    "en_route";
+
+  const trackedVehicle = useVehicleTracking({
+    vehicleId: user?.id || "rider-live-map",
+    orderId: activeDelivery?.id,
+    destination: destPos ? { lat: destPos[0], lng: destPos[1] } : null,
+    tripPhase,
+    gps: riderPosition
+      ? {
+          lat: riderPosition[0],
+          lng: riderPosition[1],
+          speedMps: latestCoordsRef.current?.speed ?? 0,
+          bearingDeg: latestCoordsRef.current?.heading ?? 0,
+          timestampMs: Date.now(),
+        }
+      : undefined,
+  });
+  const routeGeometry = trackedVehicle?.route?.geometry?.map((point) => [point.lat, point.lng] as [number, number]) || [];
+  const distanceKm = trackedVehicle?.eta?.distanceKm ?? 0;
+  const etaMinutes = trackedVehicle?.eta?.minutes ?? "--";
+  const animatedRiderPos: [number, number] | null = trackedVehicle?.predictedPosition
+    ? [trackedVehicle.predictedPosition.lat, trackedVehicle.predictedPosition.lng]
+    : riderPosition;
 
   // GPS tracking
   useEffect(() => {
@@ -232,24 +227,15 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     return () => window.clearInterval(timer);
   }, [activeDelivery?.id]);
 
-  // Calculate route when positions change
-  useEffect(() => {
-    if (riderPosition && destPos) {
-      calculateRoute(riderPosition, destPos).then(route => {
-        if (route) setRouteInfo(route);
-      });
-    }
-  }, [riderPosition, destPos]);
-
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
   };
 
   const centerOnRider = useCallback(() => {
-    if (mapRef.current && riderPosition) {
-      mapRef.current.setView(riderPosition, 16);
+    if (mapRef.current && animatedRiderPos) {
+      mapRef.current.setView(animatedRiderPos, 16);
     }
-  }, [riderPosition]);
+  }, [animatedRiderPos]);
 
   const openOsmNav = () => {
     if (destPos) {
@@ -266,7 +252,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     );
   }
 
-  const defaultCenter = new LatLng(riderPosition?.[0] || 5.6037, riderPosition?.[1] || -0.1870);
+  const defaultCenter = new LatLng(animatedRiderPos?.[0] || 5.6037, animatedRiderPos?.[1] || -0.1870);
 
   return (
     <>
@@ -303,11 +289,11 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
                 {gpsStatus === "active" ? "GPS Active" : 
                  gpsStatus === "acquiring" ? "Acquiring GPS..." : "GPS Error"}
               </Badge>
-              {routeInfo && (
+              {routeGeometry.length > 1 && (
                 <>
-                  <span className="text-primary font-medium">{(etaQuery.data?.distanceKm ?? 0).toFixed(1)} km</span>
+                  <span className="text-primary font-medium">{distanceKm.toFixed(1)} km</span>
                   <span>•</span>
-                  <span className="text-primary font-medium">{etaQuery.data?.etaMinutes ?? "--"} min</span>
+                  <span className="text-primary font-medium">{etaMinutes} min</span>
                 </>
               )}
             </div>
@@ -377,18 +363,16 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
           className={cn("w-full", isFullscreen ? "h-[calc(100vh-160px)]" : "h-[420px]")}
           ref={mapRef}
         >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+          <MapTileLayer />
+          <MapUsageTracker />
           
           <MapInvalidator />
-          <MapBoundsController riderPos={riderPosition} destPos={destPos} />
+          <MapBoundsController riderPos={animatedRiderPos} destPos={destPos} />
 
           {/* Route polyline */}
-          {routeInfo?.geometry && (
+          {!usageSnapshot.freezeSecondaryLayers && routeGeometry.length > 1 && (
             <Polyline 
-              positions={routeInfo.geometry} 
+              positions={routeGeometry} 
               color="#3b82f6" 
               weight={5} 
               opacity={0.8}
@@ -397,8 +381,8 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
           )}
 
           {/* Rider position marker */}
-          {riderPosition && (
-            <Marker position={riderPosition} icon={riderIcon}>
+          {animatedRiderPos && (
+            <Marker position={animatedRiderPos} icon={riderIcon}>
               <Popup>
                 <div className="text-center">
                   <strong>Your Location</strong>
@@ -426,14 +410,14 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
                       <strong>Customer:</strong> {activeDelivery.buyerName}
                     </p>
                   )}
-                  {routeInfo && (
+                  {routeGeometry.length > 1 && (
                     <div className="flex gap-3 mt-2 text-xs">
                       <span className="text-primary font-medium">
                         <Clock className="h-3 w-3 inline mr-1" />
-                        {etaQuery.data?.etaMinutes ?? "--"} min
+                        {etaMinutes} min
                       </span>
                       <span className="text-primary font-medium">
-                        {(etaQuery.data?.distanceKm ?? 0).toFixed(1)} km
+                        {distanceKm.toFixed(1)} km
                       </span>
                     </div>
                   )}
@@ -447,15 +431,15 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
         <div className="mx-2 my-2">
           <div className="bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-sm border px-4 py-2 flex items-center justify-between">
             <div className="flex items-center gap-4 text-sm">
-              {routeInfo ? (
+              {routeGeometry.length > 1 ? (
                 <>
                   <div className="flex items-center gap-1">
                     <Clock className="h-4 w-4 text-blue-500" />
-                    <span className="font-semibold">{etaQuery.data?.etaMinutes ?? "--"} min</span>
+                    <span className="font-semibold">{etaMinutes} min</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <MapPin className="h-4 w-4 text-green-500" />
-                    <span className="font-semibold">{(etaQuery.data?.distanceKm ?? 0).toFixed(1)} km</span>
+                    <span className="font-semibold">{distanceKm.toFixed(1)} km</span>
                   </div>
                 </>
               ) : (

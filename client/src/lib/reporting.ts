@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/queryClient";
+import { trackingNotificationService } from "@/tracking/notifications/trackingNotificationService";
 
 const escPdf = (value: string) => value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 const byteLength = (value: string) => new TextEncoder().encode(value).length;
@@ -111,6 +112,13 @@ export const logReportActivity = async (payload: {
   scope?: Record<string, any>;
   metadata?: Record<string, any>;
 }) => {
+  if (payload.action === "request") {
+    trackingNotificationService.notifyReportRequested({
+      requestedBy: "User",
+      reportType: payload.reportType,
+      relatedId: payload.reportId,
+    });
+  }
   try {
     await apiRequest("POST", "/api/reports/activity", payload);
   } catch {

@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import { Icon, LatLng } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +18,10 @@ import {
   LocateFixed
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
-import { fetchOrderEta } from "@/lib/eta";
+import MapTileLayer from "@/tracking/components/MapTileLayer";
+import MapUsageTracker from "@/tracking/components/MapUsageTracker";
+import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
+import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 
 interface DeliveryDetails {
   orderId: string;
@@ -34,10 +36,6 @@ interface DeliveryDetails {
   sellerLatitude?: number;
   sellerLongitude?: number;
   status: string;
-}
-
-interface RouteInfo {
-  geometry: [number, number][];
 }
 
 const riderIcon = new Icon({
@@ -74,27 +72,6 @@ function MapCenterController({ position }: { position: [number, number] | null }
   return null;
 }
 
-// OSRM route geometry for path visualization only. ETA is backend-computed.
-async function calculateRoute(from: [number, number], to: [number, number]): Promise<RouteInfo | null> {
-  try {
-    const response = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`
-    );
-    const data = await response.json();
-    
-    if (data.code === "Ok" && data.routes?.[0]) {
-      const route = data.routes[0];
-      return {
-        geometry: route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number])
-      };
-    }
-    return null;
-  } catch (error) {
-    console.error("OSRM route calculation failed:", error);
-    return null;
-  }
-}
-
 interface RiderNavigationMapProps {
   delivery: DeliveryDetails;
   riderId: string;
@@ -103,7 +80,6 @@ interface RiderNavigationMapProps {
 
 export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate }: RiderNavigationMapProps) {
   const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
-  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isWatching, setIsWatching] = useState(false);
   const watchIdRef = useRef<number | null>(null);
@@ -116,18 +92,38 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
     heading?: number | null;
   } | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
+  const usageSnapshot = useUsageMonitorSnapshot();
 
-  const etaQuery = useQuery({
-    queryKey: ["/api/orders/eta", delivery.orderId, currentPosition?.[0], currentPosition?.[1]],
-    queryFn: () =>
-      fetchOrderEta({
-        orderId: delivery.orderId,
-        riderLat: currentPosition?.[0],
-        riderLng: currentPosition?.[1],
-      }),
-    enabled: Boolean(delivery.orderId && currentPosition?.[0] != null && currentPosition?.[1] != null),
-    refetchInterval: 10000,
+  const normalizedStatus = String(delivery.status || "").toLowerCase().trim();
+  const tripPhase =
+    normalizedStatus === "assigned" ? "assigned" :
+    normalizedStatus === "rider_arrived" || normalizedStatus === "picked_up" ? "pickup" :
+    normalizedStatus === "arrived" ? "arrived" :
+    normalizedStatus === "delivered" || normalizedStatus === "completed" ? "delivered" :
+    "en_route";
+
+  const trackedVehicle = useVehicleTracking({
+    vehicleId: riderId || `rider-${delivery.orderId}`,
+    orderId: delivery.orderId,
+    destination: { lat: delivery.deliveryLatitude, lng: delivery.deliveryLongitude },
+    tripPhase,
+    gps: currentPosition
+      ? {
+          lat: currentPosition[0],
+          lng: currentPosition[1],
+          speedMps: latestCoordsRef.current?.speed ?? 0,
+          bearingDeg: latestCoordsRef.current?.heading ?? 0,
+          timestampMs: Date.now(),
+        }
+      : undefined,
   });
+
+  const routeGeometry = trackedVehicle?.route?.geometry?.map((point) => [point.lat, point.lng] as [number, number]) || [];
+  const distanceKm = trackedVehicle?.eta?.distanceKm ?? 0;
+  const etaMinutes = trackedVehicle?.eta?.minutes ?? "--";
+  const animatedCurrentPosition: [number, number] | null = trackedVehicle?.predictedPosition
+    ? [trackedVehicle.predictedPosition.lat, trackedVehicle.predictedPosition.lng]
+    : currentPosition;
 
   // Start watching position
   const startWatching = useCallback(() => {
@@ -219,20 +215,6 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
     return () => window.clearInterval(timer);
   }, [delivery.orderId, riderId]);
 
-  // Calculate route when position or destination changes
-  useEffect(() => {
-    if (currentPosition && delivery.deliveryLatitude && delivery.deliveryLongitude) {
-      calculateRoute(
-        currentPosition,
-        [delivery.deliveryLatitude, delivery.deliveryLongitude]
-      ).then(route => {
-        if (route) {
-          setRouteInfo(route);
-        }
-      });
-    }
-  }, [currentPosition, delivery.deliveryLatitude, delivery.deliveryLongitude]);
-
   const mapHeight = isFullscreen ? "100vh" : "400px";
 
   const openInMaps = () => {
@@ -277,13 +259,13 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
             <div className="flex items-center gap-6">
               <div className="text-center">
                 <p className="text-2xl font-bold">
-                  {routeInfo ? `${(etaQuery.data?.distanceKm ?? 0).toFixed(1)} km` : '--'}
+                  {routeGeometry.length > 1 ? `${distanceKm.toFixed(1)} km` : "--"}
                 </p>
                 <p className="text-xs opacity-90">Distance</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-bold">
-                  {routeInfo ? `${etaQuery.data?.etaMinutes ?? '--'} min` : '--'}
+                  {routeGeometry.length > 1 ? `${etaMinutes} min` : "--"}
                 </p>
                 <p className="text-xs opacity-90">ETA</p>
               </div>
@@ -312,21 +294,19 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
         {/* Map */}
         <div style={{ height: mapHeight }} className="relative">
           <MapContainer
-            center={currentPosition || [5.6037, -0.1870]}
+            center={animatedCurrentPosition || [5.6037, -0.1870]}
             zoom={15}
             style={{ height: "100%", width: "100%" }}
           >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
+            <MapTileLayer />
+            <MapUsageTracker />
             
-            {currentPosition && <MapCenterController position={currentPosition} />}
+            {animatedCurrentPosition && <MapCenterController position={animatedCurrentPosition} />}
             
             {/* Route polyline */}
-            {routeInfo && (
+            {!usageSnapshot.freezeSecondaryLayers && routeGeometry.length > 1 && (
               <Polyline 
-                positions={routeInfo.geometry} 
+                positions={routeGeometry}
                 color="#3b82f6" 
                 weight={5}
                 opacity={0.8}
@@ -334,8 +314,8 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
             )}
             
             {/* Current position marker */}
-            {currentPosition && (
-              <Marker position={currentPosition} icon={riderIcon}>
+            {animatedCurrentPosition && (
+              <Marker position={animatedCurrentPosition} icon={riderIcon}>
                 <Popup>
                   <div className="p-2 text-center">
                     <p className="font-bold">Your Location</p>

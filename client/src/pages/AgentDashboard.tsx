@@ -11,6 +11,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { AlertCircle, ArrowRight, CheckCircle2, Clock3, Loader2, Ticket, Users } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import TrackingMetricsPanel from "@/components/TrackingMetricsPanel";
 
 type Conversation = {
   id: string;
@@ -122,6 +123,8 @@ export default function AgentDashboard() {
           <Card><CardHeader className="pb-2"><CardDescription>Response Time</CardDescription><CardTitle className="text-2xl">{metrics.avgResponseMins.toFixed(1)} min</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">Average first response</CardContent></Card>
           <Card><CardHeader className="pb-2"><CardDescription>Resolution Success Rate</CardDescription><CardTitle className="text-2xl">{metrics.resolutionRate.toFixed(1)}%</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">Resolved vs total support cases</CardContent></Card>
         </div>
+
+        <TrackingMetricsPanel role="agent" title="Delivery Signal Monitor" />
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Card>

@@ -3,6 +3,8 @@ import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { io, Socket } from "socket.io-client";
+import { subscribeTrackingNotifications } from "@/tracking/notifications/trackingNotificationService";
+import { usageMonitor } from "@/tracking/usage/usageMonitor";
 
 interface NotificationContextType {
   socket: Socket | null;
@@ -48,6 +50,26 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     Notification.requestPermission().catch(() => {});
   }, [user]);
 
+  useEffect(() => {
+    let seenAlerts = 0;
+    return usageMonitor.subscribe((snapshot) => {
+      if (snapshot.alerts.length <= seenAlerts) return;
+      const newAlerts = snapshot.alerts.slice(seenAlerts);
+      seenAlerts = snapshot.alerts.length;
+      newAlerts.forEach((alert) => {
+        const title = `Tracking Usage ${alert.levelPct}%`;
+        const description = `${alert.metric} usage reached ${alert.levelPct}%.`;
+        toast({
+          title,
+          description,
+          variant: alert.levelPct >= 90 ? "destructive" : "default",
+          duration: 6000,
+        });
+        showDeviceNotification(title, description, `usage-${alert.metric}-${alert.levelPct}`);
+      });
+    });
+  }, [toast, showDeviceNotification]);
+
   const playNotificationSound = useCallback(() => {
     if (typeof window === "undefined") return;
     const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -77,6 +99,22 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // Ignore sound errors from browser/device restrictions
     }
   }, []);
+
+  useEffect(() => {
+    return subscribeTrackingNotifications((event) => {
+      const isDestructive = event.severity === "critical";
+      toast({
+        title: event.title,
+        description: event.message,
+        variant: isDestructive ? "destructive" : "default",
+        duration: isDestructive ? 8000 : 5000,
+      });
+      showDeviceNotification(event.title, event.message, `tracking-${event.severity}`);
+      if (event.severity !== "info") {
+        playNotificationSound();
+      }
+    });
+  }, [toast, showDeviceNotification, playNotificationSound]);
 
   const invalidateOrderQueries = useCallback(() => {
     queryClient.invalidateQueries({
@@ -197,6 +235,17 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           duration: 4000,
         });
       }
+    });
+
+    newSocket.on("geofence_alert", (data: { riderId: string; riderName: string; message: string; orderId?: string }) => {
+      toast({
+        title: "Delivery Anomaly",
+        description: `${data.riderName}: ${data.message}`,
+        variant: "destructive",
+        duration: 7000,
+      });
+      showDeviceNotification("Delivery Anomaly", `${data.riderName}: ${data.message}`, `geofence-${data.riderId}`);
+      playNotificationSound();
     });
 
     // Order Out for Delivery (canonical + legacy event names)

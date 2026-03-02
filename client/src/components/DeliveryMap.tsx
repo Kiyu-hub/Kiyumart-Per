@@ -1,12 +1,13 @@
 import { useEffect, useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import { Icon, LatLngExpression, DivIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import UserAvatar from "@/components/UserAvatar";
 import { Loader2, MapPin, Navigation, Star, Car, Clock } from "lucide-react";
-import { fetchOrderEta } from "@/lib/eta";
+import MapTileLayer from "@/tracking/components/MapTileLayer";
+import MapUsageTracker from "@/tracking/components/MapUsageTracker";
+import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 
 // Fix Leaflet icon issue
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -85,26 +86,37 @@ export default function DeliveryMap({
   const [isLoading, setIsLoading] = useState(true);
 
   const deliveryPos: [number, number] = [deliveryLocation.latitude, deliveryLocation.longitude];
-  const riderPos: [number, number] | undefined = riderLocation 
+  const riderPos: [number, number] | undefined = riderLocation
     ? [riderLocation.latitude, riderLocation.longitude]
     : undefined;
-
-  const etaQuery = useQuery({
-    queryKey: ["/api/orders/eta", orderId, riderLocation?.latitude, riderLocation?.longitude, riderLocation?.speed],
-    queryFn: () =>
-      fetchOrderEta({
-        orderId: orderId!,
-        riderLat: riderLocation?.latitude,
-        riderLng: riderLocation?.longitude,
-        speed: riderLocation?.speed,
-      }),
-    enabled: Boolean(orderId && riderPos),
-    refetchInterval: 10000,
+  const trackedVehicle = useVehicleTracking({
+    vehicleId: orderId ? `delivery-${orderId}` : `delivery-${orderNumber}`,
+    orderId,
+    destination: { lat: deliveryLocation.latitude, lng: deliveryLocation.longitude },
+    tripPhase: riderPos ? "en_route" : "assigned",
+    gps: riderLocation
+      ? {
+          lat: riderLocation.latitude,
+          lng: riderLocation.longitude,
+          speedMps: riderLocation.speed ?? 0,
+          bearingDeg: riderLocation.heading ?? 0,
+          timestampMs: riderLocation.timestamp ? new Date(riderLocation.timestamp).getTime() : Date.now(),
+        }
+      : undefined,
   });
 
+  const animatedRiderPos: [number, number] | undefined = trackedVehicle?.predictedPosition
+    ? [trackedVehicle.predictedPosition.lat, trackedVehicle.predictedPosition.lng]
+    : riderPos;
+  const routePolyline: [number, number][] = trackedVehicle?.route?.geometry?.length
+    ? trackedVehicle.route.geometry.map((point) => [point.lat, point.lng] as [number, number])
+    : animatedRiderPos
+      ? [animatedRiderPos, deliveryPos]
+      : [];
+
   // Backend is authoritative for ETA/distance. No client-derived fallback math.
-  const distanceKm = typeof etaQuery.data?.distanceKm === "number" ? etaQuery.data.distanceKm : null;
-  const etaMinutes = typeof etaQuery.data?.etaMinutes === "number" ? etaQuery.data.etaMinutes : null;
+  const distanceKm = typeof trackedVehicle?.eta?.distanceKm === "number" ? trackedVehicle.eta.distanceKm : null;
+  const etaMinutes = typeof trackedVehicle?.eta?.minutes === "number" ? trackedVehicle.eta.minutes : null;
 
   // Create custom icons
   const deliveryIcon = new Icon({
@@ -170,10 +182,8 @@ export default function DeliveryMap({
           scrollWheelZoom={true}
           zoomControl={false}
         >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+          <MapTileLayer />
+          <MapUsageTracker />
           
           {/* Delivery destination marker */}
           <Marker position={deliveryPos} icon={deliveryIcon}>
@@ -186,21 +196,17 @@ export default function DeliveryMap({
           </Marker>
 
           {/* Rider location marker */}
-          {riderPos && (
+          {animatedRiderPos && (
             <>
-              <Marker position={riderPos} icon={riderIcon} />
+              <Marker position={animatedRiderPos} icon={riderIcon} />
               
-              {/* Line connecting rider to destination */}
-              <Polyline
-                positions={[riderPos, deliveryPos]}
-                color="#10B981"
-                weight={4}
-                opacity={0.8}
-              />
+              {routePolyline.length > 1 && (
+                <Polyline positions={routePolyline} color="#10B981" weight={4} opacity={0.8} />
+              )}
             </>
           )}
 
-          <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={riderPos} />
+          <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={animatedRiderPos} />
         </MapContainer>
 
         {/* Delivery Address Banner (Top) */}
@@ -212,7 +218,7 @@ export default function DeliveryMap({
         </div>
 
         {/* ETA Display (Center) */}
-        {riderPos && (
+        {animatedRiderPos && (
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[1000]" data-testid="eta-display">
             <div className="bg-white dark:bg-gray-800 rounded-full px-6 py-3 shadow-xl border-2 border-primary">
               <div className="flex flex-col items-center">
@@ -224,7 +230,7 @@ export default function DeliveryMap({
         )}
 
         {/* Rider Profile Card (Bottom) */}
-        {riderPos && riderInfo && (
+        {animatedRiderPos && riderInfo && (
           <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-900 rounded-t-3xl p-6 shadow-2xl z-[1000]" data-testid="rider-profile">
             <div className="flex items-center gap-4">
               <UserAvatar 
@@ -266,7 +272,7 @@ export default function DeliveryMap({
         )}
 
         {/* Waiting for Rider */}
-        {!riderPos && (
+        {!animatedRiderPos && (
           <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-900 rounded-t-3xl p-6 shadow-2xl z-[1000]" data-testid="waiting-rider">
             <div className="flex items-center justify-center gap-3 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -295,10 +301,8 @@ export default function DeliveryMap({
             style={{ height: "100%", width: "100%" }}
             scrollWheelZoom={false}
           >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
+            <MapTileLayer />
+            <MapUsageTracker />
             
             {/* Delivery destination marker */}
             <Marker position={deliveryPos} icon={deliveryIcon}>
@@ -311,9 +315,9 @@ export default function DeliveryMap({
             </Marker>
 
             {/* Rider location marker */}
-            {riderPos && (
+            {animatedRiderPos && (
               <>
-                <Marker position={riderPos} icon={riderIcon}>
+                <Marker position={animatedRiderPos} icon={riderIcon}>
                   <Popup>
                     <div className="text-sm" data-testid="popup-rider">
                       <p className="font-semibold flex items-center gap-1">
@@ -330,21 +334,23 @@ export default function DeliveryMap({
                 </Marker>
                 
                 {/* Line connecting rider to destination */}
-                <Polyline
-                  positions={[riderPos, deliveryPos]}
-                  color="#10B981"
-                  weight={3}
-                  opacity={0.6}
-                  dashArray="10, 10"
-                />
+                {routePolyline.length > 1 && (
+                  <Polyline
+                    positions={routePolyline}
+                    color="#10B981"
+                    weight={3}
+                    opacity={0.6}
+                    dashArray="10, 10"
+                  />
+                )}
               </>
             )}
 
-            <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={riderPos} />
+            <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={animatedRiderPos} />
           </MapContainer>
 
           {/* ETA Overlay for standard view */}
-          {riderPos && (
+          {animatedRiderPos && (
             <div className="absolute top-4 right-4 bg-white dark:bg-gray-800 rounded-lg px-4 py-2 shadow-lg z-[1000]" data-testid="eta-badge">
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-primary" />
@@ -399,7 +405,7 @@ export default function DeliveryMap({
         </div>
 
         {/* Rider Info Card for standard view */}
-        {riderInfo && riderPos && (
+        {riderInfo && animatedRiderPos && (
           <div className="mt-4 p-4 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border border-primary/20">
             <div className="flex items-center gap-3">
               <UserAvatar 
