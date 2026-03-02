@@ -1,18 +1,29 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { buildCsv, createSimplePdf, logReportActivity, triggerDownload } from "@/lib/reporting";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { Bus, DollarSign, Loader2, MapPin, Package, TrendingUp } from "lucide-react";
+import { Bus, DollarSign, Download, Loader2, MapPin, Package, TrendingUp } from "lucide-react";
 
 type EarningsHistory = { deliveryId: string; orderId?: string | null; date?: string | null; amount: string; status?: string };
 type EarningsPayload = { total?: string; thisMonth?: string; today?: string; deliveriesCompleted?: number; history?: EarningsHistory[] };
 type OrderRow = { id: string; status: string; deliveryMethod: string; createdAt: string; deliveredAt?: string | null };
 type TrackPoint = { latitude: string; longitude: string; timestamp: string };
+type ReceiptSummary = {
+  id: string;
+  receiptNumber: string;
+  orderId: string;
+  orderNumber: string;
+  orderStatus: string;
+  total: string;
+  updatedAt: string;
+};
 
 const n = (v?: string | null) => String(v || "").toLowerCase().trim();
 const num = (v: unknown) => Number(v || 0) || 0;
@@ -30,6 +41,7 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
 export default function RiderEarnings() {
   const { user } = useAuth();
   const { formatPrice } = useLanguage();
+  const [exporting, setExporting] = useState<"none" | "csv" | "pdf">("none");
 
   const { data: earnings, isLoading: earningsLoading } = useQuery<EarningsPayload>({
     queryKey: ["/api/rider/earnings"],
@@ -50,6 +62,18 @@ export default function RiderEarnings() {
       return Array.isArray(p) ? p : [];
     },
     enabled: !!user && user.role === "rider",
+  });
+
+  const { data: receipts = [] } = useQuery<ReceiptSummary[]>({
+    queryKey: ["/api/receipts", "rider-analytics"],
+    queryFn: async () => {
+      const r = await fetch("/api/receipts?limit=8", { credentials: "include" });
+      if (!r.ok) return [];
+      const p = await r.json();
+      return Array.isArray(p) ? p : [];
+    },
+    enabled: !!user && user.role === "rider",
+    refetchInterval: 20000,
   });
 
   const completedOrders = useMemo(() => orders.filter((o) => done(o.status)), [orders]);
@@ -118,6 +142,60 @@ export default function RiderEarnings() {
   }, [orders]);
 
   const loading = earningsLoading || ordersLoading;
+  const reportType = "rider_performance_analytics";
+  const reportScope = { completedOrders: completedOrders.length, totalOrders: orders.length };
+  const exportRows = completedOrders.map((order) => ({
+    order_id: order.id,
+    status: order.status,
+    delivery_method: order.deliveryMethod,
+    created_at: order.createdAt,
+    delivered_at: order.deliveredAt || "",
+  }));
+
+  const handleExportCsv = async () => {
+    await logReportActivity({ action: "request", reportType, format: "csv", scope: reportScope, status: "success" });
+    try {
+      setExporting("csv");
+      const data = buildCsv(exportRows);
+      if (!data) return;
+      await logReportActivity({ action: "generate", reportType, format: "csv", scope: reportScope, status: "success" });
+      triggerDownload(new Blob([data], { type: "text/csv;charset=utf-8;" }), `rider-analytics-${new Date().toISOString().slice(0, 10)}.csv`);
+      await logReportActivity({ action: "download", reportType, format: "csv", scope: reportScope, status: "success" });
+    } catch {
+      await logReportActivity({ action: "generate", reportType, format: "csv", scope: reportScope, status: "failed" });
+    } finally {
+      setExporting("none");
+    }
+  };
+
+  const handleExportPdf = async () => {
+    await logReportActivity({ action: "request", reportType, format: "pdf", scope: reportScope, status: "success" });
+    try {
+      setExporting("pdf");
+      const lines = [
+        `Generated At: ${new Date().toISOString()}`,
+        `Completed Deliveries: ${completedOrders.length}`,
+        `Total Earnings: ${num(earnings?.total).toFixed(2)}`,
+        `BUS Handoffs: ${metrics.busHandoffs}`,
+        `Distance Covered: ${distanceKm.toFixed(1)} km`,
+        " ",
+      ];
+      exportRows.forEach((row, idx) => {
+        lines.push(`${idx + 1}. ${row.order_id}`);
+        lines.push(`Status: ${row.status} | Method: ${row.delivery_method}`);
+        lines.push(`Created: ${row.created_at} | Delivered: ${row.delivered_at || "N/A"}`);
+        lines.push(" ");
+      });
+      const pdfBytes = createSimplePdf("Kiyumart Rider Analytics Report", lines);
+      await logReportActivity({ action: "generate", reportType, format: "pdf", scope: reportScope, status: "success" });
+      triggerDownload(new Blob([pdfBytes], { type: "application/pdf" }), `rider-analytics-${new Date().toISOString().slice(0, 10)}.pdf`);
+      await logReportActivity({ action: "download", reportType, format: "pdf", scope: reportScope, status: "success" });
+    } catch {
+      await logReportActivity({ action: "generate", reportType, format: "pdf", scope: reportScope, status: "failed" });
+    } finally {
+      setExporting("none");
+    }
+  };
 
   if (!user || user.role !== "rider") {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -128,8 +206,22 @@ export default function RiderEarnings() {
       <div className="p-4 md:p-6 space-y-4">
         <Card className="border-emerald-500/30 bg-[linear-gradient(98deg,rgba(4,120,87,0.35)_0%,rgba(2,6,23,0.96)_52%,rgba(14,116,144,0.36)_100%)] text-white">
           <CardContent className="p-4 md:p-5">
-            <h1 className="text-2xl font-semibold" data-testid="text-page-title">Rider Performance Analytics</h1>
-            <p className="text-white/80 text-sm">Daily and weekly summaries for deliveries, earnings, timing, distance, and bus handoffs.</p>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h1 className="text-2xl font-semibold" data-testid="text-page-title">Rider Performance Analytics</h1>
+                <p className="text-white/80 text-sm">Daily and weekly summaries for deliveries, earnings, timing, distance, and bus handoffs.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void handleExportCsv()} disabled={exporting !== "none"}>
+                  <Download className="h-4 w-4 mr-2" />
+                  {exporting === "csv" ? "Preparing..." : "CSV"}
+                </Button>
+                <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void handleExportPdf()} disabled={exporting !== "none"}>
+                  <Download className="h-4 w-4 mr-2" />
+                  {exporting === "pdf" ? "Preparing..." : "PDF"}
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -172,6 +264,25 @@ export default function RiderEarnings() {
               <Card><CardHeader><CardTitle>Daily Summary</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold">{metrics.dailyCompleted}</p><p className="text-sm text-muted-foreground">Deliveries completed today</p></CardContent></Card>
               <Card><CardHeader><CardTitle>Weekly Summary</CardTitle></CardHeader><CardContent><p className="text-2xl font-semibold">{metrics.weeklyCompleted}</p><p className="text-sm text-muted-foreground">Deliveries completed in last 7 days</p></CardContent></Card>
             </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Receipt History</CardTitle>
+                <CardDescription>Receipts linked to your completed deliveries and bus handoff confirmations.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {receipts.slice(0, 6).map((receipt) => (
+                  <a key={receipt.id} href={`/orders/${receipt.orderId}/receipt`} className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-accent">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{receipt.receiptNumber}</p>
+                      <p className="text-xs text-muted-foreground truncate">Order #{receipt.orderNumber} • {receipt.orderStatus}</p>
+                    </div>
+                    <p className="font-semibold">{formatPrice(Number(receipt.total || 0))}</p>
+                  </a>
+                ))}
+                {!receipts.length && <p className="text-sm text-muted-foreground">No receipts generated yet for this rider scope.</p>}
+              </CardContent>
+            </Card>
           </>
         )}
       </div>

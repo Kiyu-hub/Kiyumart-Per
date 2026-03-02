@@ -43,6 +43,8 @@ import {
   passwordResetTokens,
   securitySettings,
   mediaLibrary,
+  reportActivityLogs,
+  receipts,
 } from "@shared/schema";
 import { eq, or, isNotNull, and, desc, sql, inArray, asc } from "drizzle-orm";
 import { 
@@ -5807,6 +5809,256 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return [];
   };
 
+  const buildOrderStatusFlow = (history: Array<any>) =>
+    [...(history || [])]
+      .sort((a, b) => new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime())
+      .map((entry) => String(entry?.toStatus || "").trim())
+      .filter(Boolean)
+      .join(" -> ");
+
+  const buildOrderReceiptSnapshot = async (order: any) => {
+    const [items, history, txRows, commissionRows, seller, buyer, rider, store] = await Promise.all([
+      storage.getOrderItems(order.id),
+      storage.getOrderStatusHistory(order.id),
+      db.execute(
+        sql`select * from order_payments where order_id = ${order.id} order by transaction_created_at desc nulls last limit 1`,
+      ),
+      db.execute(
+        sql`select * from platform_commission where order_id = ${order.id} order by commission_created_at desc nulls last limit 1`,
+      ),
+      storage.getUser(order.sellerId),
+      storage.getUser(order.buyerId),
+      order.riderId ? storage.getUser(order.riderId) : Promise.resolve(null),
+      order.storeId ? storage.getStore(order.storeId) : Promise.resolve(null),
+    ]);
+
+    const latestTx = ((txRows as any)?.rows || [])[0] || null;
+    const latestCommission = ((commissionRows as any)?.rows || [])[0] || null;
+    const busDeliveryWorkflow = isBusMethod(order.deliveryMethod) ? extractBusDeliveryWorkflow(history, order) : null;
+
+    return {
+      order: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        deliveryMethod: order.deliveryMethod,
+        deliveryAddress: order.deliveryAddress,
+        deliveryCity: order.deliveryCity,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        deliveredAt: order.deliveredAt,
+      },
+      items: items.map((item: any) => ({
+        productId: item.productId,
+        productName: item.productName || "Product",
+        quantity: Number(item.quantity || 0),
+        price: Number(item.price || 0),
+        lineTotal: Number(item.price || 0) * Number(item.quantity || 0),
+      })),
+      financial: {
+        subtotal: Number(order.subtotal || 0),
+        deliveryFee: Number(order.deliveryFee || 0),
+        processingFee: Number(order.processingFee || 0),
+        couponDiscount: Number(order.couponDiscount || 0),
+        total: Number(order.total || 0),
+        currency: order.currency || "GHS",
+        sellerPaidAmount: Number(latestCommission?.seller_amount || 0),
+        platformCommissionAmount: Number(latestCommission?.commission_amount || 0),
+        platformAmount: Number(latestCommission?.platform_amount || 0),
+        commissionRate: Number(latestCommission?.commission_rate || 0),
+        commissionStatus: latestCommission?.commission_status || null,
+      },
+      transaction: latestTx
+        ? {
+            id: latestTx.transaction_id || null,
+            status: latestTx.transaction_status || null,
+            amount: Number(latestTx.transaction_amount || 0),
+            provider: latestTx.payment_provider || null,
+            reference: latestTx.payment_reference || null,
+            createdAt: latestTx.transaction_created_at || null,
+          }
+        : null,
+      parties: {
+        buyer: buyer
+          ? { id: buyer.id, name: buyer.name, email: buyer.email, phone: buyer.phone || null }
+          : null,
+        seller: seller
+          ? {
+              id: seller.id,
+              name: resolveUserDisplayName(seller as any),
+              email: seller.email,
+              phone: seller.phone || null,
+              storeName: (store as any)?.name || seller.storeName || null,
+            }
+          : null,
+        rider: rider
+          ? { id: rider.id, name: resolveUserDisplayName(rider as any), email: rider.email, phone: rider.phone || null }
+          : null,
+      },
+      statusFlow: buildOrderStatusFlow(history) || String(order.status || ""),
+      statusTimeline: [...(history || [])]
+        .sort((a, b) => new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime())
+        .map((entry) => ({
+          fromStatus: entry?.fromStatus || null,
+          toStatus: entry?.toStatus || null,
+          changedBy: entry?.changedBy || null,
+          changedByRole: entry?.changedByRole || null,
+          reason: entry?.reason || null,
+          at: entry?.createdAt || null,
+        })),
+      busDeliveryWorkflow,
+      completion: {
+        isCompleted: canonicalizeOrderStatus(order.status) === "completed",
+        completedAt: canonicalizeOrderStatus(order.status) === "completed" ? order.updatedAt || order.deliveredAt || null : null,
+      },
+    };
+  };
+
+  const upsertReceiptForOrder = async (params: {
+    orderId: string;
+    trigger?: string;
+    generatedBy?: string | null;
+    generatedByRole?: string | null;
+  }) => {
+    const order = await storage.getOrder(params.orderId);
+    if (!order) return null;
+
+    const payload = await buildOrderReceiptSnapshot(order);
+    const [existing] = await db.select().from(receipts).where(eq(receipts.orderId, params.orderId)).limit(1);
+    const safeGeneratedByRole =
+      params.generatedByRole &&
+      ["super_admin", "admin", "seller", "buyer", "rider", "agent"].includes(params.generatedByRole)
+        ? (params.generatedByRole as any)
+        : null;
+
+    if (existing) {
+      const [updated] = await db
+        .update(receipts)
+        .set({
+          trigger: params.trigger || existing.trigger,
+          status: "generated",
+          payload: payload as any,
+          generatedBy: params.generatedBy || existing.generatedBy,
+          generatedByRole: safeGeneratedByRole || existing.generatedByRole,
+          updatedAt: new Date(),
+        })
+        .where(eq(receipts.id, existing.id))
+        .returning();
+      return updated || existing;
+    }
+
+    const receiptNumber = `RCT-${String(order.orderNumber || order.id).replace(/[^A-Za-z0-9-]/g, "").slice(-36)}`;
+    const [created] = await db
+      .insert(receipts)
+      .values({
+        receiptNumber,
+        orderId: params.orderId,
+        generatedBy: params.generatedBy || null,
+        generatedByRole: safeGeneratedByRole,
+        trigger: params.trigger || "payment_success",
+        status: "generated",
+        payload: payload as any,
+      } as any)
+      .returning();
+    return created;
+  };
+
+  const ensureReceiptsForOrders = async (
+    orderIds: string[],
+    options: { trigger: string; generatedBy?: string | null; generatedByRole?: string | null },
+  ) => {
+    const uniqueOrderIds = Array.from(new Set((orderIds || []).filter(Boolean)));
+    const results: any[] = [];
+    for (const orderId of uniqueOrderIds) {
+      try {
+        const receipt = await upsertReceiptForOrder({
+          orderId,
+          trigger: options.trigger,
+          generatedBy: options.generatedBy || null,
+          generatedByRole: options.generatedByRole || null,
+        });
+        if (receipt) results.push(receipt);
+      } catch (receiptError: any) {
+        console.warn(
+          `[RECEIPTS] Failed to generate receipt for order ${orderId}:`,
+          receiptError?.message || receiptError,
+        );
+      }
+    }
+    return results;
+  };
+
+  const canAccessOrderReceipt = (order: any, requester: { id: string; role: string }) => {
+    const role = String(requester.role || "").toLowerCase().trim();
+    if (role === "admin" || role === "super_admin") return true;
+    if (role === "buyer") return String(order.buyerId || "") === String(requester.id);
+    if (role === "seller") return String(order.sellerId || "") === String(requester.id);
+    if (role === "rider") return String(order.riderId || "") === String(requester.id);
+    return false;
+  };
+
+  const logReportActivity = async (params: {
+    requester: { id: string; role: string; email?: string | null };
+    reportType: string;
+    action: string;
+    format?: string | null;
+    status?: string | null;
+    scope?: Record<string, any>;
+    metadata?: Record<string, any>;
+    reportId?: string | null;
+  }) => {
+    const requesterRole = String(params.requester.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    const safeRole = requesterRole === "superadmin" ? "super_admin" : requesterRole;
+    const reportId =
+      params.reportId ||
+      `RPT-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const [entry] = await db
+      .insert(reportActivityLogs)
+      .values({
+        requestedBy: params.requester.id,
+        requesterRole: safeRole as any,
+        reportType: params.reportType,
+        action: params.action,
+        format: params.format || null,
+        status: params.status || "success",
+        reportId,
+        scope: (params.scope || {}) as any,
+        metadata: (params.metadata || {}) as any,
+      } as any)
+      .returning();
+
+    if (safeRole !== "super_admin") {
+      const actorLabel = params.requester.email || params.requester.id;
+      const tense =
+        params.action === "request"
+          ? "requested"
+          : params.action === "generate"
+          ? "generated"
+          : params.action === "download"
+          ? "downloaded"
+          : "performed";
+      await notifyAdmins(
+        "system",
+        "Report Activity",
+        `${actorLabel} (${safeRole}) ${tense} ${params.reportType} report${params.format ? ` (${params.format.toUpperCase()})` : ""}.`,
+        {
+          reportId,
+          reportType: params.reportType,
+          action: params.action,
+          scope: params.scope || {},
+          status: params.status || "success",
+          actorId: params.requester.id,
+          actorRole: safeRole,
+          link: "/admin/analytics",
+        },
+        { requiredAdminPermission: "view_analytics" },
+      );
+    }
+
+    return entry;
+  };
+
   const resolveRiderOfferResponse = async (orderId: string, riderId: string, action: "accept" | "reject") => {
     const pending = pendingRiderAssignments.get(orderId);
     if (!pending) {
@@ -6099,6 +6351,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Keep payout creation idempotent across all delivery completion entry points.
     await createRiderPayoutIfMissing(order, riderId);
+    await ensureReceiptsForOrders([orderId], {
+      trigger: "order_completed",
+      generatedBy: riderId,
+      generatedByRole: "rider",
+    });
 
     return updatedOrder;
   };
@@ -6917,6 +7174,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           updatedOrders.push(updated);
         }
 
+        await ensureReceiptsForOrders(
+          updatedOrders.map((o: any) => o.id).filter(Boolean),
+          {
+            trigger: "payment_success",
+            generatedBy: req.user!.id,
+            generatedByRole: req.user!.role,
+          },
+        );
+
         await startRiderMatchingForPaidOrders(updatedOrders.map((o: any) => o.id));
         res.json({
           success: true,
@@ -7694,6 +7960,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
 
         await createRiderPayoutIfMissing(workingOrder, workingOrder.riderId);
+        await ensureReceiptsForOrders([orderId], {
+          trigger: "bus_delivery_completed",
+          generatedBy: actorId,
+          generatedByRole: "super_admin",
+        });
         await emitOrderStatusUpdateToStakeholders(workingOrder, "completed");
 
         const refreshedHistory = await storage.getOrderStatusHistory(orderId);
@@ -11210,6 +11481,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })
         );
         await startRiderMatchingForPaidOrders(targetOrderIds);
+        await ensureReceiptsForOrders(targetOrderIds, {
+          trigger: "payment_success",
+          generatedBy: currentUserId || existingTransaction.userId || null,
+          generatedByRole: currentUserId ? "buyer" : "super_admin",
+        });
       }
 
       return {
@@ -11397,6 +11673,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (data.data.status === "success") {
         await startRiderMatchingForPaidOrders(orders.map((o: any) => o.id));
+        await ensureReceiptsForOrders(
+          orders.map((o: any) => o.id),
+          {
+            trigger: "payment_success",
+            generatedBy: currentUserId || primaryOrder.buyerId || null,
+            generatedByRole: currentUserId ? "buyer" : "super_admin",
+          },
+        );
         try {
           const orderNumbers = orders.map((o: any) => `#${o.orderNumber}`).join(", ");
           const totalPaid = (Number(data.data.amount || 0) / 100).toFixed(2);
@@ -11525,6 +11809,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await processPaystackChargeSuccess(data, storage, io);
             const paidOrderIds = extractOrderIdsFromPaymentPayload(data);
             await startRiderMatchingForPaidOrders(paidOrderIds);
+            await ensureReceiptsForOrders(paidOrderIds, {
+              trigger: "payment_success",
+              generatedBy: null,
+              generatedByRole: "super_admin",
+            });
             try {
               const orderListLabel = paidOrderIds.length > 0 ? paidOrderIds.join(", ") : "unknown";
               const paidAmount = (Number(data?.amount || 0) / 100).toFixed(2);
@@ -11888,6 +12177,178 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json((rows as any).rows || []);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/reports/activity", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const action = String(req.body?.action || "").toLowerCase().trim();
+      const reportType = String(req.body?.reportType || "").trim();
+      const format = String(req.body?.format || "").toLowerCase().trim() || null;
+      const status = String(req.body?.status || "success").toLowerCase().trim();
+      const scope = req.body?.scope && typeof req.body.scope === "object" ? req.body.scope : {};
+      const metadata = req.body?.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {};
+      const reportId = req.body?.reportId ? String(req.body.reportId).trim() : null;
+
+      if (!["request", "generate", "download"].includes(action)) {
+        return res.status(400).json({ error: "Invalid report action. Use request, generate, or download." });
+      }
+      if (!reportType) {
+        return res.status(400).json({ error: "reportType is required." });
+      }
+
+      const entry = await logReportActivity({
+        requester: { id: req.user!.id, role: req.user!.role, email: req.user!.email || null },
+        reportType,
+        action,
+        format,
+        status,
+        scope,
+        metadata,
+        reportId,
+      });
+
+      return res.json(entry);
+    } catch (error: any) {
+      return res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get(
+    "/api/reports/activity",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("view_analytics"),
+    async (req: AuthRequest, res) => {
+      try {
+        const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
+        const requestedBy = String(req.query.userId || "").trim();
+        const roleFilter = String(req.query.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+        const reportType = String(req.query.reportType || "").trim();
+        const action = String(req.query.action || "").toLowerCase().trim();
+        const status = String(req.query.status || "").toLowerCase().trim();
+        const normalizedRoleFilter = roleFilter === "superadmin" ? "super_admin" : roleFilter;
+
+        const conditions: any[] = [];
+        if (requestedBy) conditions.push(eq(reportActivityLogs.requestedBy, requestedBy));
+        if (normalizedRoleFilter) conditions.push(eq(reportActivityLogs.requesterRole, normalizedRoleFilter as any));
+        if (reportType) conditions.push(eq(reportActivityLogs.reportType, reportType));
+        if (action) conditions.push(eq(reportActivityLogs.action, action));
+        if (status) conditions.push(eq(reportActivityLogs.status, status));
+
+        const rows = await db
+          .select({
+            id: reportActivityLogs.id,
+            requestedBy: reportActivityLogs.requestedBy,
+            requesterRole: reportActivityLogs.requesterRole,
+            requesterEmail: users.email,
+            requesterName: users.name,
+            reportType: reportActivityLogs.reportType,
+            action: reportActivityLogs.action,
+            format: reportActivityLogs.format,
+            status: reportActivityLogs.status,
+            reportId: reportActivityLogs.reportId,
+            scope: reportActivityLogs.scope,
+            metadata: reportActivityLogs.metadata,
+            createdAt: reportActivityLogs.createdAt,
+          })
+          .from(reportActivityLogs)
+          .leftJoin(users, eq(users.id, reportActivityLogs.requestedBy))
+          .where(conditions.length ? and(...conditions) : undefined)
+          .orderBy(desc(reportActivityLogs.createdAt))
+          .limit(limit);
+
+        return res.json(rows);
+      } catch (error: any) {
+        return res.status(400).json({ error: error.message });
+      }
+    },
+  );
+
+  app.get("/api/receipts", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit || 50)));
+      const role = String(req.user!.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+      const scopedRole = role === "superadmin" ? "super_admin" : role;
+
+      const rows = await db
+        .select({
+          id: receipts.id,
+          receiptNumber: receipts.receiptNumber,
+          orderId: orders.id,
+          orderNumber: orders.orderNumber,
+          buyerId: orders.buyerId,
+          sellerId: orders.sellerId,
+          riderId: orders.riderId,
+          orderStatus: orders.status,
+          paymentStatus: orders.paymentStatus,
+          deliveryMethod: orders.deliveryMethod,
+          total: orders.total,
+          currency: orders.currency,
+          trigger: receipts.trigger,
+          status: receipts.status,
+          payload: receipts.payload,
+          createdAt: receipts.createdAt,
+          updatedAt: receipts.updatedAt,
+        })
+        .from(receipts)
+        .innerJoin(orders, eq(orders.id, receipts.orderId))
+        .orderBy(desc(receipts.updatedAt))
+        .limit(Math.max(limit * 4, 200));
+
+      const scoped = rows.filter((row) => {
+        if (scopedRole === "super_admin" || scopedRole === "admin") return true;
+        if (scopedRole === "buyer") return String(row.buyerId || "") === String(req.user!.id);
+        if (scopedRole === "seller") return String(row.sellerId || "") === String(req.user!.id);
+        if (scopedRole === "rider") return String(row.riderId || "") === String(req.user!.id);
+        return false;
+      });
+
+      return res.json(scoped.slice(0, limit));
+    } catch (error: any) {
+      return res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/receipts/:orderId", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const order = await storage.getOrder(req.params.orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      if (!canAccessOrderReceipt(order, req.user!)) {
+        return res.status(403).json({ error: "Unauthorized to view this receipt" });
+      }
+
+      const receipt = await upsertReceiptForOrder({
+        orderId: order.id,
+        generatedBy: req.user!.id,
+        generatedByRole: req.user!.role,
+      });
+
+      if (!receipt) {
+        return res.status(500).json({ error: "Failed to build receipt" });
+      }
+
+      const payload =
+        receipt.payload && typeof receipt.payload === "object"
+          ? receipt.payload
+          : await buildOrderReceiptSnapshot(order);
+
+      return res.json({
+        receipt: {
+          id: receipt.id,
+          receiptNumber: receipt.receiptNumber,
+          orderId: receipt.orderId,
+          trigger: receipt.trigger,
+          status: receipt.status,
+          createdAt: receipt.createdAt,
+          updatedAt: receipt.updatedAt,
+        },
+        ...(payload as Record<string, any>),
+      });
+    } catch (error: any) {
+      return res.status(400).json({ error: error.message });
     }
   });
 
@@ -14593,7 +15054,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (event.event === "charge.success") {
         const { processPaystackChargeSuccess } = await import('./payments');
         await processPaystackChargeSuccess(event.data, storage, io);
-        await startRiderMatchingForPaidOrders(extractOrderIdsFromPaymentPayload(event.data));
+        const paidOrderIds = extractOrderIdsFromPaymentPayload(event.data);
+        await startRiderMatchingForPaidOrders(paidOrderIds);
+        await ensureReceiptsForOrders(paidOrderIds, {
+          trigger: "payment_success",
+          generatedBy: null,
+          generatedByRole: "super_admin",
+        });
       }
 
       res.status(200).json({ status: "success" });

@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { buildCsv, createSimplePdf, logReportActivity, triggerDownload } from "@/lib/reporting";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -98,6 +99,20 @@ type OrderLedgerRow = {
   status_flow?: string | null;
 };
 
+type ReportActivityRow = {
+  id: string;
+  requestedBy: string;
+  requesterRole: string;
+  requesterEmail?: string | null;
+  requesterName?: string | null;
+  reportType: string;
+  action: string;
+  format?: string | null;
+  status?: string | null;
+  reportId?: string | null;
+  createdAt: string;
+};
+
 const ACTIVE = new Set(["searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"]);
 const FINAL = new Set(["completed", "delivered"]);
 const FAILED = new Set(["cancelled", "disputed"]);
@@ -133,88 +148,6 @@ const statusFlow = (rawFlow: unknown, current: unknown) => {
   if (currentStatus && flow[flow.length - 1] !== currentStatus) flow.push(currentStatus);
   return flow.length ? flow.join(" -> ") : currentStatus;
 };
-const escPdf = (value: string) => value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-const byteLength = (value: string) => new TextEncoder().encode(value).length;
-const createSimplePdf = (title: string, lines: string[]) => {
-  const pageWidth = 595;
-  const pageHeight = 842;
-  const margin = 40;
-  const maxLineChars = 106;
-  const lineHeight = 14;
-  const pages: string[] = [];
-  let cursorY = pageHeight - margin;
-  let stream = ["BT", "/F1 10 Tf"];
-
-  const pushRawLine = (line: string) => {
-    if (cursorY < margin + lineHeight) {
-      stream.push("ET");
-      pages.push(stream.join("\n"));
-      stream = ["BT", "/F1 10 Tf"];
-      cursorY = pageHeight - margin;
-    }
-    stream.push(`1 0 0 1 ${margin} ${cursorY} Tm (${escPdf(line)}) Tj`);
-    cursorY -= lineHeight;
-  };
-
-  const pushLine = (line: string) => {
-    const normalized = line.replace(/\s+/g, " ").trim();
-    if (!normalized) {
-      pushRawLine(" ");
-      return;
-    }
-    if (normalized.length <= maxLineChars) {
-      pushRawLine(normalized);
-      return;
-    }
-    const words = normalized.split(" ");
-    let current = "";
-    for (const word of words) {
-      const candidate = current ? `${current} ${word}` : word;
-      if (candidate.length > maxLineChars) {
-        if (current) pushRawLine(current);
-        current = word;
-      } else {
-        current = candidate;
-      }
-    }
-    if (current) pushRawLine(current);
-  };
-
-  pushLine(title);
-  pushRawLine(" ");
-  lines.forEach(pushLine);
-  stream.push("ET");
-  pages.push(stream.join("\n"));
-
-  const objects: Record<number, string> = {};
-  const pageCount = pages.length;
-  const fontObjectId = 3 + pageCount * 2;
-  objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
-  objects[2] = `<< /Type /Pages /Kids [${pages.map((_, i) => `${3 + i * 2} 0 R`).join(" ")}] /Count ${pageCount} >>`;
-  pages.forEach((pageContent, i) => {
-    const pageObjectId = 3 + i * 2;
-    const contentObjectId = pageObjectId + 1;
-    objects[pageObjectId] =
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`;
-    objects[contentObjectId] = `<< /Length ${byteLength(pageContent)} >>\nstream\n${pageContent}\nendstream`;
-  });
-  objects[fontObjectId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
-
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [0];
-  for (let i = 1; i <= fontObjectId; i += 1) {
-    offsets[i] = byteLength(pdf);
-    pdf += `${i} 0 obj\n${objects[i] || "<<>>"}\nendobj\n`;
-  }
-  const xrefOffset = byteLength(pdf);
-  pdf += `xref\n0 ${fontObjectId + 1}\n`;
-  pdf += "0000000000 65535 f \n";
-  for (let i = 1; i <= fontObjectId; i += 1) {
-    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
-  }
-  pdf += `trailer\n<< /Size ${fontObjectId + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-  return new TextEncoder().encode(pdf);
-};
 
 function LoadingSkeleton() {
   return (
@@ -230,13 +163,6 @@ function LoadingSkeleton() {
       </div>
     </div>
   );
-}
-
-function csv(rows: Array<Record<string, any>>) {
-  if (!rows.length) return "";
-  const headers = Object.keys(rows[0]);
-  const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  return [headers.join(","), ...rows.map((r) => headers.map((h) => esc(r[h])).join(","))].join("\n");
 }
 
 export default function AdminAnalytics() {
@@ -333,6 +259,17 @@ export default function AdminAnalytics() {
   const { data: health } = useQuery<SystemHealth>({ queryKey: ["/api/admin/system-health"], enabled: isAuthenticated && canView, refetchInterval: 15000 });
   const { data: messaging } = useQuery<MessagingStats>({ queryKey: ["/api/admin/messaging-stats"], enabled: isAuthenticated && canView, refetchInterval: 15000 });
   const { data: revenueViews } = useQuery<any>({ queryKey: ["/api/admin/revenue/views/summary"], enabled: isAuthenticated && canView, refetchInterval: 20000 });
+  const { data: reportActivity = [], refetch: refetchReportActivity } = useQuery<ReportActivityRow[]>({
+    queryKey: ["/api/reports/activity", "admin-analytics"],
+    queryFn: async () => {
+      const r = await fetch("/api/reports/activity?limit=30", { credentials: "include" });
+      if (!r.ok) return [];
+      const p = await r.json();
+      return Array.isArray(p) ? p : [];
+    },
+    enabled: isAuthenticated && canView,
+    refetchInterval: 20000,
+  });
 
   const [rangeStart, rangeEnd] = useMemo(() => {
     const end = toDate ? new Date(toDate) : new Date();
@@ -522,17 +459,6 @@ export default function AdminAnalytics() {
     return Array.isArray(p) ? (p as OrderLedgerRow[]) : [];
   };
 
-  const triggerDownload = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
   const toExportRows = async () => {
     const [liveOrders, liveLedger] = await Promise.all([
       fetchOrderSnapshot(),
@@ -581,27 +507,65 @@ export default function AdminAnalytics() {
     });
   };
 
+  const currentReportType = isSuperAdmin ? "platform_analytics_ledger" : "zone_analytics_ledger";
+  const buildReportScope = () => ({
+    datePreset: preset,
+    fromDate: fromDate || null,
+    toDate: toDate || null,
+    deliveryMethod: methodFilter,
+    zone: zoneScope || "all",
+  });
+
   const refreshAll = async () => {
+    await logReportActivity({
+      action: "request",
+      reportType: currentReportType,
+      format: "json",
+      scope: buildReportScope(),
+      status: "success",
+    });
     await Promise.all([refetchAnalytics(), refetchOrders(), refetchOrderLedger()]);
+    void refetchReportActivity();
   };
 
   const exportCsv = async () => {
+    const scope = buildReportScope();
+    await logReportActivity({
+      action: "request",
+      reportType: currentReportType,
+      format: "csv",
+      scope,
+      status: "success",
+    });
     try {
       setExporting("csv");
       await refreshAll();
       const rows = await toExportRows();
-      const data = csv(rows);
+      const data = buildCsv(rows);
       if (!data) return;
+      await logReportActivity({ action: "generate", reportType: currentReportType, format: "csv", scope, status: "success" });
       triggerDownload(
         new Blob([data], { type: "text/csv;charset=utf-8;" }),
         `analytics-ledger-${new Date().toISOString().slice(0, 10)}.csv`
       );
+      await logReportActivity({ action: "download", reportType: currentReportType, format: "csv", scope, status: "success" });
+      void refetchReportActivity();
+    } catch {
+      await logReportActivity({ action: "generate", reportType: currentReportType, format: "csv", scope, status: "failed" });
     } finally {
       setExporting("none");
     }
   };
 
   const exportPdf = async () => {
+    const scope = buildReportScope();
+    await logReportActivity({
+      action: "request",
+      reportType: currentReportType,
+      format: "pdf",
+      scope,
+      status: "success",
+    });
     try {
       setExporting("pdf");
       await refreshAll();
@@ -636,10 +600,15 @@ export default function AdminAnalytics() {
       });
 
       const pdfBytes = createSimplePdf("Kiyumart - Live Order Transaction Ledger", lines);
+      await logReportActivity({ action: "generate", reportType: currentReportType, format: "pdf", scope, status: "success" });
       triggerDownload(
         new Blob([pdfBytes], { type: "application/pdf" }),
         `analytics-ledger-${new Date().toISOString().slice(0, 10)}.pdf`
       );
+      await logReportActivity({ action: "download", reportType: currentReportType, format: "pdf", scope, status: "success" });
+      void refetchReportActivity();
+    } catch {
+      await logReportActivity({ action: "generate", reportType: currentReportType, format: "pdf", scope, status: "failed" });
     } finally {
       setExporting("none");
     }
@@ -844,6 +813,51 @@ export default function AdminAnalytics() {
             </>
           )
         )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Report Activity Log</CardTitle>
+            <CardDescription>Read-only, real-time audit trail of report requests, generations, and downloads.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="max-h-[280px] overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-card z-10">
+                  <tr className="border-b">
+                    <th className="px-4 py-2 text-left font-medium">Time</th>
+                    <th className="px-4 py-2 text-left font-medium">Requester</th>
+                    <th className="px-4 py-2 text-left font-medium">Action</th>
+                    <th className="px-4 py-2 text-left font-medium">Report</th>
+                    <th className="px-4 py-2 text-left font-medium">Format</th>
+                    <th className="px-4 py-2 text-left font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportActivity.slice(0, 40).map((entry) => (
+                    <tr key={entry.id} className="border-b last:border-0">
+                      <td className="px-4 py-2 whitespace-nowrap text-xs">{new Date(entry.createdAt).toLocaleString()}</td>
+                      <td className="px-4 py-2">
+                        <p className="font-medium truncate">{entry.requesterName || entry.requesterEmail || entry.requestedBy}</p>
+                        <p className="text-xs text-muted-foreground">{entry.requesterRole}</p>
+                      </td>
+                      <td className="px-4 py-2 capitalize">{entry.action}</td>
+                      <td className="px-4 py-2">{entry.reportType}</td>
+                      <td className="px-4 py-2 uppercase">{entry.format || "-"}</td>
+                      <td className="px-4 py-2 capitalize">{entry.status || "success"}</td>
+                    </tr>
+                  ))}
+                  {!reportActivity.length && (
+                    <tr>
+                      <td className="px-4 py-6 text-sm text-muted-foreground" colSpan={6}>
+                        No report activity logged yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   );

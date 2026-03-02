@@ -3,12 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { buildCsv, createSimplePdf, logReportActivity, triggerDownload } from "@/lib/reporting";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { DollarSign, Loader2, Package, ShoppingCart, TrendingUp } from "lucide-react";
+import { DollarSign, Download, Loader2, Package, ShoppingCart, TrendingUp } from "lucide-react";
 
 type OrderRow = {
   id: string;
@@ -21,6 +23,17 @@ type OrderRow = {
 };
 
 type Analytics = { totalRevenue?: number; totalOrders?: number; totalReceivedMoney?: number };
+type ReceiptSummary = {
+  id: string;
+  receiptNumber: string;
+  orderId: string;
+  orderNumber: string;
+  orderStatus: string;
+  paymentStatus: string;
+  total: string;
+  currency: string;
+  updatedAt: string;
+};
 
 const n = (v?: string | null) => String(v || "").toLowerCase().trim();
 const num = (v: unknown) => Number(v || 0) || 0;
@@ -37,6 +50,7 @@ export default function SellerAnalytics() {
   const { user } = useAuth();
   const { formatPrice } = useLanguage();
   const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
+  const [exporting, setExporting] = useState<"none" | "csv" | "pdf">("none");
 
   const { data: stats, isLoading: statsLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
@@ -52,6 +66,18 @@ export default function SellerAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: !!user && user.role === "seller",
+  });
+
+  const { data: receipts = [] } = useQuery<ReceiptSummary[]>({
+    queryKey: ["/api/receipts", "seller-analytics"],
+    queryFn: async () => {
+      const r = await fetch("/api/receipts?limit=8", { credentials: "include" });
+      if (!r.ok) return [];
+      const p = await r.json();
+      return Array.isArray(p) ? p : [];
+    },
+    enabled: !!user && user.role === "seller",
+    refetchInterval: 20000,
   });
 
   const startDate = useMemo(() => {
@@ -111,6 +137,62 @@ export default function SellerAnalytics() {
   }, [scoped]);
 
   const loading = statsLoading || ordersLoading;
+  const reportType = "seller_performance_analytics";
+  const reportScope = { range, scopedOrders: scoped.length };
+  const exportRows = scoped.map((order) => ({
+    order_id: order.id,
+    status: order.status,
+    payment_status: order.paymentStatus || "",
+    delivery_method: order.deliveryMethod,
+    total: Number(order.total || 0).toFixed(2),
+    created_at: order.createdAt,
+    delivered_at: order.deliveredAt || "",
+  }));
+
+  const handleExportCsv = async () => {
+    await logReportActivity({ action: "request", reportType, format: "csv", scope: reportScope, status: "success" });
+    try {
+      setExporting("csv");
+      const data = buildCsv(exportRows);
+      if (!data) return;
+      await logReportActivity({ action: "generate", reportType, format: "csv", scope: reportScope, status: "success" });
+      triggerDownload(new Blob([data], { type: "text/csv;charset=utf-8;" }), `seller-analytics-${new Date().toISOString().slice(0, 10)}.csv`);
+      await logReportActivity({ action: "download", reportType, format: "csv", scope: reportScope, status: "success" });
+    } catch {
+      await logReportActivity({ action: "generate", reportType, format: "csv", scope: reportScope, status: "failed" });
+    } finally {
+      setExporting("none");
+    }
+  };
+
+  const handleExportPdf = async () => {
+    await logReportActivity({ action: "request", reportType, format: "pdf", scope: reportScope, status: "success" });
+    try {
+      setExporting("pdf");
+      const lines = [
+        `Generated At: ${new Date().toISOString()}`,
+        `Range: ${range}`,
+        `Orders: ${scoped.length}`,
+        `Revenue: ${totals.revenue.toFixed(2)}`,
+        `Completed: ${totals.completedCount} | Cancelled: ${totals.cancelledCount}`,
+        " ",
+      ];
+      exportRows.forEach((row, idx) => {
+        lines.push(`${idx + 1}. ${row.order_id}`);
+        lines.push(`Status: ${row.status} | Payment: ${row.payment_status} | Method: ${row.delivery_method}`);
+        lines.push(`Total: ${row.total} | Created: ${row.created_at} | Delivered: ${row.delivered_at || "N/A"}`);
+        lines.push(" ");
+      });
+      const pdfBytes = createSimplePdf("Kiyumart Seller Analytics Report", lines);
+      await logReportActivity({ action: "generate", reportType, format: "pdf", scope: reportScope, status: "success" });
+      triggerDownload(new Blob([pdfBytes], { type: "application/pdf" }), `seller-analytics-${new Date().toISOString().slice(0, 10)}.pdf`);
+      await logReportActivity({ action: "download", reportType, format: "pdf", scope: reportScope, status: "success" });
+    } catch {
+      await logReportActivity({ action: "generate", reportType, format: "pdf", scope: reportScope, status: "failed" });
+    } finally {
+      setExporting("none");
+    }
+  };
 
   return (
     <DashboardLayout role="seller">
@@ -121,13 +203,21 @@ export default function SellerAnalytics() {
               <h1 className="text-2xl font-semibold" data-testid="text-page-title">Seller Analytics</h1>
               <p className="text-white/80 text-sm">Business-focused insights to optimize revenue, fulfillment, and delivery performance.</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge className="bg-white/20 text-white border-white/30">Live DB Data</Badge>
               <select className="h-9 rounded-md border border-white/30 bg-white/10 px-3 text-sm text-white" value={range} onChange={(e) => setRange(e.target.value as any)}>
                 <option value="7d" className="text-black">7 days</option>
                 <option value="30d" className="text-black">30 days</option>
                 <option value="90d" className="text-black">90 days</option>
               </select>
+              <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void handleExportCsv()} disabled={exporting !== "none"}>
+                <Download className="h-4 w-4 mr-2" />
+                {exporting === "csv" ? "Preparing..." : "CSV"}
+              </Button>
+              <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void handleExportPdf()} disabled={exporting !== "none"}>
+                <Download className="h-4 w-4 mr-2" />
+                {exporting === "pdf" ? "Preparing..." : "PDF"}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -180,11 +270,30 @@ export default function SellerAnalytics() {
                 <CardContent className="space-y-3 text-sm">
                   <div className="rounded-lg border p-3">Paid revenue in this window: <span className="font-semibold">{formatPrice(totals.revenue)}</span></div>
                   <div className="rounded-lg border p-3">Completion quality: <span className="font-semibold">{totals.completedCount}</span> completed vs <span className="font-semibold">{totals.cancelledCount}</span> cancelled.</div>
-                  <div className="rounded-lg border p-3">Top delivery method: <span className="font-semibold">{byMethod.sort((a, b) => b.count - a.count)[0]?.method || "N/A"}</span>.</div>
+                  <div className="rounded-lg border p-3">Top delivery method: <span className="font-semibold">{[...byMethod].sort((a, b) => b.count - a.count)[0]?.method || "N/A"}</span>.</div>
                   <div className="rounded-lg border p-3">Catalog at a glance: <span className="font-semibold">{num(stats?.totalOrders)}</span> lifetime orders, <span className="font-semibold">{formatPrice(num(stats?.totalRevenue))}</span> lifetime revenue.</div>
                 </CardContent>
               </Card>
             </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Receipt History</CardTitle>
+                <CardDescription>Live receipt records generated from payment and completion events.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {receipts.slice(0, 6).map((receipt) => (
+                  <a key={receipt.id} href={`/orders/${receipt.orderId}/receipt`} className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-accent">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{receipt.receiptNumber}</p>
+                      <p className="text-xs text-muted-foreground truncate">Order #{receipt.orderNumber} • {receipt.orderStatus}</p>
+                    </div>
+                    <p className="font-semibold">{formatPrice(Number(receipt.total || 0))}</p>
+                  </a>
+                ))}
+                {!receipts.length && <p className="text-sm text-muted-foreground">No receipts generated yet for this seller scope.</p>}
+              </CardContent>
+            </Card>
           </>
         )}
       </div>

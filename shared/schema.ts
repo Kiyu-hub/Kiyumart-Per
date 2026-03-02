@@ -536,6 +536,42 @@ export const notifications = pgTable("notifications", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const reportActivityLogs = pgTable("report_activity_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  requestedBy: varchar("requested_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  requesterRole: userRoleEnum("requester_role").notNull(),
+  reportType: text("report_type").notNull(),
+  action: text("action").notNull(), // request | generate | download
+  format: text("format"), // pdf | csv | json
+  status: text("status").default("success"), // success | failed | denied
+  reportId: text("report_id"),
+  scope: jsonb("scope").$type<Record<string, any>>().default({}),
+  metadata: jsonb("metadata").$type<Record<string, any>>().default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  requestedByIdx: index("report_activity_logs_requested_by_idx").on(table.requestedBy),
+  requesterRoleIdx: index("report_activity_logs_requester_role_idx").on(table.requesterRole),
+  reportTypeIdx: index("report_activity_logs_report_type_idx").on(table.reportType),
+  createdAtIdx: index("report_activity_logs_created_at_idx").on(table.createdAt),
+}));
+
+export const receipts = pgTable("receipts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  receiptNumber: text("receipt_number").notNull().unique(),
+  orderId: varchar("order_id").notNull().unique().references(() => orders.id, { onDelete: "cascade" }),
+  generatedBy: varchar("generated_by").references(() => users.id),
+  generatedByRole: userRoleEnum("generated_by_role"),
+  trigger: text("trigger").notNull().default("payment_success"),
+  status: text("status").notNull().default("generated"),
+  payload: jsonb("payload").$type<Record<string, any>>().default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  orderIdx: index("receipts_order_id_idx").on(table.orderId),
+  generatedByIdx: index("receipts_generated_by_idx").on(table.generatedBy),
+  updatedAtIdx: index("receipts_updated_at_idx").on(table.updatedAt),
+}));
+
 export const productVariants = pgTable("product_variants", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   productId: varchar("product_id").notNull().references(() => products.id),
@@ -962,6 +998,28 @@ export const insertNotificationSchema = createInsertSchema(notifications).pick({
   metadata: true,
 });
 
+export const insertReportActivityLogSchema = createInsertSchema(reportActivityLogs).pick({
+  requestedBy: true,
+  requesterRole: true,
+  reportType: true,
+  action: true,
+  format: true,
+  status: true,
+  reportId: true,
+  scope: true,
+  metadata: true,
+});
+
+export const insertReceiptSchema = createInsertSchema(receipts).pick({
+  receiptNumber: true,
+  orderId: true,
+  generatedBy: true,
+  generatedByRole: true,
+  trigger: true,
+  status: true,
+  payload: true,
+});
+
 export const insertProductVariantSchema = createInsertSchema(productVariants).pick({
   productId: true,
   color: true,
@@ -1096,6 +1154,10 @@ export type RiderReview = typeof riderReviews.$inferSelect;
 
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type Notification = typeof notifications.$inferSelect;
+export type InsertReportActivityLog = z.infer<typeof insertReportActivityLogSchema>;
+export type ReportActivityLog = typeof reportActivityLogs.$inferSelect;
+export type InsertReceipt = z.infer<typeof insertReceiptSchema>;
+export type Receipt = typeof receipts.$inferSelect;
 
 export const insertSupportConversationSchema = createInsertSchema(supportConversations).pick({
   subject: true,
