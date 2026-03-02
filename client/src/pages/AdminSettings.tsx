@@ -80,6 +80,9 @@ const settingsSchema = z.object({
   cloudinaryCloudName: z.string().optional(),
   cloudinaryApiKey: z.string().optional(),
   cloudinaryApiSecret: z.string().optional(),
+  mapboxPublicToken: z.string().optional().or(z.literal("")),
+  mapboxStyleUrl: z.string().optional().or(z.literal("")),
+  mapboxGlVersion: z.string().optional().or(z.literal("")),
   contactPhone: z.string().min(1, "Contact phone is required"),
   contactEmail: z.string().email("Must be a valid email"),
   contactAddress: z.string().min(1, "Contact address is required"),
@@ -129,6 +132,9 @@ interface PlatformSettings extends SettingsFormData {
   paystackSecretKeySource?: string;
   cloudinaryApiKeySource?: string;
   cloudinaryApiSecretSource?: string;
+  mapboxPublicTokenSource?: string;
+  mapboxStyleUrlSource?: string;
+  mapboxGlVersionSource?: string;
 }
 
 export default function AdminSettings() {
@@ -144,6 +150,8 @@ export default function AdminSettings() {
   const [isImportingPaystack, setIsImportingPaystack] = useState(false);
   const [showImportCloudinaryDialog, setShowImportCloudinaryDialog] = useState(false);
   const [isImportingCloudinary, setIsImportingCloudinary] = useState(false);
+  const [showImportMapDialog, setShowImportMapDialog] = useState(false);
+  const [isImportingMap, setIsImportingMap] = useState(false);
 
   // Footer Management state
   const [footerDialogOpen, setFooterDialogOpen] = useState(false);
@@ -516,6 +524,9 @@ export default function AdminSettings() {
       cloudinaryCloudName: (settings as any).cloudinaryCloudName || "",
       cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
       cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
+      mapboxPublicToken: (settings as any).mapboxPublicToken || "",
+      mapboxStyleUrl: (settings as any).mapboxStyleUrl || "mapbox://styles/mapbox/dark-v11",
+      mapboxGlVersion: (settings as any).mapboxGlVersion || "v3.4.0",
       contactPhone: settings.contactPhone,
       contactEmail: settings.contactEmail,
       contactAddress: settings.contactAddress,
@@ -612,6 +623,9 @@ export default function AdminSettings() {
         cloudinaryCloudName: data.cloudinaryCloudName || "",
         cloudinaryApiKey: data.cloudinaryApiKey || "",
         cloudinaryApiSecret: data.cloudinaryApiSecret || "",
+        mapboxPublicToken: (data as any).mapboxPublicToken || "",
+        mapboxStyleUrl: (data as any).mapboxStyleUrl || "mapbox://styles/mapbox/dark-v11",
+        mapboxGlVersion: (data as any).mapboxGlVersion || "v3.4.0",
         contactPhone: data.contactPhone,
         contactEmail: data.contactEmail,
         contactAddress: data.contactAddress,
@@ -657,7 +671,25 @@ export default function AdminSettings() {
 
   const onSubmit = (_data: SettingsFormData) => {
     // Use getValues to ensure controlled switches and all values are included
-    const payload = form.getValues();
+    const payload: any = { ...form.getValues() };
+    const mapKeys = ["mapboxPublicToken", "mapboxStyleUrl", "mapboxGlVersion"] as const;
+    for (const key of mapKeys) {
+      const raw = payload[key];
+      if (raw === null || raw === undefined) {
+        delete payload[key];
+        continue;
+      }
+      if (typeof raw !== "string") {
+        delete payload[key];
+        continue;
+      }
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        delete payload[key];
+        continue;
+      }
+      payload[key] = trimmed;
+    }
     updateSettingsMutation.mutate(payload as SettingsFormData);
   };
 
@@ -682,6 +714,9 @@ export default function AdminSettings() {
         cloudinaryCloudName: (settings as any).cloudinaryCloudName || "",
         cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
         cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
+        mapboxPublicToken: (settings as any).mapboxPublicToken || "",
+        mapboxStyleUrl: (settings as any).mapboxStyleUrl || "mapbox://styles/mapbox/dark-v11",
+        mapboxGlVersion: (settings as any).mapboxGlVersion || "v3.4.0",
         contactPhone: settings.contactPhone,
         contactEmail: settings.contactEmail,
         contactAddress: settings.contactAddress,
@@ -763,6 +798,10 @@ export default function AdminSettings() {
               <TabsTrigger value="storage" data-testid="tab-storage">
                 <Cloud className="h-4 w-4 mr-2" />
                 Storage
+              </TabsTrigger>
+              <TabsTrigger value="map" data-testid="tab-map">
+                <Globe className="h-4 w-4 mr-2" />
+                Map
               </TabsTrigger>
               <TabsTrigger value="contact" data-testid="tab-contact">
                 <Mail className="h-4 w-4 mr-2" />
@@ -1394,6 +1433,151 @@ export default function AdminSettings() {
                     <p className="text-xs text-muted-foreground">
                       Your Cloudinary API secret (keep this confidential)
                     </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="map" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Map Configuration</CardTitle>
+                  <CardDescription>
+                    Configure Mapbox runtime values used by tracking, geocoding, and fleet maps.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/30">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Runtime Map Source</p>
+                        <p className="text-xs text-blue-700 dark:text-blue-300">
+                          Source: <span className="font-medium">{settings?.mapboxPublicTokenSource || "none"}</span>
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowImportMapDialog(true)}
+                        data-testid="button-import-map"
+                      >
+                        Import from Environment
+                      </Button>
+                    </div>
+
+                    <AlertDialog open={showImportMapDialog} onOpenChange={setShowImportMapDialog}>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Import Map Settings?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This syncs Mapbox token/style/version from environment variables into Platform Settings.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel onClick={() => setShowImportMapDialog(false)}>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={async () => {
+                              try {
+                                setIsImportingMap(true);
+                                await apiRequest("POST", "/api/settings/import-map", {});
+                                await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+                                await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+                                toast({ title: "Imported", description: "Map environment settings have been synced." });
+                                setShowImportMapDialog(false);
+                              } catch (e: any) {
+                                toast({ title: "Import failed", description: e.message || "Failed to import map settings", variant: "destructive" });
+                              } finally {
+                                setIsImportingMap(false);
+                              }
+                            }}
+                            disabled={isImportingMap}
+                          >
+                            {isImportingMap ? "Importing..." : "Import"}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-100">
+                    <p className="font-medium">How to get Mapbox keys</p>
+                    <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs">
+                      <li>Sign in to your Mapbox account dashboard.</li>
+                      <li>Go to Account and open the Access Tokens page.</li>
+                      <li>Create or copy a public token that starts with <code>pk.</code>.</li>
+                      <li>Use that token in <code>Mapbox Public Token</code> below and save settings.</li>
+                      <li>If map is already open, click <code>Retry Mapbox</code> to reload fresh runtime config.</li>
+                    </ol>
+                  </div>
+
+                  <div className="rounded-lg border border-muted bg-muted/30 p-4 text-xs text-muted-foreground">
+                    <p className="font-medium text-foreground">Field purpose guide</p>
+                    <p className="mt-1"><strong>Mapbox Public Token:</strong> Authenticates map tiles, geocoding, and directions requests in the browser.</p>
+                    <p className="mt-1"><strong>Mapbox Style URL:</strong> Controls visual style of the map (colors, roads, labels, theme).</p>
+                    <p className="mt-1"><strong>Mapbox GL JS Version:</strong> Controls which Mapbox GL script version is loaded at runtime.</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <Label htmlFor="mapboxPublicToken">Mapbox Public Token</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Public key used by map rendering and geocoding (`pk...`).
+                        </p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Source: <span className="font-medium">{settings?.mapboxPublicTokenSource || "none"}</span>
+                      </p>
+                    </div>
+                    <Input
+                      id="mapboxPublicToken"
+                      {...form.register("mapboxPublicToken")}
+                      placeholder="pk.xxxxxxxxxxxxxxxxxxxxx"
+                      data-testid="input-mapbox-public-token"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Mapbox access token is missing. Set VITE_MAPBOX_ACCESS_TOKEN or MAPBOX_PUBLIC_TOKEN.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <Label htmlFor="mapboxStyleUrl">Mapbox Style URL</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Example: `mapbox://styles/mapbox/dark-v11`
+                        </p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Source: <span className="font-medium">{settings?.mapboxStyleUrlSource || "none"}</span>
+                      </p>
+                    </div>
+                    <Input
+                      id="mapboxStyleUrl"
+                      {...form.register("mapboxStyleUrl")}
+                      placeholder="mapbox://styles/mapbox/dark-v11"
+                      data-testid="input-mapbox-style-url"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <Label htmlFor="mapboxGlVersion">Mapbox GL JS Version</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Version used for loading Mapbox GL script at runtime.
+                        </p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Source: <span className="font-medium">{settings?.mapboxGlVersionSource || "none"}</span>
+                      </p>
+                    </div>
+                    <Input
+                      id="mapboxGlVersion"
+                      {...form.register("mapboxGlVersion")}
+                      placeholder="v3.4.0"
+                      data-testid="input-mapbox-gl-version"
+                    />
                   </div>
                 </CardContent>
               </Card>

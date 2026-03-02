@@ -168,6 +168,9 @@ export const platformSettings = pgTable("platform_settings", {
   onboardingImages: text("onboarding_images").array(),
   defaultCurrency: text("default_currency").default("GHS"),
   frontendUrl: text("frontend_url"), // Paystack callback URL for payment redirects (e.g., https://mystore.com)
+  mapboxPublicToken: text("mapbox_public_token"),
+  mapboxStyleUrl: text("mapbox_style_url").default("mapbox://styles/mapbox/dark-v11"),
+  mapboxGlVersion: text("mapbox_gl_version").default("v3.4.0"),
   paystackPublicKey: text("paystack_public_key"),
   paystackSecretKey: text("paystack_secret_key"),
   processingFeePercent: decimal("processing_fee_percent", { precision: 4, scale: 2 }).default("1.95"),

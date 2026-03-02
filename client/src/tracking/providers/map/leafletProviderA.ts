@@ -1,10 +1,16 @@
 import type { MapRenderer } from "@/tracking/interfaces";
+import { resolveMapboxAccessToken, resolveMapboxStyleUrl } from "@/tracking/mapbox/mapboxLoader";
 
 export const leafletProviderA: MapRenderer = {
   id: "PROVIDER_A",
   getRenderConfig() {
-    const token = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
-    const styleId = String((import.meta.env as any).VITE_MAPBOX_STYLE_ID || "mapbox/dark-v11").trim();
+    const token = resolveMapboxAccessToken();
+    const styleUrl = resolveMapboxStyleUrl();
+    const styleIdFromUrl = styleUrl.startsWith("mapbox://styles/")
+      ? String(styleUrl.replace("mapbox://styles/", "")).trim()
+      : "";
+    const envStyleId = String((import.meta.env as any).VITE_MAPBOX_STYLE_ID || "").trim();
+    const styleId = styleIdFromUrl || envStyleId || "mapbox/dark-v11";
     const mapboxTileUrl = token
       ? `https://api.mapbox.com/styles/v1/${styleId}/tiles/256/{z}/{x}/{y}?access_token=${token}`
       : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";

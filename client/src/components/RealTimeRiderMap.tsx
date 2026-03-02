@@ -37,7 +37,7 @@ import { useAnimatedFleetPositions } from "@/tracking/hooks/useAnimatedFleetPosi
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
-import { isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
+import { isMapboxGlPreferred, reloadMapboxRuntimeConfig } from "@/tracking/mapbox/mapboxLoader";
 import MapboxFleetMap from "@/tracking/mapbox/MapboxFleetMap";
 
 interface RiderLocation {
@@ -162,6 +162,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [mapboxInitFailed, setMapboxInitFailed] = useState(false);
   const [mapboxError, setMapboxError] = useState<string>("");
   const [mapboxRetryNonce, setMapboxRetryNonce] = useState(0);
+  const [isRetryingMapbox, setIsRetryingMapbox] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedRider, setSelectedRider] = useState<RiderLocation | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null);
@@ -490,20 +491,33 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                         <AlertTriangle className="h-10 w-10 text-destructive" />
                         <p className="mt-3 text-base font-semibold">Mapbox failed to initialize</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          {mapboxError || "The map could not load with the current Mapbox configuration."}
+                          {mapboxError || "Mapbox access token is missing. Set VITE_MAPBOX_ACCESS_TOKEN or MAPBOX_PUBLIC_TOKEN."}
                         </p>
                         <div className="mt-4 flex items-center gap-2">
                           <Button
                             variant="outline"
-                            onClick={() => {
+                            disabled={isRetryingMapbox}
+                            onClick={async () => {
+                              setIsRetryingMapbox(true);
                               setMapboxError("");
-                              setMapboxInitFailed(false);
-                              setMapboxRetryNonce((prev) => prev + 1);
+                              try {
+                                // Force-refresh runtime map config so retry uses latest saved settings.
+                                await reloadMapboxRuntimeConfig(true);
+                              } catch (error) {
+                                setMapboxError(error instanceof Error ? error.message : String(error || "Mapbox configuration refresh failed"));
+                              } finally {
+                                setMapboxInitFailed(false);
+                                setMapboxRetryNonce((prev) => prev + 1);
+                                setIsRetryingMapbox(false);
+                              }
                             }}
                           >
-                            Retry Mapbox
+                            {isRetryingMapbox ? "Retrying..." : "Retry Mapbox"}
                           </Button>
                         </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Retry pulls the latest Map settings and reloads map initialization.
+                        </p>
                       </div>
                     </div>
                   ) : (
@@ -928,3 +942,4 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     </>
   );
 }
+

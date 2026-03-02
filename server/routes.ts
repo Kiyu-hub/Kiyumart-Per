@@ -282,7 +282,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Public runtime map config (safe values only) so frontend can initialize map engines
   // even when tokens are provided as server env vars instead of Vite build-time vars.
-  app.get("/api/public/map-provider-config", (_req, res) => {
+  app.get("/api/public/map-provider-config", async (_req, res) => {
+    let settings: any = null;
+    try {
+      settings = await storage.getPlatformSettings();
+    } catch {
+      // Ignore settings lookup failures and fall back to env defaults.
+    }
+
     const rawProvider = String(
       process.env.VITE_MAP_PROVIDER || process.env.MAP_PROVIDER || "PROVIDER_A",
     )
@@ -291,6 +298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const provider = rawProvider === "PROVIDER_B" ? "PROVIDER_B" : "PROVIDER_A";
 
     const tokenCandidates = [
+      settings?.mapboxPublicToken,
       process.env.VITE_MAPBOX_ACCESS_TOKEN,
       process.env.MAPBOX_PUBLIC_TOKEN,
       process.env.MAPBOX_ACCESS_TOKEN,
@@ -298,11 +306,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const rawToken = tokenCandidates.find((value) => String(value || "").trim().length > 0) || "";
     const mapboxAccessToken = String(rawToken).trim();
     const safeToken = mapboxAccessToken.startsWith("pk.") ? mapboxAccessToken : "";
+    const styleUrl = String(
+      settings?.mapboxStyleUrl || process.env.VITE_MAPBOX_STYLE_URL || "mapbox://styles/mapbox/dark-v11",
+    ).trim();
+    const glVersion = String(settings?.mapboxGlVersion || process.env.VITE_MAPBOX_GL_VERSION || "v3.4.0").trim();
 
     res.json({
       provider,
       mapboxAccessToken: safeToken,
-      mapboxStyleUrl: String(process.env.VITE_MAPBOX_STYLE_URL || "mapbox://styles/mapbox/dark-v11"),
+      mapboxStyleUrl: styleUrl,
+      mapboxGlVersion: glVersion,
     });
   });
 
@@ -10424,6 +10437,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!settings.cloudinaryCloudName && process.env.CLOUDINARY_CLOUD_NAME) {
         toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
       }
+      const envMapboxToken = String(
+        process.env.VITE_MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || "",
+      ).trim();
+      if (!settings.mapboxPublicToken && envMapboxToken.startsWith("pk.")) {
+        toUpdate.mapboxPublicToken = envMapboxToken;
+      }
+      if (!settings.mapboxStyleUrl && process.env.VITE_MAPBOX_STYLE_URL) {
+        toUpdate.mapboxStyleUrl = process.env.VITE_MAPBOX_STYLE_URL;
+      }
+      if (!settings.mapboxGlVersion && process.env.VITE_MAPBOX_GL_VERSION) {
+        toUpdate.mapboxGlVersion = process.env.VITE_MAPBOX_GL_VERSION;
+      }
 
       if (Object.keys(toUpdate).length > 0) {
         // Persist imported env settings so they become manageable via dashboard.
@@ -10455,6 +10480,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         cloudinaryCloudNameSource: getSource(settings.cloudinaryCloudName ?? undefined, process.env.CLOUDINARY_CLOUD_NAME),
         paystackSecretKeySource: getSource(settings.paystackSecretKey ?? undefined, process.env.PAYSTACK_SECRET_KEY),
         paystackPublicKeySource: getSource(settings.paystackPublicKey ?? undefined, process.env.PAYSTACK_PUBLIC_KEY),
+        mapboxPublicTokenSource: getSource(
+          settings.mapboxPublicToken ?? undefined,
+          String(process.env.VITE_MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || "").trim() || undefined,
+        ),
+        mapboxStyleUrlSource: getSource(
+          settings.mapboxStyleUrl ?? undefined,
+          String(process.env.VITE_MAPBOX_STYLE_URL || "").trim() || undefined,
+        ),
+        mapboxGlVersionSource: getSource(
+          settings.mapboxGlVersion ?? undefined,
+          String(process.env.VITE_MAPBOX_GL_VERSION || "").trim() || undefined,
+        ),
       };
       res.json(sanitizedSettings);
     } catch (error: any) {
@@ -10485,6 +10522,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!settings.cloudinaryCloudName && process.env.CLOUDINARY_CLOUD_NAME) {
           toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
         }
+        const envMapboxToken = String(
+          process.env.VITE_MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || "",
+        ).trim();
+        if (!settings.mapboxPublicToken && envMapboxToken.startsWith("pk.")) {
+          toUpdate.mapboxPublicToken = envMapboxToken;
+        }
+        if (!settings.mapboxStyleUrl && process.env.VITE_MAPBOX_STYLE_URL) {
+          toUpdate.mapboxStyleUrl = process.env.VITE_MAPBOX_STYLE_URL;
+        }
+        if (!settings.mapboxGlVersion && process.env.VITE_MAPBOX_GL_VERSION) {
+          toUpdate.mapboxGlVersion = process.env.VITE_MAPBOX_GL_VERSION;
+        }
 
         if (Object.keys(toUpdate).length > 0) {
           settings = await storage.updatePlatformSettings(toUpdate);
@@ -10510,6 +10559,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         cloudinaryCloudNameSource: getSource(settings.cloudinaryCloudName ?? undefined, process.env.CLOUDINARY_CLOUD_NAME),
         paystackSecretKeySource: getSource(settings.paystackSecretKey ?? undefined, process.env.PAYSTACK_SECRET_KEY),
         paystackPublicKeySource: getSource(settings.paystackPublicKey ?? undefined, process.env.PAYSTACK_PUBLIC_KEY),
+        mapboxPublicTokenSource: getSource(
+          settings.mapboxPublicToken ?? undefined,
+          String(process.env.VITE_MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || "").trim() || undefined,
+        ),
+        mapboxStyleUrlSource: getSource(
+          settings.mapboxStyleUrl ?? undefined,
+          String(process.env.VITE_MAPBOX_STYLE_URL || "").trim() || undefined,
+        ),
+        mapboxGlVersionSource: getSource(
+          settings.mapboxGlVersion ?? undefined,
+          String(process.env.VITE_MAPBOX_GL_VERSION || "").trim() || undefined,
+        ),
       };
       res.json(sanitizedSettings);
     } catch (error: any) {
@@ -10527,6 +10588,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (process.env.CLOUDINARY_API_SECRET && !current.cloudinaryApiSecret) toUpdate.cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
       if (process.env.CLOUDINARY_API_KEY && !current.cloudinaryApiKey) toUpdate.cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
       if (process.env.CLOUDINARY_CLOUD_NAME && !current.cloudinaryCloudName) toUpdate.cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      const envMapboxToken = String(
+        process.env.VITE_MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || "",
+      ).trim();
+      if (envMapboxToken.startsWith("pk.") && !current.mapboxPublicToken) toUpdate.mapboxPublicToken = envMapboxToken;
+      if (process.env.VITE_MAPBOX_STYLE_URL && !current.mapboxStyleUrl) toUpdate.mapboxStyleUrl = process.env.VITE_MAPBOX_STYLE_URL;
+      if (process.env.VITE_MAPBOX_GL_VERSION && !current.mapboxGlVersion) toUpdate.mapboxGlVersion = process.env.VITE_MAPBOX_GL_VERSION;
 
       if (Object.keys(toUpdate).length === 0) {
         return res.json({ message: "No environment secrets to import", settings: current });
@@ -10581,6 +10648,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Import only Mapbox config from environment into DB
+  app.post("/api/settings/import-map", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
+    try {
+      const current = await storage.getPlatformSettings();
+      const toUpdate: any = {};
+      const envMapboxToken = String(
+        process.env.VITE_MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || "",
+      ).trim();
+      const envStyleUrl = String(process.env.VITE_MAPBOX_STYLE_URL || "").trim();
+      const envGlVersion = String(process.env.VITE_MAPBOX_GL_VERSION || "").trim();
+
+      if (envMapboxToken.startsWith("pk.")) toUpdate.mapboxPublicToken = envMapboxToken;
+      if (envStyleUrl) toUpdate.mapboxStyleUrl = envStyleUrl;
+      if (envGlVersion) toUpdate.mapboxGlVersion = envGlVersion;
+
+      if (Object.keys(toUpdate).length === 0) {
+        return res.json({ message: "No Mapbox environment values to import", settings: current });
+      }
+
+      const updated = await storage.updatePlatformSettings(toUpdate);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.patch("/api/settings", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     const start = Date.now();
     try {
@@ -10627,6 +10720,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Remove the internal flag before storing
       delete updateData._clearSocialKeys;
+
+      // Preserve existing map config if blank values are submitted, and normalize strings.
+      const mapKeys = ["mapboxPublicToken", "mapboxStyleUrl", "mapboxGlVersion"] as const;
+      for (const key of mapKeys) {
+        if (!(key in updateData)) continue;
+        const raw = updateData[key];
+        if (raw === null || raw === undefined) {
+          delete updateData[key];
+          continue;
+        }
+        if (typeof raw !== "string") {
+          delete updateData[key];
+          continue;
+        }
+        const trimmed = raw.trim();
+        if (!trimmed) {
+          delete updateData[key];
+          continue;
+        }
+        updateData[key] = trimmed;
+      }
+      if (
+        typeof updateData.mapboxPublicToken === "string" &&
+        updateData.mapboxPublicToken.length > 0 &&
+        !updateData.mapboxPublicToken.startsWith("pk.")
+      ) {
+        return res.status(400).json({ error: "Mapbox public token must start with pk." });
+      }
 
       const settings = await storage.updatePlatformSettings(updateData);
 

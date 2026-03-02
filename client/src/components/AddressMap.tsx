@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Icon, LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import MapTileLayer from "@/tracking/components/MapTileLayer";
+import { ensureMapboxRuntimeConfig, resolveMapboxAccessToken } from "@/tracking/mapbox/mapboxLoader";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
@@ -87,7 +88,8 @@ export default function AddressMap({ address, onAddressChange, onLocationChange,
 
   async function geocode(q: string): Promise<{ lat: number; lon: number; display_name: string } | null> {
     try {
-      const mapboxToken = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
+      await ensureMapboxRuntimeConfig();
+      const mapboxToken = resolveMapboxAccessToken();
       if (mapboxToken) {
         const proximity = `${-0.1869644},${5.6037168}`;
         const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?country=gh&limit=1&proximity=${proximity}&access_token=${mapboxToken}`;
@@ -118,7 +120,8 @@ export default function AddressMap({ address, onAddressChange, onLocationChange,
 
   async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
     try {
-      const mapboxToken = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
+      await ensureMapboxRuntimeConfig();
+      const mapboxToken = resolveMapboxAccessToken();
       if (mapboxToken) {
         const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=address,poi,neighborhood,place&limit=1&access_token=${mapboxToken}`;
         const mapboxRes = await fetch(mapboxUrl, { headers: { Accept: "application/json" } });

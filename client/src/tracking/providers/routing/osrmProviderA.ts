@@ -1,4 +1,5 @@
 import type { RouteInstruction, RouteResult, RoutingEngine, RoutingRequest } from "@/tracking/interfaces";
+import { ensureMapboxRuntimeConfig, resolveMapboxAccessToken } from "@/tracking/mapbox/mapboxLoader";
 
 function toMapboxInstructions(route: any): RouteInstruction[] {
   const instructions: RouteInstruction[] = [];
@@ -67,9 +68,13 @@ function toOsrmRouteResult(payload: any): RouteResult {
 }
 
 async function fetchMapboxRoute(request: RoutingRequest): Promise<RouteResult> {
-  const token = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
+  let token = resolveMapboxAccessToken();
   if (!token) {
-    throw new Error("Missing VITE_MAPBOX_ACCESS_TOKEN for Mapbox Directions");
+    await ensureMapboxRuntimeConfig();
+    token = resolveMapboxAccessToken();
+  }
+  if (!token) {
+    throw new Error("Mapbox access token is missing. Set VITE_MAPBOX_ACCESS_TOKEN or MAPBOX_PUBLIC_TOKEN.");
   }
   const profile = String((import.meta.env as any).VITE_MAPBOX_DIRECTIONS_PROFILE || "driving").trim();
   const coordinates = `${request.from.lng},${request.from.lat};${request.to.lng},${request.to.lat}`;
@@ -117,4 +122,3 @@ export const osrmProviderA: RoutingEngine = {
   id: "PROVIDER_A",
   route: routeWithPrimaryAndFallback,
 };
-
