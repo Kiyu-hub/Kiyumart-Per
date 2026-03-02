@@ -5543,37 +5543,151 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   type EtaRoleKey = "customer" | "rider" | "agent" | "admin" | "super_admin";
-  const toEtaRoleKey = (role: string): EtaRoleKey => {
-    const normalized = String(role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
-    if (normalized === "buyer" || normalized === "customer") return "customer";
-    if (normalized === "rider") return "rider";
-    if (normalized === "agent") return "agent";
-    if (normalized === "admin") return "admin";
-    return "super_admin";
+  type EtaControlsSnapshot = {
+    aiEnabledGlobal: boolean;
+    aiEnabledByRegion: Record<string, boolean>;
+    aiEnabledByRole: Record<EtaRoleKey, boolean>;
+    aiVisibleByRole: Record<EtaRoleKey, boolean>;
   };
+  const ETA_MUTABLE_ROLE_KEYS: EtaRoleKey[] = ["customer", "rider", "agent", "admin"];
+  const ETA_ROLE_TO_STORAGE_ROLE: Record<EtaRoleKey, "buyer" | "rider" | "agent" | "admin" | "super_admin"> = {
+    customer: "buyer",
+    rider: "rider",
+    agent: "agent",
+    admin: "admin",
+    super_admin: "super_admin",
+  };
+  const ETA_FEATURE_KEY_AI_ENABLED = "tracking.ai_eta.enabled";
+  const ETA_FEATURE_KEY_AI_VISIBLE = "tracking.ai_eta.visible";
+  const ETA_FEATURE_KEY_GLOBAL_ENABLED = "tracking.ai_eta.global_enabled";
+  const ETA_FEATURE_REGION_PREFIX = "tracking.ai_eta.region.";
 
-  const etaControls = {
+  const buildDefaultEtaControls = (): EtaControlsSnapshot => ({
     aiEnabledGlobal: true,
-    aiEnabledByRegion: {} as Record<string, boolean>,
+    aiEnabledByRegion: {},
     aiEnabledByRole: {
       customer: true,
       rider: true,
       agent: true,
       admin: true,
       super_admin: true,
-    } as Record<EtaRoleKey, boolean>,
+    },
     aiVisibleByRole: {
       customer: false,
       rider: false,
       agent: true,
       admin: true,
       super_admin: true,
-    } as Record<EtaRoleKey, boolean>,
+    },
+  });
+
+  let etaControls: EtaControlsSnapshot = buildDefaultEtaControls();
+
+  const toEtaRoleKey = (role: string): EtaRoleKey => {
+    const normalized = String(role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    if (normalized === "buyer" || normalized === "customer") return "customer";
+    if (normalized === "seller") return "customer";
+    if (normalized === "rider") return "rider";
+    if (normalized === "agent") return "agent";
+    if (normalized === "admin") return "admin";
+    if (normalized === "super_admin" || normalized === "superadmin") return "super_admin";
+    return "customer";
   };
+
+  const normalizeEtaRegionKey = (value: string): string => {
+    const normalized = String(value || "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "_");
+    return normalized || "global";
+  };
+
+  const readRoleFeatureMap = async (role: "buyer" | "rider" | "agent" | "admin" | "super_admin") => {
+    const rows = await storage.getRoleFeatures(role);
+    const candidate = rows?.[0]?.features;
+    if (!candidate || typeof candidate !== "object") return {} as Record<string, boolean>;
+    return candidate as Record<string, boolean>;
+  };
+
+  const readEtaControlsFromDb = async (): Promise<EtaControlsSnapshot> => {
+    const snapshot = buildDefaultEtaControls();
+    const superAdminFeatures = await readRoleFeatureMap("super_admin");
+
+    if (typeof superAdminFeatures[ETA_FEATURE_KEY_GLOBAL_ENABLED] === "boolean") {
+      snapshot.aiEnabledGlobal = superAdminFeatures[ETA_FEATURE_KEY_GLOBAL_ENABLED];
+    }
+
+    Object.entries(superAdminFeatures).forEach(([featureKey, enabled]) => {
+      if (!featureKey.startsWith(ETA_FEATURE_REGION_PREFIX) || typeof enabled !== "boolean") return;
+      const regionKey = normalizeEtaRegionKey(featureKey.slice(ETA_FEATURE_REGION_PREFIX.length));
+      snapshot.aiEnabledByRegion[regionKey] = enabled;
+    });
+
+    for (const roleKey of ETA_MUTABLE_ROLE_KEYS) {
+      const storageRole = ETA_ROLE_TO_STORAGE_ROLE[roleKey];
+      const roleFeatures = await readRoleFeatureMap(storageRole);
+      if (typeof roleFeatures[ETA_FEATURE_KEY_AI_ENABLED] === "boolean") {
+        snapshot.aiEnabledByRole[roleKey] = roleFeatures[ETA_FEATURE_KEY_AI_ENABLED];
+      }
+      if (typeof roleFeatures[ETA_FEATURE_KEY_AI_VISIBLE] === "boolean") {
+        snapshot.aiVisibleByRole[roleKey] = roleFeatures[ETA_FEATURE_KEY_AI_VISIBLE];
+      }
+    }
+
+    // Super-admin visibility and enablement are enforced server-side.
+    snapshot.aiEnabledByRole.super_admin = true;
+    snapshot.aiVisibleByRole.super_admin = true;
+    return snapshot;
+  };
+
+  const persistEtaControlsToDb = async (snapshot: EtaControlsSnapshot, updatedBy: string) => {
+    for (const roleKey of ETA_MUTABLE_ROLE_KEYS) {
+      const storageRole = ETA_ROLE_TO_STORAGE_ROLE[roleKey];
+      const current = await readRoleFeatureMap(storageRole);
+      const next = {
+        ...current,
+        [ETA_FEATURE_KEY_AI_ENABLED]: snapshot.aiEnabledByRole[roleKey] !== false,
+        [ETA_FEATURE_KEY_AI_VISIBLE]: snapshot.aiVisibleByRole[roleKey] !== false,
+      };
+      await storage.updateRoleFeatures(storageRole, next, updatedBy);
+    }
+
+    const currentSuperAdmin = await readRoleFeatureMap("super_admin");
+    const nextSuperAdmin: Record<string, boolean> = {
+      ...currentSuperAdmin,
+      [ETA_FEATURE_KEY_AI_ENABLED]: true,
+      [ETA_FEATURE_KEY_AI_VISIBLE]: true,
+      [ETA_FEATURE_KEY_GLOBAL_ENABLED]: snapshot.aiEnabledGlobal !== false,
+    };
+
+    Object.keys(nextSuperAdmin).forEach((featureKey) => {
+      if (featureKey.startsWith(ETA_FEATURE_REGION_PREFIX)) {
+        delete nextSuperAdmin[featureKey];
+      }
+    });
+
+    Object.entries(snapshot.aiEnabledByRegion).forEach(([region, enabled]) => {
+      const regionKey = normalizeEtaRegionKey(region);
+      nextSuperAdmin[`${ETA_FEATURE_REGION_PREFIX}${regionKey}`] = enabled !== false;
+    });
+
+    await storage.updateRoleFeatures("super_admin", nextSuperAdmin, updatedBy);
+  };
+
+  const refreshEtaControls = async () => {
+    try {
+      etaControls = await readEtaControlsFromDb();
+    } catch (error: any) {
+      console.warn("[ETA] Failed to refresh ETA controls from DB, using in-memory snapshot:", error?.message || error);
+    }
+    return etaControls;
+  };
+
+  await refreshEtaControls();
 
   const getRegionKeyForEta = (order: any): string => {
     const region = String(order?.deliveryRegion || order?.deliveryCity || "global").toLowerCase().trim();
-    return region || "global";
+    return normalizeEtaRegionKey(region);
   };
 
   const isAiEtaEnabledFor = (role: string, regionKey: string): boolean => {
@@ -7277,6 +7391,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     requireAuth,
     requireRole("super_admin"),
     async (_req: AuthRequest, res) => {
+      await refreshEtaControls();
       return res.json({
         ...etaControls,
       });
@@ -7289,36 +7404,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     requireRole("super_admin"),
     async (req: AuthRequest, res) => {
       const body = req.body || {};
+      const current = await refreshEtaControls();
+      const next: EtaControlsSnapshot = {
+        aiEnabledGlobal: current.aiEnabledGlobal,
+        aiEnabledByRegion: { ...current.aiEnabledByRegion },
+        aiEnabledByRole: { ...current.aiEnabledByRole },
+        aiVisibleByRole: { ...current.aiVisibleByRole },
+      };
+
       if (typeof body.aiEnabledGlobal === "boolean") {
-        etaControls.aiEnabledGlobal = body.aiEnabledGlobal;
+        next.aiEnabledGlobal = body.aiEnabledGlobal;
       }
+
       if (body.aiEnabledByRegion && typeof body.aiEnabledByRegion === "object") {
         Object.entries(body.aiEnabledByRegion).forEach(([region, enabled]) => {
-          if (typeof enabled === "boolean") {
-            etaControls.aiEnabledByRegion[String(region).toLowerCase().trim()] = enabled;
-          }
+          if (typeof enabled !== "boolean") return;
+          const regionKey = normalizeEtaRegionKey(String(region));
+          next.aiEnabledByRegion[regionKey] = enabled;
         });
       }
+
       if (body.aiEnabledByRole && typeof body.aiEnabledByRole === "object") {
-        (Object.keys(etaControls.aiEnabledByRole) as EtaRoleKey[]).forEach((roleKey) => {
+        ETA_MUTABLE_ROLE_KEYS.forEach((roleKey) => {
           const incoming = (body.aiEnabledByRole as any)[roleKey];
           if (typeof incoming === "boolean") {
-            etaControls.aiEnabledByRole[roleKey] = incoming;
-          }
-        });
-      }
-      if (body.aiVisibleByRole && typeof body.aiVisibleByRole === "object") {
-        (Object.keys(etaControls.aiVisibleByRole) as EtaRoleKey[]).forEach((roleKey) => {
-          const incoming = (body.aiVisibleByRole as any)[roleKey];
-          if (typeof incoming === "boolean") {
-            etaControls.aiVisibleByRole[roleKey] = incoming;
+            next.aiEnabledByRole[roleKey] = incoming;
           }
         });
       }
 
-      return res.json({
-        ...etaControls,
-      });
+      if (body.aiVisibleByRole && typeof body.aiVisibleByRole === "object") {
+        ETA_MUTABLE_ROLE_KEYS.forEach((roleKey) => {
+          const incoming = (body.aiVisibleByRole as any)[roleKey];
+          if (typeof incoming === "boolean") {
+            next.aiVisibleByRole[roleKey] = incoming;
+          }
+        });
+      }
+
+      // Super-admin role controls are mandatory and cannot be disabled via API/UI.
+      next.aiEnabledByRole.super_admin = true;
+      next.aiVisibleByRole.super_admin = true;
+
+      try {
+        await persistEtaControlsToDb(next, req.user!.id);
+        etaControls = next;
+        io.emit("admin_eta_controls_updated", { ...etaControls });
+        return res.json({
+          ...etaControls,
+        });
+      } catch (error: any) {
+        console.error("[ETA] Failed to persist ETA controls:", error?.message || error);
+        return res.status(500).json({ error: "Failed to persist ETA controls" });
+      }
     },
   );
 

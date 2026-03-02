@@ -69,6 +69,8 @@ interface RiderRiskScore {
   signals: Array<{ signal: string; weight: number; at: number }>;
 }
 
+const ETA_CONTROL_ROLE_KEYS = ["customer", "rider", "agent", "admin"] as const;
+
 export default function AdminDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
   const [location, navigate] = useLocation();
@@ -303,9 +305,15 @@ export default function AdminDashboardConnected() {
       queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
     };
 
+    const handleEtaControlsUpdated = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/eta-controls"] });
+    };
+
     socket.on("delivery_zones_updated", handleDeliveryZonesUpdated);
+    socket.on("admin_eta_controls_updated", handleEtaControlsUpdated);
     return () => {
       socket.off("delivery_zones_updated", handleDeliveryZonesUpdated);
+      socket.off("admin_eta_controls_updated", handleEtaControlsUpdated);
     };
   }, [socket, queryClient]);
 
@@ -481,7 +489,7 @@ export default function AdminDashboardConnected() {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">AI ETA Control Center</CardTitle>
-                  <CardDescription>Global and role-level control for AI-assisted ETA predictions.</CardDescription>
+                  <CardDescription>Global and role-level control for AI-assisted ETA predictions. Super Admin is always enabled.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
@@ -502,7 +510,7 @@ export default function AdminDashboardConnected() {
                     </Button>
                   </div>
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {(["customer", "rider", "agent", "admin", "super_admin"] as const).map((roleKey) => {
+                    {ETA_CONTROL_ROLE_KEYS.map((roleKey) => {
                       const enabled = etaControls?.aiEnabledByRole?.[roleKey] !== false;
                       return (
                         <div key={roleKey} className="rounded-lg border p-3">

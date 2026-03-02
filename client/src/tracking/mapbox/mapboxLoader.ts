@@ -54,9 +54,16 @@ export async function loadMapboxGl(): Promise<any> {
         if (!response.ok) return;
         const payload = await response.json();
         const token = String(payload?.mapboxAccessToken || "").trim();
+        const styleUrl = String(payload?.mapboxStyleUrl || "").trim();
+        if (styleUrl) {
+          (window as any).__MAPBOX_STYLE_URL__ = styleUrl;
+        }
         if (!token) return;
         (window as any).__MAPBOX_ACCESS_TOKEN__ = token;
         try {
+          if (styleUrl) {
+            window.localStorage.setItem("mapbox_style_url", styleUrl);
+          }
           window.localStorage.setItem("mapbox_access_token", token);
         } catch {
           // Ignore storage write errors.
@@ -99,6 +106,24 @@ export function resolveMapboxAccessToken(): string {
     // Ignore storage read errors.
   }
   return "";
+}
+
+export function resolveMapboxStyleUrl(): string {
+  const envStyle = String((import.meta.env as any).VITE_MAPBOX_STYLE_URL || "").trim();
+  if (envStyle) return envStyle;
+  if (typeof window === "undefined") return "mapbox://styles/mapbox/dark-v11";
+
+  const winStyle = String((window as any).__MAPBOX_STYLE_URL__ || "").trim();
+  if (winStyle) return winStyle;
+
+  try {
+    const stored = String(window.localStorage.getItem("mapbox_style_url") || "").trim();
+    if (stored) return stored;
+  } catch {
+    // Ignore storage read errors.
+  }
+
+  return "mapbox://styles/mapbox/dark-v11";
 }
 
 export function toMapboxRasterStyle(tileUrl: string, attribution?: string) {

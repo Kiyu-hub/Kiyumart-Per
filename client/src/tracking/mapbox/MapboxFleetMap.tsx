@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
 import { usageMonitor } from "@/tracking/usage/usageMonitor";
 import { getMapRenderer } from "@/tracking/providers/factory";
-import { loadMapboxGl, resolveMapboxAccessToken, toMapboxRasterStyle } from "@/tracking/mapbox/mapboxLoader";
+import {
+  loadMapboxGl,
+  resolveMapboxAccessToken,
+  resolveMapboxStyleUrl,
+  toMapboxRasterStyle,
+} from "@/tracking/mapbox/mapboxLoader";
 
 interface FleetRiderMarker {
   riderId: string;
@@ -25,6 +30,7 @@ interface MapboxFleetMapProps {
   style?: React.CSSProperties;
   onRiderClick?: (riderId: string) => void;
   onOrderClick?: (orderId: string) => void;
+  requireMapboxToken?: boolean;
   onLoad?: () => void;
   onError?: (error: unknown) => void;
 }
@@ -69,6 +75,7 @@ export default function MapboxFleetMap({
   style,
   onRiderClick,
   onOrderClick,
+  requireMapboxToken = false,
   onLoad,
   onError,
 }: MapboxFleetMapProps) {
@@ -78,11 +85,8 @@ export default function MapboxFleetMap({
   const orderMarkersRef = useRef<Map<string, any>>(new Map());
   const destinationMarkerRef = useRef<any>(null);
   const loadedRef = useRef(false);
+  const initErrorReportedRef = useRef(false);
 
-  const mapStyle = useMemo(
-    () => String((import.meta.env as any).VITE_MAPBOX_STYLE_URL || "mapbox://styles/mapbox/dark-v11"),
-    [],
-  );
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
 
   useEffect(() => {
@@ -94,9 +98,13 @@ export default function MapboxFleetMap({
         const mapboxgl = await loadMapboxGl();
         const token = resolveMapboxAccessToken();
         if (disposed || !containerRef.current) return;
+        if (requireMapboxToken && !token) {
+          throw new Error("Mapbox access token is missing. Set VITE_MAPBOX_ACCESS_TOKEN or MAPBOX_PUBLIC_TOKEN.");
+        }
         if (token) {
           mapboxgl.accessToken = token;
         }
+        const mapStyle = resolveMapboxStyleUrl();
         const styleValue = token
           ? mapStyle
           : toMapboxRasterStyle(fallbackMapRenderConfig.tileUrl, fallbackMapRenderConfig.attribution);
@@ -111,9 +119,16 @@ export default function MapboxFleetMap({
         mapRef.current = map;
         usageMonitor.trackMapInstantiation();
         map.on("sourcedata", () => usageMonitor.trackTileLoad());
+        map.on("error", (event: any) => {
+          if (disposed || initErrorReportedRef.current || loadedRef.current) return;
+          const errorPayload = event?.error || event || new Error("Mapbox map failed to initialize.");
+          initErrorReportedRef.current = true;
+          onError?.(errorPayload);
+        });
         map.on("load", () => {
           if (disposed) return;
           loadedRef.current = true;
+          initErrorReportedRef.current = false;
           onLoad?.();
           if (!map.getSource(ROUTE_SOURCE_ID)) {
             map.addSource(ROUTE_SOURCE_ID, {
@@ -135,6 +150,7 @@ export default function MapboxFleetMap({
           }
         });
       } catch (error) {
+        initErrorReportedRef.current = true;
         onError?.(error);
       }
     })();
@@ -150,8 +166,9 @@ export default function MapboxFleetMap({
         mapRef.current.remove();
         mapRef.current = null;
       }
+      initErrorReportedRef.current = false;
     };
-  }, [center, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, mapStyle, onError, onLoad]);
+  }, [center, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, onError, onLoad, requireMapboxToken]);
 
   useEffect(() => {
     const map = mapRef.current;

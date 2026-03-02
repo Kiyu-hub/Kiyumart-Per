@@ -160,6 +160,8 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [center] = useState<LatLng>(new LatLng(5.6037, -0.1870)); // Accra, Ghana
   const [mapboxInitFailed, setMapboxInitFailed] = useState(false);
+  const [mapboxError, setMapboxError] = useState<string>("");
+  const [mapboxRetryNonce, setMapboxRetryNonce] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedRider, setSelectedRider] = useState<RiderLocation | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null);
@@ -436,6 +438,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                 <>
                   {shouldUseMapboxGl ? (
                     <MapboxFleetMap
+                      key={`fleet-mapbox-${mapboxRetryNonce}`}
                       center={[center.lat, center.lng]}
                       riders={riders
                         .filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => rider.latitude !== null && rider.longitude !== null)
@@ -470,12 +473,39 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                         const order = pendingOrders.find((entry) => entry.id === orderId);
                         if (order) handleDispatchOrder(order);
                       }}
-                      onLoad={() => setMapboxInitFailed(false)}
+                      requireMapboxToken={forceMapboxGl}
+                      onLoad={() => {
+                        setMapboxInitFailed(false);
+                        setMapboxError("");
+                      }}
                       onError={(error) => {
-                        console.error("Mapbox fleet map failed; falling back to Leaflet renderer", error);
+                        console.error("Mapbox fleet map failed to initialize", error);
+                        setMapboxError(error instanceof Error ? error.message : String(error || "Mapbox initialization failed"));
                         setMapboxInitFailed(true);
                       }}
                     />
+                  ) : forceMapboxGl ? (
+                    <div className="h-full w-full bg-muted/40 p-6">
+                      <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center rounded-xl border border-destructive/20 bg-background/90 p-6 text-center">
+                        <AlertTriangle className="h-10 w-10 text-destructive" />
+                        <p className="mt-3 text-base font-semibold">Mapbox failed to initialize</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {mapboxError || "The map could not load with the current Mapbox configuration."}
+                        </p>
+                        <div className="mt-4 flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setMapboxError("");
+                              setMapboxInitFailed(false);
+                              setMapboxRetryNonce((prev) => prev + 1);
+                            }}
+                          >
+                            Retry Mapbox
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
                   ) : (
                     <MapContainer
                       center={center}
