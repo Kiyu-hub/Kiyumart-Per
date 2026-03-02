@@ -37,7 +37,7 @@ import { useAnimatedFleetPositions } from "@/tracking/hooks/useAnimatedFleetPosi
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
-import { isMapboxGlPreferred, reloadMapboxRuntimeConfig } from "@/tracking/mapbox/mapboxLoader";
+import { isMapboxGlPreferred, reloadMapboxRuntimeConfig, resetMapboxGlLoader } from "@/tracking/mapbox/mapboxLoader";
 import MapboxFleetMap from "@/tracking/mapbox/MapboxFleetMap";
 
 interface RiderLocation {
@@ -425,7 +425,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           <div className={`flex ${isFullscreen ? "flex-1 min-h-0" : ""}`}>
             {/* Map Container */}
             <div 
-              className={`relative transition-all duration-300 ${selectedRider ? "flex-1" : "w-full"} ${isFullscreen ? "h-full min-h-0" : "h-[600px]"}`}
+              className={`relative transition-all duration-300 ${selectedRider ? "flex-1" : "w-full"} ${isFullscreen ? "h-full min-h-0" : "h-[520px] lg:h-[560px]"}`}
               data-testid="map-container"
             >
               {isLoading ? (
@@ -482,41 +482,6 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                         setMapboxInitFailed(true);
                       }}
                     />
-                  ) : forceMapboxGl ? (
-                    <div className="h-full w-full bg-muted/40 p-6">
-                      <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center rounded-xl border border-destructive/20 bg-background/90 p-6 text-center">
-                        <AlertTriangle className="h-10 w-10 text-destructive" />
-                        <p className="mt-3 text-base font-semibold">Mapbox failed to initialize</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {mapboxError || "Mapbox access token is missing. Set VITE_MAPBOX_ACCESS_TOKEN or MAPBOX_PUBLIC_TOKEN."}
-                        </p>
-                        <div className="mt-4 flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            disabled={isRetryingMapbox}
-                            onClick={async () => {
-                              setIsRetryingMapbox(true);
-                              setMapboxError("");
-                              try {
-                                // Force-refresh runtime map config so retry uses latest saved settings.
-                                await reloadMapboxRuntimeConfig(true);
-                              } catch (error) {
-                                setMapboxError(error instanceof Error ? error.message : String(error || "Mapbox configuration refresh failed"));
-                              } finally {
-                                setMapboxInitFailed(false);
-                                setMapboxRetryNonce((prev) => prev + 1);
-                                setIsRetryingMapbox(false);
-                              }
-                            }}
-                          >
-                            {isRetryingMapbox ? "Retrying..." : "Retry Mapbox"}
-                          </Button>
-                        </div>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Retry pulls the latest Map settings and reloads map initialization.
-                        </p>
-                      </div>
-                    </div>
                   ) : (
                     <MapContainer
                       center={center}
@@ -628,6 +593,40 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                     </MapContainer>
                   )}
 
+                  {forceMapboxGl && mapboxInitFailed && (
+                    <div className="absolute left-3 right-3 top-3 z-[1200] rounded-lg border border-destructive/30 bg-background/95 p-3 shadow-sm backdrop-blur">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-destructive">Mapbox failed to initialize</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {mapboxError || "Mapbox access token is missing. Set VITE_MAPBOX_ACCESS_TOKEN or MAPBOX_PUBLIC_TOKEN."}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isRetryingMapbox}
+                          onClick={async () => {
+                            setIsRetryingMapbox(true);
+                            setMapboxError("");
+                            try {
+                              resetMapboxGlLoader();
+                              await reloadMapboxRuntimeConfig(true);
+                            } catch (error) {
+                              setMapboxError(error instanceof Error ? error.message : String(error || "Mapbox configuration refresh failed"));
+                            } finally {
+                              setMapboxInitFailed(false);
+                              setMapboxRetryNonce((prev) => prev + 1);
+                              setIsRetryingMapbox(false);
+                            }
+                          }}
+                        >
+                          {isRetryingMapbox ? "Retrying..." : "Retry Mapbox"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Empty state overlay */}
                   {ridersWithLocation.length === 0 && pendingOrders.length === 0 && (
                     <div className="absolute inset-0 z-[1000] flex items-center justify-center pointer-events-none">
@@ -655,8 +654,8 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
             {/* Rider Detail Sidebar */}
             {selectedRider && (
               <div 
-                className={`${isFullscreen ? "w-[360px] xl:w-[420px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[600px]"} border-l bg-background overflow-hidden`}
-              >
+                className={`${isFullscreen ? "w-[340px] xl:w-[400px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[520px] lg:h-[560px]"} border-l bg-background overflow-hidden`}
+                >
                 <ScrollArea className="h-full">
                   <div className="p-4">
                     <div className="flex items-center justify-between mb-4">

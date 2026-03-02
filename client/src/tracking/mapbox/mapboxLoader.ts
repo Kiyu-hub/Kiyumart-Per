@@ -111,6 +111,10 @@ export async function reloadMapboxRuntimeConfig(clearPersisted = true): Promise<
   await ensureMapboxRuntimeConfig();
 }
 
+export function resetMapboxGlLoader(): void {
+  loaderPromise = null;
+}
+
 export async function loadMapboxGl(): Promise<any> {
   if (typeof window === "undefined") {
     throw new Error("Mapbox GL can only load in browser");
@@ -119,18 +123,23 @@ export async function loadMapboxGl(): Promise<any> {
   await ensureMapboxRuntimeConfig();
   if (!loaderPromise) {
     loaderPromise = (async () => {
-      const version = String(
-        (window as any).__MAPBOX_GL_VERSION__ ||
-          (import.meta.env as any).VITE_MAPBOX_GL_VERSION ||
-          "v3.4.0",
-      ).trim();
-      const base = `https://api.mapbox.com/mapbox-gl-js/${version}`;
-      ensureStylesheet(`${base}/mapbox-gl.css`);
-      await appendScript(`${base}/mapbox-gl.js`);
-      if (!(window as any).mapboxgl) {
-        throw new Error("Mapbox GL failed to initialize");
+      try {
+        const version = String(
+          (window as any).__MAPBOX_GL_VERSION__ ||
+            (import.meta.env as any).VITE_MAPBOX_GL_VERSION ||
+            "v3.4.0",
+        ).trim();
+        const base = `https://api.mapbox.com/mapbox-gl-js/${version}`;
+        ensureStylesheet(`${base}/mapbox-gl.css`);
+        await appendScript(`${base}/mapbox-gl.js`);
+        if (!(window as any).mapboxgl) {
+          throw new Error("Mapbox GL failed to initialize");
+        }
+        return (window as any).mapboxgl;
+      } catch (error) {
+        loaderPromise = null;
+        throw error;
       }
-      return (window as any).mapboxgl;
     })();
   }
   return loaderPromise;
