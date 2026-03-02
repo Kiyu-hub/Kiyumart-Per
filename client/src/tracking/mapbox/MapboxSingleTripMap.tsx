@@ -71,8 +71,8 @@ export default function MapboxSingleTripMap({
 
     (async () => {
       try {
-        const token = resolveMapboxAccessToken();
         const mapboxgl = await loadMapboxGl();
+        const token = resolveMapboxAccessToken();
         if (disposed || !containerRef.current) return;
         if (token) {
           mapboxgl.accessToken = token;

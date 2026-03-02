@@ -1,6 +1,7 @@
 import { USE_PROVIDER } from "@/tracking/config";
 
 let loaderPromise: Promise<any> | null = null;
+let mapboxConfigPromise: Promise<void> | null = null;
 
 function appendScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -43,6 +44,29 @@ export async function loadMapboxGl(): Promise<any> {
     throw new Error("Mapbox GL can only load in browser");
   }
   if ((window as any).mapboxgl) return (window as any).mapboxgl;
+  if (!mapboxConfigPromise) {
+    mapboxConfigPromise = (async () => {
+      if (resolveMapboxAccessToken()) return;
+      try {
+        const response = await fetch("/api/public/map-provider-config", {
+          credentials: "include",
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        const token = String(payload?.mapboxAccessToken || "").trim();
+        if (!token) return;
+        (window as any).__MAPBOX_ACCESS_TOKEN__ = token;
+        try {
+          window.localStorage.setItem("mapbox_access_token", token);
+        } catch {
+          // Ignore storage write errors.
+        }
+      } catch {
+        // Ignore remote token lookup failures and continue with local fallbacks.
+      }
+    })();
+  }
+  await mapboxConfigPromise;
   if (!loaderPromise) {
     loaderPromise = (async () => {
       const version = String((import.meta.env as any).VITE_MAPBOX_GL_VERSION || "v3.4.0");

@@ -151,7 +151,11 @@ function MapBoundsController({ riders, pendingOrders }: { riders: RiderLocation[
   return null;
 }
 
-export default function RealTimeRiderMap() {
+interface RealTimeRiderMapProps {
+  forceMapboxGl?: boolean;
+}
+
+export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRiderMapProps) {
   const [riders, setRiders] = useState<RiderLocation[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [center] = useState<LatLng>(new LatLng(5.6037, -0.1870)); // Accra, Ghana
@@ -163,7 +167,7 @@ export default function RealTimeRiderMap() {
   const socketRef = useRef<Socket | null>(null);
   const { toast } = useToast();
   const usageSnapshot = useUsageMonitorSnapshot();
-  const shouldUseMapboxGl = isMapboxGlPreferred();
+  const shouldUseMapboxGl = forceMapboxGl || isMapboxGlPreferred();
 
   // Fetch initial active riders
   const { data: initialRiders = [], isLoading, refetch: refetchActiveRiders } = useQuery<RiderLocation[]>({

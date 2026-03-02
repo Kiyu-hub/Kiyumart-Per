@@ -35,7 +35,7 @@ export default function AdminDeliveryTracking() {
           </p>
         </div>
 
-        <RealTimeRiderMap />
+        <RealTimeRiderMap forceMapboxGl />
       </div>
     </DashboardLayout>
   );

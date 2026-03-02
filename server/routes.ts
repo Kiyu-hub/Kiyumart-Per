@@ -280,6 +280,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public runtime map config (safe values only) so frontend can initialize map engines
+  // even when tokens are provided as server env vars instead of Vite build-time vars.
+  app.get("/api/public/map-provider-config", (_req, res) => {
+    const rawProvider = String(
+      process.env.VITE_MAP_PROVIDER || process.env.MAP_PROVIDER || "PROVIDER_A",
+    )
+      .toUpperCase()
+      .trim();
+    const provider = rawProvider === "PROVIDER_B" ? "PROVIDER_B" : "PROVIDER_A";
+
+    const tokenCandidates = [
+      process.env.VITE_MAPBOX_ACCESS_TOKEN,
+      process.env.MAPBOX_PUBLIC_TOKEN,
+      process.env.MAPBOX_ACCESS_TOKEN,
+    ];
+    const rawToken = tokenCandidates.find((value) => String(value || "").trim().length > 0) || "";
+    const mapboxAccessToken = String(rawToken).trim();
+    const safeToken = mapboxAccessToken.startsWith("pk.") ? mapboxAccessToken : "";
+
+    res.json({
+      provider,
+      mapboxAccessToken: safeToken,
+      mapboxStyleUrl: String(process.env.VITE_MAPBOX_STYLE_URL || "mapbox://styles/mapbox/dark-v11"),
+    });
+  });
+
   // ============ Socket.IO Authentication Middleware ============
   io.use((socket, next) => {
     try {
