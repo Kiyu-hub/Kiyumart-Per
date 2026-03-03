@@ -662,6 +662,36 @@ export default function AdminSettings() {
         productPageAdUrl: data.productPageAdUrl || "",
       });
 
+      // Keep in-browser runtime map config in sync so map pages in the same session pick up updates immediately.
+      try {
+        const token = String((data as any).mapboxPublicToken || "").trim();
+        const styleUrl = String((data as any).mapboxStyleUrl || "").trim();
+        const glVersion = String((data as any).mapboxGlVersion || "").trim();
+        if (token.startsWith("pk.")) {
+          (window as any).__MAPBOX_ACCESS_TOKEN__ = token;
+          window.localStorage.setItem("mapbox_access_token", token);
+        } else {
+          delete (window as any).__MAPBOX_ACCESS_TOKEN__;
+          window.localStorage.removeItem("mapbox_access_token");
+        }
+        if (styleUrl) {
+          (window as any).__MAPBOX_STYLE_URL__ = styleUrl;
+          window.localStorage.setItem("mapbox_style_url", styleUrl);
+        } else {
+          delete (window as any).__MAPBOX_STYLE_URL__;
+          window.localStorage.removeItem("mapbox_style_url");
+        }
+        if (glVersion) {
+          (window as any).__MAPBOX_GL_VERSION__ = glVersion;
+          window.localStorage.setItem("mapbox_gl_version", glVersion);
+        } else {
+          delete (window as any).__MAPBOX_GL_VERSION__;
+          window.localStorage.removeItem("mapbox_gl_version");
+        }
+      } catch {
+        // Ignore runtime cache sync failures.
+      }
+
       toast({
         title: "Settings updated",
         description: "Platform settings have been saved successfully.",

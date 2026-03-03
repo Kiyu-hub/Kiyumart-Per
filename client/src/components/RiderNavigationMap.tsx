@@ -85,6 +85,8 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
   const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isWatching, setIsWatching] = useState(false);
+  const [mapboxInitFailed, setMapboxInitFailed] = useState(false);
+  const [mapboxError, setMapboxError] = useState("");
   const watchIdRef = useRef<number | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const latestCoordsRef = useRef<{
@@ -96,7 +98,7 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
   } | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const usageSnapshot = useUsageMonitorSnapshot();
-  const shouldUseMapboxGl = isMapboxGlPreferred();
+  const shouldUseMapboxGl = isMapboxGlPreferred() && !mapboxInitFailed;
 
   const normalizedStatus = String(delivery.status || "").toLowerCase().trim();
   const tripPhase =
@@ -310,6 +312,15 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
               destinationPos={[delivery.deliveryLatitude, delivery.deliveryLongitude]}
               routeGeometry={usageSnapshot.freezeSecondaryLayers ? [] : routeGeometry}
               style={{ height: "100%", width: "100%" }}
+              onLoad={() => {
+                setMapboxInitFailed(false);
+                setMapboxError("");
+              }}
+              onError={(error) => {
+                console.error("Mapbox rider navigation map failed to initialize", error);
+                setMapboxError(error instanceof Error ? error.message : String(error || "Mapbox initialization failed"));
+                setMapboxInitFailed(true);
+              }}
             />
           ) : (
             <MapContainer
@@ -378,6 +389,12 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
                 </Marker>
               )}
             </MapContainer>
+          )}
+
+          {mapboxInitFailed && (
+            <div className="absolute left-3 right-3 top-3 z-[1200] rounded-lg border border-amber-300 bg-background/95 p-2 text-xs text-amber-700 shadow-sm backdrop-blur">
+              Falling back to standard map view. {mapboxError || "Mapbox initialization failed."}
+            </div>
           )}
 
           {/* Recenter button */}

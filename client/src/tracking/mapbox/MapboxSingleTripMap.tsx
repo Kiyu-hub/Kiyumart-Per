@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
 import { usageMonitor } from "@/tracking/usage/usageMonitor";
 import { getMapRenderer } from "@/tracking/providers/factory";
-import { loadMapboxGl, resolveMapboxAccessToken, toMapboxRasterStyle } from "@/tracking/mapbox/mapboxLoader";
+import {
+  loadMapboxGl,
+  resolveMapboxAccessToken,
+  resolveMapboxStyleUrl,
+  toMapboxRasterStyle,
+} from "@/tracking/mapbox/mapboxLoader";
 
 type LatLngTuple = [number, number];
 
@@ -12,6 +17,8 @@ interface MapboxSingleTripMapProps {
   routeGeometry?: LatLngTuple[];
   className?: string;
   style?: React.CSSProperties;
+  onLoad?: () => void;
+  onError?: (error: unknown) => void;
 }
 
 const ROUTE_SOURCE_ID = "trip-route-source";
@@ -51,17 +58,16 @@ export default function MapboxSingleTripMap({
   routeGeometry = [],
   className,
   style,
+  onLoad,
+  onError,
 }: MapboxSingleTripMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const riderMarkerRef = useRef<any>(null);
   const destinationMarkerRef = useRef<any>(null);
-  const lastStyleLoadedRef = useRef(false);
+  const loadedRef = useRef(false);
+  const initErrorReportedRef = useRef(false);
 
-  const mapStyle = useMemo(
-    () => String((import.meta.env as any).VITE_MAPBOX_STYLE_URL || "mapbox://styles/mapbox/dark-v11"),
-    [],
-  );
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
 
   useEffect(() => {
@@ -77,6 +83,7 @@ export default function MapboxSingleTripMap({
         if (token) {
           mapboxgl.accessToken = token;
         }
+        const mapStyle = resolveMapboxStyleUrl();
         const styleValue = token
           ? mapStyle
           : toMapboxRasterStyle(fallbackMapRenderConfig.tileUrl, fallbackMapRenderConfig.attribution);
@@ -91,9 +98,17 @@ export default function MapboxSingleTripMap({
         mapRef.current = map;
         usageMonitor.trackMapInstantiation();
         map.on("sourcedata", () => usageMonitor.trackTileLoad());
+        map.on("error", (event: any) => {
+          if (disposed || initErrorReportedRef.current || loadedRef.current) return;
+          const errorPayload = event?.error || event || new Error("Mapbox map failed to initialize.");
+          initErrorReportedRef.current = true;
+          onError?.(errorPayload);
+        });
         map.on("load", () => {
           if (disposed) return;
-          lastStyleLoadedRef.current = true;
+          loadedRef.current = true;
+          initErrorReportedRef.current = false;
+          onLoad?.();
           if (!map.getSource(ROUTE_SOURCE_ID)) {
             map.addSource(ROUTE_SOURCE_ID, {
               type: "geojson",
@@ -113,8 +128,9 @@ export default function MapboxSingleTripMap({
             });
           }
         });
-      } catch {
-        // Fallback handled by caller component.
+      } catch (error) {
+        initErrorReportedRef.current = true;
+        onError?.(error);
       }
     })();
 
@@ -126,12 +142,14 @@ export default function MapboxSingleTripMap({
         mapRef.current.remove();
         mapRef.current = null;
       }
+      loadedRef.current = false;
+      initErrorReportedRef.current = false;
     };
-  }, [center, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, mapStyle]);
+  }, [center, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, onError, onLoad]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !lastStyleLoadedRef.current) return;
+    if (!map || !loadedRef.current) return;
     const source = map.getSource(ROUTE_SOURCE_ID);
     if (source && source.setData) {
       source.setData(toGeoJsonLine(routeGeometry));
@@ -140,7 +158,7 @@ export default function MapboxSingleTripMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !lastStyleLoadedRef.current) return;
+    if (!map || !loadedRef.current) return;
 
     if (!destinationMarkerRef.current) {
       const mapboxgl = (window as any).mapboxgl;
@@ -151,7 +169,7 @@ export default function MapboxSingleTripMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !lastStyleLoadedRef.current) return;
+    if (!map || !loadedRef.current) return;
     if (!riderPos) {
       if (riderMarkerRef.current) riderMarkerRef.current.remove();
       return;
@@ -165,7 +183,7 @@ export default function MapboxSingleTripMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !lastStyleLoadedRef.current) return;
+    if (!map || !loadedRef.current) return;
     const points: Array<[number, number]> = [];
     if (riderPos) points.push([riderPos[1], riderPos[0]]);
     points.push([destinationPos[1], destinationPos[0]]);

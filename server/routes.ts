@@ -303,9 +303,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       process.env.MAPBOX_PUBLIC_TOKEN,
       process.env.MAPBOX_ACCESS_TOKEN,
     ];
-    const rawToken = tokenCandidates.find((value) => String(value || "").trim().length > 0) || "";
-    const mapboxAccessToken = String(rawToken).trim();
-    const safeToken = mapboxAccessToken.startsWith("pk.") ? mapboxAccessToken : "";
+    const safeToken =
+      tokenCandidates
+        .map((value) => String(value || "").trim())
+        .find((token) => token.startsWith("pk.")) || "";
     const styleUrl = String(
       settings?.mapboxStyleUrl || process.env.VITE_MAPBOX_STYLE_URL || "mapbox://styles/mapbox/dark-v11",
     ).trim();

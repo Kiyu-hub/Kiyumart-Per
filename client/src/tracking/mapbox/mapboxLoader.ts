@@ -3,6 +3,25 @@ import { USE_PROVIDER } from "@/tracking/config";
 let loaderPromise: Promise<any> | null = null;
 let mapboxConfigPromise: Promise<void> | null = null;
 
+function normalizeMapboxPublicToken(raw: unknown): string {
+  const token = String(raw || "").trim();
+  return token.startsWith("pk.") ? token : "";
+}
+
+function normalizeMapboxStyleUrl(raw: unknown): string {
+  const style = String(raw || "").trim();
+  if (!style) return "";
+  if (style.startsWith("mapbox://styles/")) return style;
+  if (style.startsWith("http://") || style.startsWith("https://")) return style;
+  return "";
+}
+
+function buildApiUrl(path: string): string {
+  const base = String((import.meta.env as any).VITE_API_URL || "").trim();
+  if (!base) return path;
+  return `${base.replace(/\/$/, "")}${path}`;
+}
+
 function clearRuntimeMapboxState(clearPersisted: boolean) {
   if (typeof window === "undefined") return;
   try {
@@ -66,13 +85,13 @@ export async function ensureMapboxRuntimeConfig(): Promise<void> {
   }
   mapboxConfigPromise = (async () => {
     try {
-      const response = await fetch("/api/public/map-provider-config", {
+      const response = await fetch(buildApiUrl("/api/public/map-provider-config"), {
         credentials: "include",
       });
       if (!response.ok) return;
       const payload = await response.json();
-      const token = String(payload?.mapboxAccessToken || "").trim();
-      const styleUrl = String(payload?.mapboxStyleUrl || "").trim();
+      const token = normalizeMapboxPublicToken(payload?.mapboxAccessToken);
+      const styleUrl = normalizeMapboxStyleUrl(payload?.mapboxStyleUrl);
       const glVersion = String(payload?.mapboxGlVersion || "").trim();
 
       if (styleUrl) {
@@ -147,23 +166,23 @@ export async function loadMapboxGl(): Promise<any> {
 
 export function resolveMapboxAccessToken(): string {
   if (typeof window !== "undefined") {
-    const winToken = String(
+    const winToken = normalizeMapboxPublicToken(
       (window as any).__MAPBOX_ACCESS_TOKEN__ ||
         (window as any).MAPBOX_ACCESS_TOKEN ||
-        "",
-    ).trim();
+        ""
+    );
     if (winToken) return winToken;
   }
-  const envToken = String((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN || "").trim();
+  const envToken = normalizeMapboxPublicToken((import.meta.env as any).VITE_MAPBOX_ACCESS_TOKEN);
   if (envToken) return envToken;
   if (typeof window === "undefined") return "";
-  const winToken = String(
+  const winToken = normalizeMapboxPublicToken(
     (window as any).MAPBOX_ACCESS_TOKEN ||
-      "",
-  ).trim();
+      ""
+  );
   if (winToken) return winToken;
   try {
-    const stored = String(window.localStorage.getItem("mapbox_access_token") || "").trim();
+    const stored = normalizeMapboxPublicToken(window.localStorage.getItem("mapbox_access_token") || "");
     if (stored) return stored;
   } catch {
     // Ignore storage read errors.
@@ -173,15 +192,15 @@ export function resolveMapboxAccessToken(): string {
 
 export function resolveMapboxStyleUrl(): string {
   if (typeof window !== "undefined") {
-    const winStyle = String((window as any).__MAPBOX_STYLE_URL__ || "").trim();
+    const winStyle = normalizeMapboxStyleUrl((window as any).__MAPBOX_STYLE_URL__ || "");
     if (winStyle) return winStyle;
   }
-  const envStyle = String((import.meta.env as any).VITE_MAPBOX_STYLE_URL || "").trim();
+  const envStyle = normalizeMapboxStyleUrl((import.meta.env as any).VITE_MAPBOX_STYLE_URL || "");
   if (envStyle) return envStyle;
   if (typeof window === "undefined") return "mapbox://styles/mapbox/dark-v11";
 
   try {
-    const stored = String(window.localStorage.getItem("mapbox_style_url") || "").trim();
+    const stored = normalizeMapboxStyleUrl(window.localStorage.getItem("mapbox_style_url") || "");
     if (stored) return stored;
   } catch {
     // Ignore storage read errors.

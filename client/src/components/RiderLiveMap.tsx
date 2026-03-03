@@ -104,6 +104,8 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<"acquiring" | "active" | "error">("acquiring");
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [mapboxInitFailed, setMapboxInitFailed] = useState(false);
+  const [mapboxError, setMapboxError] = useState("");
   const socketRef = useRef<Socket | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const mapRef = useRef<any>(null);
@@ -115,7 +117,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     heading?: number | null;
   } | null>(null);
   const usageSnapshot = useUsageMonitorSnapshot();
-  const shouldUseMapboxGl = isMapboxGlPreferred();
+  const shouldUseMapboxGl = isMapboxGlPreferred() && !mapboxInitFailed;
 
   // Fetch active delivery
   const { data: activeDelivery, isLoading, refetch } = useQuery<ActiveDelivery | null>({
@@ -374,6 +376,15 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
             destinationPos={destPos}
             routeGeometry={usageSnapshot.freezeSecondaryLayers ? [] : routeGeometry}
             className={cn("w-full", isFullscreen ? "h-[calc(100vh-160px)]" : "h-[420px]")}
+            onLoad={() => {
+              setMapboxInitFailed(false);
+              setMapboxError("");
+            }}
+            onError={(error) => {
+              console.error("Mapbox rider live map failed to initialize", error);
+              setMapboxError(error instanceof Error ? error.message : String(error || "Mapbox initialization failed"));
+              setMapboxInitFailed(true);
+            }}
           />
         ) : (
           <MapContainer
@@ -445,6 +456,12 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
               </Marker>
             )}
           </MapContainer>
+        )}
+
+        {mapboxInitFailed && (
+          <div className="mx-2 mt-2 rounded-lg border border-amber-300 bg-background/95 px-3 py-2 text-xs text-amber-700 shadow-sm">
+            Falling back to standard map view. {mapboxError || "Mapbox initialization failed."}
+          </div>
         )}
 
         {/* Bottom stats bar */}

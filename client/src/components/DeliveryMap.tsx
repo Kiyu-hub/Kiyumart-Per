@@ -86,7 +86,9 @@ export default function DeliveryMap({
   compact = false
 }: DeliveryMapProps) {
   const [isLoading, setIsLoading] = useState(true);
-  const shouldUseMapboxGl = isMapboxGlPreferred();
+  const [mapboxInitFailed, setMapboxInitFailed] = useState(false);
+  const [mapboxError, setMapboxError] = useState("");
+  const shouldUseMapboxGl = isMapboxGlPreferred() && !mapboxInitFailed;
 
   const deliveryPos: [number, number] = [deliveryLocation.latitude, deliveryLocation.longitude];
   const riderPos: [number, number] | undefined = riderLocation
@@ -185,6 +187,15 @@ export default function DeliveryMap({
             destinationPos={deliveryPos}
             routeGeometry={routePolyline}
             style={{ height: "100%", width: "100%" }}
+            onLoad={() => {
+              setMapboxInitFailed(false);
+              setMapboxError("");
+            }}
+            onError={(error) => {
+              console.error("Mapbox single trip map failed to initialize", error);
+              setMapboxError(error instanceof Error ? error.message : String(error || "Mapbox initialization failed"));
+              setMapboxInitFailed(true);
+            }}
           />
         ) : (
           <MapContainer
@@ -220,6 +231,12 @@ export default function DeliveryMap({
 
             <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={animatedRiderPos} />
           </MapContainer>
+        )}
+
+        {mapboxInitFailed && (
+          <div className="absolute left-3 right-3 top-3 z-[1200] rounded-lg border border-amber-300 bg-background/95 p-2 text-xs text-amber-700 shadow-sm backdrop-blur">
+            Falling back to standard map view. {mapboxError || "Mapbox initialization failed."}
+          </div>
         )}
 
         {/* Delivery Address Banner (Top) */}
@@ -315,6 +332,15 @@ export default function DeliveryMap({
               destinationPos={deliveryPos}
               routeGeometry={routePolyline}
               style={{ height: "100%", width: "100%" }}
+              onLoad={() => {
+                setMapboxInitFailed(false);
+                setMapboxError("");
+              }}
+              onError={(error) => {
+                console.error("Mapbox single trip map failed to initialize", error);
+                setMapboxError(error instanceof Error ? error.message : String(error || "Mapbox initialization failed"));
+                setMapboxInitFailed(true);
+              }}
             />
           ) : (
             <MapContainer
@@ -370,6 +396,12 @@ export default function DeliveryMap({
 
               <MapBoundsUpdater deliveryPos={deliveryPos} riderPos={animatedRiderPos} />
             </MapContainer>
+          )}
+
+          {mapboxInitFailed && (
+            <div className="absolute left-3 right-3 top-3 z-[1200] rounded-lg border border-amber-300 bg-background/95 p-2 text-xs text-amber-700 shadow-sm backdrop-blur">
+              Falling back to standard map view. {mapboxError || "Mapbox initialization failed."}
+            </div>
           )}
 
           {/* ETA Overlay for standard view */}
