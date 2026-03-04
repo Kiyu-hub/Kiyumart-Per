@@ -13,6 +13,9 @@ interface FleetRiderMarker {
   riderId: string;
   latitude: number;
   longitude: number;
+  vehicleType?: string | null;
+  isOnline?: boolean;
+  activeOrderCount?: number;
 }
 
 interface FleetOrderMarker {
@@ -32,6 +35,7 @@ interface MapboxFleetMapProps {
   selectedDestination?: [number, number] | null;
   className?: string;
   style?: React.CSSProperties;
+  presentationMode?: boolean;
   onRiderClick?: (riderId: string) => void;
   onOrderClick?: (orderId: string) => void;
   requireMapboxToken?: boolean;
@@ -94,6 +98,56 @@ function makeMarkerElement(color: string, size = 12): HTMLDivElement {
   return el;
 }
 
+function normalizeVehicleType(vehicleType: string | null | undefined): string {
+  const value = String(vehicleType || "").toLowerCase().trim();
+  if (!value) return "motorcycle";
+  if (value.includes("motor")) return "motorcycle";
+  if (value.includes("bike")) return "bicycle";
+  if (value.includes("car") || value.includes("sedan")) return "car";
+  if (value.includes("van")) return "van";
+  if (value.includes("truck")) return "truck";
+  return value;
+}
+
+function vehicleGlyph(vehicleType: string | null | undefined): string {
+  const normalized = normalizeVehicleType(vehicleType);
+  if (normalized === "car") return "🚗";
+  if (normalized === "van") return "🚐";
+  if (normalized === "truck") return "🚚";
+  if (normalized === "bicycle") return "🚲";
+  return "🏍️";
+}
+
+function makeVehicleMarkerElement(
+  vehicleType: string | null | undefined,
+  isOnline: boolean,
+  activeOrderCount: number,
+): HTMLDivElement {
+  const el = document.createElement("div");
+  const tone = isOnline ? "#0f766e" : "#475569";
+  const indicator = isOnline ? "#10b981" : "#ef4444";
+  const glyph = vehicleGlyph(vehicleType);
+  const badge = activeOrderCount > 0
+    ? `<span style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:9999px;background:#f59e0b;color:white;font-size:10px;line-height:16px;font-weight:700;text-align:center;border:1px solid rgba(255,255,255,0.92);">${activeOrderCount}</span>`
+    : "";
+  el.style.position = "relative";
+  el.style.width = "34px";
+  el.style.height = "34px";
+  el.style.borderRadius = "9999px";
+  el.style.border = "2px solid rgba(255,255,255,0.92)";
+  el.style.background = `linear-gradient(145deg, ${tone}, #0f172a)`;
+  el.style.display = "flex";
+  el.style.alignItems = "center";
+  el.style.justifyContent = "center";
+  el.style.fontSize = "16px";
+  el.style.boxShadow = "0 8px 18px rgba(15,23,42,0.28)";
+  el.style.transform = "translateZ(0)";
+  el.innerHTML = `<span>${glyph}</span>
+    <span style="position:absolute;bottom:-4px;left:-4px;width:10px;height:10px;border-radius:9999px;background:${indicator};border:2px solid white;"></span>
+    ${badge}`;
+  return el;
+}
+
 function toGeoJsonLine(positions: [number, number][]) {
   return {
     type: "FeatureCollection",
@@ -121,6 +175,7 @@ export default function MapboxFleetMap({
   selectedDestination,
   className,
   style,
+  presentationMode = false,
   onRiderClick,
   onOrderClick,
   requireMapboxToken = false,
@@ -217,16 +272,18 @@ export default function MapboxFleetMap({
           canvas.addEventListener("mouseup", resetCursor);
           canvas.addEventListener("mouseleave", resetCursor);
         }
-        map.addControl(new mapboxgl.NavigationControl({ showZoom: true, showCompass: true }), "top-right");
-        map.addControl(
-          new mapboxgl.GeolocateControl({
-            positionOptions: { enableHighAccuracy: true },
-            trackUserLocation: true,
-            showUserHeading: true,
-          }),
-          "top-right",
-        );
-        map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
+        if (!presentationMode) {
+          map.addControl(new mapboxgl.NavigationControl({ showZoom: true, showCompass: true }), "top-right");
+          map.addControl(
+            new mapboxgl.GeolocateControl({
+              positionOptions: { enableHighAccuracy: true },
+              trackUserLocation: true,
+              showUserHeading: true,
+            }),
+            "top-right",
+          );
+          map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
+        }
         mapRef.current = map;
         usageMonitor.trackMapInstantiation();
         map.on("sourcedata", () => usageMonitor.trackTileLoad());
@@ -294,7 +351,7 @@ export default function MapboxFleetMap({
       loadedRef.current = false;
       hasInitialAutoFitRef.current = false;
     };
-  }, [fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, mapStyleUrl, requireMapboxToken]);
+  }, [fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, mapStyleUrl, presentationMode, requireMapboxToken]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -326,11 +383,33 @@ export default function MapboxFleetMap({
 
     riders.forEach((rider) => {
       let marker = riderMarkersRef.current.get(rider.riderId);
+      const markerKey = [
+        normalizeVehicleType(rider.vehicleType),
+        rider.isOnline === false ? "0" : "1",
+        Number(rider.activeOrderCount || 0),
+      ].join("|");
       if (!marker) {
-        const el = makeMarkerElement("#10b981", 12);
+        const el = makeVehicleMarkerElement(
+          rider.vehicleType,
+          rider.isOnline !== false,
+          Number(rider.activeOrderCount || 0),
+        );
         el.style.cursor = "pointer";
         el.addEventListener("click", () => onRiderClick?.(rider.riderId));
         marker = new mapboxgl.Marker({ element: el });
+        marker.__markerKey = markerKey;
+        riderMarkersRef.current.set(rider.riderId, marker);
+      } else if (marker.__markerKey !== markerKey) {
+        marker.remove();
+        const el = makeVehicleMarkerElement(
+          rider.vehicleType,
+          rider.isOnline !== false,
+          Number(rider.activeOrderCount || 0),
+        );
+        el.style.cursor = "pointer";
+        el.addEventListener("click", () => onRiderClick?.(rider.riderId));
+        marker = new mapboxgl.Marker({ element: el });
+        marker.__markerKey = markerKey;
         riderMarkersRef.current.set(rider.riderId, marker);
       }
       marker.setLngLat([rider.longitude, rider.latitude]).addTo(map);
@@ -504,19 +583,21 @@ export default function MapboxFleetMap({
   return (
     <div className={`relative ${className || ""}`} style={style}>
       <div ref={containerRef} className="h-full w-full" />
-      <div className="pointer-events-none absolute right-3 top-3 z-[1300]">
-        <div className="pointer-events-auto rounded-2xl border border-slate-300/40 bg-white/75 p-2 shadow-2xl backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/70">
-          <div className="grid grid-cols-2 gap-1.5">
-            <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={zoomIn} title="Zoom In"><Plus className="h-3.5 w-3.5" /><span>In</span></button>
-            <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={zoomOut} title="Zoom Out"><Minus className="h-3.5 w-3.5" /><span>Out</span></button>
-            <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={streetZoom} title="Street Level"><Route className="h-3.5 w-3.5" /><span>Street</span></button>
-            <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={recenterCamera} title="Recenter / Fit"><Crosshair className="h-3.5 w-3.5" /><span>Fit</span></button>
-            <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={focusCamera} title="Focus Rider"><LocateFixed className="h-3.5 w-3.5" /><span>Focus</span></button>
-            <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={resetBearing} title="Reset North"><Compass className="h-3.5 w-3.5" /><span>North</span></button>
-            <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={togglePitch} title="Toggle 2D/3D"><Layers3 className="h-3.5 w-3.5" /><span>2D/3D</span></button>
+      {!presentationMode && (
+        <div className="pointer-events-none absolute right-3 top-3 z-[1300]">
+          <div className="pointer-events-auto rounded-2xl border border-slate-300/40 bg-white/75 p-2 shadow-2xl backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/70">
+            <div className="grid grid-cols-2 gap-1.5">
+              <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={zoomIn} title="Zoom In"><Plus className="h-3.5 w-3.5" /><span>In</span></button>
+              <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={zoomOut} title="Zoom Out"><Minus className="h-3.5 w-3.5" /><span>Out</span></button>
+              <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={streetZoom} title="Street Level"><Route className="h-3.5 w-3.5" /><span>Street</span></button>
+              <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={recenterCamera} title="Recenter / Fit"><Crosshair className="h-3.5 w-3.5" /><span>Fit</span></button>
+              <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={focusCamera} title="Focus Rider"><LocateFixed className="h-3.5 w-3.5" /><span>Focus</span></button>
+              <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={resetBearing} title="Reset North"><Compass className="h-3.5 w-3.5" /><span>North</span></button>
+              <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={togglePitch} title="Toggle 2D/3D"><Layers3 className="h-3.5 w-3.5" /><span>2D/3D</span></button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

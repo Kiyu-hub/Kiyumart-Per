@@ -218,11 +218,11 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   // Emit rider GPS updates at deterministic 4s cadence for backend real-time sync.
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (!activeDelivery || !socketRef.current?.connected) return;
+      if (!socketRef.current?.connected) return;
       const latest = latestCoordsRef.current;
       if (!latest) return;
       socketRef.current.emit("rider_location_update", {
-        orderId: activeDelivery.id,
+        orderId: activeDelivery?.id || null,
         latitude: latest.latitude,
         longitude: latest.longitude,
         accuracy: latest.accuracy ?? 0,

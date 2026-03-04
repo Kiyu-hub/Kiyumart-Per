@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MapContainer, Marker, Popup, Polyline, useMap, Circle, CircleMarker } from "react-leaflet";
-import { Icon, LatLng, Map as LeafletMap } from "leaflet";
+import { Icon, DivIcon, LatLng, Map as LeafletMap } from "leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -35,7 +36,8 @@ import {
   Crosshair,
   Layers3,
   Compass,
-  Route
+  Route,
+  MessageSquare
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -57,18 +59,28 @@ interface RiderLocation {
   riderId: string;
   riderName: string;
   riderProfileImage?: string | null;
-  orderId: string;
-  orderNumber: string;
-  orderStatus?: string;
+  riderPhone?: string | null;
+  vehicleType?: string | null;
+  vehicleColor?: string | null;
+  isOnline?: boolean;
+  onlineStatus?: "online" | "away" | "offline" | string;
+  lastSeenAt?: string | null;
+  activeOrderCount?: number;
+  hasActiveOrder?: boolean;
+  orderId?: string | null;
+  orderNumber?: string | null;
+  orderStatus?: string | null;
   latitude: number | null;
   longitude: number | null;
   speed: number | null;
   heading: number | null;
   timestamp: string | null;
   hasLocation?: boolean;
-  deliveryAddress?: string;
-  deliveryPhone?: string;
-  buyerName?: string;
+  deliveryAddress?: string | null;
+  deliveryPhone?: string | null;
+  buyerName?: string | null;
+  deliveryLatitude?: number | null;
+  deliveryLongitude?: number | null;
   eta?: number; // ETA in minutes
   distance?: number; // Distance in km
 }
@@ -107,12 +119,55 @@ interface RoleFeatureEntry {
   features: Record<string, boolean>;
 }
 
-const riderIcon = new Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-  popupAnchor: [0, -40],
-});
+interface RiderDeliveryHistory {
+  id: string;
+  orderNumber?: string | null;
+  status?: string | null;
+  deliveryAddress?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  total?: string | null;
+}
+
+function normalizeVehicleType(vehicleType: string | null | undefined): string {
+  const value = String(vehicleType || "").toLowerCase().trim();
+  if (!value) return "motorcycle";
+  if (value.includes("motor")) return "motorcycle";
+  if (value.includes("bike")) return "bicycle";
+  if (value.includes("car") || value.includes("sedan")) return "car";
+  if (value.includes("van")) return "van";
+  if (value.includes("truck")) return "truck";
+  return value;
+}
+
+function getVehicleGlyph(vehicleType: string | null | undefined): string {
+  const normalized = normalizeVehicleType(vehicleType);
+  if (normalized === "car") return "🚗";
+  if (normalized === "van") return "🚐";
+  if (normalized === "truck") return "🚚";
+  if (normalized === "bicycle") return "🚲";
+  return "🏍️";
+}
+
+function getVehicleMarkerIcon(vehicleType: string | null | undefined, isOnline: boolean, activeOrderCount: number): DivIcon {
+  const glyph = getVehicleGlyph(vehicleType);
+  const tone = isOnline ? "#0f766e" : "#475569";
+  const indicator = isOnline ? "#10b981" : "#ef4444";
+  const badge = activeOrderCount > 0
+    ? `<span style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:9999px;background:#f59e0b;color:white;font-size:10px;line-height:16px;font-weight:700;text-align:center;border:1px solid rgba(255,255,255,0.92);">${activeOrderCount}</span>`
+    : "";
+  return new DivIcon({
+    className: "rider-vehicle-marker",
+    html: `<div style="position:relative;width:34px;height:34px;border-radius:50%;background:linear-gradient(145deg, ${tone}, #0f172a);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px rgba(15,23,42,0.28);border:2px solid rgba(255,255,255,0.92);font-size:16px;transform:translateZ(0);">
+      <span>${glyph}</span>
+      <span style="position:absolute;bottom:-4px;left:-4px;width:10px;height:10px;border-radius:9999px;background:${indicator};border:2px solid white;"></span>
+      ${badge}
+    </div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+    popupAnchor: [0, -16],
+  });
+}
 
 const destinationIcon = new Icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
@@ -191,6 +246,9 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [preferOpenSourceMap, setPreferOpenSourceMap] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedRider, setSelectedRider] = useState<RiderLocation | null>(null);
+  const [trackSelectedOnly, setTrackSelectedOnly] = useState(false);
+  const [riderSearchTerm, setRiderSearchTerm] = useState("");
+  const [vehicleFilter, setVehicleFilter] = useState<string>("all");
   const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null);
   const [showDispatchPanel, setShowDispatchPanel] = useState(false);
   const [availableRiders, setAvailableRiders] = useState<AvailableRider[]>([]);
@@ -252,6 +310,19 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     enabled: showDispatchPanel && !!selectedOrder,
   });
 
+  const { data: selectedRiderDeliveries = [] } = useQuery<RiderDeliveryHistory[]>({
+    queryKey: ["/api/riders", selectedRider?.riderId, "deliveries"],
+    queryFn: async () => {
+      if (!selectedRider?.riderId) return [];
+      const res = await fetch(`/api/riders/${selectedRider.riderId}/deliveries`, { credentials: "include" });
+      if (!res.ok) return [];
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: Boolean(selectedRider?.riderId),
+    staleTime: 30_000,
+  });
+
   // Assign rider mutation
   const assignRiderMutation = useMutation({
     mutationFn: async ({ orderId, riderId }: { orderId: string; riderId: string }) => {
@@ -284,12 +355,26 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   }, [initialRiders]);
 
   useEffect(() => {
+    if (!selectedRider) return;
+    const latest = riders.find((entry) => entry.riderId === selectedRider.riderId);
+    if (latest && latest !== selectedRider) {
+      setSelectedRider(latest);
+    }
+  }, [riders, selectedRider]);
+
+  useEffect(() => {
     setPendingOrders(pendingOrdersData);
   }, [pendingOrdersData]);
 
   useEffect(() => {
     setAvailableRiders(availableRidersData);
   }, [availableRidersData]);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    setSelectedRider(null);
+    setShowDispatchPanel(false);
+  }, [isFullscreen]);
 
   useEffect(() => {
     if (preferOpenSourceMap) return;
@@ -347,7 +432,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const fleetAnimationInput = useMemo(
     () => riders.map((rider) => ({
       vehicleId: rider.riderId,
-      orderId: rider.orderId,
+      orderId: rider.orderId || undefined,
       latitude: rider.latitude,
       longitude: rider.longitude,
       speed: rider.speed,
@@ -358,7 +443,14 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   );
   const animatedFleetPositions = useAnimatedFleetPositions(fleetAnimationInput);
 
-  const selectedRiderOrder = selectedRider ? pendingOrders.find((order) => order.id === selectedRider.orderId) : null;
+  const selectedRiderOrder =
+    selectedRider && selectedRider.deliveryLatitude != null && selectedRider.deliveryLongitude != null
+      ? {
+          deliveryLatitude: Number(selectedRider.deliveryLatitude),
+          deliveryLongitude: Number(selectedRider.deliveryLongitude),
+          deliveryAddress: selectedRider.deliveryAddress || "",
+        }
+      : null;
   const selectedTripPhase =
     selectedRider?.orderStatus === "assigned" ? "assigned" :
     selectedRider?.orderStatus === "rider_arrived" || selectedRider?.orderStatus === "picked_up" ? "pickup" :
@@ -368,7 +460,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
 
   const trackedSelectedRider = useVehicleTracking({
     vehicleId: selectedRider?.riderId || "admin-selected-rider",
-    orderId: selectedRider?.orderId,
+    orderId: selectedRider?.orderId || undefined,
     destination:
       selectedRiderOrder && selectedRiderOrder.deliveryLatitude != null && selectedRiderOrder.deliveryLongitude != null
         ? { lat: Number(selectedRiderOrder.deliveryLatitude), lng: Number(selectedRiderOrder.deliveryLongitude) }
@@ -392,21 +484,28 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     socketRef.current = io();
 
     socketRef.current.on("admin_rider_location_updated", (locationUpdate: RiderLocation) => {
+      const normalizedUpdate: RiderLocation = {
+        ...locationUpdate,
+        latitude: locationUpdate.latitude != null ? Number(locationUpdate.latitude) : null,
+        longitude: locationUpdate.longitude != null ? Number(locationUpdate.longitude) : null,
+        speed: locationUpdate.speed != null ? Number(locationUpdate.speed) : null,
+        heading: locationUpdate.heading != null ? Number(locationUpdate.heading) : null,
+      };
       setRiders((prevRiders) => {
-        const existingIndex = prevRiders.findIndex(r => r.riderId === locationUpdate.riderId);
+        const existingIndex = prevRiders.findIndex(r => r.riderId === normalizedUpdate.riderId);
         
         if (existingIndex >= 0) {
           const updated = [...prevRiders];
-          updated[existingIndex] = { ...updated[existingIndex], ...locationUpdate };
+          updated[existingIndex] = { ...updated[existingIndex], ...normalizedUpdate };
           return updated;
         } else {
-          return [...prevRiders, locationUpdate];
+          return [...prevRiders, normalizedUpdate];
         }
       });
       
       // Update route if this is the selected rider
-      if (selectedRider?.riderId === locationUpdate.riderId) {
-        setSelectedRider(prev => prev ? { ...prev, ...locationUpdate } : null);
+      if (selectedRider?.riderId === normalizedUpdate.riderId) {
+        setSelectedRider(prev => prev ? { ...prev, ...normalizedUpdate } : null);
       }
     });
 
@@ -441,6 +540,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   };
 
   const handleDispatchOrder = (order: PendingOrder) => {
+    if (isFullscreen) return;
     setSelectedOrder(order);
     setShowDispatchPanel(true);
   };
@@ -448,32 +548,84 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen(prev => !prev);
   }, []);
-  
-  // Count riders with valid location data
-  const ridersWithLocation = riders.filter(r => r.latitude !== null && r.longitude !== null);
-  const ridersWithoutLocation = riders.filter(r => r.latitude === null || r.longitude === null);
+
+  const normalizedRiderSearch = riderSearchTerm.trim().toLowerCase();
+  const filteredRiders = useMemo(
+    () =>
+      riders.filter((rider) => {
+        const vehicleType = normalizeVehicleType(rider.vehicleType);
+        const matchesVehicle = vehicleFilter === "all" || vehicleType === vehicleFilter;
+        const matchesSearch =
+          !normalizedRiderSearch ||
+          String(rider.riderName || "").toLowerCase().includes(normalizedRiderSearch) ||
+          String(rider.orderNumber || "").toLowerCase().includes(normalizedRiderSearch);
+        return matchesVehicle && matchesSearch;
+      }),
+    [riders, vehicleFilter, normalizedRiderSearch],
+  );
+  const visibleRiders = useMemo(() => {
+    if (!trackSelectedOnly || !selectedRider) return filteredRiders;
+    return filteredRiders.filter((rider) => rider.riderId === selectedRider.riderId);
+  }, [filteredRiders, selectedRider, trackSelectedOnly]);
+
+  // Global and visible rider counters
+  const ridersWithLocation = riders.filter((r) => r.latitude !== null && r.longitude !== null);
+  const ridersWithoutLocation = riders.filter((r) => r.latitude === null || r.longitude === null);
+  const visibleRidersWithLocation = visibleRiders.filter((r) => r.latitude !== null && r.longitude !== null);
+  const visibleRidersWithoutLocation = visibleRiders.filter((r) => r.latitude === null || r.longitude === null);
+  const onlineRiderCount = riders.filter((r) => r.isOnline).length;
+  const offlineRiderCount = Math.max(0, riders.length - onlineRiderCount);
+  const assignedRiderCount = riders.filter((r) => Boolean(r.orderId)).length;
+  const unassignedRiderCount = Math.max(0, riders.length - assignedRiderCount);
+  const vehicleCounts = useMemo(() => {
+    const counts = {
+      motorcycle: 0,
+      car: 0,
+      van: 0,
+      truck: 0,
+      bicycle: 0,
+      other: 0,
+    };
+    riders.forEach((r) => {
+      const normalized = normalizeVehicleType(r.vehicleType);
+      if (normalized === "motorcycle") counts.motorcycle += 1;
+      else if (normalized === "car") counts.car += 1;
+      else if (normalized === "van") counts.van += 1;
+      else if (normalized === "truck") counts.truck += 1;
+      else if (normalized === "bicycle") counts.bicycle += 1;
+      else counts.other += 1;
+    });
+    return counts;
+  }, [riders]);
+
   const focusPoint = useMemo<[number, number] | null>(() => {
     const selectedAnimated = selectedRider ? animatedFleetPositions[selectedRider.riderId] : null;
     if (selectedAnimated) return [selectedAnimated.lat, selectedAnimated.lng];
     if (selectedRider?.latitude != null && selectedRider?.longitude != null) return [selectedRider.latitude, selectedRider.longitude];
-    const firstRider = riders.find((r) => r.latitude != null && r.longitude != null);
+    const firstRider = visibleRiders.find((r) => r.latitude != null && r.longitude != null);
     if (firstRider) return [firstRider.latitude as number, firstRider.longitude as number];
     const firstOrder = pendingOrders.find((o) => o.deliveryLatitude != null && o.deliveryLongitude != null);
     if (firstOrder) return [Number(firstOrder.deliveryLatitude), Number(firstOrder.deliveryLongitude)];
     return null;
-  }, [animatedFleetPositions, pendingOrders, riders, selectedRider]);
+  }, [animatedFleetPositions, pendingOrders, selectedRider, visibleRiders]);
   const mapPointsForFit = useMemo<Array<[number, number]>>(() => {
     const points: Array<[number, number]> = [];
-    riders.forEach((r) => {
+    visibleRiders.forEach((r) => {
       if (r.latitude != null && r.longitude != null) points.push([r.latitude, r.longitude]);
     });
-    pendingOrders.forEach((o) => {
-      if (o.deliveryLatitude != null && o.deliveryLongitude != null) {
-        points.push([Number(o.deliveryLatitude), Number(o.deliveryLongitude)]);
+    if (trackSelectedOnly) {
+      if (selectedRiderOrder?.deliveryLatitude != null && selectedRiderOrder?.deliveryLongitude != null) {
+        points.push([Number(selectedRiderOrder.deliveryLatitude), Number(selectedRiderOrder.deliveryLongitude)]);
       }
-    });
+    } else {
+      pendingOrders.forEach((o) => {
+        if (o.deliveryLatitude != null && o.deliveryLongitude != null) {
+          points.push([Number(o.deliveryLatitude), Number(o.deliveryLongitude)]);
+        }
+      });
+    }
     return points;
-  }, [pendingOrders, riders]);
+  }, [pendingOrders, selectedRiderOrder, trackSelectedOnly, visibleRiders]);
   const selectedOpenSourcePreset = useMemo(
     () => OPEN_SOURCE_MAP_PRESETS.find((entry) => entry.id === openSourceStyleId) || OPEN_SOURCE_MAP_PRESETS[0],
     [openSourceStyleId],
@@ -731,7 +883,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                 Command Center - Live Tracking
               </CardTitle>
               <CardDescription>
-                Real-time monitoring of all active deliveries and pending orders
+                Real-time monitoring of riders, active deliveries, and dispatch readiness
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2 justify-end">
@@ -774,14 +926,14 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                 )}
               </div>
               <Badge variant="secondary" data-testid="badge-active-riders">
-                {ridersWithLocation.length}/{riders.length} On Map
+                {visibleRidersWithLocation.length}/{visibleRiders.length} On Map
               </Badge>
-              {ridersWithoutLocation.length > 0 && (
+              {visibleRidersWithoutLocation.length > 0 && (
                 <Badge variant="outline" className="text-amber-600 border-amber-300" data-testid="badge-no-gps">
-                  {ridersWithoutLocation.length} No GPS
+                  {visibleRidersWithoutLocation.length} No GPS
                 </Badge>
               )}
-              {pendingOrders.length > 0 && (
+              {!isFullscreen && pendingOrders.length > 0 && (
                 <Badge variant="destructive" data-testid="badge-pending-orders">
                   {pendingOrders.length} Pending
                 </Badge>
@@ -812,13 +964,80 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
               </Button>
             </div>
           </div>
+          {!isFullscreen && (
+            <div className="mt-3 space-y-2">
+              <div className="grid grid-cols-1 gap-2 lg:grid-cols-[1.2fr_0.8fr_0.8fr_auto]">
+                <Input
+                  value={riderSearchTerm}
+                  onChange={(event) => setRiderSearchTerm(event.target.value)}
+                  placeholder="Filter riders by name or order number..."
+                  data-testid="input-rider-search"
+                />
+                <Select value={vehicleFilter} onValueChange={setVehicleFilter}>
+                  <SelectTrigger data-testid="select-vehicle-filter">
+                    <SelectValue placeholder="Vehicle Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Vehicles</SelectItem>
+                    <SelectItem value="motorcycle">Motorcycles</SelectItem>
+                    <SelectItem value="car">Cars</SelectItem>
+                    <SelectItem value="van">Vans</SelectItem>
+                    <SelectItem value="truck">Trucks</SelectItem>
+                    <SelectItem value="bicycle">Bicycles</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={selectedRider?.riderId || "__none__"}
+                  onValueChange={(value) => {
+                    if (value === "__none__") {
+                      setSelectedRider(null);
+                      setTrackSelectedOnly(false);
+                      return;
+                    }
+                    const rider = riders.find((entry) => entry.riderId === value);
+                    if (rider) setSelectedRider(rider);
+                  }}
+                >
+                  <SelectTrigger data-testid="select-rider-focus">
+                    <SelectValue placeholder="Select Rider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">All Riders</SelectItem>
+                    {filteredRiders.map((rider) => (
+                      <SelectItem key={rider.riderId} value={rider.riderId}>
+                        {rider.riderName} • {normalizeVehicleType(rider.vehicleType)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2 rounded-md border bg-background px-3">
+                  <span className="text-xs text-muted-foreground">Track Selected Only</span>
+                  <Switch checked={trackSelectedOnly} onCheckedChange={setTrackSelectedOnly} data-testid="switch-track-selected-only" />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <Badge variant="outline">Riders: {riders.length}</Badge>
+                <Badge variant="outline" className="border-emerald-300 text-emerald-700">Online: {onlineRiderCount}</Badge>
+                <Badge variant="outline" className="border-slate-300 text-slate-700">Offline: {offlineRiderCount}</Badge>
+                <Badge variant="outline">Assigned: {assignedRiderCount}</Badge>
+                <Badge variant="outline">Unassigned: {unassignedRiderCount}</Badge>
+                <Badge variant="outline">Moto: {vehicleCounts.motorcycle}</Badge>
+                <Badge variant="outline">Car: {vehicleCounts.car}</Badge>
+                <Badge variant="outline">Van: {vehicleCounts.van}</Badge>
+                <Badge variant="outline">Truck: {vehicleCounts.truck}</Badge>
+                {vehicleCounts.bicycle > 0 && <Badge variant="outline">Bike: {vehicleCounts.bicycle}</Badge>}
+              </div>
+            </div>
+          )}
         </CardHeader>
         <CardContent className={`p-0 ${isFullscreen ? "flex-1 min-h-0 overflow-hidden flex flex-col" : ""}`}>
-          <div className="border-b bg-blue-50/70 px-3 py-2 text-[11px] text-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-            Tracking meter guide: `Tiles`, `Routes`, and `Maps` estimate provider usage. Above 80% may trigger overage billing.
-            Prevention: reduce rapid zoom/style switching, keep unnecessary layers off, and use recenter/focus instead of constant manual panning.
-          </div>
-          {isSuperAdmin && (
+          {!isFullscreen && (
+            <div className="border-b bg-blue-50/70 px-3 py-2 text-[11px] text-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+              Tracking meter guide: `Tiles`, `Routes`, and `Maps` estimate provider usage. Above 80% may trigger overage billing.
+              Prevention: reduce rapid zoom/style switching, keep unnecessary layers off, and use recenter/focus instead of constant manual panning.
+            </div>
+          )}
+          {!isFullscreen && isSuperAdmin && (
             <div className="border-b bg-muted/30 px-3 py-2">
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Role Map Access (Super Admin Control)</p>
               <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
@@ -839,6 +1058,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
               <p className="mt-1 text-[10px] text-muted-foreground">Rider map access is always enabled by default.</p>
             </div>
           )}
+          {!isFullscreen && (
           <div className={`border-b bg-gradient-to-r from-background to-muted/30 ${isFullscreen ? "p-2" : "p-2.5"}`} data-testid="map-usage-bar">
             <div className="flex flex-wrap items-center gap-2">
               <p className={`text-xs font-semibold uppercase tracking-wide ${usageToneClass}`}>Map Usage</p>
@@ -881,6 +1101,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
               </p>
             )}
           </div>
+          )}
           <div className={`flex ${isFullscreen ? "flex-1 min-h-0" : ""}`}>
             {/* Map Container */}
             <div 
@@ -900,15 +1121,18 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                       mapStyleUrl={mapboxStyleUrl}
                       cameraFocus={focusPoint}
                       viewerLocation={viewerLocationPoint}
-                      riders={riders
+                      riders={visibleRiders
                         .filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => rider.latitude !== null && rider.longitude !== null)
                         .map((rider) => ({
                           riderId: rider.riderId,
                           latitude: animatedFleetPositions[rider.riderId]?.lat ?? rider.latitude,
                           longitude: animatedFleetPositions[rider.riderId]?.lng ?? rider.longitude,
+                          vehicleType: rider.vehicleType || "motorcycle",
+                          isOnline: rider.isOnline !== false,
+                          activeOrderCount: Number(rider.activeOrderCount || 0),
                         }))}
                       pendingOrders={
-                        usageSnapshot.freezeSecondaryLayers
+                        usageSnapshot.freezeSecondaryLayers || trackSelectedOnly
                           ? []
                           : pendingOrders
                               .filter((order) => order.deliveryLatitude && order.deliveryLongitude)
@@ -924,6 +1148,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                           ? [Number(selectedRiderOrder.deliveryLatitude), Number(selectedRiderOrder.deliveryLongitude)]
                           : null
                       }
+                      presentationMode={isFullscreen}
                       style={{ height: "100%", width: "100%" }}
                       onRiderClick={(riderId) => {
                         const rider = riders.find((entry) => entry.riderId === riderId);
@@ -993,17 +1218,21 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                       
                       {/* Clustered rider markers */}
                       <MarkerClusterGroup chunkedLoading>
-                        {riders.filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => 
+                        {visibleRiders.filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => 
                           rider.latitude !== null && rider.longitude !== null
                         ).map((rider) => (
                           <Marker
                             key={rider.riderId}
                             position={
-                              animatedFleetPositions[rider.riderId]
+                                animatedFleetPositions[rider.riderId]
                                 ? [animatedFleetPositions[rider.riderId].lat, animatedFleetPositions[rider.riderId].lng]
                                 : [rider.latitude, rider.longitude]
                             }
-                            icon={riderIcon}
+                            icon={getVehicleMarkerIcon(
+                              rider.vehicleType || "motorcycle",
+                              rider.isOnline !== false,
+                              Number(rider.activeOrderCount || 0),
+                            )}
                             eventHandlers={{
                               click: () => setSelectedRider(rider),
                             }}
@@ -1011,9 +1240,14 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                             <Popup>
                               <div className="p-2 min-w-[200px]">
                                 <h3 className="font-bold text-sm mb-1">{rider.riderName}</h3>
-                                <p className="text-xs text-muted-foreground mb-2">
-                                  Order #{rider.orderNumber}
+                                <p className="text-xs text-muted-foreground">
+                                  {normalizeVehicleType(rider.vehicleType)} • {rider.isOnline ? "Online" : "Offline"}
                                 </p>
+                                {rider.orderNumber ? (
+                                  <p className="text-xs text-muted-foreground mb-2">Order #{rider.orderNumber}</p>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground mb-2">No active order</p>
+                                )}
                                 <Button 
                                   size="sm" 
                                   className="w-full mt-2"
@@ -1029,6 +1263,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
 
                       {/* Pending order markers */}
                       {!usageSnapshot.freezeSecondaryLayers &&
+                        !trackSelectedOnly &&
                         pendingOrders.filter(o => o.deliveryLatitude && o.deliveryLongitude).map((order) => (
                         <Marker
                           key={order.id}
@@ -1080,7 +1315,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                     </MapContainer>
                   )}
 
-                  {!shouldUseMapboxGl && (
+                  {!shouldUseMapboxGl && !isFullscreen && (
                     <div className="pointer-events-none absolute right-3 top-3 z-[1300]">
                       <div className="pointer-events-auto rounded-2xl border border-slate-300/40 bg-white/75 p-2 shadow-2xl backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/70">
                         <div className="grid grid-cols-2 gap-1.5">
@@ -1131,14 +1366,14 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                   )}
 
                   {/* Empty state overlay */}
-                  {ridersWithLocation.length === 0 && pendingOrders.length === 0 && (
+                  {visibleRidersWithLocation.length === 0 && pendingOrders.length === 0 && (
                     <div className="absolute inset-0 z-[1000] flex items-center justify-center pointer-events-none">
                       <div className="bg-background/80 backdrop-blur-sm rounded-lg p-6 text-center max-w-sm">
                         <Truck className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                        {riders.length > 0 ? (
+                        {visibleRiders.length > 0 ? (
                           <>
                             <p className="text-muted-foreground font-medium mb-2">
-                              {riders.length} active {riders.length === 1 ? 'rider' : 'riders'} but no GPS data
+                              {visibleRiders.length} filtered {visibleRiders.length === 1 ? 'rider' : 'riders'} but no GPS data
                             </p>
                             <p className="text-sm text-muted-foreground">
                               Riders need to enable location sharing on their devices to appear on the map.
@@ -1155,9 +1390,9 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
             </div>
 
             {/* Rider Detail Sidebar */}
-            {selectedRider && (
+            {!isFullscreen && selectedRider && (
               <div 
-                className={`${isFullscreen ? "w-[330px] xl:w-[390px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[380px] lg:h-[420px]"} border-l bg-background overflow-hidden`}
+                className="w-1/3 h-[380px] lg:h-[420px] border-l bg-background overflow-hidden"
                 >
                 <ScrollArea className="h-full">
                   <div className="p-4">
@@ -1184,8 +1419,13 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                         />
                         <div>
                           <p className="font-semibold">{selectedRider.riderName}</p>
-                          <p className="text-sm text-muted-foreground">Active Delivery</p>
+                          <p className="text-sm text-muted-foreground">
+                            {normalizeVehicleType(selectedRider.vehicleType)} • {selectedRider.isOnline ? "Online" : "Offline"}
+                          </p>
                         </div>
+                        <Badge variant={selectedRider.isOnline ? "secondary" : "outline"} className={selectedRider.isOnline ? "text-emerald-700" : "text-slate-600"}>
+                          {selectedRider.isOnline ? "Online" : "Offline"}
+                        </Badge>
                       </div>
 
                       <Separator />
@@ -1194,9 +1434,13 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                       <div>
                         <h4 className="font-medium mb-2 flex items-center gap-2">
                           <Package className="h-4 w-4" />
-                          Order #{selectedRider.orderNumber}
+                          {selectedRider.orderNumber ? `Order #${selectedRider.orderNumber}` : "No Active Delivery"}
                         </h4>
                         <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Active Orders</span>
+                            <span className="font-medium">{selectedRider.activeOrderCount ?? 0}</span>
+                          </div>
                           {selectedRider.deliveryAddress && (
                             <div className="flex items-start gap-2">
                               <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
@@ -1206,7 +1450,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                           {selectedRider.deliveryPhone && (
                             <div className="flex items-center gap-2">
                               <Phone className="h-4 w-4 text-muted-foreground" />
-                              <a 
+                              <a
                                 href={`tel:${selectedRider.deliveryPhone}`}
                                 className="text-primary hover:underline"
                               >
@@ -1257,12 +1501,18 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Last Update</span>
-                            <span className="font-medium">{selectedRider.timestamp ? formatTimestamp(selectedRider.timestamp) : 'N/A'}</span>
+                            <span className="font-medium">
+                              {selectedRider.timestamp
+                                ? formatTimestamp(selectedRider.timestamp)
+                                : selectedRider.lastSeenAt
+                                  ? formatTimestamp(selectedRider.lastSeenAt)
+                                  : "N/A"}
+                            </span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Location</span>
                             <span className="font-mono text-xs">
-                              {selectedRider.latitude && selectedRider.longitude 
+                              {selectedRider.latitude != null && selectedRider.longitude != null
                                 ? `${selectedRider.latitude.toFixed(5)}, ${selectedRider.longitude.toFixed(5)}`
                                 : 'No location data'}
                             </span>
@@ -1271,13 +1521,35 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                       </div>
 
                       {/* Actions */}
-                      <div className="pt-4 space-y-2">
+                      <div className="pt-2 space-y-2">
+                        <Button
+                          className="w-full"
+                          variant="outline"
+                          disabled={!selectedRider.riderPhone}
+                          onClick={() => {
+                            if (!selectedRider.riderPhone) return;
+                            window.open(`tel:${selectedRider.riderPhone}`, "_self");
+                          }}
+                        >
+                          <Phone className="h-4 w-4 mr-2" />
+                          Call Rider
+                        </Button>
+                        <Button
+                          className="w-full"
+                          variant="outline"
+                          onClick={() => {
+                            window.open(`/admin/messages?userId=${selectedRider.riderId}`, "_blank");
+                          }}
+                        >
+                          <MessageSquare className="h-4 w-4 mr-2" />
+                          Message Rider
+                        </Button>
                         <Button 
                           className="w-full"
                           variant="outline"
-                          disabled={!selectedRider.latitude || !selectedRider.longitude}
+                          disabled={selectedRider.latitude == null || selectedRider.longitude == null}
                           onClick={() => {
-                            if (selectedRider.latitude && selectedRider.longitude) {
+                            if (selectedRider.latitude != null && selectedRider.longitude != null) {
                               const destination = selectedRiderOrder
                                 ? {
                                     destinationLat: Number(selectedRiderOrder.deliveryLatitude),
@@ -1297,6 +1569,29 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                           Open in External Map
                         </Button>
                       </div>
+
+                      <Separator />
+
+                      <div>
+                        <h4 className="font-medium mb-2">Recent Journeys</h4>
+                        {selectedRiderDeliveries.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No delivery history found for this rider.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {selectedRiderDeliveries.slice(0, 6).map((delivery) => (
+                              <div key={delivery.id} className="rounded-md border bg-muted/40 p-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-semibold">#{delivery.orderNumber || "N/A"}</p>
+                                  <Badge variant="outline" className="text-[10px]">{String(delivery.status || "unknown").replace(/_/g, " ")}</Badge>
+                                </div>
+                                <p className="mt-1 text-[11px] text-muted-foreground line-clamp-1">
+                                  {delivery.deliveryAddress || "No address"}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </ScrollArea>
@@ -1305,21 +1600,21 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           </div>
           
           {/* Riders without GPS section */}
-          {!isFullscreen && ridersWithoutLocation.length > 0 && (
+          {!isFullscreen && visibleRidersWithoutLocation.length > 0 && (
             <div className="border-t p-4">
               <Collapsible>
                 <CollapsibleTrigger className="flex items-center justify-between w-full text-left">
                   <div className="flex items-center gap-2">
                     <MapPinOff className="h-4 w-4 text-amber-500" />
                     <span className="font-medium text-sm">
-                      {ridersWithoutLocation.length} Rider{ridersWithoutLocation.length !== 1 ? 's' : ''} Without GPS Data
+                      {visibleRidersWithoutLocation.length} Rider{visibleRidersWithoutLocation.length !== 1 ? 's' : ''} Without GPS Data
                     </span>
                   </div>
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pt-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                    {ridersWithoutLocation.map((rider) => (
+                    {visibleRidersWithoutLocation.map((rider) => (
                       <div
                         key={rider.riderId}
                         className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg"
@@ -1332,7 +1627,9 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                         />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium truncate">{rider.riderName}</p>
-                          <p className="text-xs text-muted-foreground truncate">Order #{rider.orderNumber}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {rider.orderNumber ? `Order #${rider.orderNumber}` : "No active order"}
+                          </p>
                         </div>
                       </div>
                     ))}

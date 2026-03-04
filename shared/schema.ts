@@ -106,6 +106,14 @@ export const users = pgTable("users", {
     deliveryNotifications: boolean;
     emailNotifications: boolean;
     locationSharing: boolean;
+    lastKnownLocation?: {
+      latitude: number;
+      longitude: number;
+      accuracy?: number | null;
+      speed?: number | null;
+      heading?: number | null;
+      timestamp?: string | null;
+    };
   }>(),
   nationalIdCard: varchar("national_id_card"),
   ratings: decimal("ratings", { precision: 3, scale: 2 }).default("0"),

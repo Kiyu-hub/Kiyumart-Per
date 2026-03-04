@@ -8709,10 +8709,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const tracking = await storage.createDeliveryTracking(trackingData as any);
+      const rider = await storage.getUser(req.user!.id);
+      if (rider) {
+        const currentPrefs = ((rider as any).riderPreferences || {}) as Record<string, any>;
+        await storage.updateUser(req.user!.id, {
+          riderOnline: true,
+          riderPreferences: {
+            ...currentPrefs,
+            lastKnownLocation: {
+              latitude: effectiveLat,
+              longitude: effectiveLng,
+              accuracy: req.body.accuracy ?? null,
+              speed: req.body.speed ?? null,
+              heading: req.body.heading ?? null,
+              timestamp: new Date().toISOString(),
+            },
+          } as any,
+        } as any);
+      }
       
       // Emit real-time location update to all stakeholders
       if (order) {
-        const rider = await storage.getUser(req.user!.id);
         const locationUpdate = {
           orderId: order.id,
           orderNumber: order.orderNumber,
@@ -8884,59 +8901,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all active riders with their current locations (for admin tracking)
   app.get("/api/admin/active-riders", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
     try {
-      // Get all orders and filter for active delivery statuses with assigned riders
+      const activeStatuses = new Set([
+        "processing",
+        "ready",
+        "confirmed",
+        "searching_rider",
+        "assigned",
+        "rider_arrived",
+        "picked_up",
+        "in_transit",
+        "en_route",
+      ]);
       const allOrders = await storage.getAllOrders();
-      const activeOrders = allOrders.filter(order => 
-        ["processing", "ready", "confirmed", "searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes((order.status || "").toLowerCase().trim()) && order.riderId
-      );
-      
+      const allRiders = (await storage.getUsersByRole("rider")).filter((r: any) => r.isApproved && r.isActive);
+      const activeOrdersByRider = new Map<string, any[]>();
+      allOrders.forEach((order: any) => {
+        const riderId = String(order.riderId || "");
+        if (!riderId) return;
+        const status = canonicalizeOrderStatus(order.status);
+        if (!activeStatuses.has(status)) return;
+        const bucket = activeOrdersByRider.get(riderId) || [];
+        bucket.push(order);
+        activeOrdersByRider.set(riderId, bucket);
+      });
+
       const riderLocations = await Promise.all(
-        activeOrders.map(async (order: any) => {
-          if (!order.riderId) return null;
-          
-          const rider = await storage.getUser(order.riderId);
-          if (!rider) return null;
-          
-          const latestLocation = await storage.getLatestDeliveryLocation(order.id);
-          const destinationLat = toFiniteNumber(order.deliveryLatitude);
-          const destinationLng = toFiniteNumber(order.deliveryLongitude);
-          const riderLat = toFiniteNumber(latestLocation?.latitude);
-          const riderLng = toFiniteNumber(latestLocation?.longitude);
+        allRiders.map(async (rider: any) => {
+          const riderActiveOrders = activeOrdersByRider.get(rider.id) || [];
+          const primaryOrder = riderActiveOrders[0] || null;
+          const latestFromOrder = primaryOrder ? await storage.getLatestDeliveryLocation(primaryOrder.id) : null;
+          const latestTracking = latestFromOrder || (await storage.getLatestRiderLocation(rider.id));
+
+          const riderPrefs = (rider as any).riderPreferences || {};
+          const prefLocation = (riderPrefs.lastKnownLocation || {}) as any;
+          const prefLat = toFiniteNumber(prefLocation.latitude);
+          const prefLng = toFiniteNumber(prefLocation.longitude);
+          const trackedLat = toFiniteNumber(latestTracking?.latitude);
+          const trackedLng = toFiniteNumber(latestTracking?.longitude);
+          const resolvedLat = trackedLat ?? prefLat;
+          const resolvedLng = trackedLng ?? prefLng;
+          const resolvedTimestamp = latestTracking?.timestamp || prefLocation.timestamp || null;
+          const resolvedSpeed =
+            latestTracking?.speed ??
+            (Number.isFinite(prefLocation.speed) ? Number(prefLocation.speed) : null);
+          const resolvedHeading =
+            latestTracking?.heading ??
+            (Number.isFinite(prefLocation.heading) ? Number(prefLocation.heading) : null);
+
+          const destinationLat = toFiniteNumber(primaryOrder?.deliveryLatitude);
+          const destinationLng = toFiniteNumber(primaryOrder?.deliveryLongitude);
           const etaPayload =
             destinationLat !== null &&
             destinationLng !== null &&
-            riderLat !== null &&
-            riderLng !== null
+            resolvedLat !== null &&
+            resolvedLng !== null
               ? computeEtaMetrics({
-                  riderLat,
-                  riderLng,
+                  riderLat: resolvedLat,
+                  riderLng: resolvedLng,
                   destinationLat,
                   destinationLng,
-                  speedRaw: latestLocation?.speed,
+                  speedRaw: resolvedSpeed,
                 })
               : null;
-          
-          // Return rider even without location data (they may not have started tracking)
+
+          const presence = presenceService.getPresenceForApi(rider.id);
+          const onlineByPresence = presence.status === "online" || presence.status === "away";
+          const onlineByFlag = rider.riderOnline !== false;
+          const locationFresh =
+            !!resolvedTimestamp && Date.now() - new Date(resolvedTimestamp).getTime() <= 5 * 60_000;
+          const isOnline = onlineByPresence || (onlineByFlag && locationFresh);
+          const vehicleInfo = (rider as any).vehicleInfo || {};
+
           return {
             riderId: rider.id,
             riderName: rider.name,
             riderProfileImage: rider.profileImage || null,
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            orderStatus: order.status,
-            latitude: latestLocation?.latitude ?? null,
-            longitude: latestLocation?.longitude ?? null,
-            speed: latestLocation?.speed ?? null,
-            heading: latestLocation?.heading ?? null,
-            timestamp: latestLocation?.timestamp ?? null,
-            hasLocation: !!latestLocation,
+            riderPhone: rider.phone || null,
+            vehicleType: String(vehicleInfo.type || "").trim() || "motorcycle",
+            vehicleColor: String(vehicleInfo.color || "").trim() || null,
+            isOnline,
+            onlineStatus: isOnline ? "online" : "offline",
+            lastSeenAt: presence.lastSeen || resolvedTimestamp,
+            activeOrderCount: riderActiveOrders.length,
+            hasActiveOrder: riderActiveOrders.length > 0,
+            orderId: primaryOrder?.id || null,
+            orderNumber: primaryOrder?.orderNumber || null,
+            orderStatus: primaryOrder?.status || null,
+            deliveryAddress: primaryOrder?.deliveryAddress || null,
+            deliveryPhone: primaryOrder?.deliveryPhone || null,
+            buyerName: primaryOrder?.buyerName || null,
+            deliveryLatitude: destinationLat,
+            deliveryLongitude: destinationLng,
+            latitude: resolvedLat,
+            longitude: resolvedLng,
+            speed: resolvedSpeed,
+            heading: resolvedHeading,
+            timestamp: resolvedTimestamp,
+            hasLocation: resolvedLat !== null && resolvedLng !== null,
             eta: etaPayload?.etaMinutes ?? null,
             distance: etaPayload?.distanceKm ?? null,
           };
-        })
+        }),
       );
-      
-      res.json(riderLocations.filter(Boolean));
+
+      res.json(riderLocations);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -13107,6 +13175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (socket.data.userRole === "rider") {
       void (async () => {
         try {
+          await storage.updateUser(userId, { riderOnline: true } as any);
           const riderOrders = await storage.getOrdersByUser(userId, "rider");
           const activeOrder = riderOrders.find((o: any) =>
             ["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes(canonicalizeOrderStatus(o.status))
@@ -13148,6 +13217,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (socket.data.userRole === "rider") {
         void (async () => {
           try {
+            await storage.updateUser(userId, { riderOnline: false } as any);
             const riderOrders = await storage.getOrdersByUser(userId, "rider");
             const impacted = riderOrders.find((o: any) =>
               ["searching_rider", "assigned", "rider_arrived"].includes(canonicalizeOrderStatus(o.status))
@@ -13171,15 +13241,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     socket.on("rider_location_update", async (payload) => {
       try {
         if (socket.data.userRole !== "rider") return;
-        const orderId = String(payload?.orderId || "");
-        if (!orderId) return;
-
-        const order = await storage.getOrder(orderId);
-        if (!order || order.riderId !== userId) return;
-
         const lat = toFiniteNumber(payload?.latitude);
         const lng = toFiniteNumber(payload?.longitude);
         if (lat === null || lng === null) return;
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+
+        const rider = await storage.getUser(userId);
+        if (!rider) return;
+        const currentPrefs = (((rider as any).riderPreferences || {}) as Record<string, any>);
+        await storage.updateUser(userId, {
+          riderOnline: true,
+          riderPreferences: {
+            ...currentPrefs,
+            lastKnownLocation: {
+              latitude: lat,
+              longitude: lng,
+              accuracy: payload?.accuracy ?? null,
+              speed: payload?.speed ?? null,
+              heading: payload?.heading ?? null,
+              timestamp: new Date().toISOString(),
+            },
+          } as any,
+        } as any);
+
+        const orderId = String(payload?.orderId || "");
+        if (!orderId) {
+          const update = {
+            orderId: null,
+            orderNumber: null,
+            riderId: userId,
+            riderName: rider?.name || "Rider",
+            riderPhone: rider?.phone || null,
+            vehicleType: String((rider as any)?.vehicleInfo?.type || "").trim() || "motorcycle",
+            latitude: lat,
+            longitude: lng,
+            speed: payload?.speed ?? null,
+            heading: payload?.heading ?? null,
+            timestamp: new Date().toISOString(),
+            hasActiveOrder: false,
+            activeOrderCount: 0,
+            isOnline: true,
+          };
+          const [admins, superAdmins] = await Promise.all([
+            storage.getUsersByRole("admin"),
+            storage.getUsersByRole("super_admin"),
+          ]);
+          [...admins, ...superAdmins].forEach((adminUser) => {
+            io.to(adminUser.id).emit("admin_rider_location_updated", update);
+          });
+          return;
+        }
+
+        const order = await storage.getOrder(orderId);
+        if (!order || order.riderId !== userId) return;
 
         const latest = await storage.getLatestDeliveryLocation(order.id);
         let effectiveLat = lat;
@@ -13211,17 +13325,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           heading: payload?.heading,
         } as any);
 
-        const rider = await storage.getUser(userId);
         const update = {
           orderId: order.id,
           orderNumber: order.orderNumber,
           riderId: userId,
           riderName: rider?.name || "Rider",
+          riderPhone: rider?.phone || null,
+          vehicleType: String((rider as any)?.vehicleInfo?.type || "").trim() || "motorcycle",
           latitude: tracking.latitude,
           longitude: tracking.longitude,
           speed: tracking.speed,
           heading: tracking.heading,
           timestamp: tracking.timestamp,
+          hasActiveOrder: true,
+          activeOrderCount: 1,
+          isOnline: true,
         };
         io.to(order.buyerId).emit("rider_location_updated", update);
         if (order.sellerId) io.to(order.sellerId).emit("rider_location_updated", update);
