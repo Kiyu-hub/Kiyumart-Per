@@ -197,7 +197,7 @@ export function resolveMapboxStyleUrl(): string {
   }
   const envStyle = normalizeMapboxStyleUrl((import.meta.env as any).VITE_MAPBOX_STYLE_URL || "");
   if (envStyle) return envStyle;
-  if (typeof window === "undefined") return "mapbox://styles/mapbox/dark-v11";
+  if (typeof window === "undefined") return "mapbox://styles/mapbox/navigation-night-v1";
 
   try {
     const stored = normalizeMapboxStyleUrl(window.localStorage.getItem("mapbox_style_url") || "");
@@ -206,7 +206,7 @@ export function resolveMapboxStyleUrl(): string {
     // Ignore storage read errors.
   }
 
-  return "mapbox://styles/mapbox/dark-v11";
+  return "mapbox://styles/mapbox/navigation-night-v1";
 }
 
 export function toMapboxRasterStyle(tileUrl: string, attribution?: string) {

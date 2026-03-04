@@ -309,6 +309,7 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
             <MapboxSingleTripMap
               center={animatedCurrentPosition || [delivery.deliveryLatitude, delivery.deliveryLongitude]}
               riderPos={animatedCurrentPosition}
+              viewerLocation={animatedCurrentPosition}
               destinationPos={[delivery.deliveryLatitude, delivery.deliveryLongitude]}
               routeGeometry={usageSnapshot.freezeSecondaryLayers ? [] : routeGeometry}
               style={{ height: "100%", width: "100%" }}

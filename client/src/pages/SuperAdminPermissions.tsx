@@ -52,6 +52,7 @@ const FEATURE_MANIFEST: Record<string, { label: string; description: string; cat
   "deliveries.view": { label: "View Deliveries", description: "View delivery assignments", category: "Operations" },
   "deliveries.manage": { label: "Manage Deliveries", description: "Update delivery lifecycle", category: "Operations" },
   "tracking.update": { label: "Update Tracking", description: "Post rider tracking updates", category: "Operations" },
+  "maps.view": { label: "Map Access", description: "Allow user to view map and live tracking interfaces", category: "Operations" },
   "earnings.view": { label: "View Earnings", description: "View earnings and payouts", category: "Operations" },
   "payouts.request": { label: "Request Payouts", description: "Submit payout requests", category: "Operations" },
   "orders.create": { label: "Create Orders", description: "Create checkout orders", category: "Operations" },
@@ -109,6 +110,7 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "support.view": true,
     "support.manage": true,
     "profile.manage": true,
+    "maps.view": true,
   },
   seller: {
     "products.create": true,
@@ -125,6 +127,7 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "promotions.manage": true,
     "reviews.manage": true,
     "analytics.view": true,
+    "maps.view": true,
   },
   rider: {
     "orders.view": true,
@@ -137,6 +140,7 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "support.manage": true,
     "earnings.view": true,
     "profile.manage": true,
+    "maps.view": true,
   },
   agent: {
     "orders.view": true,
@@ -146,6 +150,7 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "support.view": true,
     "support.manage": true,
     "profile.manage": true,
+    "maps.view": true,
   },
   buyer: {
     "orders.create": true,
@@ -156,6 +161,7 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "support.manage": true,
     "wishlist.manage": true,
     "profile.manage": true,
+    "maps.view": true,
   },
 };
 
@@ -311,6 +317,7 @@ export default function SuperAdminPermissions() {
 
   const handleToggleFeature = (featureKey: string, enabled: boolean) => {
     if (isSuperAdminRole) return;
+    if (selectedRole === "rider" && featureKey === "maps.view" && !enabled) return;
     setLocalFeatures((prev) => ({ ...prev, [featureKey]: enabled }));
     setHasChanges(true);
   };
@@ -510,6 +517,7 @@ export default function SuperAdminPermissions() {
                     {featuresByCategory[category].map((featureKey) => {
                       const feature = mergedFeatureManifest[featureKey];
                       const isEnabled = !!localFeatures[featureKey];
+                      const isRiderMapLock = selectedRole === "rider" && featureKey === "maps.view";
                       return (
                         <div key={featureKey} className="rounded-lg border bg-card/50 px-3 py-2.5">
                           <div className="flex items-start justify-between gap-4">
@@ -521,13 +529,16 @@ export default function SuperAdminPermissions() {
                               >
                                 {feature.label}
                               </Label>
-                              <p className="text-xs text-muted-foreground mt-1">{feature.description}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {feature.description}
+                                {isRiderMapLock ? " (Rider map access is always enabled)." : ""}
+                              </p>
                               <p className="text-[11px] text-muted-foreground/80 mt-1 font-mono">{featureKey}</p>
                             </div>
                             <Switch
                               id={featureKey}
                               checked={isEnabled}
-                              disabled={isSuperAdminRole}
+                              disabled={isSuperAdminRole || isRiderMapLock}
                               onCheckedChange={(checked) => handleToggleFeature(featureKey, checked)}
                               data-testid={`switch-${featureKey}`}
                             />

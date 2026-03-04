@@ -25,6 +25,7 @@ interface MapboxFleetMapProps {
   center: [number, number];
   mapStyleUrl?: string;
   cameraFocus?: [number, number] | null;
+  viewerLocation?: [number, number] | null;
   riders: FleetRiderMarker[];
   pendingOrders: FleetOrderMarker[];
   routeGeometry?: [number, number][];
@@ -113,6 +114,7 @@ export default function MapboxFleetMap({
   center,
   mapStyleUrl,
   cameraFocus = null,
+  viewerLocation = null,
   riders,
   pendingOrders,
   routeGeometry = [],
@@ -130,6 +132,7 @@ export default function MapboxFleetMap({
   const riderMarkersRef = useRef<Map<string, any>>(new Map());
   const orderMarkersRef = useRef<Map<string, any>>(new Map());
   const destinationMarkerRef = useRef<any>(null);
+  const viewerMarkerRef = useRef<any>(null);
   const loadedRef = useRef(false);
   const initErrorReportedRef = useRef(false);
   const onLoadRef = useRef<MapboxFleetMapProps["onLoad"]>(onLoad);
@@ -282,6 +285,7 @@ export default function MapboxFleetMap({
       riderMarkersRef.current.clear();
       orderMarkersRef.current.clear();
       if (destinationMarkerRef.current) destinationMarkerRef.current.remove();
+      if (viewerMarkerRef.current) viewerMarkerRef.current.remove();
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -376,6 +380,20 @@ export default function MapboxFleetMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
+    if (!viewerLocation) {
+      if (viewerMarkerRef.current) viewerMarkerRef.current.remove();
+      return;
+    }
+    const mapboxgl = (window as any).mapboxgl;
+    if (!viewerMarkerRef.current) {
+      viewerMarkerRef.current = new mapboxgl.Marker({ element: makeMarkerElement("#3b82f6", 12) });
+    }
+    viewerMarkerRef.current.setLngLat([viewerLocation[1], viewerLocation[0]]).addTo(map);
+  }, [viewerLocation]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
     const points: Array<[number, number]> = [];
     const focusAnchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : null;
     if (focusAnchor) points.push(focusAnchor);
@@ -464,7 +482,7 @@ export default function MapboxFleetMap({
     if (!points.length) return;
     autoCameraLockUntilRef.current = Date.now() + 10_000;
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : points[0];
-    map.easeTo({ center: anchor, zoom: 19, duration: 350 });
+    map.easeTo({ center: anchor, zoom: 18, duration: 350 });
   };
 
   const resetBearing = () => {

@@ -308,7 +308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .map((value) => String(value || "").trim())
         .find((token) => token.startsWith("pk.")) || "";
     const styleUrl = String(
-      settings?.mapboxStyleUrl || process.env.VITE_MAPBOX_STYLE_URL || "mapbox://styles/mapbox/dark-v11",
+      settings?.mapboxStyleUrl || process.env.VITE_MAPBOX_STYLE_URL || "mapbox://styles/mapbox/navigation-night-v1",
     ).trim();
     const glVersion = String(settings?.mapboxGlVersion || process.env.VITE_MAPBOX_GL_VERSION || "v3.4.0").trim();
 

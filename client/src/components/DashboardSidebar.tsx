@@ -243,12 +243,15 @@ export default function DashboardSidebar({
   const pendingAssignmentsCount = assignmentBadgeData?.count || 0;
 
   const visibleItems = (() => {
-    // Seller/Rider chat visibility is controlled by super admin role features.
-    if (normalizedRole !== "seller" && normalizedRole !== "rider") return items;
     const roleFeatures = currentUser?.roleFeatures || {};
+    const canViewMaps = normalizedRole === "rider" ? true : roleFeatures["maps.view"] !== false;
     const canViewMessages = roleFeatures["messages.view"] === true;
     const canManagePromotions = roleFeatures["promotions.manage"] !== false;
     return items.filter((item) => {
+      if (!canViewMaps) {
+        if (item.id === "delivery-tracking") return false;
+        if (item.id === "deliveries" && normalizedRole === "seller") return false;
+      }
       if (item.id === "messages") return canViewMessages;
       if (normalizedRole === "seller" && item.id === "promotions") return canManagePromotions;
       return true;

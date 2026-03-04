@@ -373,6 +373,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
           <MapboxSingleTripMap
             center={animatedRiderPos || destPos}
             riderPos={animatedRiderPos}
+            viewerLocation={animatedRiderPos}
             destinationPos={destPos}
             routeGeometry={usageSnapshot.freezeSecondaryLayers ? [] : routeGeometry}
             className={cn("w-full", isFullscreen ? "h-[calc(100vh-160px)]" : "h-[420px]")}

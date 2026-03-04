@@ -536,7 +536,7 @@ export default function AdminSettings() {
       cloudinaryApiKey: "",
       cloudinaryApiSecret: "",
       mapboxPublicToken: "",
-      mapboxStyleUrl: "mapbox://styles/mapbox/dark-v11",
+      mapboxStyleUrl: "mapbox://styles/mapbox/navigation-night-v1",
       mapboxGlVersion: "v3.4.0",
       contactPhone: "",
       contactEmail: "",
@@ -639,7 +639,7 @@ export default function AdminSettings() {
         cloudinaryApiKey: data.cloudinaryApiKey || "",
         cloudinaryApiSecret: data.cloudinaryApiSecret || "",
         mapboxPublicToken: (data as any).mapboxPublicToken || "",
-        mapboxStyleUrl: (data as any).mapboxStyleUrl || "mapbox://styles/mapbox/dark-v11",
+        mapboxStyleUrl: (data as any).mapboxStyleUrl || "mapbox://styles/mapbox/navigation-night-v1",
         mapboxGlVersion: (data as any).mapboxGlVersion || "v3.4.0",
         contactPhone: data.contactPhone,
         contactEmail: data.contactEmail,
@@ -760,7 +760,7 @@ export default function AdminSettings() {
         cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
         cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
         mapboxPublicToken: (settings as any).mapboxPublicToken || "",
-        mapboxStyleUrl: (settings as any).mapboxStyleUrl || "mapbox://styles/mapbox/dark-v11",
+        mapboxStyleUrl: (settings as any).mapboxStyleUrl || "mapbox://styles/mapbox/navigation-night-v1",
         mapboxGlVersion: (settings as any).mapboxGlVersion || "v3.4.0",
         contactPhone: settings.contactPhone,
         contactEmail: settings.contactEmail,
@@ -1590,7 +1590,7 @@ export default function AdminSettings() {
                       <div>
                         <Label htmlFor="mapboxStyleUrl">Mapbox Style URL</Label>
                         <p className="text-xs text-muted-foreground">
-                          Example: `mapbox://styles/mapbox/dark-v11`
+                          Example: `mapbox://styles/mapbox/navigation-night-v1`
                         </p>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -1619,7 +1619,7 @@ export default function AdminSettings() {
                     <Input
                       id="mapboxStyleUrl"
                       {...form.register("mapboxStyleUrl")}
-                      placeholder="mapbox://styles/mapbox/dark-v11"
+                      placeholder="mapbox://styles/mapbox/navigation-night-v1"
                       data-testid="input-mapbox-style-url"
                     />
                   </div>

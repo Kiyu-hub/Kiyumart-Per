@@ -221,6 +221,7 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "support.manage": true,
     "support.view": true,
     "profile.manage": true,
+    "maps.view": true,
   },
   seller: {
     "products.create": true,
@@ -238,6 +239,7 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "reviews.manage": true,
     "analytics.view": true,
     "profile.manage": true,
+    "maps.view": true,
   },
   rider: {
     "orders.view": true,
@@ -250,6 +252,7 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "support.manage": true,
     "earnings.view": true,
     "profile.manage": true,
+    "maps.view": true,
   },
   agent: {
     "orders.view": true,
@@ -259,6 +262,7 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "messages.send": true,
     "users.view": true,
     "profile.manage": true,
+    "maps.view": true,
   },
   buyer: {
     "orders.create": true,
@@ -269,6 +273,7 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "support.manage": true,
     "wishlist.manage": true,
     "profile.manage": true,
+    "maps.view": true,
   },
 };
 
@@ -340,10 +345,17 @@ export async function resolveRoleFeatures(role: string): Promise<Record<string, 
       .where(eq(roleFeatures.role, normalizedRole as any))
       .limit(1);
     const configuredFeatures = (configured?.features || {}) as Record<string, boolean>;
-    return { ...defaults, ...configuredFeatures };
+    const merged = { ...defaults, ...configuredFeatures };
+    if (normalizedRole === "rider") {
+      merged["maps.view"] = true;
+    }
+    return merged;
   } catch {
     if (normalizedRole === "super_admin") {
       return buildSuperAdminAbsoluteFeatures();
+    }
+    if (normalizedRole === "rider") {
+      return { ...defaults, "maps.view": true };
     }
     return defaults;
   }

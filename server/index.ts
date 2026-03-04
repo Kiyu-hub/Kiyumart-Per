@@ -333,6 +333,7 @@ app.use(cookieParser());
         "support.view": true,
         "support.manage": true,
         "profile.manage": true,
+        "maps.view": true,
       },
       seller: {
         "products.create": true,
@@ -350,6 +351,7 @@ app.use(cookieParser());
         "reviews.manage": true,
         "analytics.view": true,
         "profile.manage": true,
+        "maps.view": true,
       },
       rider: {
         "orders.view": true,
@@ -362,6 +364,7 @@ app.use(cookieParser());
         "support.manage": true,
         "earnings.view": true,
         "profile.manage": true,
+        "maps.view": true,
       },
       agent: {
         "orders.view": true,
@@ -371,6 +374,7 @@ app.use(cookieParser());
         "support.view": true,
         "support.manage": true,
         "profile.manage": true,
+        "maps.view": true,
       },
       buyer: {
         "orders.create": true,
@@ -381,6 +385,7 @@ app.use(cookieParser());
         "support.manage": true,
         "wishlist.manage": true,
         "profile.manage": true,
+        "maps.view": true,
       },
     };
 

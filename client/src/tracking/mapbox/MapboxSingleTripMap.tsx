@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Compass, Crosshair, Layers3, LocateFixed, Minus, Plus, Route } from "lucide-react";
 import { usageMonitor } from "@/tracking/usage/usageMonitor";
 import { getMapRenderer } from "@/tracking/providers/factory";
@@ -15,6 +15,7 @@ interface MapboxSingleTripMapProps {
   center: LatLngTuple;
   mapStyleUrl?: string;
   riderPos?: LatLngTuple | null;
+  viewerLocation?: LatLngTuple | null;
   destinationPos: LatLngTuple;
   routeGeometry?: LatLngTuple[];
   className?: string;
@@ -98,6 +99,7 @@ export default function MapboxSingleTripMap({
   center,
   mapStyleUrl,
   riderPos,
+  viewerLocation = null,
   destinationPos,
   routeGeometry = [],
   className,
@@ -109,6 +111,7 @@ export default function MapboxSingleTripMap({
   const mapRef = useRef<any>(null);
   const riderMarkerRef = useRef<any>(null);
   const destinationMarkerRef = useRef<any>(null);
+  const viewerMarkerRef = useRef<any>(null);
   const loadedRef = useRef(false);
   const initErrorReportedRef = useRef(false);
   const onLoadRef = useRef<MapboxSingleTripMapProps["onLoad"]>(onLoad);
@@ -117,8 +120,10 @@ export default function MapboxSingleTripMap({
   const lastAutoCameraAtRef = useRef(0);
   const hasInitialAutoFitRef = useRef(false);
   const cameraPointsRef = useRef<Array<[number, number]>>([]);
+  const [browserViewerLocation, setBrowserViewerLocation] = useState<LatLngTuple | null>(null);
 
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
+  const effectiveViewerLocation = viewerLocation || browserViewerLocation;
 
   useEffect(() => {
     onLoadRef.current = onLoad;
@@ -127,6 +132,26 @@ export default function MapboxSingleTripMap({
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  useEffect(() => {
+    if (viewerLocation) return;
+    if (typeof window === "undefined") return;
+    const geolocation = window.navigator?.geolocation;
+    if (!geolocation) return;
+    geolocation.getCurrentPosition(
+      (position) => {
+        setBrowserViewerLocation([position.coords.latitude, position.coords.longitude]);
+      },
+      () => {
+        // Ignore user permission errors.
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10_000,
+        maximumAge: 30_000,
+      },
+    );
+  }, [viewerLocation]);
 
   useEffect(() => {
     let disposed = false;
@@ -256,6 +281,7 @@ export default function MapboxSingleTripMap({
       }
       if (riderMarkerRef.current) riderMarkerRef.current.remove();
       if (destinationMarkerRef.current) destinationMarkerRef.current.remove();
+      if (viewerMarkerRef.current) viewerMarkerRef.current.remove();
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -306,6 +332,20 @@ export default function MapboxSingleTripMap({
     }
     riderMarkerRef.current.setLngLat([riderPos[1], riderPos[0]]).addTo(map);
   }, [riderPos]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    if (!effectiveViewerLocation) {
+      if (viewerMarkerRef.current) viewerMarkerRef.current.remove();
+      return;
+    }
+    if (!viewerMarkerRef.current) {
+      const mapboxgl = (window as any).mapboxgl;
+      viewerMarkerRef.current = new mapboxgl.Marker({ element: makeMarkerElement("#3b82f6", 14) });
+    }
+    viewerMarkerRef.current.setLngLat([effectiveViewerLocation[1], effectiveViewerLocation[0]]).addTo(map);
+  }, [effectiveViewerLocation]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -391,7 +431,7 @@ export default function MapboxSingleTripMap({
     if (!points.length) return;
     autoCameraLockUntilRef.current = Date.now() + 10_000;
     const anchor = riderPos ? ([riderPos[1], riderPos[0]] as [number, number]) : points[0];
-    map.easeTo({ center: anchor, zoom: 19, duration: 350 });
+    map.easeTo({ center: anchor, zoom: 18, duration: 350 });
   };
 
   const resetBearing = () => {

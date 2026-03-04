@@ -1409,7 +1409,7 @@ export class DbStorage implements IStorage {
           onboardingImages: [],
           defaultCurrency: 'GHS',
           mapboxPublicToken: null,
-          mapboxStyleUrl: 'mapbox://styles/mapbox/dark-v11',
+          mapboxStyleUrl: 'mapbox://styles/mapbox/navigation-night-v1',
           mapboxGlVersion: 'v3.4.0',
           paystackPublicKey: null,
           paystackSecretKey: null,

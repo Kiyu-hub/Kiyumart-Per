@@ -40,6 +40,7 @@ import {
 import { io, Socket } from "socket.io-client";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import UserAvatar from "@/components/UserAvatar";
 import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
@@ -98,6 +99,12 @@ interface AvailableRider {
   sellerZoneMatched?: boolean;
   currentLocation?: { lat: number; lng: number };
   distanceToOrder?: number;
+}
+
+interface RoleFeatureEntry {
+  id: string;
+  role: string;
+  features: Record<string, boolean>;
 }
 
 const riderIcon = new Icon({
@@ -160,10 +167,18 @@ interface RealTimeRiderMapProps {
 }
 
 export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRiderMapProps) {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const [riders, setRiders] = useState<RiderLocation[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [center] = useState<LatLng>(new LatLng(5.6037, -0.1870)); // Accra, Ghana
-  const [mapboxStyleUrl, setMapboxStyleUrl] = useState<string>(() => resolveMapboxStyleUrl());
+  const [mapboxStyleUrl, setMapboxStyleUrl] = useState<string>(() => {
+    const resolved = String(resolveMapboxStyleUrl() || "").trim();
+    if (!resolved || resolved === "mapbox://styles/mapbox/dark-v11") {
+      return "mapbox://styles/mapbox/navigation-night-v1";
+    }
+    return resolved;
+  });
   const [openSourceStyleId, setOpenSourceStyleId] = useState<string>(() => {
     if (typeof window === "undefined") return OPEN_SOURCE_MAP_PRESETS[0].id;
     const stored = String(window.localStorage.getItem("open_source_map_style") || "").trim();
@@ -180,6 +195,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [showDispatchPanel, setShowDispatchPanel] = useState(false);
   const [availableRiders, setAvailableRiders] = useState<AvailableRider[]>([]);
   const [viewerLocation, setViewerLocation] = useState<{ lat: number; lng: number; accuracyM: number | null } | null>(null);
+  const [isUpdatingMapAccess, setIsUpdatingMapAccess] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const leafletMapRef = useRef<LeafletMap | null>(null);
   const leafletAutoLockUntilRef = useRef(0);
@@ -187,6 +203,18 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const { toast } = useToast();
   const usageSnapshot = useUsageMonitorSnapshot();
   const shouldUseMapboxGl = (forceMapboxGl || isMapboxGlPreferred()) && !mapboxInitFailed && !preferOpenSourceMap;
+  const mapAccessEnabled = user?.role === "rider" ? true : user?.roleFeatures?.["maps.view"] !== false;
+
+  const { data: roleFeatureRows = [] } = useQuery<RoleFeatureEntry[]>({
+    queryKey: ["/api/role-features", "map-access-inline"],
+    queryFn: async () => {
+      const res = await fetch("/api/role-features", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load role map access");
+      return res.json();
+    },
+    enabled: isSuperAdmin,
+    staleTime: 30_000,
+  });
 
   // Fetch initial active riders
   const { data: initialRiders = [], isLoading, refetch: refetchActiveRiders } = useQuery<RiderLocation[]>({
@@ -282,9 +310,13 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const persistedStyle = resolveMapboxStyleUrl();
-    if (persistedStyle && persistedStyle !== mapboxStyleUrl) {
-      setMapboxStyleUrl(persistedStyle);
+    const persistedStyle = String(resolveMapboxStyleUrl() || "").trim();
+    const normalizedStyle =
+      !persistedStyle || persistedStyle === "mapbox://styles/mapbox/dark-v11"
+        ? "mapbox://styles/mapbox/navigation-night-v1"
+        : persistedStyle;
+    if (normalizedStyle && normalizedStyle !== mapboxStyleUrl) {
+      setMapboxStyleUrl(normalizedStyle);
     }
   }, []);
 
@@ -446,6 +478,23 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     () => OPEN_SOURCE_MAP_PRESETS.find((entry) => entry.id === openSourceStyleId) || OPEN_SOURCE_MAP_PRESETS[0],
     [openSourceStyleId],
   );
+  const roleMapAccess = useMemo(() => {
+    const defaults: Record<string, boolean> = {
+      admin: true,
+      seller: true,
+      buyer: true,
+      agent: true,
+      rider: true,
+    };
+    roleFeatureRows.forEach((row) => {
+      const key = String(row.role || "").toLowerCase().trim();
+      if (key in defaults) {
+        defaults[key] = key === "rider" ? true : row.features?.["maps.view"] !== false;
+      }
+    });
+    defaults.rider = true;
+    return defaults;
+  }, [roleFeatureRows]);
   const selectedMapboxStyleValue = useMemo(
     () => MAPBOX_STYLE_PRESETS.find((entry) => entry.value === mapboxStyleUrl)?.value || MAPBOX_STYLE_PRESETS[0].value,
     [mapboxStyleUrl],
@@ -466,28 +515,60 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     setMapboxRetryNonce((prev) => prev + 1);
   }, []);
 
+  const updateRoleMapAccess = useCallback(
+    async (role: "admin" | "seller" | "buyer" | "agent" | "rider", enabled: boolean) => {
+      if (!isSuperAdmin) return;
+      if (role === "rider") return;
+      const row = roleFeatureRows.find((entry) => String(entry.role || "").toLowerCase().trim() === role);
+      const currentFeatures = row?.features || {};
+      const nextFeatures = { ...currentFeatures, "maps.view": enabled === true };
+      setIsUpdatingMapAccess(role);
+      try {
+        await apiRequest("PUT", `/api/role-features/${role}`, { features: nextFeatures });
+        toast({
+          title: "Map access updated",
+          description: `${role.charAt(0).toUpperCase()}${role.slice(1)} map access is now ${enabled ? "enabled" : "disabled"}.`,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/role-features"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      } catch (error: any) {
+        toast({
+          title: "Failed to update map access",
+          description: error?.message || "Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsUpdatingMapAccess(null);
+      }
+    },
+    [isSuperAdmin, roleFeatureRows, toast],
+  );
+
   const zoomLeafletIn = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
     leafletAutoLockUntilRef.current = Date.now() + 8_000;
-    const nextZoom = Math.min(Number(map.getZoom?.() || 12) + 1, 20);
+    const maxZoom = Number(selectedOpenSourcePreset.maxZoom ?? 19);
+    const nextZoom = Math.min(Number(map.getZoom?.() || 12) + 1, maxZoom);
     if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
     else map.zoomIn(1, { animate: true });
-  }, [focusPoint]);
+  }, [focusPoint, selectedOpenSourcePreset.maxZoom]);
   const zoomLeafletOut = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
     leafletAutoLockUntilRef.current = Date.now() + 8_000;
-    const nextZoom = Math.max(Number(map.getZoom?.() || 12) - 1, 2);
+    const minZoom = Number(selectedOpenSourcePreset.minZoom ?? 2);
+    const nextZoom = Math.max(Number(map.getZoom?.() || 12) - 1, minZoom);
     if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
     else map.zoomOut(1, { animate: true });
-  }, [focusPoint]);
+  }, [focusPoint, selectedOpenSourcePreset.minZoom]);
   const streetLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !focusPoint) return;
     leafletAutoLockUntilRef.current = Date.now() + 8_000;
-    map.setView(focusPoint, 18, { animate: true });
-  }, [focusPoint]);
+    const streetZoom = Math.min(18, Number(selectedOpenSourcePreset.maxZoom ?? 19));
+    map.setView(focusPoint, streetZoom, { animate: true });
+  }, [focusPoint, selectedOpenSourcePreset.maxZoom]);
   const fitLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !mapPointsForFit.length) return;
@@ -502,9 +583,9 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       leafletLastAutoCameraAtRef.current = Date.now();
       return;
     }
-    map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: 18, animate: true });
+    map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: Math.min(18, Number(selectedOpenSourcePreset.maxZoom ?? 19)), animate: true });
     leafletLastAutoCameraAtRef.current = Date.now();
-  }, [focusPoint, mapPointsForFit]);
+  }, [focusPoint, mapPointsForFit, selectedOpenSourcePreset.maxZoom]);
   const focusLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !focusPoint) return;
@@ -528,13 +609,13 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       return;
     }
     if (mapPointsForFit.length > 1) {
-      map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: 18, animate: true });
+      map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: Math.min(18, Number(selectedOpenSourcePreset.maxZoom ?? 19)), animate: true });
       return;
     }
     if (mapPointsForFit.length === 1) {
       map.setView(mapPointsForFit[0], 17, { animate: true });
     }
-  }, [focusPoint, mapPointsForFit]);
+  }, [focusPoint, mapPointsForFit, selectedOpenSourcePreset.maxZoom]);
 
   useEffect(() => {
     if (shouldUseMapboxGl) return;
@@ -558,10 +639,29 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     }
 
     if (mapPointsForFit.length > 1) {
-      map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: 18, animate: true });
+      map.fitBounds(mapPointsForFit, {
+        padding: [40, 40],
+        maxZoom: Math.min(18, Number(selectedOpenSourcePreset.maxZoom ?? 19)),
+        animate: true,
+      });
       leafletLastAutoCameraAtRef.current = now;
     }
-  }, [focusPoint, mapPointsForFit, shouldUseMapboxGl]);
+  }, [focusPoint, mapPointsForFit, selectedOpenSourcePreset.maxZoom, shouldUseMapboxGl]);
+
+  useEffect(() => {
+    if (shouldUseMapboxGl) return;
+    const map = leafletMapRef.current;
+    if (!map) return;
+    const maxZoom = Number(selectedOpenSourcePreset.maxZoom ?? 19);
+    const minZoom = Number(selectedOpenSourcePreset.minZoom ?? 2);
+    const currentZoom = Number(map.getZoom?.() || 12);
+    if (currentZoom > maxZoom) {
+      map.setZoom(maxZoom, { animate: false });
+    } else if (currentZoom < minZoom) {
+      map.setZoom(minZoom, { animate: false });
+    }
+    map.invalidateSize();
+  }, [openSourceStyleId, selectedOpenSourcePreset, shouldUseMapboxGl]);
 
   const usageSeverity = Math.max(usageSnapshot.tileUsagePct, usageSnapshot.routeUsagePct, usageSnapshot.mapUsagePct);
   const usageToneClass =
@@ -587,6 +687,27 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
         : usageSeverity >= 60
           ? "Moderate"
           : "Healthy";
+
+  if (!mapAccessEnabled) {
+    return (
+      <Card data-testid="card-rider-map-access-disabled">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MapPinOff className="h-5 w-5 text-amber-600" />
+            Map Access Disabled
+          </CardTitle>
+          <CardDescription>
+            Live map access for your role is currently disabled by Super Admin.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            If you need map visibility, request Super Admin to enable <span className="font-mono">maps.view</span> for your role.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <>
@@ -693,6 +814,31 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           </div>
         </CardHeader>
         <CardContent className={`p-0 ${isFullscreen ? "flex-1 min-h-0 overflow-hidden flex flex-col" : ""}`}>
+          <div className="border-b bg-blue-50/70 px-3 py-2 text-[11px] text-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+            Tracking meter guide: `Tiles`, `Routes`, and `Maps` estimate provider usage. Above 80% may trigger overage billing.
+            Prevention: reduce rapid zoom/style switching, keep unnecessary layers off, and use recenter/focus instead of constant manual panning.
+          </div>
+          {isSuperAdmin && (
+            <div className="border-b bg-muted/30 px-3 py-2">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Role Map Access (Super Admin Control)</p>
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                {(["admin", "seller", "buyer", "agent", "rider"] as const).map((role) => (
+                  <div key={role} className="flex items-center justify-between rounded-md border bg-background px-2 py-1.5">
+                    <span className="text-xs capitalize">{role}</span>
+                    <Switch
+                      checked={roleMapAccess[role]}
+                      disabled={role === "rider" || isUpdatingMapAccess === role}
+                      onCheckedChange={(checked) => {
+                        void updateRoleMapAccess(role, checked);
+                      }}
+                      data-testid={`switch-map-access-${role}`}
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1 text-[10px] text-muted-foreground">Rider map access is always enabled by default.</p>
+            </div>
+          )}
           <div className={`border-b bg-gradient-to-r from-background to-muted/30 ${isFullscreen ? "p-2" : "p-2.5"}`} data-testid="map-usage-bar">
             <div className="flex flex-wrap items-center gap-2">
               <p className={`text-xs font-semibold uppercase tracking-wide ${usageToneClass}`}>Map Usage</p>
@@ -753,6 +899,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                       center={[center.lat, center.lng]}
                       mapStyleUrl={mapboxStyleUrl}
                       cameraFocus={focusPoint}
+                      viewerLocation={viewerLocationPoint}
                       riders={riders
                         .filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => rider.latitude !== null && rider.longitude !== null)
                         .map((rider) => ({

@@ -169,7 +169,7 @@ export const platformSettings = pgTable("platform_settings", {
   defaultCurrency: text("default_currency").default("GHS"),
   frontendUrl: text("frontend_url"), // Paystack callback URL for payment redirects (e.g., https://mystore.com)
   mapboxPublicToken: text("mapbox_public_token"),
-  mapboxStyleUrl: text("mapbox_style_url").default("mapbox://styles/mapbox/dark-v11"),
+  mapboxStyleUrl: text("mapbox_style_url").default("mapbox://styles/mapbox/navigation-night-v1"),
   mapboxGlVersion: text("mapbox_gl_version").default("v3.4.0"),
   paystackPublicKey: text("paystack_public_key"),
   paystackSecretKey: text("paystack_secret_key"),

@@ -14,7 +14,7 @@ export const leafletProviderA: MapRenderer = {
       ? String(styleUrl.replace("mapbox://styles/", "")).trim()
       : "";
     const envStyleId = String((import.meta.env as any).VITE_MAPBOX_STYLE_ID || "").trim();
-    const styleId = styleIdFromUrl || envStyleId || "mapbox/dark-v11";
+    const styleId = styleIdFromUrl || envStyleId || "mapbox/navigation-night-v1";
     const mapboxTileUrl = useMapboxLeafletTiles && token
       ? `https://api.mapbox.com/styles/v1/${styleId}/tiles/256/{z}/{x}/{y}?access_token=${token}`
       : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";

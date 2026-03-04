@@ -5,6 +5,7 @@ import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import UserAvatar from "@/components/UserAvatar";
 import { Loader2, MapPin, Navigation, Star, Car, Clock } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
@@ -85,10 +86,13 @@ export default function DeliveryMap({
   className,
   compact = false
 }: DeliveryMapProps) {
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [mapboxInitFailed, setMapboxInitFailed] = useState(false);
   const [mapboxError, setMapboxError] = useState("");
+  const [viewerPosition, setViewerPosition] = useState<[number, number] | null>(null);
   const shouldUseMapboxGl = isMapboxGlPreferred() && !mapboxInitFailed;
+  const mapAccessEnabled = user?.role === "rider" ? true : user?.roleFeatures?.["maps.view"] !== false;
 
   const deliveryPos: [number, number] = [deliveryLocation.latitude, deliveryLocation.longitude];
   const riderPos: [number, number] | undefined = riderLocation
@@ -159,6 +163,24 @@ export default function DeliveryMap({
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    const geolocation = window.navigator?.geolocation;
+    if (!geolocation) return;
+    geolocation.getCurrentPosition(
+      (position) => {
+        setViewerPosition([position.coords.latitude, position.coords.longitude]);
+      },
+      () => {
+        // Ignore permission and availability errors.
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10_000,
+        maximumAge: 30_000,
+      },
+    );
+  }, []);
+
   if (isLoading) {
     return (
       <Card className={className} data-testid="card-map-loading">
@@ -175,6 +197,24 @@ export default function DeliveryMap({
     );
   }
 
+  if (!mapAccessEnabled) {
+    return (
+      <Card className={className} data-testid="card-map-access-disabled">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MapPin className="h-5 w-5 text-amber-600" />
+            Map Access Disabled
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Live map view is disabled for your role. Contact Super Admin to enable `maps.view`.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // Compact mobile-first view (matching reference image)
   if (compact) {
     return (
@@ -184,6 +224,7 @@ export default function DeliveryMap({
           <MapboxSingleTripMap
             center={animatedRiderPos || deliveryPos}
             riderPos={animatedRiderPos || null}
+            viewerLocation={viewerPosition}
             destinationPos={deliveryPos}
             routeGeometry={routePolyline}
             style={{ height: "100%", width: "100%" }}
@@ -329,6 +370,7 @@ export default function DeliveryMap({
             <MapboxSingleTripMap
               center={animatedRiderPos || deliveryPos}
               riderPos={animatedRiderPos || null}
+              viewerLocation={viewerPosition}
               destinationPos={deliveryPos}
               routeGeometry={routePolyline}
               style={{ height: "100%", width: "100%" }}
