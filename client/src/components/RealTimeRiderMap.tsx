@@ -7,6 +7,7 @@ import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -37,6 +38,7 @@ import { useAnimatedFleetPositions } from "@/tracking/hooks/useAnimatedFleetPosi
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
+import { TRACKING_BUDGETS } from "@/tracking/config";
 import { isMapboxGlPreferred, reloadMapboxRuntimeConfig, resetMapboxGlLoader } from "@/tracking/mapbox/mapboxLoader";
 import MapboxFleetMap from "@/tracking/mapbox/MapboxFleetMap";
 
@@ -356,6 +358,22 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   // Count riders with valid location data
   const ridersWithLocation = riders.filter(r => r.latitude !== null && r.longitude !== null);
   const ridersWithoutLocation = riders.filter(r => r.latitude === null || r.longitude === null);
+  const usageSeverity = Math.max(usageSnapshot.tileUsagePct, usageSnapshot.routeUsagePct, usageSnapshot.mapUsagePct);
+  const usageToneClass =
+    usageSeverity >= 90
+      ? "text-red-700"
+      : usageSeverity >= 80
+        ? "text-amber-700"
+        : usageSeverity >= 60
+          ? "text-blue-700"
+          : "text-emerald-700";
+  const usageFactors = [
+    ridersWithLocation.length > 35 ? "Many live riders increase tile downloads and camera updates." : null,
+    pendingOrders.length > 25 ? "High pending-order marker count increases render and tile pressure." : null,
+    usageSnapshot.disableReroute ? "Reroute calls are high; frequent route recalculation can exceed routing budget." : null,
+    usageSnapshot.freezeSecondaryLayers ? "Usage guardrails are active: secondary layers are already being limited." : null,
+    usageSnapshot.tileUsagePct >= 80 ? "Rapid zoom/pan sessions can spike tile usage quickly." : null,
+  ].filter(Boolean) as string[];
 
   return (
     <>
@@ -422,6 +440,42 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           </div>
         </CardHeader>
         <CardContent className={`p-0 ${isFullscreen ? "flex-1 min-h-0 overflow-hidden flex flex-col" : ""}`}>
+          <div className={`border-b bg-muted/20 p-3 ${isFullscreen ? "shrink-0" : ""}`} data-testid="map-usage-bar">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className={`text-sm font-semibold ${usageToneClass}`}>Map Usage Tracker</p>
+              <p className="text-xs text-muted-foreground">
+                Guardrails: reroute {usageSnapshot.disableReroute ? "limited" : "normal"} • layers {usageSnapshot.freezeSecondaryLayers ? "reduced" : "normal"}
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+              <div className="rounded border bg-background/60 p-2">
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span>Tile Loads</span>
+                  <span>{usageSnapshot.tileLoads}/{TRACKING_BUDGETS.tileLoads}</span>
+                </div>
+                <Progress value={Math.min(100, usageSnapshot.tileUsagePct)} className="h-2" />
+              </div>
+              <div className="rounded border bg-background/60 p-2">
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span>Route Calls</span>
+                  <span>{usageSnapshot.routeCalls}/{TRACKING_BUDGETS.routeCalls}</span>
+                </div>
+                <Progress value={Math.min(100, usageSnapshot.routeUsagePct)} className="h-2" />
+              </div>
+              <div className="rounded border bg-background/60 p-2">
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span>Map Instances</span>
+                  <span>{usageSnapshot.mapInstantiations}/{TRACKING_BUDGETS.mapInstantiations}</span>
+                </div>
+                <Progress value={Math.min(100, usageSnapshot.mapUsagePct)} className="h-2" />
+              </div>
+            </div>
+            {usageFactors.length > 0 && (
+              <div className="mt-2 rounded border border-amber-300/60 bg-amber-50/60 px-2 py-1 text-xs text-amber-800">
+                Risk factors: {usageFactors.join(" ")}
+              </div>
+            )}
+          </div>
           <div className={`flex ${isFullscreen ? "flex-1 min-h-0" : ""}`}>
             {/* Map Container */}
             <div 

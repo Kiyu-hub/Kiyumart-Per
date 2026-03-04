@@ -36,9 +36,9 @@ function fitMapToPoints(
 ) {
   if (!points.length) return;
   const padding = options?.padding ?? 60;
-  const maxZoom = options?.maxZoom ?? 16;
+  const maxZoom = options?.maxZoom ?? 18;
   const duration = options?.duration ?? 800;
-  const singleZoom = options?.singleZoom ?? 15;
+  const singleZoom = options?.singleZoom ?? 16;
   if (points.length === 1) {
     map.easeTo({ center: points[0], zoom: singleZoom, duration });
     return;
@@ -152,7 +152,9 @@ export default function MapboxSingleTripMap({
           container: containerRef.current,
           style: styleValue,
           center: [center[1], center[0]],
-          zoom: 14,
+          zoom: 15,
+          minZoom: 2,
+          maxZoom: 20,
           pitch: 45,
           antialias: true,
         });
@@ -163,6 +165,23 @@ export default function MapboxSingleTripMap({
         map.on("zoomstart", lockAutoCamera);
         map.on("rotatestart", lockAutoCamera);
         map.on("pitchstart", lockAutoCamera);
+        map.scrollZoom.enable();
+        map.dragPan.enable();
+        map.doubleClickZoom.enable();
+        map.dragRotate.enable();
+        map.touchZoomRotate.enable();
+        const canvas = map.getCanvas?.();
+        if (canvas) {
+          canvas.style.cursor = "grab";
+          canvas.addEventListener("mousedown", () => {
+            canvas.style.cursor = "grabbing";
+          });
+          const resetCursor = () => {
+            canvas.style.cursor = "grab";
+          };
+          canvas.addEventListener("mouseup", resetCursor);
+          canvas.addEventListener("mouseleave", resetCursor);
+        }
         map.addControl(new mapboxgl.NavigationControl({ showZoom: true, showCompass: true }), "top-right");
         map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
         mapRef.current = map;
@@ -282,7 +301,7 @@ export default function MapboxSingleTripMap({
     if (now < autoCameraLockUntilRef.current) return;
     if (hasInitialAutoFitRef.current && now - lastAutoCameraAtRef.current < 1200) return;
     if (hasInitialAutoFitRef.current && points.every((point) => isPointVisibleWithMargin(map, point, 0.16))) return;
-    fitMapToPoints(map, points, { padding: 60, maxZoom: 16, duration: 800, singleZoom: 15 });
+    fitMapToPoints(map, points, { padding: 60, maxZoom: 18, duration: 800, singleZoom: 16 });
     hasInitialAutoFitRef.current = true;
     lastAutoCameraAtRef.current = Date.now();
   }, [destinationPos, riderPos]);
@@ -307,9 +326,19 @@ export default function MapboxSingleTripMap({
     const points = cameraPointsRef.current;
     if (!points.length) return;
     autoCameraLockUntilRef.current = 0;
-    fitMapToPoints(map, points, { padding: 60, maxZoom: 16, duration: 700, singleZoom: 15 });
+    fitMapToPoints(map, points, { padding: 60, maxZoom: 18, duration: 700, singleZoom: 16 });
     hasInitialAutoFitRef.current = true;
     lastAutoCameraAtRef.current = Date.now();
+  };
+
+  const streetZoom = () => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    const points = cameraPointsRef.current;
+    if (!points.length) return;
+    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    const anchor = points[0];
+    map.easeTo({ center: anchor, zoom: 18, duration: 350 });
   };
 
   const resetBearing = () => {
@@ -332,11 +361,12 @@ export default function MapboxSingleTripMap({
     <div className={`relative ${className || ""}`} style={style}>
       <div ref={containerRef} className="h-full w-full" />
       <div className="pointer-events-none absolute right-3 top-3 z-[1300] flex flex-col gap-2">
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={zoomIn} title="Zoom In">+</button>
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={zoomOut} title="Zoom Out">-</button>
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={recenterCamera} title="Recenter / Fit">Fit</button>
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={togglePitch} title="Toggle 2D/3D">2D/3D</button>
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={resetBearing} title="Reset North">N</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-sm shadow" onClick={zoomIn} title="Zoom In">+</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-sm shadow" onClick={zoomOut} title="Zoom Out">-</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-xs shadow" onClick={streetZoom} title="Street Level">Street</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-xs shadow" onClick={recenterCamera} title="Recenter / Fit">Fit</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-xs shadow" onClick={togglePitch} title="Toggle 2D/3D">2D/3D</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-xs shadow" onClick={resetBearing} title="Reset North">N</button>
       </div>
     </div>
   );
