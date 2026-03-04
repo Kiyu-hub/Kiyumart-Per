@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth";
 import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
-import { isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
+import { ensureMapboxRuntimeConfig, isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
 import MapboxSingleTripMap from "@/tracking/mapbox/MapboxSingleTripMap";
 
 // Fix Leaflet icon issue
@@ -100,6 +100,12 @@ export default function DeliveryMap({
     const handleMapModeChange = () => bumpMapModeVersion((value) => value + 1);
     window.addEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
     return () => window.removeEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
+  }, []);
+
+  useEffect(() => {
+    void ensureMapboxRuntimeConfig().catch(() => {
+      // Keep local provider fallback when runtime map config is unavailable.
+    });
   }, []);
 
   const deliveryPos: [number, number] = [deliveryLocation.latitude, deliveryLocation.longitude];

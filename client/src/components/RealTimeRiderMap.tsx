@@ -52,6 +52,7 @@ import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
 import { TRACKING_BUDGETS } from "@/tracking/config";
 import {
+  ensureMapboxRuntimeConfig,
   isMapboxGlPreferred,
   reloadMapboxRuntimeConfig,
   resetMapboxGlLoader,
@@ -513,6 +514,14 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   }, [preferOpenSourceMap]);
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
+    const mode = preferOpenSourceMap ? "open_source" : "mapbox";
+    void apiRequest("PUT", "/api/admin/map-provider-mode", { mode }).catch(() => {
+      // Keep local mode even when admin endpoint is temporarily unavailable.
+    });
+  }, [isSuperAdmin, preferOpenSourceMap]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const handleModeChanged = (event: Event) => {
       const mode = String((event as CustomEvent<{ mode?: string }>).detail?.mode || "").toLowerCase().trim();
@@ -521,6 +530,16 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     };
     window.addEventListener("map_provider_mode_changed", handleModeChanged as EventListener);
     return () => window.removeEventListener("map_provider_mode_changed", handleModeChanged as EventListener);
+  }, []);
+
+  useEffect(() => {
+    void ensureMapboxRuntimeConfig()
+      .then(() => {
+        setPreferOpenSourceMap(resolveMapProviderMode() === "open_source");
+      })
+      .catch(() => {
+        // Keep local fallback mode.
+      });
   }, []);
 
   useEffect(() => {

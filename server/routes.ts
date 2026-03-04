@@ -279,6 +279,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       methods: ["GET", "POST"]
     }
   });
+  const resolveInitialMapProviderMode = (): "mapbox" | "open_source" => {
+    const explicit = String(process.env.MAP_PROVIDER_MODE || "").toLowerCase().trim();
+    if (explicit === "open_source" || explicit === "open-source" || explicit === "opensource") return "open_source";
+    if (explicit === "mapbox") return "mapbox";
+    const envProvider = String(process.env.VITE_MAP_PROVIDER || process.env.MAP_PROVIDER || "PROVIDER_A")
+      .toUpperCase()
+      .trim();
+    return envProvider === "PROVIDER_B" ? "open_source" : "mapbox";
+  };
+  let runtimeMapProviderMode: "mapbox" | "open_source" = resolveInitialMapProviderMode();
 
   // Public runtime map config (safe values only) so frontend can initialize map engines
   // even when tokens are provided as server env vars instead of Vite build-time vars.
@@ -317,8 +327,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       mapboxAccessToken: safeToken,
       mapboxStyleUrl: styleUrl,
       mapboxGlVersion: glVersion,
+      preferredMapMode: runtimeMapProviderMode,
     });
   });
+
+  app.put(
+    "/api/admin/map-provider-mode",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("manage_platform_settings"),
+    async (req: AuthRequest, res) => {
+      try {
+        const requested = String(req.body?.mode || "").toLowerCase().trim();
+        if (!["mapbox", "open_source", "open-source", "opensource"].includes(requested)) {
+          return res.status(400).json({ error: "Invalid map mode. Use mapbox or open_source." });
+        }
+        runtimeMapProviderMode =
+          requested === "open_source" || requested === "open-source" || requested === "opensource"
+            ? "open_source"
+            : "mapbox";
+        io.emit("map_provider_mode_updated", {
+          mode: runtimeMapProviderMode,
+          updatedAt: new Date().toISOString(),
+          updatedBy: req.user?.id || null,
+        });
+        return res.json({ mode: runtimeMapProviderMode });
+      } catch (error: any) {
+        return res.status(400).json({ error: error?.message || "Failed to update map provider mode" });
+      }
+    },
+  );
 
   // ============ Socket.IO Authentication Middleware ============
   io.use((socket, next) => {

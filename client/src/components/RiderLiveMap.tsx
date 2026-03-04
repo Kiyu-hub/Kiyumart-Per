@@ -25,7 +25,7 @@ import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
-import { isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
+import { ensureMapboxRuntimeConfig, isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
 import MapboxSingleTripMap from "@/tracking/mapbox/MapboxSingleTripMap";
 
 interface ActiveDelivery {
@@ -129,6 +129,12 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     const handleMapModeChange = () => bumpMapModeVersion((value) => value + 1);
     window.addEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
     return () => window.removeEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
+  }, []);
+
+  useEffect(() => {
+    void ensureMapboxRuntimeConfig().catch(() => {
+      // Keep local provider fallback when runtime map config is unavailable.
+    });
   }, []);
 
   // Fetch active delivery

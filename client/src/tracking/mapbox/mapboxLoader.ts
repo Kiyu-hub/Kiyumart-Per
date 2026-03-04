@@ -136,6 +136,7 @@ export async function ensureMapboxRuntimeConfig(): Promise<void> {
       const token = normalizeMapboxPublicToken(payload?.mapboxAccessToken);
       const styleUrl = normalizeMapboxStyleUrl(payload?.mapboxStyleUrl);
       const glVersion = String(payload?.mapboxGlVersion || "").trim();
+      const preferredMode = normalizeMapProviderMode(payload?.preferredMapMode);
 
       if (styleUrl) {
         (window as any).__MAPBOX_STYLE_URL__ = styleUrl;
@@ -145,6 +146,9 @@ export async function ensureMapboxRuntimeConfig(): Promise<void> {
       }
       if (token) {
         (window as any).__MAPBOX_ACCESS_TOKEN__ = token;
+      }
+      if (preferredMode) {
+        setMapProviderMode(preferredMode);
       }
 
       try {
