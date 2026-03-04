@@ -374,6 +374,14 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     usageSnapshot.freezeSecondaryLayers ? "Usage guardrails are active: secondary layers are already being limited." : null,
     usageSnapshot.tileUsagePct >= 80 ? "Rapid zoom/pan sessions can spike tile usage quickly." : null,
   ].filter(Boolean) as string[];
+  const usageSummary =
+    usageSeverity >= 90
+      ? "Critical"
+      : usageSeverity >= 80
+        ? "High"
+        : usageSeverity >= 60
+          ? "Moderate"
+          : "Healthy";
 
   return (
     <>
@@ -389,7 +397,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
         data-testid="card-rider-map"
         className={isFullscreen ? "fixed inset-0 z-[9999] rounded-none h-screen flex flex-col overflow-hidden" : ""}
       >
-        <CardHeader className="pb-2 shrink-0">
+        <CardHeader className="py-3 pb-2 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="flex items-center gap-2">
@@ -440,46 +448,52 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           </div>
         </CardHeader>
         <CardContent className={`p-0 ${isFullscreen ? "flex-1 min-h-0 overflow-hidden flex flex-col" : ""}`}>
-          <div className={`border-b bg-muted/20 p-3 ${isFullscreen ? "shrink-0" : ""}`} data-testid="map-usage-bar">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <p className={`text-sm font-semibold ${usageToneClass}`}>Map Usage Tracker</p>
-              <p className="text-xs text-muted-foreground">
+          <div className={`border-b bg-gradient-to-r from-background to-muted/30 ${isFullscreen ? "p-2" : "p-2.5"}`} data-testid="map-usage-bar">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className={`text-xs font-semibold uppercase tracking-wide ${usageToneClass}`}>Map Usage</p>
+              <Badge
+                variant="outline"
+                className={`text-[10px] ${usageSeverity >= 90 ? "border-red-300 text-red-700" : usageSeverity >= 80 ? "border-amber-300 text-amber-700" : "border-emerald-300 text-emerald-700"}`}
+              >
+                {usageSummary}
+              </Badge>
+              <p className="ml-auto text-[11px] text-muted-foreground">
                 Guardrails: reroute {usageSnapshot.disableReroute ? "limited" : "normal"} • layers {usageSnapshot.freezeSecondaryLayers ? "reduced" : "normal"}
               </p>
             </div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-              <div className="rounded border bg-background/60 p-2">
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span>Tile Loads</span>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-md border bg-background/70 p-2">
+                <div className="mb-1 flex items-center justify-between text-[11px]">
+                  <span>Tiles</span>
                   <span>{usageSnapshot.tileLoads}/{TRACKING_BUDGETS.tileLoads}</span>
                 </div>
-                <Progress value={Math.min(100, usageSnapshot.tileUsagePct)} className="h-2" />
+                <Progress value={Math.min(100, usageSnapshot.tileUsagePct)} className="h-1.5" />
               </div>
-              <div className="rounded border bg-background/60 p-2">
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span>Route Calls</span>
+              <div className="rounded-md border bg-background/70 p-2">
+                <div className="mb-1 flex items-center justify-between text-[11px]">
+                  <span>Routes</span>
                   <span>{usageSnapshot.routeCalls}/{TRACKING_BUDGETS.routeCalls}</span>
                 </div>
-                <Progress value={Math.min(100, usageSnapshot.routeUsagePct)} className="h-2" />
+                <Progress value={Math.min(100, usageSnapshot.routeUsagePct)} className="h-1.5" />
               </div>
-              <div className="rounded border bg-background/60 p-2">
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span>Map Instances</span>
+              <div className="rounded-md border bg-background/70 p-2">
+                <div className="mb-1 flex items-center justify-between text-[11px]">
+                  <span>Maps</span>
                   <span>{usageSnapshot.mapInstantiations}/{TRACKING_BUDGETS.mapInstantiations}</span>
                 </div>
-                <Progress value={Math.min(100, usageSnapshot.mapUsagePct)} className="h-2" />
+                <Progress value={Math.min(100, usageSnapshot.mapUsagePct)} className="h-1.5" />
               </div>
             </div>
             {usageFactors.length > 0 && (
-              <div className="mt-2 rounded border border-amber-300/60 bg-amber-50/60 px-2 py-1 text-xs text-amber-800">
-                Risk factors: {usageFactors.join(" ")}
-              </div>
+              <p className="mt-1 text-[11px] text-amber-700">
+                Minimal overrun factors: {usageFactors[0]} {usageFactors.length > 1 ? `(+${usageFactors.length - 1} more)` : ""}
+              </p>
             )}
           </div>
           <div className={`flex ${isFullscreen ? "flex-1 min-h-0" : ""}`}>
             {/* Map Container */}
             <div 
-              className={`relative transition-all duration-300 ${selectedRider ? "flex-1" : "w-full"} ${isFullscreen ? "h-full min-h-0" : "h-[520px] lg:h-[560px]"}`}
+              className={`relative transition-all duration-300 ${selectedRider ? "flex-1" : "w-full"} ${isFullscreen ? "h-full min-h-0" : "h-[460px] lg:h-[500px]"}`}
               data-testid="map-container"
             >
               {isLoading ? (
@@ -708,7 +722,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
             {/* Rider Detail Sidebar */}
             {selectedRider && (
               <div 
-                className={`${isFullscreen ? "w-[340px] xl:w-[400px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[520px] lg:h-[560px]"} border-l bg-background overflow-hidden`}
+                className={`${isFullscreen ? "w-[330px] xl:w-[390px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[460px] lg:h-[500px]"} border-l bg-background overflow-hidden`}
                 >
                 <ScrollArea className="h-full">
                   <div className="p-4">

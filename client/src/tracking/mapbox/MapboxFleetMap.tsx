@@ -187,6 +187,12 @@ export default function MapboxFleetMap({
         map.on("rotatestart", lockAutoCamera);
         map.on("pitchstart", lockAutoCamera);
         map.scrollZoom.enable();
+        if (map.scrollZoom?.setWheelZoomRate) {
+          map.scrollZoom.setWheelZoomRate(1 / 200);
+        }
+        if (map.scrollZoom?.setZoomRate) {
+          map.scrollZoom.setZoomRate(1 / 80);
+        }
         map.dragPan.enable();
         map.doubleClickZoom.enable();
         map.dragRotate.enable();
@@ -405,7 +411,7 @@ export default function MapboxFleetMap({
     const points = cameraPointsRef.current;
     if (!points.length) return;
     autoCameraLockUntilRef.current = Date.now() + 10_000;
-    map.easeTo({ center: points[0], zoom: 18, duration: 350 });
+    map.easeTo({ center: points[0], zoom: 19, duration: 350 });
   };
 
   const resetBearing = () => {
@@ -427,13 +433,17 @@ export default function MapboxFleetMap({
   return (
     <div className={`relative ${className || ""}`} style={style}>
       <div ref={containerRef} className="h-full w-full" />
-      <div className="pointer-events-none absolute right-3 top-3 z-[1300] flex flex-col gap-2">
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-sm shadow" onClick={zoomIn} title="Zoom In">+</button>
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-sm shadow" onClick={zoomOut} title="Zoom Out">-</button>
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-xs shadow" onClick={streetZoom} title="Street Level">Street</button>
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-xs shadow" onClick={recenterCamera} title="Recenter / Fit">Fit</button>
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-xs shadow" onClick={togglePitch} title="Toggle 2D/3D">2D/3D</button>
-        <button type="button" className="pointer-events-auto rounded bg-background/95 px-3 py-1.5 text-xs shadow" onClick={resetBearing} title="Reset North">N</button>
+      <div className="pointer-events-none absolute right-3 top-3 z-[1300]">
+        <div className="pointer-events-auto rounded-2xl border border-white/20 bg-black/35 p-1.5 shadow-2xl backdrop-blur-md">
+          <div className="grid grid-cols-2 gap-1.5">
+            <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-800 transition hover:bg-white" onClick={zoomIn} title="Zoom In">+</button>
+            <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-800 transition hover:bg-white" onClick={zoomOut} title="Zoom Out">-</button>
+            <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={streetZoom} title="Street Level">Street</button>
+            <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={recenterCamera} title="Recenter / Fit">Fit</button>
+            <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={togglePitch} title="Toggle 2D/3D">2D/3D</button>
+            <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={resetBearing} title="Reset North">N</button>
+          </div>
+        </div>
       </div>
     </div>
   );
