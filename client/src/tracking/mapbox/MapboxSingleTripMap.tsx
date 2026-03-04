@@ -24,6 +24,22 @@ interface MapboxSingleTripMapProps {
 const ROUTE_SOURCE_ID = "trip-route-source";
 const ROUTE_LAYER_ID = "trip-route-layer";
 
+function isPointVisibleWithMargin(map: any, point: [number, number], marginRatio = 0.12): boolean {
+  const bounds = map.getBounds?.();
+  if (!bounds) return false;
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  const latPad = (ne.lat - sw.lat) * marginRatio;
+  const lngPad = (ne.lng - sw.lng) * marginRatio;
+  const [lng, lat] = point;
+  return (
+    lat >= sw.lat + latPad &&
+    lat <= ne.lat - latPad &&
+    lng >= sw.lng + lngPad &&
+    lng <= ne.lng - lngPad
+  );
+}
+
 function toGeoJsonLine(positions: LatLngTuple[]) {
   return {
     type: "FeatureCollection",
@@ -69,6 +85,9 @@ export default function MapboxSingleTripMap({
   const initErrorReportedRef = useRef(false);
   const onLoadRef = useRef<MapboxSingleTripMapProps["onLoad"]>(onLoad);
   const onErrorRef = useRef<MapboxSingleTripMapProps["onError"]>(onError);
+  const autoCameraLockUntilRef = useRef(0);
+  const lastAutoCameraAtRef = useRef(0);
+  const hasInitialAutoFitRef = useRef(false);
 
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
 
@@ -111,6 +130,13 @@ export default function MapboxSingleTripMap({
           pitch: 45,
           antialias: true,
         });
+        const lockAutoCamera = () => {
+          autoCameraLockUntilRef.current = Date.now() + 10_000;
+        };
+        map.on("dragstart", lockAutoCamera);
+        map.on("zoomstart", lockAutoCamera);
+        map.on("rotatestart", lockAutoCamera);
+        map.on("pitchstart", lockAutoCamera);
         mapRef.current = map;
         usageMonitor.trackMapInstantiation();
         map.on("sourcedata", () => usageMonitor.trackTileLoad());
@@ -172,13 +198,15 @@ export default function MapboxSingleTripMap({
       }
       loadedRef.current = false;
       initErrorReportedRef.current = false;
+      hasInitialAutoFitRef.current = false;
     };
   }, [fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    map.easeTo({ center: [center[1], center[0]], duration: 400 });
+    if (hasInitialAutoFitRef.current) return;
+    map.jumpTo({ center: [center[1], center[0]] });
   }, [center]);
 
   useEffect(() => {
@@ -221,14 +249,22 @@ export default function MapboxSingleTripMap({
     const points: Array<[number, number]> = [];
     if (riderPos) points.push([riderPos[1], riderPos[0]]);
     points.push([destinationPos[1], destinationPos[0]]);
+    const now = Date.now();
+    if (now < autoCameraLockUntilRef.current) return;
+    if (hasInitialAutoFitRef.current && now - lastAutoCameraAtRef.current < 1200) return;
+    if (hasInitialAutoFitRef.current && points.every((point) => isPointVisibleWithMargin(map, point, 0.16))) return;
     if (points.length === 1) {
       map.easeTo({ center: points[0], zoom: 15, duration: 700 });
+      hasInitialAutoFitRef.current = true;
+      lastAutoCameraAtRef.current = Date.now();
       return;
     }
     const mapboxgl = (window as any).mapboxgl;
     const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
     points.forEach((point) => bounds.extend(point));
     map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 800 });
+    hasInitialAutoFitRef.current = true;
+    lastAutoCameraAtRef.current = Date.now();
   }, [destinationPos, riderPos]);
 
   return <div ref={containerRef} className={className} style={style} />;

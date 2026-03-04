@@ -38,6 +38,22 @@ interface MapboxFleetMapProps {
 const ROUTE_SOURCE_ID = "fleet-route-source";
 const ROUTE_LAYER_ID = "fleet-route-layer";
 
+function isPointVisibleWithMargin(map: any, point: [number, number], marginRatio = 0.12): boolean {
+  const bounds = map.getBounds?.();
+  if (!bounds) return false;
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  const latPad = (ne.lat - sw.lat) * marginRatio;
+  const lngPad = (ne.lng - sw.lng) * marginRatio;
+  const [lng, lat] = point;
+  return (
+    lat >= sw.lat + latPad &&
+    lat <= ne.lat - latPad &&
+    lng >= sw.lng + lngPad &&
+    lng <= ne.lng - lngPad
+  );
+}
+
 function makeMarkerElement(color: string, size = 12): HTMLDivElement {
   const el = document.createElement("div");
   el.style.width = `${size}px`;
@@ -88,6 +104,9 @@ export default function MapboxFleetMap({
   const initErrorReportedRef = useRef(false);
   const onLoadRef = useRef<MapboxFleetMapProps["onLoad"]>(onLoad);
   const onErrorRef = useRef<MapboxFleetMapProps["onError"]>(onError);
+  const autoCameraLockUntilRef = useRef(0);
+  const lastAutoCameraAtRef = useRef(0);
+  const hasInitialAutoFitRef = useRef(false);
 
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
 
@@ -132,6 +151,13 @@ export default function MapboxFleetMap({
           pitch: 42,
           antialias: true,
         });
+        const lockAutoCamera = () => {
+          autoCameraLockUntilRef.current = Date.now() + 10_000;
+        };
+        map.on("dragstart", lockAutoCamera);
+        map.on("zoomstart", lockAutoCamera);
+        map.on("rotatestart", lockAutoCamera);
+        map.on("pitchstart", lockAutoCamera);
         mapRef.current = map;
         usageMonitor.trackMapInstantiation();
         map.on("sourcedata", () => usageMonitor.trackTileLoad());
@@ -196,6 +222,7 @@ export default function MapboxFleetMap({
       }
       initErrorReportedRef.current = false;
       loadedRef.current = false;
+      hasInitialAutoFitRef.current = false;
     };
   }, [fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, requireMapboxToken]);
 
@@ -290,14 +317,22 @@ export default function MapboxFleetMap({
       points.push([selectedDestination[1], selectedDestination[0]]);
     }
     if (!points.length) return;
+    const now = Date.now();
+    if (now < autoCameraLockUntilRef.current) return;
+    if (hasInitialAutoFitRef.current && now - lastAutoCameraAtRef.current < 1200) return;
+    if (hasInitialAutoFitRef.current && points.every((point) => isPointVisibleWithMargin(map, point, 0.14))) return;
     if (points.length === 1) {
       map.easeTo({ center: points[0], zoom: 14, duration: 700 });
+      hasInitialAutoFitRef.current = true;
+      lastAutoCameraAtRef.current = Date.now();
       return;
     }
     const mapboxgl = (window as any).mapboxgl;
     const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
     points.forEach((point) => bounds.extend(point));
     map.fitBounds(bounds, { padding: 50, maxZoom: 15, duration: 900 });
+    hasInitialAutoFitRef.current = true;
+    lastAutoCameraAtRef.current = Date.now();
   }, [pendingOrders, riders, selectedDestination]);
 
   return <div ref={containerRef} className={className} style={style} />;
