@@ -228,7 +228,7 @@ export default function AdminDashboard() {
             )}
 
             {/* Real-Time Rider Tracking Map */}
-            <RealTimeRiderMap />
+            <RealTimeRiderMap forceMapboxGl />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
