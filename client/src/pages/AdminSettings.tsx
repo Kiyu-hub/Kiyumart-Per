@@ -137,6 +137,17 @@ interface PlatformSettings extends SettingsFormData {
   mapboxGlVersionSource?: string;
 }
 
+const MAPBOX_STYLE_PRESETS = [
+  { value: "mapbox://styles/mapbox/streets-v12", label: "Streets" },
+  { value: "mapbox://styles/mapbox/outdoors-v12", label: "Outdoors" },
+  { value: "mapbox://styles/mapbox/light-v11", label: "Light" },
+  { value: "mapbox://styles/mapbox/dark-v11", label: "Dark" },
+  { value: "mapbox://styles/mapbox/satellite-v9", label: "Satellite" },
+  { value: "mapbox://styles/mapbox/satellite-streets-v12", label: "Satellite Streets" },
+  { value: "mapbox://styles/mapbox/navigation-day-v1", label: "Navigation Day" },
+  { value: "mapbox://styles/mapbox/navigation-night-v1", label: "Navigation Night" },
+] as const;
+
 export default function AdminSettings() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -563,6 +574,10 @@ export default function AdminSettings() {
       productPageAdUrl: "",
     },
   });
+  const mapboxStyleUrlValue = String(form.watch("mapboxStyleUrl") || "").trim();
+  const selectedMapboxStylePreset = MAPBOX_STYLE_PRESETS.some((preset) => preset.value === mapboxStyleUrlValue)
+    ? mapboxStyleUrlValue
+    : "__custom__";
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (data: SettingsFormData) => {
@@ -1582,6 +1597,25 @@ export default function AdminSettings() {
                         Source: <span className="font-medium">{settings?.mapboxStyleUrlSource || "none"}</span>
                       </p>
                     </div>
+                    <Select
+                      value={selectedMapboxStylePreset}
+                      onValueChange={(value) => {
+                        if (value === "__custom__") return;
+                        form.setValue("mapboxStyleUrl", value, { shouldDirty: true, shouldTouch: true });
+                      }}
+                    >
+                      <SelectTrigger id="mapboxStylePreset" data-testid="select-mapbox-style-preset">
+                        <SelectValue placeholder="Choose a map theme" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MAPBOX_STYLE_PRESETS.map((preset) => (
+                          <SelectItem key={preset.value} value={preset.value}>
+                            {preset.label}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="__custom__">Custom URL (manual input)</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Input
                       id="mapboxStyleUrl"
                       {...form.register("mapboxStyleUrl")}
