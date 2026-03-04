@@ -15,6 +15,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { 
   Truck, 
   Clock, 
@@ -26,7 +35,6 @@ import {
   Navigation,
   AlertTriangle,
   X,
-  ExternalLink,
   RefreshCcw,
   ChevronDown,
   MapPinOff,
@@ -37,7 +45,9 @@ import {
   Layers3,
   Compass,
   Route,
-  MessageSquare
+  MessageSquare,
+  Loader2,
+  Send
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -49,7 +59,6 @@ import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useAnimatedFleetPositions } from "@/tracking/hooks/useAnimatedFleetPositions";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
-import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
 import { TRACKING_BUDGETS } from "@/tracking/config";
 import {
   ensureMapboxRuntimeConfig,
@@ -169,31 +178,51 @@ function timestampToMs(primary?: string | null, secondary?: string | null): numb
   return Number.isFinite(ms) ? ms : 0;
 }
 
+function resolveOnlineState(raw: RiderLocation): boolean | undefined {
+  if (typeof raw.isOnline === "boolean") return raw.isOnline;
+  const status = String(raw.onlineStatus || "").toLowerCase().trim();
+  if (status === "online" || status === "away") return true;
+  if (status === "offline") return false;
+  return undefined;
+}
+
+function isRiderOnlineSnapshot(rider: Pick<RiderLocation, "isOnline" | "onlineStatus">): boolean {
+  const resolved = resolveOnlineState(rider as RiderLocation);
+  return resolved === true;
+}
+
 function normalizeRiderSnapshot(raw: RiderLocation): RiderLocation {
   const latitude = toFiniteCoordinate(raw.latitude, "lat");
   const longitude = toFiniteCoordinate(raw.longitude, "lng");
   const speed = toFiniteNumber(raw.speed);
   const heading = toFiniteNumber(raw.heading);
   const normalizedOnlineStatus = String(raw.onlineStatus || "").toLowerCase().trim();
-  const isOnline =
-    raw.isOnline === true ||
-    normalizedOnlineStatus === "online" ||
-    normalizedOnlineStatus === "away";
+  const isOnline = resolveOnlineState(raw);
   const activeOrderCount = Math.max(0, Number(raw.activeOrderCount || (raw.orderId ? 1 : 0) || 0));
   const hasActiveOrder = Boolean(raw.hasActiveOrder) || activeOrderCount > 0 || Boolean(raw.orderId);
+  const normalizedVehicleTypeRaw = String(raw.vehicleType || "").trim();
+  const vehicleType = normalizedVehicleTypeRaw || undefined;
+  const resolvedOnlineStatus =
+    normalizedOnlineStatus === "online" || normalizedOnlineStatus === "away" || normalizedOnlineStatus === "offline"
+      ? normalizedOnlineStatus
+      : isOnline === true
+        ? "online"
+        : isOnline === false
+          ? "offline"
+          : undefined;
 
   return {
     ...raw,
     riderId: String(raw.riderId || "").trim(),
     riderName: String(raw.riderName || "Rider").trim() || "Rider",
     riderPhone: raw.riderPhone ? String(raw.riderPhone) : null,
-    vehicleType: raw.vehicleType ? String(raw.vehicleType) : "motorcycle",
+    vehicleType,
     latitude,
     longitude,
     speed,
     heading,
     isOnline,
-    onlineStatus: isOnline ? "online" : "offline",
+    onlineStatus: resolvedOnlineStatus,
     activeOrderCount,
     hasActiveOrder,
     hasLocation: latitude !== null && longitude !== null,
@@ -234,15 +263,28 @@ function dedupeRiderSnapshots(rows: RiderLocation[]): RiderLocation[] {
     }
     if (normalized.orderId) existing.orderIds.add(normalized.orderId);
 
+    const mergedIsOnline = newer.isOnline ?? older.isOnline ?? false;
+    const mergedOnlineStatusRaw = String(newer.onlineStatus || older.onlineStatus || "").toLowerCase().trim();
+    const mergedOnlineStatus =
+      mergedOnlineStatusRaw === "online" || mergedOnlineStatusRaw === "away" || mergedOnlineStatusRaw === "offline"
+        ? mergedOnlineStatusRaw
+        : mergedIsOnline
+          ? "online"
+          : "offline";
+    const mergedVehicleType = String(newer.vehicleType || "").trim() || String(older.vehicleType || "").trim() || "motorcycle";
+
     const merged: RiderLocation = {
       ...older,
       ...newer,
+      riderPhone: newer.riderPhone ?? older.riderPhone ?? null,
+      vehicleType: mergedVehicleType,
+      vehicleColor: newer.vehicleColor ?? older.vehicleColor ?? null,
       latitude: newer.latitude ?? older.latitude ?? null,
       longitude: newer.longitude ?? older.longitude ?? null,
       speed: newer.speed ?? older.speed ?? null,
       heading: newer.heading ?? older.heading ?? null,
-      isOnline: newer.isOnline ?? older.isOnline ?? false,
-      onlineStatus: (newer.isOnline ?? older.isOnline) ? "online" : "offline",
+      isOnline: mergedIsOnline,
+      onlineStatus: mergedOnlineStatus,
     };
 
     const explicitCount = Math.max(
@@ -285,29 +327,32 @@ function getVehicleMarkerIcon(vehicleType: string | null | undefined, isOnline: 
     : "";
   return new DivIcon({
     className: "rider-vehicle-marker",
-    html: `<div style="position:relative;width:34px;height:34px;border-radius:50%;background:linear-gradient(145deg, ${tone}, #0f172a);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px rgba(15,23,42,0.28);border:2px solid rgba(255,255,255,0.92);font-size:16px;transform:translateZ(0);">
+    html: `<div style="position:relative;width:38px;height:38px;border-radius:14px;background:linear-gradient(160deg, ${tone} 0%, #0f172a 78%);display:flex;align-items:center;justify-content:center;box-shadow:0 12px 24px rgba(15,23,42,0.33), inset 0 1px 0 rgba(255,255,255,0.22);border:1.5px solid rgba(226,232,240,0.92);font-size:12px;font-weight:700;color:#f8fafc;letter-spacing:0.02em;transform:translateZ(0);">
       <span>${glyph}</span>
+      <span style="position:absolute;top:4px;left:6px;width:18px;height:6px;border-radius:9999px;background:rgba(255,255,255,0.22);filter:blur(0.2px);"></span>
       <span style="position:absolute;bottom:-4px;left:-4px;width:10px;height:10px;border-radius:9999px;background:${indicator};border:2px solid white;"></span>
       ${badge}
     </div>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 17],
-    popupAnchor: [0, -16],
+    iconSize: [38, 38],
+    iconAnchor: [19, 19],
+    popupAnchor: [0, -19],
   });
 }
 
-const destinationIcon = new Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-  popupAnchor: [0, -32],
+const destinationIcon = new DivIcon({
+  className: "destination-marker",
+  html: `<div style="position:relative;width:30px;height:30px;border-radius:9999px;background:linear-gradient(155deg,#ef4444,#7f1d1d);display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.95);box-shadow:0 10px 22px rgba(127,29,29,0.35);font-size:12px;font-weight:800;color:white;">DST<span style="position:absolute;top:3px;left:5px;width:12px;height:4px;border-radius:9999px;background:rgba(255,255,255,0.25);"></span></div>`,
+  iconSize: [30, 30],
+  iconAnchor: [15, 15],
+  popupAnchor: [0, -15],
 });
 
-const pendingOrderIcon = new Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/1048/1048953.png",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-  popupAnchor: [0, -36],
+const pendingOrderIcon = new DivIcon({
+  className: "pending-order-marker",
+  html: `<div style="position:relative;width:32px;height:32px;border-radius:12px;background:linear-gradient(155deg,#f59e0b,#92400e);display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.95);box-shadow:0 10px 20px rgba(146,64,14,0.35);font-size:11px;font-weight:800;color:white;letter-spacing:0.03em;">ORD<span style="position:absolute;top:3px;left:6px;width:14px;height:4px;border-radius:9999px;background:rgba(255,255,255,0.24);"></span></div>`,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+  popupAnchor: [0, -16],
 });
 
 const MAPBOX_STYLE_PRESETS = [
@@ -373,6 +418,8 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [preferOpenSourceMap, setPreferOpenSourceMap] = useState(() => resolveMapProviderMode() === "open_source");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedRider, setSelectedRider] = useState<RiderLocation | null>(null);
+  const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
+  const [messageDraft, setMessageDraft] = useState("");
   const [trackSelectedOnly, setTrackSelectedOnly] = useState(false);
   const [riderSearchTerm, setRiderSearchTerm] = useState("");
   const [vehicleFilter, setVehicleFilter] = useState<string>("all");
@@ -479,6 +526,33 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     },
   });
 
+  const sendRiderMessageMutation = useMutation({
+    mutationFn: async ({ riderId, message }: { riderId: string; message: string }) => {
+      const trimmed = message.trim();
+      if (!trimmed) throw new Error("Message cannot be empty.");
+      return apiRequest("POST", "/api/messages", {
+        receiverId: riderId,
+        message: trimmed,
+        messageType: "text",
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Message sent",
+        description: "Your message was delivered to the rider.",
+      });
+      setMessageDraft("");
+      setIsMessageDialogOpen(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Unable to send message",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   useEffect(() => {
     setRiders(dedupeRiderSnapshots(initialRiders as RiderLocation[]));
   }, [initialRiders]);
@@ -506,8 +580,16 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   useEffect(() => {
     if (!isFullscreen) return;
     setSelectedRider(null);
+    setIsMessageDialogOpen(false);
+    setMessageDraft("");
     setShowDispatchPanel(false);
   }, [isFullscreen]);
+
+  useEffect(() => {
+    if (selectedRider) return;
+    setIsMessageDialogOpen(false);
+    setMessageDraft("");
+  }, [selectedRider]);
 
   useEffect(() => {
     setMapProviderMode(preferOpenSourceMap ? "open_source" : "mapbox");
@@ -658,7 +740,11 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       
       // Update route if this is the selected rider
       if (selectedRiderIdRef.current === normalizedUpdate.riderId) {
-        setSelectedRider(prev => prev ? { ...prev, ...normalizedUpdate } : null);
+        setSelectedRider((prev) => {
+          if (!prev) return null;
+          const merged = dedupeRiderSnapshots([prev, normalizedUpdate]);
+          return merged.find((entry) => entry.riderId === prev.riderId) || prev;
+        });
       }
     });
 
@@ -730,7 +816,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     (sum, rider) => sum + Math.max(0, Number(rider.activeOrderCount || (rider.orderId ? 1 : 0) || 0)),
     0,
   );
-  const onlineRiderCount = riders.filter((r) => r.isOnline).length;
+  const onlineRiderCount = riders.filter((r) => isRiderOnlineSnapshot(r)).length;
   const offlineRiderCount = Math.max(0, riders.length - onlineRiderCount);
   const assignedRiderCount = riders.filter((r) => Boolean(r.orderId)).length;
   const unassignedRiderCount = Math.max(0, riders.length - assignedRiderCount);
@@ -770,11 +856,12 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     visibleRiders.forEach((r) => {
       if (r.latitude != null && r.longitude != null) points.push([r.latitude, r.longitude]);
     });
+    const hasRiderPoints = points.length > 0;
     if (trackSelectedOnly) {
       if (selectedRiderOrder?.deliveryLatitude != null && selectedRiderOrder?.deliveryLongitude != null) {
         points.push([Number(selectedRiderOrder.deliveryLatitude), Number(selectedRiderOrder.deliveryLongitude)]);
       }
-    } else {
+    } else if (!hasRiderPoints) {
       pendingOrders.forEach((o) => {
         if (o.deliveryLatitude != null && o.deliveryLongitude != null) {
           points.push([Number(o.deliveryLatitude), Number(o.deliveryLongitude)]);
@@ -856,7 +943,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const zoomLeafletIn = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
-    leafletAutoLockUntilRef.current = Date.now() + 8_000;
+    leafletAutoLockUntilRef.current = Date.now() + 2_500;
     const maxZoom = Number(selectedOpenSourcePreset.maxZoom ?? 19);
     const nextZoom = Math.min(Number(map.getZoom?.() || 12) + 1, maxZoom);
     if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
@@ -865,7 +952,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const zoomLeafletOut = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
-    leafletAutoLockUntilRef.current = Date.now() + 8_000;
+    leafletAutoLockUntilRef.current = Date.now() + 2_500;
     const minZoom = Number(selectedOpenSourcePreset.minZoom ?? 2);
     const nextZoom = Math.max(Number(map.getZoom?.() || 12) - 1, minZoom);
     if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
@@ -874,7 +961,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const streetLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !focusPoint) return;
-    leafletAutoLockUntilRef.current = Date.now() + 8_000;
+    leafletAutoLockUntilRef.current = Date.now() + 2_500;
     const streetZoom = Math.min(18, Number(selectedOpenSourcePreset.maxZoom ?? 19));
     map.setView(focusPoint, streetZoom, { animate: true });
   }, [focusPoint, selectedOpenSourcePreset.maxZoom]);
@@ -898,21 +985,21 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const focusLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !focusPoint) return;
-    leafletAutoLockUntilRef.current = Date.now() + 8_000;
+    leafletAutoLockUntilRef.current = Date.now() + 1_500;
     const zoom = Math.max(Number(map.getZoom?.() || 12), 17);
     map.setView(focusPoint, zoom, { animate: true });
   }, [focusPoint]);
   const locateLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !viewerLocationPoint) return;
-    leafletAutoLockUntilRef.current = Date.now() + 8_000;
+    leafletAutoLockUntilRef.current = Date.now() + 2_500;
     const zoom = Math.max(Number(map.getZoom?.() || 12), 17);
     map.setView(viewerLocationPoint, zoom, { animate: true });
   }, [viewerLocationPoint]);
   const northLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
-    leafletAutoLockUntilRef.current = Date.now() + 8_000;
+    leafletAutoLockUntilRef.current = Date.now() + 2_500;
     if (focusPoint) {
       map.setView(focusPoint, Number(map.getZoom?.() || 12), { animate: true });
       return;
@@ -1302,7 +1389,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                           latitude: animatedFleetPositions[rider.riderId]?.lat ?? rider.latitude,
                           longitude: animatedFleetPositions[rider.riderId]?.lng ?? rider.longitude,
                           vehicleType: rider.vehicleType || "motorcycle",
-                          isOnline: rider.isOnline !== false,
+                          isOnline: isRiderOnlineSnapshot(rider),
                           activeOrderCount: Number(rider.activeOrderCount || 0),
                         }))}
                       pendingOrders={
@@ -1404,7 +1491,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                             }
                             icon={getVehicleMarkerIcon(
                               rider.vehicleType || "motorcycle",
-                              rider.isOnline !== false,
+                              isRiderOnlineSnapshot(rider),
                               Number(rider.activeOrderCount || 0),
                             )}
                             eventHandlers={{
@@ -1415,7 +1502,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                               <div className="p-2 min-w-[200px]">
                                 <h3 className="font-bold text-sm mb-1">{rider.riderName}</h3>
                                 <p className="text-xs text-muted-foreground">
-                                  {normalizeVehicleType(rider.vehicleType)} | {rider.isOnline ? "Online" : "Offline"}
+                                  {normalizeVehicleType(rider.vehicleType)} | {isRiderOnlineSnapshot(rider) ? "Online" : "Offline"}
                                 </p>
                                 {rider.orderNumber ? (
                                   <p className="text-xs text-muted-foreground mb-2">Order #{rider.orderNumber}</p>
@@ -1594,11 +1681,11 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                         <div>
                           <p className="font-semibold">{selectedRider.riderName}</p>
                           <p className="text-sm text-muted-foreground">
-                            {normalizeVehicleType(selectedRider.vehicleType)} | {selectedRider.isOnline ? "Online" : "Offline"}
+                            {normalizeVehicleType(selectedRider.vehicleType)} | {isRiderOnlineSnapshot(selectedRider) ? "Online" : "Offline"}
                           </p>
                         </div>
-                        <Badge variant={selectedRider.isOnline ? "secondary" : "outline"} className={selectedRider.isOnline ? "text-emerald-700" : "text-slate-600"}>
-                          {selectedRider.isOnline ? "Online" : "Offline"}
+                        <Badge variant={isRiderOnlineSnapshot(selectedRider) ? "secondary" : "outline"} className={isRiderOnlineSnapshot(selectedRider) ? "text-emerald-700" : "text-slate-600"}>
+                          {isRiderOnlineSnapshot(selectedRider) ? "Online" : "Offline"}
                         </Badge>
                       </div>
 
@@ -1712,36 +1799,22 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                           className="w-full"
                           variant="outline"
                           onClick={() => {
-                            window.open(`/admin/messages?userId=${selectedRider.riderId}`, "_blank");
+                            setMessageDraft("");
+                            setIsMessageDialogOpen(true);
                           }}
                         >
                           <MessageSquare className="h-4 w-4 mr-2" />
                           Message Rider
                         </Button>
-                        <Button 
-                          className="w-full"
-                          variant="outline"
-                          disabled={selectedRider.latitude == null || selectedRider.longitude == null}
-                          onClick={() => {
-                            if (selectedRider.latitude != null && selectedRider.longitude != null) {
-                              const destination = selectedRiderOrder
-                                ? {
-                                    destinationLat: Number(selectedRiderOrder.deliveryLatitude),
-                                    destinationLng: Number(selectedRiderOrder.deliveryLongitude),
-                                  }
-                                : {};
-                              const url = buildExternalNavigationUrl({
-                                lat: selectedRider.latitude,
-                                lng: selectedRider.longitude,
-                                ...destination,
-                              });
-                              window.open(url, '_blank');
-                            }
-                          }}
-                        >
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          Open in External Map
-                        </Button>
+                      </div>
+
+                      <Separator />
+
+                      <div className="rounded-lg border border-teal-500/30 bg-teal-500/5 p-3">
+                        <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">Live tracking notes</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Online status requires active GPS heartbeat. Rider order badge shows current active delivery load to prevent over-assignment.
+                        </p>
                       </div>
 
                       <Separator />
@@ -1817,7 +1890,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                               <span className="capitalize">{normalizeVehicleType(rider.vehicleType)}</span>
-                              <span>{rider.isOnline ? "Online" : "Offline"}</span>
+                              <span>{isRiderOnlineSnapshot(rider) ? "Online" : "Offline"}</span>
                               <span>
                                 {rider.timestamp
                                   ? formatTimestamp(rider.timestamp)
@@ -1843,6 +1916,61 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Message Rider</DialogTitle>
+            <DialogDescription>
+              Send an in-app message to {selectedRider?.riderName || "this rider"} without leaving the dashboard.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Textarea
+              value={messageDraft}
+              onChange={(event) => setMessageDraft(event.target.value)}
+              placeholder="Type a short instruction or update..."
+              rows={4}
+              maxLength={500}
+              disabled={sendRiderMessageMutation.isPending}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Live operations note: keep messages concise for faster rider response.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsMessageDialogOpen(false)}
+              disabled={sendRiderMessageMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!selectedRider?.riderId) return;
+                sendRiderMessageMutation.mutate({
+                  riderId: selectedRider.riderId,
+                  message: messageDraft,
+                });
+              }}
+              disabled={!selectedRider?.riderId || !messageDraft.trim() || sendRiderMessageMutation.isPending}
+            >
+              {sendRiderMessageMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Send Message
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dispatch Panel Sheet */}
       <Sheet open={showDispatchPanel} onOpenChange={setShowDispatchPanel}>

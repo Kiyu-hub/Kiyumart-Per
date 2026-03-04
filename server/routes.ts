@@ -9023,16 +9023,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Emit real-time location update to all stakeholders
       if (order) {
+        const riderVehicleType = String((rider as any)?.vehicleInfo?.type || "").trim() || null;
         const locationUpdate = {
           orderId: order.id,
           orderNumber: order.orderNumber,
           riderId: req.user!.id,
           riderName: rider?.name || "Rider",
+          riderPhone: rider?.phone || null,
+          vehicleType: riderVehicleType,
           latitude: tracking.latitude,
           longitude: tracking.longitude,
           speed: tracking.speed,
           heading: tracking.heading,
           timestamp: tracking.timestamp,
+          isOnline: true,
+          onlineStatus: "online",
+          hasActiveOrder: true,
+          activeOrderCount: 1,
           smoothingApplied,
           ignoredGpsSpike,
         };

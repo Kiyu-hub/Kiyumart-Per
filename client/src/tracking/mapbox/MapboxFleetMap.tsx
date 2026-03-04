@@ -131,18 +131,22 @@ function makeVehicleMarkerElement(
     ? `<span style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:9999px;background:#f59e0b;color:white;font-size:10px;line-height:16px;font-weight:700;text-align:center;border:1px solid rgba(255,255,255,0.92);">${activeOrderCount}</span>`
     : "";
   el.style.position = "relative";
-  el.style.width = "34px";
-  el.style.height = "34px";
-  el.style.borderRadius = "9999px";
-  el.style.border = "2px solid rgba(255,255,255,0.92)";
-  el.style.background = `linear-gradient(145deg, ${tone}, #0f172a)`;
+  el.style.width = "40px";
+  el.style.height = "40px";
+  el.style.borderRadius = "14px";
+  el.style.border = "1.5px solid rgba(226,232,240,0.92)";
+  el.style.background = `linear-gradient(160deg, ${tone} 0%, #0f172a 78%)`;
   el.style.display = "flex";
   el.style.alignItems = "center";
   el.style.justifyContent = "center";
-  el.style.fontSize = "16px";
-  el.style.boxShadow = "0 8px 18px rgba(15,23,42,0.28)";
+  el.style.fontSize = "12px";
+  el.style.fontWeight = "700";
+  el.style.letterSpacing = "0.02em";
+  el.style.color = "#f8fafc";
+  el.style.boxShadow = "0 12px 24px rgba(15,23,42,0.33), inset 0 1px 0 rgba(255,255,255,0.22)";
   el.style.transform = "translateZ(0)";
   el.innerHTML = `<span>${glyph}</span>
+    <span style="position:absolute;top:4px;left:6px;width:18px;height:6px;border-radius:9999px;background:rgba(255,255,255,0.22);filter:blur(0.2px);"></span>
     <span style="position:absolute;bottom:-4px;left:-4px;width:10px;height:10px;border-radius:9999px;background:${indicator};border:2px solid white;"></span>
     ${badge}`;
   return el;
@@ -243,7 +247,7 @@ export default function MapboxFleetMap({
           antialias: true,
         });
         const lockAutoCamera = () => {
-          autoCameraLockUntilRef.current = Date.now() + 10_000;
+          autoCameraLockUntilRef.current = Date.now() + 2_500;
         };
         map.on("dragstart", lockAutoCamera);
         map.on("zoomstart", lockAutoCamera);
@@ -475,14 +479,17 @@ export default function MapboxFleetMap({
     const focusAnchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : null;
     if (focusAnchor) points.push(focusAnchor);
     riders.forEach((rider) => points.push([rider.longitude, rider.latitude]));
-    pendingOrders.forEach((order) => points.push([order.longitude, order.latitude]));
+    if (!riders.length) {
+      pendingOrders.forEach((order) => points.push([order.longitude, order.latitude]));
+    }
     if (selectedDestination) {
       points.push([selectedDestination[1], selectedDestination[0]]);
     }
     cameraPointsRef.current = points;
     if (!points.length) return;
     const now = Date.now();
-    if (now < autoCameraLockUntilRef.current) return;
+    const focusVisible = focusAnchor ? isPointVisibleWithMargin(map, focusAnchor, 0.2) : true;
+    if (now < autoCameraLockUntilRef.current && focusVisible) return;
     if (hasInitialAutoFitRef.current && now - lastAutoCameraAtRef.current < 900) return;
     if (focusAnchor) {
       const currentZoom = Number(map.getZoom?.() || 12);
@@ -501,7 +508,7 @@ export default function MapboxFleetMap({
   const zoomIn = () => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    autoCameraLockUntilRef.current = Date.now() + 2_500;
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : cameraPointsRef.current[0];
     const nextZoom = Math.min((map.getZoom?.() ?? 12) + 1, 20);
     if (anchor) {
@@ -514,7 +521,7 @@ export default function MapboxFleetMap({
   const zoomOut = () => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    autoCameraLockUntilRef.current = Date.now() + 2_500;
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : cameraPointsRef.current[0];
     const nextZoom = Math.max((map.getZoom?.() ?? 12) - 1, 2);
     if (anchor) {
@@ -547,7 +554,7 @@ export default function MapboxFleetMap({
     if (!map || !loadedRef.current) return;
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : cameraPointsRef.current[0];
     if (!anchor) return;
-    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    autoCameraLockUntilRef.current = Date.now() + 2_500;
     const zoom = Math.max((map.getZoom?.() ?? 12), 17);
     map.easeTo({ center: anchor, zoom, duration: 320 });
   };
@@ -557,7 +564,7 @@ export default function MapboxFleetMap({
     if (!map || !loadedRef.current) return;
     const points = cameraPointsRef.current;
     if (!points.length) return;
-    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    autoCameraLockUntilRef.current = Date.now() + 2_500;
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : points[0];
     map.easeTo({ center: anchor, zoom: 18, duration: 350 });
   };
@@ -565,14 +572,14 @@ export default function MapboxFleetMap({
   const resetBearing = () => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    autoCameraLockUntilRef.current = Date.now() + 2_500;
     map.easeTo({ bearing: 0, duration: 300 });
   };
 
   const togglePitch = () => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    autoCameraLockUntilRef.current = Date.now() + 2_500;
     const current = Number(map.getPitch?.() || 0);
     const next = current < 20 ? 45 : current < 50 ? 60 : 0;
     map.easeTo({ pitch: next, duration: 350 });
