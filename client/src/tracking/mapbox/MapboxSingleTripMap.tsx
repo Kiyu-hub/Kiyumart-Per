@@ -67,8 +67,18 @@ export default function MapboxSingleTripMap({
   const destinationMarkerRef = useRef<any>(null);
   const loadedRef = useRef(false);
   const initErrorReportedRef = useRef(false);
+  const onLoadRef = useRef<MapboxSingleTripMapProps["onLoad"]>(onLoad);
+  const onErrorRef = useRef<MapboxSingleTripMapProps["onError"]>(onError);
 
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
+
+  useEffect(() => {
+    onLoadRef.current = onLoad;
+  }, [onLoad]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   useEffect(() => {
     let disposed = false;
@@ -81,7 +91,7 @@ export default function MapboxSingleTripMap({
         initTimeoutId = window.setTimeout(() => {
           if (disposed || initErrorReportedRef.current || loadedRef.current) return;
           initErrorReportedRef.current = true;
-          onError?.(new Error("Mapbox map initialization timed out"));
+          onErrorRef.current?.(new Error("Mapbox map initialization timed out"));
         }, 10000);
         const mapboxgl = await loadMapboxGl();
         const token = resolveMapboxAccessToken();
@@ -108,7 +118,7 @@ export default function MapboxSingleTripMap({
           if (disposed || initErrorReportedRef.current) return;
           const errorPayload = event?.error || event || new Error("Mapbox map failed to initialize.");
           initErrorReportedRef.current = true;
-          onError?.(errorPayload);
+          onErrorRef.current?.(errorPayload);
         });
         map.on("load", () => {
           if (disposed) return;
@@ -118,7 +128,7 @@ export default function MapboxSingleTripMap({
           }
           loadedRef.current = true;
           initErrorReportedRef.current = false;
-          onLoad?.();
+          onLoadRef.current?.();
           if (!map.getSource(ROUTE_SOURCE_ID)) {
             map.addSource(ROUTE_SOURCE_ID, {
               type: "geojson",
@@ -144,7 +154,7 @@ export default function MapboxSingleTripMap({
           initTimeoutId = null;
         }
         initErrorReportedRef.current = true;
-        onError?.(error);
+        onErrorRef.current?.(error);
       }
     })();
 
@@ -163,7 +173,13 @@ export default function MapboxSingleTripMap({
       loadedRef.current = false;
       initErrorReportedRef.current = false;
     };
-  }, [center, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, onError, onLoad]);
+  }, [fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    map.easeTo({ center: [center[1], center[0]], duration: 400 });
+  }, [center]);
 
   useEffect(() => {
     const map = mapRef.current;
