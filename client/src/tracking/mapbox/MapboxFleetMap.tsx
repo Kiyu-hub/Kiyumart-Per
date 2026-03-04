@@ -38,6 +38,31 @@ interface MapboxFleetMapProps {
 const ROUTE_SOURCE_ID = "fleet-route-source";
 const ROUTE_LAYER_ID = "fleet-route-layer";
 
+function fitMapToPoints(
+  map: any,
+  points: Array<[number, number]>,
+  options?: {
+    padding?: number;
+    maxZoom?: number;
+    duration?: number;
+    singleZoom?: number;
+  },
+) {
+  if (!points.length) return;
+  const padding = options?.padding ?? 50;
+  const maxZoom = options?.maxZoom ?? 15;
+  const duration = options?.duration ?? 800;
+  const singleZoom = options?.singleZoom ?? 14;
+  if (points.length === 1) {
+    map.easeTo({ center: points[0], zoom: singleZoom, duration });
+    return;
+  }
+  const mapboxgl = (window as any).mapboxgl;
+  const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
+  points.forEach((point) => bounds.extend(point));
+  map.fitBounds(bounds, { padding, maxZoom, duration });
+}
+
 function isPointVisibleWithMargin(map: any, point: [number, number], marginRatio = 0.12): boolean {
   const bounds = map.getBounds?.();
   if (!bounds) return false;
@@ -107,6 +132,7 @@ export default function MapboxFleetMap({
   const autoCameraLockUntilRef = useRef(0);
   const lastAutoCameraAtRef = useRef(0);
   const hasInitialAutoFitRef = useRef(false);
+  const cameraPointsRef = useRef<Array<[number, number]>>([]);
 
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
 
@@ -158,6 +184,8 @@ export default function MapboxFleetMap({
         map.on("zoomstart", lockAutoCamera);
         map.on("rotatestart", lockAutoCamera);
         map.on("pitchstart", lockAutoCamera);
+        map.addControl(new mapboxgl.NavigationControl({ showZoom: true, showCompass: true }), "top-right");
+        map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
         mapRef.current = map;
         usageMonitor.trackMapInstantiation();
         map.on("sourcedata", () => usageMonitor.trackTileLoad());
@@ -316,24 +344,68 @@ export default function MapboxFleetMap({
     if (selectedDestination) {
       points.push([selectedDestination[1], selectedDestination[0]]);
     }
+    cameraPointsRef.current = points;
     if (!points.length) return;
     const now = Date.now();
     if (now < autoCameraLockUntilRef.current) return;
     if (hasInitialAutoFitRef.current && now - lastAutoCameraAtRef.current < 1200) return;
     if (hasInitialAutoFitRef.current && points.every((point) => isPointVisibleWithMargin(map, point, 0.14))) return;
-    if (points.length === 1) {
-      map.easeTo({ center: points[0], zoom: 14, duration: 700 });
-      hasInitialAutoFitRef.current = true;
-      lastAutoCameraAtRef.current = Date.now();
-      return;
-    }
-    const mapboxgl = (window as any).mapboxgl;
-    const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
-    points.forEach((point) => bounds.extend(point));
-    map.fitBounds(bounds, { padding: 50, maxZoom: 15, duration: 900 });
+    fitMapToPoints(map, points, { padding: 50, maxZoom: 15, duration: 900, singleZoom: 14 });
     hasInitialAutoFitRef.current = true;
     lastAutoCameraAtRef.current = Date.now();
   }, [pendingOrders, riders, selectedDestination]);
 
-  return <div ref={containerRef} className={className} style={style} />;
+  const zoomIn = () => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    map.zoomIn({ duration: 250 });
+  };
+
+  const zoomOut = () => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    map.zoomOut({ duration: 250 });
+  };
+
+  const recenterCamera = () => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    const points = cameraPointsRef.current;
+    if (!points.length) return;
+    autoCameraLockUntilRef.current = 0;
+    fitMapToPoints(map, points, { padding: 60, maxZoom: 15, duration: 700, singleZoom: 14 });
+    hasInitialAutoFitRef.current = true;
+    lastAutoCameraAtRef.current = Date.now();
+  };
+
+  const resetBearing = () => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    map.easeTo({ bearing: 0, duration: 300 });
+  };
+
+  const togglePitch = () => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    autoCameraLockUntilRef.current = Date.now() + 10_000;
+    const current = Number(map.getPitch?.() || 0);
+    const next = current < 20 ? 45 : current < 50 ? 60 : 0;
+    map.easeTo({ pitch: next, duration: 350 });
+  };
+
+  return (
+    <div className={`relative ${className || ""}`} style={style}>
+      <div ref={containerRef} className="h-full w-full" />
+      <div className="pointer-events-none absolute right-3 top-3 z-[1300] flex flex-col gap-2">
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={zoomIn} title="Zoom In">+</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={zoomOut} title="Zoom Out">-</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={recenterCamera} title="Recenter / Fit">Fit</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={togglePitch} title="Toggle 2D/3D">2D/3D</button>
+        <button type="button" className="pointer-events-auto rounded bg-background/95 px-2 py-1 text-xs shadow" onClick={resetBearing} title="Reset North">N</button>
+      </div>
+    </div>
+  );
 }
