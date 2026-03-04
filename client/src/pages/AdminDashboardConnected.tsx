@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useSocket } from "@/contexts/NotificationContext";
 
@@ -73,6 +74,7 @@ const ETA_CONTROL_ROLE_KEYS = ["customer", "rider", "agent", "admin"] as const;
 
 export default function AdminDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
+  const [fleetSectionVisibility, setFleetSectionVisibility] = useState<"all" | "none">("all");
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const normalizedRole = (() => {
@@ -81,6 +83,7 @@ export default function AdminDashboardConnected() {
   })();
   const isAdminViewer = normalizedRole === "admin" || normalizedRole === "super_admin";
   const isSuperAdmin = normalizedRole === "super_admin";
+  const showFleetControl = fleetSectionVisibility !== "none";
   const { formatPrice } = useLanguage();
   const socket = useSocket();
 
@@ -480,12 +483,28 @@ export default function AdminDashboardConnected() {
               )
             )}
 
-            <TrackingMetricsPanel
-              role={isSuperAdmin ? "super_admin" : "admin"}
-              title={isSuperAdmin ? "Fleet Control Intelligence" : "Zone Dispatch Intelligence"}
-            />
-
             {isSuperAdmin && (
+              <div className="flex items-center justify-end">
+                <Select value={fleetSectionVisibility} onValueChange={(value: "all" | "none") => setFleetSectionVisibility(value)}>
+                  <SelectTrigger className="h-8 w-[260px]" data-testid="select-admin-fleet-panel-visibility">
+                    <SelectValue placeholder="Panel visibility" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Show Fleet/AI/Risk Panels</SelectItem>
+                    <SelectItem value="none">Hide Fleet/AI/Risk Panels</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {showFleetControl && (
+              <TrackingMetricsPanel
+                role={isSuperAdmin ? "super_admin" : "admin"}
+                title={isSuperAdmin ? "Fleet Control Intelligence" : "Zone Dispatch Intelligence"}
+              />
+            )}
+
+            {isSuperAdmin && showFleetControl && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">AI ETA Control Center</CardTitle>
@@ -540,7 +559,7 @@ export default function AdminDashboardConnected() {
               </Card>
             )}
 
-            {isSuperAdmin && (
+            {isSuperAdmin && showFleetControl && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Rider Risk Overlay</CardTitle>

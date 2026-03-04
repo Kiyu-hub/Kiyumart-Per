@@ -76,7 +76,7 @@ export default function RiderDashboard() {
       return res.json();
     },
     enabled: isAuthenticated && user?.role === "rider",
-    refetchInterval: 20000,
+    refetchInterval: 10000,
   });
 
   const { data: earnings } = useQuery<RiderEarningsPayload>({
@@ -145,11 +145,11 @@ export default function RiderDashboard() {
 
             <div className="mt-6">
               <Suspense fallback={
-                <Card className="h-[400px] flex items-center justify-center">
+                <Card className="min-h-[360px] h-[52vh] max-h-[760px] flex items-center justify-center">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </Card>
               }>
-                <RiderLiveMap className="h-[400px]" />
+                <RiderLiveMap className="min-h-[360px] h-[52vh] max-h-[760px]" />
               </Suspense>
             </div>
 

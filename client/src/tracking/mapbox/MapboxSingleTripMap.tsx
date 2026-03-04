@@ -95,6 +95,23 @@ function makeMarkerElement(color: string, size = 14): HTMLDivElement {
   return el;
 }
 
+function makeVehicleMarkerElement(): HTMLDivElement {
+  const el = document.createElement("div");
+  el.style.position = "relative";
+  el.style.width = "36px";
+  el.style.height = "36px";
+  el.style.borderRadius = "9999px";
+  el.style.border = "2px solid rgba(255,255,255,0.92)";
+  el.style.background = "linear-gradient(145deg,#0f766e,#0f172a)";
+  el.style.display = "flex";
+  el.style.alignItems = "center";
+  el.style.justifyContent = "center";
+  el.style.fontSize = "16px";
+  el.style.boxShadow = "0 8px 18px rgba(15,23,42,0.28)";
+  el.innerHTML = `<span>🚗</span><span style="position:absolute;bottom:-4px;left:-4px;width:10px;height:10px;border-radius:9999px;background:#10b981;border:2px solid white;"></span>`;
+  return el;
+}
+
 export default function MapboxSingleTripMap({
   center,
   mapStyleUrl,
@@ -328,7 +345,7 @@ export default function MapboxSingleTripMap({
     }
     if (!riderMarkerRef.current) {
       const mapboxgl = (window as any).mapboxgl;
-      riderMarkerRef.current = new mapboxgl.Marker({ element: makeMarkerElement("#10b981", 16) });
+      riderMarkerRef.current = new mapboxgl.Marker({ element: makeVehicleMarkerElement() });
     }
     riderMarkerRef.current.setLngLat([riderPos[1], riderPos[0]]).addTo(map);
   }, [riderPos]);

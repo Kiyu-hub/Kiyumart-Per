@@ -272,18 +272,16 @@ export default function MapboxFleetMap({
           canvas.addEventListener("mouseup", resetCursor);
           canvas.addEventListener("mouseleave", resetCursor);
         }
-        if (!presentationMode) {
-          map.addControl(new mapboxgl.NavigationControl({ showZoom: true, showCompass: true }), "top-right");
-          map.addControl(
-            new mapboxgl.GeolocateControl({
-              positionOptions: { enableHighAccuracy: true },
-              trackUserLocation: true,
-              showUserHeading: true,
-            }),
-            "top-right",
-          );
-          map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
-        }
+        map.addControl(new mapboxgl.NavigationControl({ showZoom: true, showCompass: true }), "top-right");
+        map.addControl(
+          new mapboxgl.GeolocateControl({
+            positionOptions: { enableHighAccuracy: true },
+            trackUserLocation: true,
+            showUserHeading: true,
+          }),
+          "top-right",
+        );
+        map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
         mapRef.current = map;
         usageMonitor.trackMapInstantiation();
         map.on("sourcedata", () => usageMonitor.trackTileLoad());

@@ -20,7 +20,6 @@ import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { useToast } from "@/hooks/use-toast";
 import UserAvatar from "@/components/UserAvatar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
 
 // Lazy load heavy map components
 const RiderNavigationMap = lazy(() => import("@/components/RiderNavigationMap"));
@@ -366,21 +365,11 @@ export default function RiderActiveRoute() {
                         <MapPin className="h-10 w-10 text-amber-500 mx-auto mb-3" />
                         <h3 className="font-semibold mb-2">GPS Coordinates Not Available</h3>
                         <p className="text-muted-foreground text-sm mb-4">
-                          This order doesn't have GPS coordinates for turn-by-turn navigation.
+                          This order doesn't have GPS coordinates for in-app turn-by-turn navigation.
                         </p>
-                        <Button 
-                          onClick={() => {
-                            const mapsUrl = buildExternalNavigationUrl({
-                              lat: Number(activeDelivery.deliveryLatitude || 0) || 5.6037,
-                              lng: Number(activeDelivery.deliveryLongitude || 0) || -0.187,
-                            });
-                            window.open(mapsUrl, '_blank');
-                          }}
-                          data-testid="button-navigate"
-                        >
-                          <Navigation className="h-4 w-4 mr-2" />
-                          Open in External Map
-                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Ask admin/support to update order coordinates to enable map navigation.
+                        </p>
                       </div>
                     </Card>
                   )}

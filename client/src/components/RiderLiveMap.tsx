@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapContainer, Marker, Popup, Polyline, useMap } from "react-leaflet";
-import { Icon, LatLng } from "leaflet";
+import { DivIcon, Icon, LatLng } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,6 @@ import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
-import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
 import { isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
 import MapboxSingleTripMap from "@/tracking/mapbox/MapboxSingleTripMap";
 
@@ -40,11 +39,15 @@ interface ActiveDelivery {
   buyerPhone?: string;
 }
 
-const riderIcon = new Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
-  iconSize: [45, 45],
-  iconAnchor: [22, 45],
-  popupAnchor: [0, -45],
+const riderIcon = new DivIcon({
+  className: "rider-live-marker",
+  html: `<div style="position:relative;width:36px;height:36px;border-radius:50%;background:linear-gradient(145deg,#0f766e,#0f172a);display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.92);box-shadow:0 8px 18px rgba(15,23,42,0.28);font-size:17px;">
+    <span>🚗</span>
+    <span style="position:absolute;bottom:-4px;left:-4px;width:10px;height:10px;border-radius:9999px;background:#10b981;border:2px solid white;"></span>
+  </div>`,
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+  popupAnchor: [0, -16],
 });
 
 const destinationIcon = new Icon({
@@ -243,19 +246,6 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     }
   }, [animatedRiderPos]);
 
-  const openOsmNav = () => {
-    if (destPos) {
-      const from = animatedRiderPos || destPos;
-      const url = buildExternalNavigationUrl({
-        lat: from[0],
-        lng: from[1],
-        destinationLat: destPos[0],
-        destinationLng: destPos[1],
-      });
-      window.open(url, "_blank");
-    }
-  };
-
   if (isLoading) {
     return (
       <Card className={cn("flex items-center justify-center", className)}>
@@ -352,10 +342,6 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
                     </Button>
                   </a>
                 )}
-                <Button size="sm" onClick={openOsmNav} className="h-8 px-2" disabled={!destPos}>
-                  <Navigation className="h-3 w-3 mr-1" />
-                  Navigate
-                </Button>
               </div>
             </div>
           </div>

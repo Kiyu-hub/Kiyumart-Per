@@ -22,7 +22,6 @@ import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
-import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
 import { isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
 import MapboxSingleTripMap from "@/tracking/mapbox/MapboxSingleTripMap";
 
@@ -223,19 +222,6 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
 
   const mapHeight = isFullscreen ? "100vh" : "400px";
 
-  const openInMaps = () => {
-    if (delivery.deliveryLatitude && delivery.deliveryLongitude) {
-      const from = animatedCurrentPosition || [delivery.deliveryLatitude, delivery.deliveryLongitude];
-      const url = buildExternalNavigationUrl({
-        lat: from[0],
-        lng: from[1],
-        destinationLat: delivery.deliveryLatitude,
-        destinationLng: delivery.deliveryLongitude,
-      });
-      window.open(url, '_blank');
-    }
-  };
-
   const callBuyer = () => {
     if (delivery.buyerPhone) {
       window.location.href = `tel:${delivery.buyerPhone}`;
@@ -286,10 +272,19 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
               <Button 
                 size="sm" 
                 variant="secondary"
-                onClick={openInMaps}
+                onClick={() => {
+                  if (animatedCurrentPosition) {
+                    setCurrentPosition(animatedCurrentPosition);
+                    return;
+                  }
+                  navigator.geolocation.getCurrentPosition(
+                    (position) => setCurrentPosition([position.coords.latitude, position.coords.longitude]),
+                    () => undefined,
+                  );
+                }}
               >
                 <Navigation className="h-4 w-4 mr-1" />
-                Navigate
+                Recenter
               </Button>
               <Button 
                 size="sm" 

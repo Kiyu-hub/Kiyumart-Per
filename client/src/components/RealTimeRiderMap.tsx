@@ -249,6 +249,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [trackSelectedOnly, setTrackSelectedOnly] = useState(false);
   const [riderSearchTerm, setRiderSearchTerm] = useState("");
   const [vehicleFilter, setVehicleFilter] = useState<string>("all");
+  const [showDetailPanels, setShowDetailPanels] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null);
   const [showDispatchPanel, setShowDispatchPanel] = useState(false);
   const [availableRiders, setAvailableRiders] = useState<AvailableRider[]>([]);
@@ -965,6 +966,23 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
             </div>
           </div>
           {!isFullscreen && (
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <div className="text-xs text-muted-foreground">Command Center Panels</div>
+              <Select
+                value={showDetailPanels ? "show" : "hide"}
+                onValueChange={(value) => setShowDetailPanels(value !== "hide")}
+              >
+                <SelectTrigger className="h-8 w-[180px]" data-testid="select-command-center-panels">
+                  <SelectValue placeholder="Panel visibility" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="show">Show Details</SelectItem>
+                  <SelectItem value="hide">Hide Details</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {!isFullscreen && showDetailPanels && (
             <div className="mt-3 space-y-2">
               <div className="grid grid-cols-1 gap-2 lg:grid-cols-[1.2fr_0.8fr_0.8fr_auto]">
                 <Input
@@ -1031,13 +1049,13 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           )}
         </CardHeader>
         <CardContent className={`p-0 ${isFullscreen ? "flex-1 min-h-0 overflow-hidden flex flex-col" : ""}`}>
-          {!isFullscreen && (
+          {!isFullscreen && showDetailPanels && (
             <div className="border-b bg-blue-50/70 px-3 py-2 text-[11px] text-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
               Tracking meter guide: `Tiles`, `Routes`, and `Maps` estimate provider usage. Above 80% may trigger overage billing.
               Prevention: reduce rapid zoom/style switching, keep unnecessary layers off, and use recenter/focus instead of constant manual panning.
             </div>
           )}
-          {!isFullscreen && isSuperAdmin && (
+          {!isFullscreen && showDetailPanels && isSuperAdmin && (
             <div className="border-b bg-muted/30 px-3 py-2">
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Role Map Access (Super Admin Control)</p>
               <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
@@ -1058,7 +1076,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
               <p className="mt-1 text-[10px] text-muted-foreground">Rider map access is always enabled by default.</p>
             </div>
           )}
-          {!isFullscreen && (
+          {!isFullscreen && showDetailPanels && (
           <div className={`border-b bg-gradient-to-r from-background to-muted/30 ${isFullscreen ? "p-2" : "p-2.5"}`} data-testid="map-usage-bar">
             <div className="flex flex-wrap items-center gap-2">
               <p className={`text-xs font-semibold uppercase tracking-wide ${usageToneClass}`}>Map Usage</p>
@@ -1174,7 +1192,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                       ref={leafletMapRef}
                       center={center}
                       zoom={17}
-                      zoomControl={false}
+                      zoomControl={isFullscreen}
                       style={{ height: "100%", width: "100%" }}
                     >
                       <MapTileLayer presetId={selectedOpenSourcePreset.id} />
@@ -1600,7 +1618,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           </div>
           
           {/* Riders without GPS section */}
-          {!isFullscreen && visibleRidersWithoutLocation.length > 0 && (
+          {!isFullscreen && showDetailPanels && visibleRidersWithoutLocation.length > 0 && (
             <div className="border-t p-4">
               <Collapsible>
                 <CollapsibleTrigger className="flex items-center justify-between w-full text-left">
