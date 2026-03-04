@@ -345,7 +345,7 @@ export default function RiderActiveRoute() {
                     </div>
                   </Card>
                 }>
-                  {activeDelivery.deliveryLatitude && activeDelivery.deliveryLongitude ? (
+                  {activeDelivery.deliveryLatitude != null && activeDelivery.deliveryLongitude != null ? (
                     <RiderNavigationMap
                       riderId={user?.id?.toString() || ""}
                       delivery={{

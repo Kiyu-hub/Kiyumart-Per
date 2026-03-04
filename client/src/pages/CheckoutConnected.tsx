@@ -282,6 +282,25 @@ export default function CheckoutConnected() {
       });
       return;
     }
+    if (deliveryMethod !== "pickup" && (deliveryLat == null || deliveryLng == null)) {
+      toast({
+        title: "Location Required",
+        description: "Pin your exact delivery location on the map so rider navigation works.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (
+      deliveryMethod !== "pickup" &&
+      (deliveryLat! < -90 || deliveryLat! > 90 || deliveryLng! < -180 || deliveryLng! > 180)
+    ) {
+      toast({
+        title: "Invalid Location",
+        description: "Selected map coordinates are invalid. Please choose location again.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const sellerId = itemsWithProducts[0]?.product?.sellerId || user?.id;
 

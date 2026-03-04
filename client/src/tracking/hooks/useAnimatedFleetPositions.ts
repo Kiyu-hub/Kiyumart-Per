@@ -27,7 +27,7 @@ export function useAnimatedFleetPositions(input: FleetInput[]) {
         position: { lat: item.latitude, lng: item.longitude },
         speedMps: item.speed ?? 0,
         bearingDeg: item.heading ?? 0,
-        timestampMs: item.timestamp ? new Date(item.timestamp).getTime() : Date.now(),
+        timestampMs: item.timestamp ? new Date(item.timestamp).getTime() : 0,
       });
       animator.setReality({
         vehicleId: item.vehicleId,
@@ -35,7 +35,7 @@ export function useAnimatedFleetPositions(input: FleetInput[]) {
         position: { lat: item.latitude, lng: item.longitude },
         speedMps: item.speed ?? 0,
         bearingDeg: item.heading ?? 0,
-        timestampMs: item.timestamp ? new Date(item.timestamp).getTime() : Date.now(),
+        timestampMs: item.timestamp ? new Date(item.timestamp).getTime() : 0,
       });
       const unsubscribe = animator.subscribe((state) => {
         if (!state.position) return;

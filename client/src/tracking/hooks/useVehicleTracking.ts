@@ -28,6 +28,10 @@ function sameCoordinates(a?: Coordinates | null, b?: Coordinates | null): boolea
   return Math.abs(a.lat - b.lat) < 0.000001 && Math.abs(a.lng - b.lng) < 0.000001;
 }
 
+function nearlyEqual(a: number, b: number, epsilon = 0.000001): boolean {
+  return Math.abs(a - b) <= epsilon;
+}
+
 export function useVehicleTracking(args: UseVehicleTrackingArgs) {
   const vehicle = useCanonicalTrackingStore((state) => state.vehicles[args.vehicleId]);
   const setPredictedPosition = useCanonicalTrackingStore((state) => state.setPredictedPosition);
@@ -44,6 +48,20 @@ export function useVehicleTracking(args: UseVehicleTrackingArgs) {
   const etaRequestAtRef = useRef(0);
   const lastEtaPositionRef = useRef<Coordinates | null>(null);
   const lastEtaPhaseRef = useRef<TripPhase | undefined>(undefined);
+  const lastRealityIngestRef = useRef<{
+    lat: number;
+    lng: number;
+    speedMps: number;
+    bearingDeg: number;
+    orderId?: string;
+    timestampMs: number;
+  } | null>(null);
+
+  const gpsLat = args.gps?.lat;
+  const gpsLng = args.gps?.lng;
+  const gpsSpeedMps = args.gps?.speedMps;
+  const gpsBearingDeg = args.gps?.bearingDeg;
+  const gpsTimestampMs = args.gps?.timestampMs;
 
   useEffect(() => {
     ensureVehicle(args.vehicleId, { orderId: args.orderId });
@@ -66,24 +84,42 @@ export function useVehicleTracking(args: UseVehicleTrackingArgs) {
   }, [args.vehicleId, args.tripPhase]);
 
   useEffect(() => {
-    if (!args.gps) return;
-    ingestRealityGpsUpdate({
+    if (gpsLat == null || gpsLng == null) return;
+    const speedMps = Number(gpsSpeedMps ?? 0);
+    const bearingDeg = Number(gpsBearingDeg ?? 0);
+    const timestampMs = typeof gpsTimestampMs === "number" && Number.isFinite(gpsTimestampMs) ? gpsTimestampMs : Date.now();
+
+    const previousReality = lastRealityIngestRef.current;
+    if (previousReality) {
+      const sameOrder = previousReality.orderId === args.orderId;
+      const samePosition = nearlyEqual(previousReality.lat, gpsLat, 0.0000005) && nearlyEqual(previousReality.lng, gpsLng, 0.0000005);
+      const sameMotion = Math.abs(previousReality.speedMps - speedMps) < 0.05 && Math.abs(previousReality.bearingDeg - bearingDeg) < 0.5;
+      const heartbeatMs = timestampMs - previousReality.timestampMs;
+      if (sameOrder && samePosition && sameMotion && heartbeatMs < 1000) {
+        return;
+      }
+    }
+
+    lastRealityIngestRef.current = {
+      lat: gpsLat,
+      lng: gpsLng,
+      speedMps,
+      bearingDeg,
+      orderId: args.orderId,
+      timestampMs,
+    };
+
+    const realityUpdate = {
       vehicleId: args.vehicleId,
       orderId: args.orderId,
-      position: { lat: args.gps.lat, lng: args.gps.lng },
-      speedMps: args.gps.speedMps,
-      bearingDeg: args.gps.bearingDeg,
-      timestampMs: args.gps.timestampMs || Date.now(),
-    });
-    animator.setReality({
-      vehicleId: args.vehicleId,
-      orderId: args.orderId,
-      position: { lat: args.gps.lat, lng: args.gps.lng },
-      speedMps: args.gps.speedMps,
-      bearingDeg: args.gps.bearingDeg,
-      timestampMs: args.gps.timestampMs || Date.now(),
-    });
-  }, [animator, args.vehicleId, args.orderId, args.gps]);
+      position: { lat: gpsLat, lng: gpsLng },
+      speedMps,
+      bearingDeg,
+      timestampMs,
+    };
+    ingestRealityGpsUpdate(realityUpdate);
+    animator.setReality(realityUpdate);
+  }, [animator, args.vehicleId, args.orderId, gpsLat, gpsLng, gpsSpeedMps, gpsBearingDeg, gpsTimestampMs]);
 
   useEffect(() => {
     const requestRoute = async (reason: RerouteReason) => {

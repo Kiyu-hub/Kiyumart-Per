@@ -87,12 +87,20 @@ export default function DeliveryMap({
   compact = false
 }: DeliveryMapProps) {
   const { user } = useAuth();
+  const [, bumpMapModeVersion] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [mapboxInitFailed, setMapboxInitFailed] = useState(false);
   const [mapboxError, setMapboxError] = useState("");
   const [viewerPosition, setViewerPosition] = useState<[number, number] | null>(null);
   const shouldUseMapboxGl = isMapboxGlPreferred() && !mapboxInitFailed;
   const mapAccessEnabled = user?.role === "rider" ? true : user?.roleFeatures?.["maps.view"] !== false;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleMapModeChange = () => bumpMapModeVersion((value) => value + 1);
+    window.addEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
+    return () => window.removeEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
+  }, []);
 
   const deliveryPos: [number, number] = [deliveryLocation.latitude, deliveryLocation.longitude];
   const riderPos: [number, number] | undefined = riderLocation
@@ -109,7 +117,7 @@ export default function DeliveryMap({
           lng: riderLocation.longitude,
           speedMps: riderLocation.speed ?? 0,
           bearingDeg: riderLocation.heading ?? 0,
-          timestampMs: riderLocation.timestamp ? new Date(riderLocation.timestamp).getTime() : Date.now(),
+          timestampMs: riderLocation.timestamp ? new Date(riderLocation.timestamp).getTime() : undefined,
         }
       : undefined,
   });

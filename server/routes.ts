@@ -5172,6 +5172,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const toFiniteNumber = (value: unknown): number | null => {
     if (value === null || value === undefined) return null;
+    if (typeof value === "string" && value.trim() === "") return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   };
@@ -6801,8 +6802,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? orderData.deliveryCity
           : null;
       const resolvedDeliveryZoneId = isPickupOrder ? null : (orderData.deliveryZoneId || null);
-      const resolvedDeliveryLatitude = isPickupOrder ? null : (orderData.deliveryLatitude || null);
-      const resolvedDeliveryLongitude = isPickupOrder ? null : (orderData.deliveryLongitude || null);
+      const resolvedDeliveryLatitude = isPickupOrder ? null : toFiniteNumber(orderData.deliveryLatitude);
+      const resolvedDeliveryLongitude = isPickupOrder ? null : toFiniteNumber(orderData.deliveryLongitude);
 
       if (!isPickupOrder && !resolvedDeliveryAddress) {
         return res.status(400).json({
@@ -6814,6 +6815,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({
           error: "Delivery phone is required",
           userMessage: "Please provide a delivery contact number for bus or rider delivery.",
+        });
+      }
+      if (!isPickupOrder && (resolvedDeliveryLatitude === null || resolvedDeliveryLongitude === null)) {
+        return res.status(400).json({
+          error: "Delivery coordinates are required",
+          userMessage: "Please pin your location on the map so rider navigation can be enabled.",
+        });
+      }
+      if (
+        !isPickupOrder &&
+        (resolvedDeliveryLatitude! < -90 ||
+          resolvedDeliveryLatitude! > 90 ||
+          resolvedDeliveryLongitude! < -180 ||
+          resolvedDeliveryLongitude! > 180)
+      ) {
+        return res.status(400).json({
+          error: "Delivery coordinates are invalid",
+          userMessage: "The selected delivery location is invalid. Please reselect your location.",
         });
       }
       
@@ -6873,8 +6892,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           deliveryAddress: resolvedDeliveryAddress,
           deliveryCity: resolvedDeliveryCity,
           deliveryPhone: resolvedDeliveryPhone,
-          deliveryLatitude: resolvedDeliveryLatitude,
-          deliveryLongitude: resolvedDeliveryLongitude,
+          deliveryLatitude: resolvedDeliveryLatitude !== null ? String(resolvedDeliveryLatitude) : null,
+          deliveryLongitude: resolvedDeliveryLongitude !== null ? String(resolvedDeliveryLongitude) : null,
           currency: orderData.currency || 'GHS',
           paymentStatus: 'pending',
           couponCode: orderData.couponCode || null,
@@ -6913,8 +6932,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           deliveryCity: resolvedDeliveryCity,
           deliveryAddress: resolvedDeliveryAddress,
           deliveryPhone: resolvedDeliveryPhone,
-          deliveryLatitude: resolvedDeliveryLatitude,
-          deliveryLongitude: resolvedDeliveryLongitude,
+          deliveryLatitude: resolvedDeliveryLatitude !== null ? String(resolvedDeliveryLatitude) : null,
+          deliveryLongitude: resolvedDeliveryLongitude !== null ? String(resolvedDeliveryLongitude) : null,
           subtotal: serverSubtotal.toFixed(2),
           couponDiscount: singleVendorCouponDiscount > 0 ? singleVendorCouponDiscount.toFixed(2) : null,
           processingFee: finalProcessingFee.toFixed(2),
@@ -7805,6 +7824,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
     }
+    if (["rider", "bus"].includes(String(order.deliveryMethod || "").toLowerCase().trim())) {
+      const destinationLat = toFiniteNumber((order as any).deliveryLatitude);
+      const destinationLng = toFiniteNumber((order as any).deliveryLongitude);
+      const hasValidDestination =
+        destinationLat !== null &&
+        destinationLng !== null &&
+        destinationLat >= -90 &&
+        destinationLat <= 90 &&
+        destinationLng >= -180 &&
+        destinationLng <= 180;
+      if (!hasValidDestination) {
+        const error = new Error(
+          "Cannot assign rider: delivery destination coordinates are required. Update order location first."
+        );
+        (error as any).code = 409;
+        throw error;
+      }
+    }
 
     // Always assign rider first.
     const assigned = await storage.assignRider(orderId, riderId);
@@ -8629,6 +8666,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const busDeliveryWorkflow = isBusMethod(order.deliveryMethod)
         ? extractBusDeliveryWorkflow(orderHistory, order as any)
         : null;
+      const deliveryLatitude = toFiniteNumber(order.deliveryLatitude);
+      const deliveryLongitude = toFiniteNumber(order.deliveryLongitude);
       
       res.json({
         id: order.id,
@@ -8636,8 +8675,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: canonicalizeOrderStatus(order.status),
         deliveryMethod: order.deliveryMethod,
         deliveryAddress: order.deliveryAddress || "Address not available",
-        deliveryLatitude: order.deliveryLatitude ? parseFloat(order.deliveryLatitude) : null,
-        deliveryLongitude: order.deliveryLongitude ? parseFloat(order.deliveryLongitude) : null,
+        deliveryLatitude,
+        deliveryLongitude,
         buyerId: order.buyerId,
         buyerName: buyer?.name || "Customer",
         buyerProfileImage: buyer?.profileImage || null,
@@ -8967,9 +9006,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const presence = presenceService.getPresenceForApi(rider.id);
           const onlineByPresence = presence.status === "online" || presence.status === "away";
           const onlineByFlag = rider.riderOnline !== false;
-          const locationFresh =
-            !!resolvedTimestamp && Date.now() - new Date(resolvedTimestamp).getTime() <= 5 * 60_000;
-          const isOnline = onlineByPresence || (onlineByFlag && locationFresh);
+          const isOnline = onlineByPresence || onlineByFlag;
+          const resolvedOnlineStatus = isOnline ? (onlineByPresence ? String(presence.status || "online") : "online") : "offline";
           const vehicleInfo = (rider as any).vehicleInfo || {};
 
           return {
@@ -8980,7 +9018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             vehicleType: String(vehicleInfo.type || "").trim() || "motorcycle",
             vehicleColor: String(vehicleInfo.color || "").trim() || null,
             isOnline,
-            onlineStatus: isOnline ? "online" : "offline",
+            onlineStatus: resolvedOnlineStatus,
             lastSeenAt: presence.lastSeen || resolvedTimestamp,
             activeOrderCount: riderActiveOrders.length,
             hasActiveOrder: riderActiveOrders.length > 0,
@@ -13264,11 +13302,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } as any,
         } as any);
 
-        const orderId = String(payload?.orderId || "");
-        if (!orderId) {
+        const activeTrackingStatuses = new Set([
+          "assigned",
+          "rider_arrived",
+          "picked_up",
+          "in_transit",
+          "en_route",
+          "delivering",
+          "searching_rider",
+          "ready",
+          "confirmed",
+          "processing",
+        ]);
+        const riderOrders = await storage.getOrdersByUser(userId, "rider");
+        const activeRiderOrders = riderOrders.filter((candidate: any) =>
+          activeTrackingStatuses.has(canonicalizeOrderStatus(candidate.status))
+        );
+        const activeOrderCount = activeRiderOrders.length;
+        const fallbackActiveOrder = activeRiderOrders[0] || null;
+        const providedOrderId = String(payload?.orderId || "").trim();
+        const effectiveOrderId = providedOrderId || String(fallbackActiveOrder?.id || "");
+
+        if (!effectiveOrderId) {
           const update = {
-            orderId: null,
-            orderNumber: null,
+            orderId: fallbackActiveOrder?.id || null,
+            orderNumber: fallbackActiveOrder?.orderNumber || null,
             riderId: userId,
             riderName: rider?.name || "Rider",
             riderPhone: rider?.phone || null,
@@ -13278,8 +13336,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             speed: payload?.speed ?? null,
             heading: payload?.heading ?? null,
             timestamp: new Date().toISOString(),
-            hasActiveOrder: false,
-            activeOrderCount: 0,
+            hasActiveOrder: activeOrderCount > 0,
+            activeOrderCount,
             isOnline: true,
           };
           const [admins, superAdmins] = await Promise.all([
@@ -13292,7 +13350,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
-        const order = await storage.getOrder(orderId);
+        let order: any = null;
+        if (providedOrderId) {
+          order = await storage.getOrder(providedOrderId);
+        }
+        if ((!order || order.riderId !== userId) && fallbackActiveOrder) {
+          order = fallbackActiveOrder;
+        }
         if (!order || order.riderId !== userId) return;
 
         const latest = await storage.getLatestDeliveryLocation(order.id);
@@ -13337,8 +13401,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           speed: tracking.speed,
           heading: tracking.heading,
           timestamp: tracking.timestamp,
-          hasActiveOrder: true,
-          activeOrderCount: 1,
+          hasActiveOrder: activeOrderCount > 0,
+          activeOrderCount: Math.max(1, activeOrderCount),
           isOnline: true,
         };
         io.to(order.buyerId).emit("rider_location_updated", update);

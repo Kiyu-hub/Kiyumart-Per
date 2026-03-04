@@ -103,6 +103,7 @@ interface RiderLiveMapProps {
 
 export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   const { user } = useAuth();
+  const [, bumpMapModeVersion] = useState(0);
   const [riderPosition, setRiderPosition] = useState<[number, number] | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<"acquiring" | "active" | "error">("acquiring");
@@ -118,9 +119,17 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     accuracy?: number | null;
     speed?: number | null;
     heading?: number | null;
+    timestamp?: number | null;
   } | null>(null);
   const usageSnapshot = useUsageMonitorSnapshot();
   const shouldUseMapboxGl = isMapboxGlPreferred() && !mapboxInitFailed;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleMapModeChange = () => bumpMapModeVersion((value) => value + 1);
+    window.addEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
+    return () => window.removeEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
+  }, []);
 
   // Fetch active delivery
   const { data: activeDelivery, isLoading, refetch } = useQuery<ActiveDelivery | null>({
@@ -128,7 +137,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     refetchInterval: 30000,
   });
 
-  const destPos: [number, number] | null = activeDelivery?.deliveryLatitude && activeDelivery?.deliveryLongitude
+  const destPos: [number, number] | null = activeDelivery?.deliveryLatitude != null && activeDelivery?.deliveryLongitude != null
     ? [activeDelivery.deliveryLatitude, activeDelivery.deliveryLongitude]
     : null;
   const normalizedStatus = String(activeDelivery?.status || "").toLowerCase().trim();
@@ -150,7 +159,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
           lng: riderPosition[1],
           speedMps: latestCoordsRef.current?.speed ?? 0,
           bearingDeg: latestCoordsRef.current?.heading ?? 0,
-          timestampMs: Date.now(),
+          timestampMs: latestCoordsRef.current?.timestamp ?? undefined,
         }
       : undefined,
   });
@@ -181,6 +190,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
         accuracy,
         speed: speed || 0,
         heading: heading || 0,
+        timestamp: Number.isFinite(position.timestamp) ? position.timestamp : Date.now(),
       };
     };
 
@@ -200,7 +210,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
     };
-  }, [activeDelivery]);
+  }, []);
 
   // Socket.IO connection
   useEffect(() => {

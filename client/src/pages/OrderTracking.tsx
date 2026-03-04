@@ -460,7 +460,7 @@ export default function OrderTracking() {
 
                         {/* Live Delivery Map for in-transit deliveries */}
                         {normalizeDeliveryMethod(order.deliveryMethod) === "rider" &&
-                         ["in_transit", "en_route"].includes(normalizeStatus(order.status)) && order.deliveryLatitude && order.deliveryLongitude && 
+                         ["in_transit", "en_route"].includes(normalizeStatus(order.status)) && order.deliveryLatitude != null && order.deliveryLongitude != null && 
                          !isNaN(parseFloat(order.deliveryLatitude)) && !isNaN(parseFloat(order.deliveryLongitude)) && (
                           <div className="pt-4 border-t space-y-4">
                             <div className="flex items-center justify-between">

@@ -81,6 +81,7 @@ interface RiderNavigationMapProps {
 }
 
 export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate }: RiderNavigationMapProps) {
+  const [, bumpMapModeVersion] = useState(0);
   const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isWatching, setIsWatching] = useState(false);
@@ -94,10 +95,18 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
     accuracy?: number | null;
     speed?: number | null;
     heading?: number | null;
+    timestamp?: number | null;
   } | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const usageSnapshot = useUsageMonitorSnapshot();
   const shouldUseMapboxGl = isMapboxGlPreferred() && !mapboxInitFailed;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleMapModeChange = () => bumpMapModeVersion((value) => value + 1);
+    window.addEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
+    return () => window.removeEventListener("map_provider_mode_changed", handleMapModeChange as EventListener);
+  }, []);
 
   const normalizedStatus = String(delivery.status || "").toLowerCase().trim();
   const tripPhase =
@@ -118,7 +127,7 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
           lng: currentPosition[1],
           speedMps: latestCoordsRef.current?.speed ?? 0,
           bearingDeg: latestCoordsRef.current?.heading ?? 0,
-          timestampMs: Date.now(),
+          timestampMs: latestCoordsRef.current?.timestamp ?? undefined,
         }
       : undefined,
   });
@@ -151,6 +160,7 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
           accuracy: position.coords.accuracy,
           speed: position.coords.speed,
           heading: position.coords.heading,
+          timestamp: Number.isFinite(position.timestamp) ? position.timestamp : Date.now(),
         };
 
         onLocationUpdate?.(position.coords.latitude, position.coords.longitude);
@@ -187,7 +197,7 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
       (error) => {
         console.error("Initial geolocation error:", error);
         // Default to delivery location if can't get current position
-        if (delivery.deliveryLatitude && delivery.deliveryLongitude) {
+        if (delivery.deliveryLatitude != null && delivery.deliveryLongitude != null) {
           setCurrentPosition([delivery.deliveryLatitude, delivery.deliveryLongitude]);
         }
       }
@@ -200,7 +210,7 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
       stopWatching();
       socketRef.current?.disconnect();
     };
-  }, [delivery, startWatching, stopWatching]);
+  }, [delivery.orderId, delivery.deliveryLatitude, delivery.deliveryLongitude, startWatching, stopWatching]);
 
   // Emit rider GPS updates at deterministic 4s cadence for backend real-time sync.
   useEffect(() => {
@@ -371,7 +381,7 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
               )}
               
               {/* Destination marker */}
-              {delivery.deliveryLatitude && delivery.deliveryLongitude && (
+              {delivery.deliveryLatitude != null && delivery.deliveryLongitude != null && (
                 <Marker 
                   position={[delivery.deliveryLatitude, delivery.deliveryLongitude]} 
                   icon={destinationIcon}

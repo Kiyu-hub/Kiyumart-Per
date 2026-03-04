@@ -2,6 +2,8 @@ import { USE_PROVIDER } from "@/tracking/config";
 
 let loaderPromise: Promise<any> | null = null;
 let mapboxConfigPromise: Promise<void> | null = null;
+const MAP_PROVIDER_MODE_KEY = "map_provider_mode";
+type MapProviderMode = "mapbox" | "open_source";
 
 function normalizeMapboxPublicToken(raw: unknown): string {
   const token = String(raw || "").trim();
@@ -38,6 +40,47 @@ function clearRuntimeMapboxState(clearPersisted: boolean) {
     window.localStorage.removeItem("mapbox_gl_version");
   } catch {
     // Ignore storage clear errors.
+  }
+}
+
+function normalizeMapProviderMode(raw: unknown): MapProviderMode | null {
+  const mode = String(raw || "").trim().toLowerCase();
+  if (mode === "mapbox") return "mapbox";
+  if (mode === "open_source" || mode === "open-source" || mode === "opensource") return "open_source";
+  return null;
+}
+
+export function resolveMapProviderMode(): MapProviderMode {
+  if (typeof window !== "undefined") {
+    const winMode = normalizeMapProviderMode((window as any).__MAP_PROVIDER_MODE__);
+    if (winMode) return winMode;
+    try {
+      const stored = normalizeMapProviderMode(window.localStorage.getItem(MAP_PROVIDER_MODE_KEY) || "");
+      if (stored) return stored;
+    } catch {
+      // Ignore storage read errors.
+    }
+  }
+  return "mapbox";
+}
+
+export function setMapProviderMode(mode: MapProviderMode): void {
+  if (typeof window === "undefined") return;
+  const normalized = normalizeMapProviderMode(mode) || "mapbox";
+  try {
+    (window as any).__MAP_PROVIDER_MODE__ = normalized;
+  } catch {
+    // Ignore runtime write errors.
+  }
+  try {
+    window.localStorage.setItem(MAP_PROVIDER_MODE_KEY, normalized);
+  } catch {
+    // Ignore storage write errors.
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("map_provider_mode_changed", { detail: { mode: normalized } }));
+  } catch {
+    // Ignore custom event errors.
   }
 }
 
@@ -238,5 +281,9 @@ export function toMapboxRasterStyle(tileUrl: string, attribution?: string) {
 export function isMapboxGlPreferred(): boolean {
   const disable = String((import.meta.env as any).VITE_DISABLE_MAPBOX_GL || "").toLowerCase().trim() === "true";
   const forceEnable = String((import.meta.env as any).VITE_FORCE_MAPBOX_GL || "").toLowerCase().trim() === "true";
-  return !disable && (forceEnable || USE_PROVIDER === "PROVIDER_A");
+  if (disable) return false;
+  const mode = resolveMapProviderMode();
+  if (mode === "open_source") return false;
+  if (mode === "mapbox") return true;
+  return forceEnable || USE_PROVIDER === "PROVIDER_A";
 }
