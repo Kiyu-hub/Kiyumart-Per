@@ -91,7 +91,7 @@ export default function MapboxFleetMap({
 
   useEffect(() => {
     let disposed = false;
-    let initTimeoutId: ReturnType<typeof window.setTimeout> | null = null;
+    let initTimeoutId: number | NodeJS.Timeout | null = null;
     if (!containerRef.current || mapRef.current) return;
 
     (async () => {
