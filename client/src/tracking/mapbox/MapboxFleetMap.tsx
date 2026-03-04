@@ -91,10 +91,16 @@ export default function MapboxFleetMap({
 
   useEffect(() => {
     let disposed = false;
+    let initTimeoutId: ReturnType<typeof window.setTimeout> | null = null;
     if (!containerRef.current || mapRef.current) return;
 
     (async () => {
       try {
+        initTimeoutId = window.setTimeout(() => {
+          if (disposed || initErrorReportedRef.current || loadedRef.current) return;
+          initErrorReportedRef.current = true;
+          onError?.(new Error("Mapbox map initialization timed out"));
+        }, 10000);
         const mapboxgl = await loadMapboxGl();
         const token = resolveMapboxAccessToken();
         if (disposed || !containerRef.current) return;
@@ -120,13 +126,17 @@ export default function MapboxFleetMap({
         usageMonitor.trackMapInstantiation();
         map.on("sourcedata", () => usageMonitor.trackTileLoad());
         map.on("error", (event: any) => {
-          if (disposed || initErrorReportedRef.current || loadedRef.current) return;
+          if (disposed || initErrorReportedRef.current) return;
           const errorPayload = event?.error || event || new Error("Mapbox map failed to initialize.");
           initErrorReportedRef.current = true;
           onError?.(errorPayload);
         });
         map.on("load", () => {
           if (disposed) return;
+          if (initTimeoutId) {
+            window.clearTimeout(initTimeoutId);
+            initTimeoutId = null;
+          }
           loadedRef.current = true;
           initErrorReportedRef.current = false;
           onLoad?.();
@@ -150,6 +160,10 @@ export default function MapboxFleetMap({
           }
         });
       } catch (error) {
+        if (initTimeoutId) {
+          window.clearTimeout(initTimeoutId);
+          initTimeoutId = null;
+        }
         initErrorReportedRef.current = true;
         onError?.(error);
       }
@@ -157,6 +171,10 @@ export default function MapboxFleetMap({
 
     return () => {
       disposed = true;
+      if (initTimeoutId) {
+        window.clearTimeout(initTimeoutId);
+        initTimeoutId = null;
+      }
       riderMarkersRef.current.forEach((marker) => marker.remove());
       orderMarkersRef.current.forEach((marker) => marker.remove());
       riderMarkersRef.current.clear();
