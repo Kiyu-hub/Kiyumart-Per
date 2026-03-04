@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { MapContainer, Marker, Popup, Polyline, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, Polyline, useMap, Circle, CircleMarker } from "react-leaflet";
 import { Icon, LatLng, Map as LeafletMap } from "leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import "leaflet/dist/leaflet.css";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -27,7 +28,14 @@ import {
   ExternalLink,
   RefreshCcw,
   ChevronDown,
-  MapPinOff
+  MapPinOff,
+  Plus,
+  Minus,
+  LocateFixed,
+  Crosshair,
+  Layers3,
+  Compass,
+  Route
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -40,8 +48,9 @@ import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapsho
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { buildExternalNavigationUrl } from "@/tracking/providers/externalMapUrl";
 import { TRACKING_BUDGETS } from "@/tracking/config";
-import { isMapboxGlPreferred, reloadMapboxRuntimeConfig, resetMapboxGlLoader } from "@/tracking/mapbox/mapboxLoader";
+import { isMapboxGlPreferred, reloadMapboxRuntimeConfig, resetMapboxGlLoader, resolveMapboxStyleUrl } from "@/tracking/mapbox/mapboxLoader";
 import MapboxFleetMap from "@/tracking/mapbox/MapboxFleetMap";
+import { OPEN_SOURCE_MAP_PRESETS } from "@/tracking/components/MapTileLayer";
 
 interface RiderLocation {
   riderId: string;
@@ -112,6 +121,17 @@ const pendingOrderIcon = new Icon({
   popupAnchor: [0, -36],
 });
 
+const MAPBOX_STYLE_PRESETS = [
+  { value: "mapbox://styles/mapbox/streets-v12", label: "Streets" },
+  { value: "mapbox://styles/mapbox/outdoors-v12", label: "Outdoors" },
+  { value: "mapbox://styles/mapbox/light-v11", label: "Light" },
+  { value: "mapbox://styles/mapbox/dark-v11", label: "Dark" },
+  { value: "mapbox://styles/mapbox/satellite-v9", label: "Satellite" },
+  { value: "mapbox://styles/mapbox/satellite-streets-v12", label: "Satellite Streets" },
+  { value: "mapbox://styles/mapbox/navigation-day-v1", label: "Navigation Day" },
+  { value: "mapbox://styles/mapbox/navigation-night-v1", label: "Navigation Night" },
+] as const;
+
 // Component to invalidate map size on mount (fixes common Leaflet rendering issues)
 function MapInvalidator() {
   const map = useMap();
@@ -135,25 +155,6 @@ function MapInvalidator() {
   return null;
 }
 
-// Component to fit map bounds to all markers
-function MapBoundsController({ riders, pendingOrders }: { riders: RiderLocation[]; pendingOrders: PendingOrder[] }) {
-  const map = useMap();
-  
-  useEffect(() => {
-    const points: [number, number][] = [
-      ...riders.filter(r => r.latitude && r.longitude).map(r => [r.latitude, r.longitude] as [number, number]),
-      ...pendingOrders.filter(o => o.deliveryLatitude && o.deliveryLongitude)
-        .map(o => [Number(o.deliveryLatitude), Number(o.deliveryLongitude)] as [number, number])
-    ];
-    
-    if (points.length > 0) {
-      map.fitBounds(points, { padding: [50, 50], maxZoom: 14 });
-    }
-  }, [map, riders.length, pendingOrders.length]);
-  
-  return null;
-}
-
 interface RealTimeRiderMapProps {
   forceMapboxGl?: boolean;
 }
@@ -162,6 +163,12 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [riders, setRiders] = useState<RiderLocation[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [center] = useState<LatLng>(new LatLng(5.6037, -0.1870)); // Accra, Ghana
+  const [mapboxStyleUrl, setMapboxStyleUrl] = useState<string>(() => resolveMapboxStyleUrl());
+  const [openSourceStyleId, setOpenSourceStyleId] = useState<string>(() => {
+    if (typeof window === "undefined") return OPEN_SOURCE_MAP_PRESETS[0].id;
+    const stored = String(window.localStorage.getItem("open_source_map_style") || "").trim();
+    return OPEN_SOURCE_MAP_PRESETS.some((entry) => entry.id === stored) ? stored : OPEN_SOURCE_MAP_PRESETS[0].id;
+  });
   const [mapboxInitFailed, setMapboxInitFailed] = useState(false);
   const [mapboxError, setMapboxError] = useState<string>("");
   const [mapboxRetryNonce, setMapboxRetryNonce] = useState(0);
@@ -172,8 +179,11 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null);
   const [showDispatchPanel, setShowDispatchPanel] = useState(false);
   const [availableRiders, setAvailableRiders] = useState<AvailableRider[]>([]);
+  const [viewerLocation, setViewerLocation] = useState<{ lat: number; lng: number; accuracyM: number | null } | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const leafletMapRef = useRef<LeafletMap | null>(null);
+  const leafletAutoLockUntilRef = useRef(0);
+  const leafletLastAutoCameraAtRef = useRef(0);
   const { toast } = useToast();
   const usageSnapshot = useUsageMonitorSnapshot();
   const shouldUseMapboxGl = (forceMapboxGl || isMapboxGlPreferred()) && !mapboxInitFailed && !preferOpenSourceMap;
@@ -260,6 +270,47 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     setMapboxError("");
     setMapboxRetryNonce((prev) => prev + 1);
   }, [preferOpenSourceMap, mapboxInitFailed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("open_source_map_style", openSourceStyleId);
+    } catch {
+      // Ignore storage write failures.
+    }
+  }, [openSourceStyleId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const persistedStyle = resolveMapboxStyleUrl();
+    if (persistedStyle && persistedStyle !== mapboxStyleUrl) {
+      setMapboxStyleUrl(persistedStyle);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const geolocation = window.navigator?.geolocation;
+    if (!geolocation) return;
+    const watchId = geolocation.watchPosition(
+      (position) => {
+        setViewerLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracyM: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+        });
+      },
+      () => {
+        // Ignore permission and availability errors.
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 20_000,
+        timeout: 12_000,
+      },
+    );
+    return () => geolocation.clearWatch(watchId);
+  }, []);
 
   const fleetAnimationInput = useMemo(
     () => riders.map((rider) => ({
@@ -391,9 +442,34 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     });
     return points;
   }, [pendingOrders, riders]);
+  const selectedOpenSourcePreset = useMemo(
+    () => OPEN_SOURCE_MAP_PRESETS.find((entry) => entry.id === openSourceStyleId) || OPEN_SOURCE_MAP_PRESETS[0],
+    [openSourceStyleId],
+  );
+  const selectedMapboxStyleValue = useMemo(
+    () => MAPBOX_STYLE_PRESETS.find((entry) => entry.value === mapboxStyleUrl)?.value || MAPBOX_STYLE_PRESETS[0].value,
+    [mapboxStyleUrl],
+  );
+  const viewerLocationPoint = viewerLocation ? ([viewerLocation.lat, viewerLocation.lng] as [number, number]) : null;
+
+  const applyMapboxStyle = useCallback((styleUrl: string) => {
+    setMapboxStyleUrl(styleUrl);
+    if (typeof window !== "undefined") {
+      try {
+        (window as any).__MAPBOX_STYLE_URL__ = styleUrl;
+        window.localStorage.setItem("mapbox_style_url", styleUrl);
+      } catch {
+        // Ignore style persistence failures.
+      }
+    }
+    setMapboxInitFailed(false);
+    setMapboxRetryNonce((prev) => prev + 1);
+  }, []);
+
   const zoomLeafletIn = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
+    leafletAutoLockUntilRef.current = Date.now() + 8_000;
     const nextZoom = Math.min(Number(map.getZoom?.() || 12) + 1, 20);
     if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
     else map.zoomIn(1, { animate: true });
@@ -401,6 +477,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const zoomLeafletOut = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
+    leafletAutoLockUntilRef.current = Date.now() + 8_000;
     const nextZoom = Math.max(Number(map.getZoom?.() || 12) - 1, 2);
     if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
     else map.zoomOut(1, { animate: true });
@@ -408,26 +485,44 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const streetLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !focusPoint) return;
+    leafletAutoLockUntilRef.current = Date.now() + 8_000;
     map.setView(focusPoint, 18, { animate: true });
   }, [focusPoint]);
   const fitLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !mapPointsForFit.length) return;
+    leafletAutoLockUntilRef.current = 0;
+    if (focusPoint) {
+      map.setView(focusPoint, 17, { animate: true });
+      leafletLastAutoCameraAtRef.current = Date.now();
+      return;
+    }
     if (mapPointsForFit.length === 1) {
-      map.setView(mapPointsForFit[0], 16, { animate: true });
+      map.setView(mapPointsForFit[0], 17, { animate: true });
+      leafletLastAutoCameraAtRef.current = Date.now();
       return;
     }
     map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: 18, animate: true });
-  }, [mapPointsForFit]);
+    leafletLastAutoCameraAtRef.current = Date.now();
+  }, [focusPoint, mapPointsForFit]);
   const focusLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !focusPoint) return;
-    const zoom = Math.max(Number(map.getZoom?.() || 12), 16);
+    leafletAutoLockUntilRef.current = Date.now() + 8_000;
+    const zoom = Math.max(Number(map.getZoom?.() || 12), 17);
     map.setView(focusPoint, zoom, { animate: true });
   }, [focusPoint]);
+  const locateLeaflet = useCallback(() => {
+    const map = leafletMapRef.current;
+    if (!map || !viewerLocationPoint) return;
+    leafletAutoLockUntilRef.current = Date.now() + 8_000;
+    const zoom = Math.max(Number(map.getZoom?.() || 12), 17);
+    map.setView(viewerLocationPoint, zoom, { animate: true });
+  }, [viewerLocationPoint]);
   const northLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
+    leafletAutoLockUntilRef.current = Date.now() + 8_000;
     if (focusPoint) {
       map.setView(focusPoint, Number(map.getZoom?.() || 12), { animate: true });
       return;
@@ -437,9 +532,37 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       return;
     }
     if (mapPointsForFit.length === 1) {
-      map.setView(mapPointsForFit[0], 16, { animate: true });
+      map.setView(mapPointsForFit[0], 17, { animate: true });
     }
   }, [focusPoint, mapPointsForFit]);
+
+  useEffect(() => {
+    if (shouldUseMapboxGl) return;
+    const map = leafletMapRef.current;
+    if (!map) return;
+    const now = Date.now();
+    if (now < leafletAutoLockUntilRef.current) return;
+    if (now - leafletLastAutoCameraAtRef.current < 900) return;
+
+    if (focusPoint) {
+      const nextZoom = Math.max(Number(map.getZoom?.() || 12), 17);
+      map.setView(focusPoint, nextZoom, { animate: true });
+      leafletLastAutoCameraAtRef.current = now;
+      return;
+    }
+
+    if (mapPointsForFit.length === 1) {
+      map.setView(mapPointsForFit[0], 17, { animate: true });
+      leafletLastAutoCameraAtRef.current = now;
+      return;
+    }
+
+    if (mapPointsForFit.length > 1) {
+      map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: 18, animate: true });
+      leafletLastAutoCameraAtRef.current = now;
+    }
+  }, [focusPoint, mapPointsForFit, shouldUseMapboxGl]);
+
   const usageSeverity = Math.max(usageSnapshot.tileUsagePct, usageSnapshot.routeUsagePct, usageSnapshot.mapUsagePct);
   const usageToneClass =
     usageSeverity >= 90
@@ -498,6 +621,36 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                   onCheckedChange={setPreferOpenSourceMap}
                   data-testid="switch-open-source-map"
                 />
+              </div>
+              <div className="flex min-w-[190px] items-center gap-2 rounded-xl border border-border/70 bg-background/80 px-2 py-1.5 shadow-sm backdrop-blur">
+                <Layers3 className="h-3.5 w-3.5 text-muted-foreground" />
+                {shouldUseMapboxGl ? (
+                  <Select value={selectedMapboxStyleValue} onValueChange={applyMapboxStyle}>
+                    <SelectTrigger className="h-8 border-0 bg-transparent p-0 text-xs shadow-none focus:ring-0" data-testid="select-mapbox-style">
+                      <SelectValue placeholder="Map style" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MAPBOX_STYLE_PRESETS.map((preset) => (
+                        <SelectItem key={preset.value} value={preset.value}>
+                          {preset.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Select value={openSourceStyleId} onValueChange={setOpenSourceStyleId}>
+                    <SelectTrigger className="h-8 border-0 bg-transparent p-0 text-xs shadow-none focus:ring-0" data-testid="select-open-source-style">
+                      <SelectValue placeholder="Tile style" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {OPEN_SOURCE_MAP_PRESETS.map((preset) => (
+                        <SelectItem key={preset.id} value={preset.id}>
+                          {preset.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <Badge variant="secondary" data-testid="badge-active-riders">
                 {ridersWithLocation.length}/{riders.length} On Map
@@ -585,7 +738,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           <div className={`flex ${isFullscreen ? "flex-1 min-h-0" : ""}`}>
             {/* Map Container */}
             <div 
-              className={`relative transition-all duration-300 ${selectedRider ? "flex-1" : "w-full"} ${isFullscreen ? "h-full min-h-0" : "h-[400px] lg:h-[440px]"}`}
+              className={`relative transition-all duration-300 ${selectedRider ? "flex-1" : "w-full"} ${isFullscreen ? "h-full min-h-0" : "h-[380px] lg:h-[420px]"}`}
               data-testid="map-container"
             >
               {isLoading ? (
@@ -596,8 +749,10 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                 <>
                   {shouldUseMapboxGl ? (
                     <MapboxFleetMap
-                      key={`fleet-mapbox-${mapboxRetryNonce}`}
+                      key={`fleet-mapbox-${mapboxRetryNonce}-${mapboxStyleUrl}`}
                       center={[center.lat, center.lng]}
+                      mapStyleUrl={mapboxStyleUrl}
+                      cameraFocus={focusPoint}
                       riders={riders
                         .filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => rider.latitude !== null && rider.longitude !== null)
                         .map((rider) => ({
@@ -646,15 +801,14 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                     <MapContainer
                       ref={leafletMapRef}
                       center={center}
-                      zoom={12}
+                      zoom={17}
                       zoomControl={false}
                       style={{ height: "100%", width: "100%" }}
                     >
-                      <MapTileLayer />
+                      <MapTileLayer presetId={selectedOpenSourcePreset.id} />
                       <MapUsageTracker />
                       
                       <MapInvalidator />
-                      <MapBoundsController riders={riders} pendingOrders={pendingOrders} />
                       
                       {/* Route polyline */}
                       {!usageSnapshot.freezeSecondaryLayers && selectedRouteGeometry.length > 1 && (
@@ -664,6 +818,30 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                           weight={4}
                           opacity={0.8}
                         />
+                      )}
+
+                      {viewerLocationPoint && (
+                        <>
+                          <Circle
+                            center={viewerLocationPoint}
+                            radius={Math.min(Math.max(Number(viewerLocation?.accuracyM || 30), 12), 140)}
+                            pathOptions={{ color: "#60a5fa", weight: 1, fillColor: "#60a5fa", fillOpacity: 0.16 }}
+                          />
+                          <CircleMarker
+                            center={viewerLocationPoint}
+                            radius={7}
+                            pathOptions={{ color: "#1d4ed8", weight: 2, fillColor: "#3b82f6", fillOpacity: 0.95 }}
+                          >
+                            <Popup>
+                              <div className="p-1">
+                                <p className="text-xs font-semibold">Your Location</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {viewerLocation?.accuracyM ? `Accuracy ~${Math.round(viewerLocation.accuracyM)}m` : "Live position"}
+                                </p>
+                              </div>
+                            </Popup>
+                          </CircleMarker>
+                        </>
                       )}
                       
                       {/* Clustered rider markers */}
@@ -757,14 +935,15 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
 
                   {!shouldUseMapboxGl && (
                     <div className="pointer-events-none absolute right-3 top-3 z-[1300]">
-                      <div className="pointer-events-auto rounded-2xl border border-white/20 bg-black/35 p-1.5 shadow-2xl backdrop-blur-md">
+                      <div className="pointer-events-auto rounded-2xl border border-slate-300/40 bg-white/75 p-2 shadow-2xl backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/70">
                         <div className="grid grid-cols-2 gap-1.5">
-                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-800 transition hover:bg-white" onClick={zoomLeafletIn} title="Zoom In">+</button>
-                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-800 transition hover:bg-white" onClick={zoomLeafletOut} title="Zoom Out">-</button>
-                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={streetLeaflet} title="Street Level">Street</button>
-                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={fitLeaflet} title="Recenter / Fit">Fit</button>
-                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={focusLeaflet} title="Focus Rider">Focus</button>
-                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={northLeaflet} title="Reset North">N</button>
+                          <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={zoomLeafletIn} title="Zoom In"><Plus className="h-3.5 w-3.5" /><span>In</span></button>
+                          <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={zoomLeafletOut} title="Zoom Out"><Minus className="h-3.5 w-3.5" /><span>Out</span></button>
+                          <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={streetLeaflet} title="Street Level"><Route className="h-3.5 w-3.5" /><span>Street</span></button>
+                          <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={fitLeaflet} title="Recenter / Fit"><Crosshair className="h-3.5 w-3.5" /><span>Fit</span></button>
+                          <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={focusLeaflet} title="Focus Rider"><LocateFixed className="h-3.5 w-3.5" /><span>Focus</span></button>
+                          <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={locateLeaflet} disabled={!viewerLocationPoint} title="Go To My Location"><MapPin className="h-3.5 w-3.5" /><span>Me</span></button>
+                          <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-300/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:-translate-y-px hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700" onClick={northLeaflet} title="Reset Bearing"><Compass className="h-3.5 w-3.5" /><span>North</span></button>
                         </div>
                       </div>
                     </div>
@@ -831,7 +1010,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
             {/* Rider Detail Sidebar */}
             {selectedRider && (
               <div 
-                className={`${isFullscreen ? "w-[330px] xl:w-[390px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[400px] lg:h-[440px]"} border-l bg-background overflow-hidden`}
+                className={`${isFullscreen ? "w-[330px] xl:w-[390px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[380px] lg:h-[420px]"} border-l bg-background overflow-hidden`}
                 >
                 <ScrollArea className="h-full">
                   <div className="p-4">
