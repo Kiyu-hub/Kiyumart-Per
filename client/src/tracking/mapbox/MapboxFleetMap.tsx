@@ -111,11 +111,11 @@ function normalizeVehicleType(vehicleType: string | null | undefined): string {
 
 function vehicleGlyph(vehicleType: string | null | undefined): string {
   const normalized = normalizeVehicleType(vehicleType);
-  if (normalized === "car") return "🚗";
-  if (normalized === "van") return "🚐";
-  if (normalized === "truck") return "🚚";
-  if (normalized === "bicycle") return "🚲";
-  return "🏍️";
+  if (normalized === "car") return "C";
+  if (normalized === "van") return "V";
+  if (normalized === "truck") return "T";
+  if (normalized === "bicycle") return "B";
+  return "M";
 }
 
 function makeVehicleMarkerElement(

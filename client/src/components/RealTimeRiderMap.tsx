@@ -269,11 +269,11 @@ function dedupeRiderSnapshots(rows: RiderLocation[]): RiderLocation[] {
 
 function getVehicleGlyph(vehicleType: string | null | undefined): string {
   const normalized = normalizeVehicleType(vehicleType);
-  if (normalized === "car") return "🚗";
-  if (normalized === "van") return "🚐";
-  if (normalized === "truck") return "🚚";
-  if (normalized === "bicycle") return "🚲";
-  return "🏍️";
+  if (normalized === "car") return "C";
+  if (normalized === "van") return "V";
+  if (normalized === "truck") return "T";
+  if (normalized === "bicycle") return "B";
+  return "M";
 }
 
 function getVehicleMarkerIcon(vehicleType: string | null | undefined, isOnline: boolean, activeOrderCount: number): DivIcon {
@@ -1179,7 +1179,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                     <SelectItem value="__none__">All Riders</SelectItem>
                     {filteredRiders.map((rider) => (
                       <SelectItem key={rider.riderId} value={rider.riderId}>
-                        {rider.riderName} • {normalizeVehicleType(rider.vehicleType)}
+                        {rider.riderName} | {normalizeVehicleType(rider.vehicleType)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1415,7 +1415,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                               <div className="p-2 min-w-[200px]">
                                 <h3 className="font-bold text-sm mb-1">{rider.riderName}</h3>
                                 <p className="text-xs text-muted-foreground">
-                                  {normalizeVehicleType(rider.vehicleType)} • {rider.isOnline ? "Online" : "Offline"}
+                                  {normalizeVehicleType(rider.vehicleType)} | {rider.isOnline ? "Online" : "Offline"}
                                 </p>
                                 {rider.orderNumber ? (
                                   <p className="text-xs text-muted-foreground mb-2">Order #{rider.orderNumber}</p>
@@ -1554,7 +1554,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                             </p>
                           </>
                         ) : (
-                          <p className="text-muted-foreground">No active deliveries or pending orders</p>
+                          <p className="text-muted-foreground">No riders available in this area</p>
                         )}
                       </div>
                     </div>
@@ -1594,7 +1594,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                         <div>
                           <p className="font-semibold">{selectedRider.riderName}</p>
                           <p className="text-sm text-muted-foreground">
-                            {normalizeVehicleType(selectedRider.vehicleType)} • {selectedRider.isOnline ? "Online" : "Offline"}
+                            {normalizeVehicleType(selectedRider.vehicleType)} | {selectedRider.isOnline ? "Online" : "Offline"}
                           </p>
                         </div>
                         <Badge variant={selectedRider.isOnline ? "secondary" : "outline"} className={selectedRider.isOnline ? "text-emerald-700" : "text-slate-600"}>
@@ -1937,4 +1937,5 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     </>
   );
 }
+
 

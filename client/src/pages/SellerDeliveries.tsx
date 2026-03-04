@@ -45,16 +45,27 @@ export default function SellerDeliveries() {
   });
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    const normalized = String(status || "").toLowerCase().trim();
+    switch (normalized) {
       case "pending":
+      case "created":
+      case "confirmed":
         return "bg-yellow-500";
+      case "processing":
+      case "ready":
+      case "searching_rider":
+        return "bg-indigo-500";
       case "assigned":
         return "bg-blue-500";
+      case "rider_arrived":
+        return "bg-cyan-500";
       case "picked_up":
         return "bg-purple-500";
+      case "in_transit":
       case "en_route":
         return "bg-orange-500";
       case "delivered":
+      case "completed":
         return "bg-green-500";
       default:
         return "bg-gray-500";
@@ -109,7 +120,7 @@ export default function SellerDeliveries() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => navigate(`/orders/${delivery.id}`)}
+                    onClick={() => navigate(`/track?orderId=${delivery.id}`)}
                     data-testid={`button-track-${delivery.id}`}
                   >
                     Track

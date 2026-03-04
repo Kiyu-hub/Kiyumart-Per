@@ -42,7 +42,7 @@ interface ActiveDelivery {
 const riderIcon = new DivIcon({
   className: "rider-live-marker",
   html: `<div style="position:relative;width:36px;height:36px;border-radius:50%;background:linear-gradient(145deg,#0f766e,#0f172a);display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.92);box-shadow:0 8px 18px rgba(15,23,42,0.28);font-size:17px;">
-    <span>🚗</span>
+    <span>M</span>
     <span style="position:absolute;bottom:-4px;left:-4px;width:10px;height:10px;border-radius:9999px;background:#10b981;border:2px solid white;"></span>
   </div>`,
   iconSize: [36, 36],
@@ -310,7 +310,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
               {routeGeometry.length > 1 && (
                 <>
                   <span className="text-primary font-medium">{distanceKm.toFixed(1)} km</span>
-                  <span>•</span>
+                  <span>|</span>
                   <span className="text-primary font-medium">{etaMinutes} min</span>
                 </>
               )}
@@ -500,3 +500,4 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
     </>
   );
 }
+

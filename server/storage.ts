@@ -598,6 +598,22 @@ export class DbStorage implements IStorage {
   }
 
   async getAvailableRidersWithOrderCounts(): Promise<Array<{ rider: User; activeOrderCount: number }>> {
+    const engagedStatuses = new Set([
+      "searching_rider",
+      "assigned",
+      "rider_arrived",
+      "picked_up",
+      "in_transit",
+      "en_route",
+      "delivering",
+    ]);
+    const resolveMaxCapacity = (rider: any) => {
+      const pref = Number((rider as any)?.riderPreferences?.maxActiveOrders);
+      const vehicle = Number((rider as any)?.vehicleInfo?.maxCapacity);
+      const fallback = 3;
+      const resolved = Number.isFinite(pref) && pref > 0 ? pref : Number.isFinite(vehicle) && vehicle > 0 ? vehicle : fallback;
+      return Math.max(1, Math.floor(resolved));
+    };
     const allRiders = await db.select().from(users)
       .where(
         and(
@@ -610,17 +626,12 @@ export class DbStorage implements IStorage {
 
     const ridersWithCounts = await Promise.all(
       allRiders.map(async (rider) => {
-        const activeOrders = await db.select()
+        const riderOrders = await db.select()
           .from(orders)
-          .where(
-            and(
-              eq(orders.riderId, rider.id),
-              or(
-                eq(orders.status, 'processing'),
-                eq(orders.status, 'en_route')
-              )
-            )
-          );
+          .where(eq(orders.riderId, rider.id));
+        const activeOrders = riderOrders.filter((order) =>
+          engagedStatuses.has(String(order.status || "").toLowerCase().trim())
+        );
         
         return {
           rider,
@@ -629,7 +640,7 @@ export class DbStorage implements IStorage {
       })
     );
 
-    return ridersWithCounts.filter(r => r.activeOrderCount < 10)
+    return ridersWithCounts.filter(r => r.activeOrderCount < resolveMaxCapacity(r.rider))
       .sort((a, b) => a.activeOrderCount - b.activeOrderCount);
   }
 

@@ -79,12 +79,20 @@ export const useCanonicalTrackingStore = create<CanonicalTrackingState>((set, ge
 
   ingestGpsReality(update) {
     set((state) => {
+      if (!update?.vehicleId) return state;
       const current = state.vehicles[update.vehicleId];
       const orderId = update.orderId || current?.orderId;
       const confirmedPosition = { ...update.position };
       const speedMps = Number(update.speedMps ?? current?.speedMps ?? 0);
       const bearingDeg = Number(update.bearingDeg ?? current?.bearingDeg ?? 0);
-      const timestampMs = Number.isFinite(update.timestampMs) ? Number(update.timestampMs) : Date.now();
+      const resolvedTimestamp =
+        Number.isFinite(update.timestampMs) && Number(update.timestampMs) > 0
+          ? Number(update.timestampMs)
+          : Date.now();
+      const timestampMs =
+        current && Number.isFinite(current.lastRealityUpdateMs) && resolvedTimestamp < Number(current.lastRealityUpdateMs)
+          ? Number(current.lastRealityUpdateMs)
+          : resolvedTimestamp;
 
       if (current) {
         const sameOrder = String(current.orderId || "") === String(orderId || "");
@@ -92,7 +100,7 @@ export const useCanonicalTrackingStore = create<CanonicalTrackingState>((set, ge
         const sameSpeed = sameNumber(current.speedMps, speedMps, 0.05);
         const sameBearing = sameNumber(current.bearingDeg, bearingDeg, 0.5);
         const elapsedSinceLastReality = timestampMs - Number(current.lastRealityUpdateMs ?? 0);
-        if (sameOrder && samePosition && sameSpeed && sameBearing && elapsedSinceLastReality < 1000) {
+        if (sameOrder && samePosition && sameSpeed && sameBearing && elapsedSinceLastReality < 5000) {
           return state;
         }
       }

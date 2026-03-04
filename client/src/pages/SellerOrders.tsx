@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Search, Eye, Package, ShoppingBag, Store } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 
 interface Order {
   id: string;
@@ -17,6 +19,8 @@ interface Order {
   buyerId: string;
   total: string;
   status: string;
+  deliveryMethod?: string;
+  riderId?: string | null;
   paymentStatus: string;
   createdAt: string;
   deliveryPhone?: string;
@@ -33,6 +37,7 @@ type OrderContext = "seller" | "buyer";
 export default function SellerOrders() {
   const { user } = useAuth();
   const { formatPrice, t } = useLanguage();
+  const { toast } = useToast();
   const [location, navigate] = useLocation();
   const urlParams = useMemo(() => new URLSearchParams(location.split("?")[1] || ""), [location]);
   const orderIdFromUrl = urlParams.get("orderId");
@@ -55,6 +60,55 @@ export default function SellerOrders() {
 
   const { data: orders = [], isLoading } = useQuery<Order[]>({
     queryKey: [`/api/orders?context=${orderContext}`],
+  });
+
+  const updateOrderStatusMutation = useMutation({
+    mutationFn: async ({ orderId, status, reason }: { orderId: string; status: string; reason: string }) => {
+      const res = await apiRequest("PATCH", `/api/orders/${orderId}/status`, { status, reason });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Order updated", description: "Order status was updated successfully." });
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          return typeof key === "string" && key.startsWith("/api/orders");
+        },
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-orders"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Status update failed",
+        description: error?.message || "Could not update order status",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const startRiderMatchingMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await apiRequest("POST", `/api/orders/${orderId}/start-rider-matching`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Rider matching started", description: "Dispatch engine is now finding an eligible rider." });
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          return typeof key === "string" && key.startsWith("/api/orders");
+        },
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Matching failed",
+        description: error?.message || "Could not start rider matching",
+        variant: "destructive",
+      });
+    },
   });
 
   const filteredOrders = orders.filter(order =>
@@ -228,6 +282,23 @@ export default function SellerOrders() {
                   const canResumePayment =
                     ["pending", "created", "unpaid"].includes(s) &&
                     ["pending", "failed", "processing"].includes(paymentStatusLabel);
+                  const isPaid = paymentStatusLabel === "paid";
+                  const deliveryMethod = normalize(order.deliveryMethod);
+                  const hasRiderAssigned = Boolean(order.riderId);
+                  const canStartPackaging =
+                    orderContext === "seller" &&
+                    isPaid &&
+                    ["created", "pending", "confirmed"].includes(s);
+                  const canMarkReady =
+                    orderContext === "seller" &&
+                    isPaid &&
+                    ["processing", "confirmed"].includes(s);
+                  const canStartRiderMatching =
+                    orderContext === "seller" &&
+                    isPaid &&
+                    !hasRiderAssigned &&
+                    ["rider", "bus"].includes(deliveryMethod) &&
+                    ["ready", "processing", "confirmed"].includes(s);
 
                   if (orderContext === "buyer") {
                     if (canResumePayment) {
@@ -282,26 +353,83 @@ export default function SellerOrders() {
                     );
                   }
 
-                  if (trackStatuses.has(s)) {
-                    return (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full text-xs"
-                        onClick={() => navigate(`/track?orderId=${order.id}`)}
-                        data-testid={`button-track-${order.id}`}
-                      >
-                        <Package className="h-3 w-3 mr-2" />
-                        Track Order
-                      </Button>
-                    );
-                  }
-
                   return (
-                    <Button variant="outline" size="sm" className="w-full text-xs" data-testid={`button-view-${order.id}`}>
-                      <Eye className="h-3 w-3 mr-2" />
-                      View Details
-                    </Button>
+                    <div className="space-y-2">
+                      {(canStartPackaging || canMarkReady || canStartRiderMatching) && (
+                        <div className="grid grid-cols-1 gap-2">
+                          {canStartPackaging && (
+                            <Button
+                              size="sm"
+                              className="w-full text-xs"
+                              disabled={updateOrderStatusMutation.isPending || startRiderMatchingMutation.isPending}
+                              onClick={() =>
+                                updateOrderStatusMutation.mutate({
+                                  orderId: order.id,
+                                  status: "processing",
+                                  reason: "seller_packaging_started",
+                                })
+                              }
+                              data-testid={`button-start-packaging-${order.id}`}
+                            >
+                              Start Packaging
+                            </Button>
+                          )}
+                          {canMarkReady && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="w-full text-xs"
+                              disabled={updateOrderStatusMutation.isPending || startRiderMatchingMutation.isPending}
+                              onClick={() =>
+                                updateOrderStatusMutation.mutate({
+                                  orderId: order.id,
+                                  status: "ready",
+                                  reason: "seller_marked_ready_for_dispatch",
+                                })
+                              }
+                              data-testid={`button-mark-ready-${order.id}`}
+                            >
+                              Mark Ready
+                            </Button>
+                          )}
+                          {canStartRiderMatching && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="w-full text-xs"
+                              disabled={updateOrderStatusMutation.isPending || startRiderMatchingMutation.isPending}
+                              onClick={() => startRiderMatchingMutation.mutate(order.id)}
+                              data-testid={`button-start-rider-matching-${order.id}`}
+                            >
+                              Start Rider Matching
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                      {trackStatuses.has(s) ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full text-xs"
+                          onClick={() => navigate(`/track?orderId=${order.id}`)}
+                          data-testid={`button-track-${order.id}`}
+                        >
+                          <Package className="h-3 w-3 mr-2" />
+                          Track Order
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full text-xs"
+                          onClick={() => navigate(`/track?orderId=${order.id}`)}
+                          data-testid={`button-view-${order.id}`}
+                        >
+                          <Eye className="h-3 w-3 mr-2" />
+                          View Details
+                        </Button>
+                      )}
+                    </div>
                   );
                 })()}
               </Card>

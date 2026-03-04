@@ -29,6 +29,21 @@ interface Delivery {
   createdAt: string;
 }
 
+interface AssignmentOffer {
+  orderId: string;
+  orderNumber: string;
+  deliveryAddress?: string | null;
+  deliveryLatitude?: number | null;
+  deliveryLongitude?: number | null;
+  deliveryMethod?: string | null;
+  estimatedPayout?: string | null;
+  currency?: string | null;
+  status?: string | null;
+  offeredAt?: string | null;
+  expiresAt?: string | null;
+  radiusKm?: number | null;
+}
+
 export default function RiderDeliveries() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -47,6 +62,21 @@ export default function RiderDeliveries() {
       return res.json();
     },
     refetchInterval: 20000,
+  });
+
+  const { data: assignmentOffers = [], isLoading: offersLoading } = useQuery<AssignmentOffer[]>({
+    queryKey: ["/api/rider/assignment-offers"],
+    queryFn: async () => {
+      const res = await fetch("/api/rider/assignment-offers", { credentials: "include", cache: "no-store" });
+      if (!res.ok) {
+        if (res.status === 404) return [];
+        throw new Error("Failed to fetch assignment offers");
+      }
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    refetchInterval: 10000,
+    staleTime: 0,
   });
 
   const normalizeStatus = (value?: string) => {
@@ -75,6 +105,40 @@ export default function RiderDeliveries() {
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const assignmentOfferResponseMutation = useMutation({
+    mutationFn: async ({ orderId, action }: { orderId: string; action: "accept" | "reject" }) => {
+      const res = await apiRequest("POST", `/api/rider/assignment-offers/${orderId}/respond`, { action });
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      toast({
+        title: variables.action === "accept" ? "Offer accepted" : "Offer rejected",
+        description:
+          variables.action === "accept"
+            ? "Dispatch center has been notified. Await assignment confirmation."
+            : "Offer was rejected. Dispatch center can reassign.",
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          if (typeof key !== "string") return false;
+          return (
+            key.startsWith("/api/orders") ||
+            key.startsWith("/api/rider/active-delivery") ||
+            key.startsWith("/api/rider/assignment-offers")
+          );
+        },
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Offer response failed",
+        description: error?.message || "Could not submit offer response",
+        variant: "destructive",
+      });
     },
   });
 
@@ -137,6 +201,68 @@ export default function RiderDeliveries() {
             </SelectContent>
           </Select>
         </div>
+
+        {offersLoading ? (
+          <Card className="mb-4 p-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading assignment offers...
+            </div>
+          </Card>
+        ) : assignmentOffers.length > 0 ? (
+          <Card className="mb-4 p-4 border-primary/40 bg-primary/5" data-testid="card-assignment-offers">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">Pending Assignment Offers</h2>
+              <Badge variant="secondary">{assignmentOffers.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {assignmentOffers.map((offer) => (
+                <div key={offer.orderId} className="rounded-lg border bg-background p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">Order #{offer.orderNumber}</p>
+                      <p className="text-xs text-muted-foreground">{offer.deliveryAddress || "Delivery address unavailable"}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Radius {typeof offer.radiusKm === "number" ? `${offer.radiusKm} km` : "N/A"}
+                        {" | "}
+                        Expires {offer.expiresAt ? new Date(offer.expiresAt).toLocaleTimeString() : "soon"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        disabled={assignmentOfferResponseMutation.isPending}
+                        onClick={() =>
+                          assignmentOfferResponseMutation.mutate({
+                            orderId: offer.orderId,
+                            action: "accept",
+                          })
+                        }
+                        data-testid={`button-offer-accept-${offer.orderId}`}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={assignmentOfferResponseMutation.isPending}
+                        onClick={() =>
+                          assignmentOfferResponseMutation.mutate({
+                            orderId: offer.orderId,
+                            action: "reject",
+                          })
+                        }
+                        data-testid={`button-offer-reject-${offer.orderId}`}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ) : null}
 
         {isLoading ? (
           <div className="flex justify-center py-12">

@@ -89,6 +89,13 @@ const RIDER_MATCH_RADIUS_STEPS_KM = [3, 5, 8] as const;
 const RIDER_MATCH_LIMIT = 5;
 const SOFT_ZONE_DISTANCE_MARGIN_KM = 1;
 const ENABLE_SOFT_ZONE_MATCH = process.env.ENABLE_SOFT_ZONE_MATCH !== "false";
+const RIDER_GPS_FRESHNESS_MS = Math.max(3_000, Number(process.env.RIDER_GPS_FRESHNESS_MS || 10_000));
+const RIDER_LAST_KNOWN_RETENTION_MS = Math.max(
+  RIDER_GPS_FRESHNESS_MS,
+  Number(process.env.RIDER_LAST_KNOWN_RETENTION_MS || 24 * 60 * 60 * 1000),
+);
+const RIDER_DEFAULT_MAX_CAPACITY = Math.max(1, Number(process.env.RIDER_DEFAULT_MAX_CAPACITY || 3));
+const RIDER_RISK_BLOCK_THRESHOLD = Math.max(1, Number(process.env.RIDER_RISK_BLOCK_THRESHOLD || 8));
 const ENABLE_NON_PROD_APPLICATION_AUTOFILL = process.env.NODE_ENV !== "production";
 const CHAT_ATTACHMENT_PREFIX = "__CHAT_ATTACHMENT__:";
 const SUPPORT_ATTACHMENT_PREFIX = "__SUPPORT_ATTACHMENT__:";
@@ -5175,6 +5182,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     distanceKm: number | null;
     zoneId: string | null;
     zoneMatched: boolean;
+    activeOrderCount: number;
+    maxCapacity: number;
+    riskScore: number;
+    gpsAgeSeconds: number | null;
   };
 
   type PendingRiderAssignment = {
@@ -5213,6 +5224,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (typeof value === "string" && value.trim() === "") return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
+  };
+  const RIDER_ENGAGED_STATUSES = new Set([
+    "searching_rider",
+    "assigned",
+    "rider_arrived",
+    "picked_up",
+    "in_transit",
+    "en_route",
+    "delivering",
+  ]);
+
+  const buildRiderActiveOrderCountMap = (orderRows: any[]): Map<string, number> => {
+    const countByRider = new Map<string, number>();
+    orderRows.forEach((row: any) => {
+      const riderId = String(row?.riderId || "").trim();
+      if (!riderId) return;
+      const status = canonicalizeOrderStatus(row?.status);
+      if (!RIDER_ENGAGED_STATUSES.has(status)) return;
+      countByRider.set(riderId, (countByRider.get(riderId) || 0) + 1);
+    });
+    return countByRider;
+  };
+
+  const resolveRiderMaxCapacity = (rider: any): number => {
+    const preferenceCapacity = toFiniteNumber((rider as any)?.riderPreferences?.maxActiveOrders);
+    const vehicleCapacity = toFiniteNumber((rider as any)?.vehicleInfo?.maxCapacity);
+    const resolved = preferenceCapacity ?? vehicleCapacity ?? RIDER_DEFAULT_MAX_CAPACITY;
+    return Math.max(1, Math.floor(resolved));
+  };
+
+  const toTimestampMs = (value: unknown): number => {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    const parsed = new Date(String(value)).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const extractCoordinatesFromText = (value: unknown): { lat: number; lng: number } | null => {
+    const raw = String(value || "");
+    if (!raw) return null;
+    const match = raw.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+    if (!match) return null;
+    const lat = Number(match[1]);
+    const lng = Number(match[2]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { lat, lng };
   };
 
   const normalizeOtp = (value: unknown): string => String(value ?? "").replace(/\D/g, "").trim();
@@ -5842,34 +5900,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const getRiderMatchCandidates = async (order: any, radiusKm: number, excludedRiderIds: string[] = []): Promise<RiderMatchCandidate[]> => {
     const allRiders = await storage.getUsersByRole("rider");
-    const activeRiders = allRiders.filter((r: any) => r.isApproved && r.isActive && r.riderOnline !== false);
+    const activeRiders = allRiders.filter((r: any) => r.isApproved && r.isActive);
     if (activeRiders.length === 0) return [];
 
     const allOrders = await storage.getAllOrders();
-    const ridersOnDelivery = new Set(
-      allOrders
-        .filter((o: any) => ["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
-        .map((o: any) => o.riderId)
-    );
+    const activeOrderCountByRider = buildRiderActiveOrderCountMap(allOrders);
 
     const excludedSet = new Set(excludedRiderIds);
-    const availableRiders = activeRiders.filter((r: any) => !ridersOnDelivery.has(r.id) && !excludedSet.has(r.id));
+    const availableRiders = activeRiders.filter((r: any) => !excludedSet.has(r.id));
     if (availableRiders.length === 0) return [];
 
+    const now = Date.now();
     const zones = await storage.getDeliveryZones();
     const orderLocation = getOrderLocationForMatching(order);
     const resolvedOrderZoneId = resolveZoneByOrder(order, zones);
     const riderLocations = await Promise.all(
-      availableRiders.map(async (rider: any) => ({
-        rider,
-        location: await storage.getLatestRiderLocation(rider.id),
-      }))
+      availableRiders.map(async (rider: any) => {
+        const [location, riskState] = await Promise.all([
+          storage.getLatestRiderLocation(rider.id),
+          Promise.resolve(getRiderRiskScore(rider.id)),
+        ]);
+        const riderPrefs = ((rider as any).riderPreferences || {}) as Record<string, any>;
+        const prefLocation = (riderPrefs.lastKnownLocation || {}) as Record<string, any>;
+        const trackedLat = toFiniteNumber(location?.latitude);
+        const trackedLng = toFiniteNumber(location?.longitude);
+        const prefLat = toFiniteNumber(prefLocation.latitude);
+        const prefLng = toFiniteNumber(prefLocation.longitude);
+        const resolvedLat = trackedLat ?? prefLat;
+        const resolvedLng = trackedLng ?? prefLng;
+        const timestampMs = Math.max(
+          toTimestampMs(location?.timestamp),
+          toTimestampMs(prefLocation.timestamp),
+        );
+        const gpsAgeMs = timestampMs > 0 ? Math.max(0, now - timestampMs) : Number.POSITIVE_INFINITY;
+        const gpsFresh = gpsAgeMs <= RIDER_GPS_FRESHNESS_MS;
+        const hasRecentKnownLocation = gpsAgeMs <= RIDER_LAST_KNOWN_RETENTION_MS;
+        const presence = presenceService.getPresence(rider.id);
+        const onlineByPresence = Boolean(presence && (presence.status === "online" || presence.status === "away"));
+        const onlineByFlag = (rider as any).riderOnline !== false;
+        const maxCapacity = resolveRiderMaxCapacity(rider);
+        const activeOrderCount = activeOrderCountByRider.get(rider.id) || 0;
+        const riskScore = Number(riskState.score || 0);
+
+        return {
+          rider,
+          riskScore,
+          activeOrderCount,
+          maxCapacity,
+          onlineByPresence,
+          onlineByFlag,
+          gpsFresh,
+          hasRecentKnownLocation,
+          gpsAgeMs,
+          location: {
+            latitude: resolvedLat,
+            longitude: resolvedLng,
+          },
+        };
+      }),
     );
 
     const candidates = riderLocations
-      .map(({ rider, location }) => {
-        const riderLat = toFiniteNumber(location?.latitude);
-        const riderLng = toFiniteNumber(location?.longitude);
+      .filter((entry) => {
+        if (!entry.onlineByFlag || !entry.onlineByPresence) return false;
+        if (!entry.gpsFresh) return false;
+        if (!entry.hasRecentKnownLocation) return false;
+        if (entry.activeOrderCount >= entry.maxCapacity) return false;
+        if (entry.riskScore >= RIDER_RISK_BLOCK_THRESHOLD) return false;
+        return true;
+      })
+      .map(({ rider, location, activeOrderCount, maxCapacity, riskScore, gpsAgeMs }) => {
+        const riderLat = toFiniteNumber(location.latitude);
+        const riderLng = toFiniteNumber(location.longitude);
         const distanceKm =
           orderLocation && riderLat !== null && riderLng !== null
             ? haversineDistanceKm(riderLat, riderLng, orderLocation.lat, orderLocation.lng)
@@ -5881,6 +5983,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           distanceKm,
           zoneId: resolveZoneByRiderProfile(rider, zones),
           zoneMatched: false,
+          activeOrderCount,
+          maxCapacity,
+          riskScore: Number(riskScore.toFixed(2)),
+          gpsAgeSeconds: Number.isFinite(gpsAgeMs) ? Math.max(0, Math.round(gpsAgeMs / 1000)) : null,
         };
       })
       .filter((candidate) => candidate.distanceKm === null || candidate.distanceKm <= radiusKm);
@@ -5905,6 +6011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const distanceB = b.distanceKm === null ? Number.MAX_SAFE_INTEGER : b.distanceKm;
         if (a.zoneMatched !== b.zoneMatched) return a.zoneMatched ? -1 : 1;
         if (distanceA !== distanceB) return distanceA - distanceB;
+        if (a.activeOrderCount !== b.activeOrderCount) return a.activeOrderCount - b.activeOrderCount;
         if (a.rating !== b.rating) return b.rating - a.rating;
         return a.riderId.localeCompare(b.riderId);
       })
@@ -6021,6 +6128,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     if (!["rider", "bus"].includes(String(order.deliveryMethod || "").toLowerCase().trim())) {
       throw new Error("Order does not require rider delivery");
+    }
+    let destinationLat = toFiniteNumber((order as any).deliveryLatitude);
+    let destinationLng = toFiniteNumber((order as any).deliveryLongitude);
+    if (destinationLat === null || destinationLng === null) {
+      const extracted = extractCoordinatesFromText((order as any).deliveryAddress);
+      if (extracted) {
+        destinationLat = extracted.lat;
+        destinationLng = extracted.lng;
+        await storage.updateOrder(order.id, {
+          deliveryLatitude: String(extracted.lat) as any,
+          deliveryLongitude: String(extracted.lng) as any,
+        } as any);
+      }
+    }
+    if (destinationLat === null || destinationLng === null) {
+      throw new Error(
+        "Cannot start rider matching: delivery destination coordinates are missing. Update order location first."
+      );
     }
     if (order.riderId) {
       clearPendingRiderAssignment(order.id);
@@ -7790,8 +7915,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       throw error;
     }
 
-    if (isManualAssignmentConfirmationRequired && actorRole === "seller") {
-      const error = new Error("Manual assignment confirmation is restricted to admin and super admin");
+    if (actorRole === "seller") {
+      const error = new Error("Seller direct rider assignment is disabled. Seller can only mark Ready and start rider matching.");
       (error as any).code = 403;
       throw error;
     }
@@ -7838,9 +7963,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       (error as any).code = 404;
       throw error;
     }
-    if (!rider.isApproved || !rider.isActive || (rider as any).riderOnline === false) {
+    if (!rider.isApproved || !rider.isActive) {
       const error = new Error("Rider is not available for deliveries");
       (error as any).code = 400;
+      throw error;
+    }
+    const riderPresence = presenceService.getPresence(rider.id);
+    const onlineByPresence = Boolean(riderPresence && (riderPresence.status === "online" || riderPresence.status === "away"));
+    const onlineByFlag = (rider as any).riderOnline !== false;
+    if (!onlineByPresence || !onlineByFlag) {
+      const error = new Error("Rider is offline. Assignment requires active app connection.");
+      (error as any).code = 409;
+      throw error;
+    }
+    const riderLatestTracking = await storage.getLatestRiderLocation(rider.id);
+    const riderPrefs = (((rider as any).riderPreferences || {}) as Record<string, any>);
+    const prefLocation = (riderPrefs.lastKnownLocation || {}) as Record<string, any>;
+    const latestGpsTimestampMs = Math.max(
+      toTimestampMs(riderLatestTracking?.timestamp),
+      toTimestampMs(prefLocation.timestamp),
+    );
+    const gpsAgeMs = latestGpsTimestampMs > 0 ? Math.max(0, Date.now() - latestGpsTimestampMs) : Number.POSITIVE_INFINITY;
+    if (!Number.isFinite(gpsAgeMs) || gpsAgeMs > RIDER_GPS_FRESHNESS_MS) {
+      const error = new Error(
+        `Rider GPS is stale (${Number.isFinite(gpsAgeMs) ? `${Math.round(gpsAgeMs / 1000)}s` : "unknown"}). Assignment requires GPS ping within ${Math.round(RIDER_GPS_FRESHNESS_MS / 1000)} seconds.`
+      );
+      (error as any).code = 409;
+      throw error;
+    }
+    const riderRisk = getRiderRiskScore(rider.id);
+    if (Number(riderRisk.score || 0) >= RIDER_RISK_BLOCK_THRESHOLD) {
+      const error = new Error("Rider is temporarily blocked from assignment due to elevated risk score.");
+      (error as any).code = 409;
+      throw error;
+    }
+    const riderOrders = await storage.getOrdersByUser(rider.id, "rider");
+    const activeOrderCount = riderOrders.filter((candidate: any) =>
+      RIDER_ENGAGED_STATUSES.has(canonicalizeOrderStatus(candidate.status))
+    ).length;
+    const maxCapacity = resolveRiderMaxCapacity(rider);
+    if (activeOrderCount >= maxCapacity) {
+      const error = new Error(
+        `Rider capacity reached (${activeOrderCount}/${maxCapacity}). Select a rider with lower active load.`
+      );
+      (error as any).code = 409;
       throw error;
     }
 
@@ -8001,6 +8167,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       res.status((error as any)?.code || 400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/rider/assignment-offers", requireAuth, requireRole("rider"), requireRoleFeature("deliveries.view"), async (req: AuthRequest, res) => {
+    try {
+      const riderId = req.user!.id;
+      const now = Date.now();
+      const offers = await Promise.all(
+        Array.from(pendingRiderAssignments.values())
+          .filter((entry) => entry.currentRiderId === riderId)
+          .map(async (entry) => {
+            const order = await storage.getOrder(entry.orderId);
+            if (!order) return null;
+            const expiresAtMs = toTimestampMs(entry.expiresAt);
+            if (expiresAtMs > 0 && expiresAtMs <= now) return null;
+            const latestAttempt = [...entry.attempts]
+              .reverse()
+              .find((attempt) => attempt.riderId === riderId && attempt.status === "offered");
+            if (!latestAttempt) return null;
+            return {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              deliveryAddress: order.deliveryAddress || null,
+              deliveryLatitude: toFiniteNumber((order as any).deliveryLatitude),
+              deliveryLongitude: toFiniteNumber((order as any).deliveryLongitude),
+              deliveryMethod: order.deliveryMethod,
+              estimatedPayout: order.deliveryFee || null,
+              currency: order.currency || "GHS",
+              status: canonicalizeOrderStatus(order.status),
+              offeredAt: latestAttempt.offeredAt,
+              expiresAt: entry.expiresAt,
+              radiusKm: entry.currentRadiusKm,
+            };
+          }),
+      );
+      res.json(offers.filter(Boolean));
+    } catch (error: any) {
+      res.status(400).json({ error: error.message || "Failed to fetch rider assignment offers" });
     }
   });
 
@@ -8704,8 +8908,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const busDeliveryWorkflow = isBusMethod(order.deliveryMethod)
         ? extractBusDeliveryWorkflow(orderHistory, order as any)
         : null;
-      const deliveryLatitude = toFiniteNumber(order.deliveryLatitude);
-      const deliveryLongitude = toFiniteNumber(order.deliveryLongitude);
+      let deliveryLatitude = toFiniteNumber(order.deliveryLatitude);
+      let deliveryLongitude = toFiniteNumber(order.deliveryLongitude);
+      if (deliveryLatitude === null || deliveryLongitude === null) {
+        const extracted = extractCoordinatesFromText(order.deliveryAddress);
+        if (extracted) {
+          deliveryLatitude = extracted.lat;
+          deliveryLongitude = extracted.lng;
+          await storage.updateOrder(order.id, {
+            deliveryLatitude: String(extracted.lat) as any,
+            deliveryLongitude: String(extracted.lng) as any,
+          } as any);
+        }
+      }
       
       res.json({
         id: order.id,
@@ -8720,6 +8935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         buyerProfileImage: buyer?.profileImage || null,
         buyerPhone: order.deliveryPhone || buyer?.phone || null,
         qrCode: isBusMethod(order.deliveryMethod) ? null : order.qrCode || null,
+        gpsNavigationReady: deliveryLatitude !== null && deliveryLongitude !== null,
         busDeliveryWorkflow,
       });
     } catch (error: any) {
@@ -8978,29 +9194,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all active riders with their current locations (for admin tracking)
   app.get("/api/admin/active-riders", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req, res) => {
     try {
-      const activeStatuses = new Set([
-        "processing",
-        "ready",
-        "confirmed",
-        "searching_rider",
-        "assigned",
-        "rider_arrived",
-        "picked_up",
-        "in_transit",
-        "en_route",
-      ]);
       const allOrders = await storage.getAllOrders();
       const allRiders = (await storage.getUsersByRole("rider")).filter((r: any) => r.isApproved && r.isActive);
+      const activeOrderCountByRider = buildRiderActiveOrderCountMap(allOrders);
       const activeOrdersByRider = new Map<string, any[]>();
       allOrders.forEach((order: any) => {
         const riderId = String(order.riderId || "");
         if (!riderId) return;
         const status = canonicalizeOrderStatus(order.status);
-        if (!activeStatuses.has(status)) return;
+        if (!RIDER_ENGAGED_STATUSES.has(status)) return;
         const bucket = activeOrdersByRider.get(riderId) || [];
         bucket.push(order);
         activeOrdersByRider.set(riderId, bucket);
       });
+      const now = Date.now();
 
       const riderLocations = await Promise.all(
         allRiders.map(async (rider: any) => {
@@ -9018,6 +9225,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const resolvedLat = trackedLat ?? prefLat;
           const resolvedLng = trackedLng ?? prefLng;
           const resolvedTimestamp = latestTracking?.timestamp || prefLocation.timestamp || null;
+          const resolvedTimestampMs = toTimestampMs(resolvedTimestamp);
+          const gpsAgeMs = resolvedTimestampMs > 0 ? Math.max(0, now - resolvedTimestampMs) : Number.POSITIVE_INFINITY;
+          const hasRecentLocation = Number.isFinite(gpsAgeMs) && gpsAgeMs <= RIDER_LAST_KNOWN_RETENTION_MS;
+          const gpsFresh = Number.isFinite(gpsAgeMs) && gpsAgeMs <= RIDER_GPS_FRESHNESS_MS;
           const resolvedSpeed =
             latestTracking?.speed ??
             (Number.isFinite(prefLocation.speed) ? Number(prefLocation.speed) : null);
@@ -9041,12 +9252,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 })
               : null;
 
-          const presence = presenceService.getPresenceForApi(rider.id);
-          const onlineByPresence = presence.status === "online" || presence.status === "away";
+          const presenceRaw = presenceService.getPresence(rider.id);
+          const presenceStatus = presenceRaw?.status || "offline";
+          const onlineByPresence = presenceStatus === "online" || presenceStatus === "away";
           const onlineByFlag = rider.riderOnline !== false;
-          const isOnline = onlineByPresence || onlineByFlag;
-          const resolvedOnlineStatus = isOnline ? (onlineByPresence ? String(presence.status || "online") : "online") : "offline";
+          const isOnline = Boolean(onlineByPresence && onlineByFlag && gpsFresh);
+          const resolvedOnlineStatus = isOnline ? String(presenceStatus || "online") : "offline";
           const vehicleInfo = (rider as any).vehicleInfo || {};
+          const riskScore = Number(getRiderRiskScore(rider.id).score || 0);
+          const activeOrderCount = activeOrderCountByRider.get(rider.id) || 0;
+          const maxCapacity = resolveRiderMaxCapacity(rider);
 
           return {
             riderId: rider.id,
@@ -9057,9 +9272,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             vehicleColor: String(vehicleInfo.color || "").trim() || null,
             isOnline,
             onlineStatus: resolvedOnlineStatus,
-            lastSeenAt: presence.lastSeen || resolvedTimestamp,
-            activeOrderCount: riderActiveOrders.length,
-            hasActiveOrder: riderActiveOrders.length > 0,
+            lastSeenAt: presenceRaw?.lastSeen?.toISOString?.() || resolvedTimestamp,
+            activeOrderCount,
+            maxCapacity,
+            hasActiveOrder: activeOrderCount > 0,
             orderId: primaryOrder?.id || null,
             orderNumber: primaryOrder?.orderNumber || null,
             orderStatus: primaryOrder?.status || null,
@@ -9073,7 +9289,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             speed: resolvedSpeed,
             heading: resolvedHeading,
             timestamp: resolvedTimestamp,
-            hasLocation: resolvedLat !== null && resolvedLng !== null,
+            hasLocation: hasRecentLocation && resolvedLat !== null && resolvedLng !== null,
+            gpsFresh,
+            gpsAgeSeconds: Number.isFinite(gpsAgeMs) ? Math.max(0, Math.round(gpsAgeMs / 1000)) : null,
+            riskScore: Number(riskScore.toFixed(2)),
             eta: etaPayload?.etaMinutes ?? null,
             distance: etaPayload?.distanceKm ?? null,
           };
@@ -9111,12 +9330,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // - seller has marked dispatch-ready (or system has started rider matching)
       // - no rider assigned yet
       const pendingOrders = allOrders
-        .filter(order => 
+        .map((order) => {
+          const directLat = toFiniteNumber((order as any).deliveryLatitude);
+          const directLng = toFiniteNumber((order as any).deliveryLongitude);
+          const extracted =
+            directLat === null || directLng === null
+              ? extractCoordinatesFromText((order as any).deliveryAddress)
+              : null;
+          const resolvedLat = directLat ?? extracted?.lat ?? null;
+          const resolvedLng = directLng ?? extracted?.lng ?? null;
+          return {
+            order,
+            resolvedLat,
+            resolvedLng,
+          };
+        })
+        .filter(({ order, resolvedLat, resolvedLng }) =>
           ["rider", "bus"].includes(String(order.deliveryMethod || "").toLowerCase().trim()) &&
           ["ready", "searching_rider"].includes(canonicalizeOrderStatus(order.status)) &&
+          resolvedLat !== null &&
+          resolvedLng !== null &&
           !order.riderId
         )
-        .map(order => ({
+        .map(({ order, resolvedLat, resolvedLng }) => ({
           id: order.id,
           orderNumber: order.orderNumber,
           sellerId: order.sellerId,
@@ -9125,8 +9361,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           buyerPhone: null as string | null,
           deliveryAddress: order.deliveryAddress,
           deliveryPhone: order.deliveryPhone,
-          deliveryLatitude: order.deliveryLatitude,
-          deliveryLongitude: order.deliveryLongitude,
+          deliveryLatitude: resolvedLat,
+          deliveryLongitude: resolvedLng,
           deliveryZoneId: order.deliveryZoneId,
           createdAt: order.createdAt,
           total: order.total,
@@ -9162,60 +9398,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { orderLat, orderLng, orderZoneId, sellerId } = req.query;
       
-      // Get all approved and active riders
+      // Get all approved and active riders; eligibility is computed from fresh presence/GPS/load checks.
       const allRiders = await storage.getUsersByRole("rider");
-      const activeRiders = allRiders.filter(r => r.isApproved && r.isActive && r.riderOnline !== false);
+      const activeRiders = allRiders.filter(r => r.isApproved && r.isActive);
       const zones = await storage.getDeliveryZones();
       const seller = sellerId ? await storage.getUser(String(sellerId)) : null;
       const sellerZoneId = resolveZoneBySellerProfile(seller, zones);
-      
-      // Get orders currently being delivered
       const allOrders = await storage.getAllOrders();
-      const ridersOnDelivery = new Set(
-        allOrders
-          .filter(o => ["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes((o.status || "").toLowerCase().trim()) && o.riderId)
-          .map(o => o.riderId)
-      );
+      const activeOrderCountByRider = buildRiderActiveOrderCountMap(allOrders);
+      const now = Date.now();
       
-      // Filter out riders currently on delivery
       const orderLatNum = toFiniteNumber(orderLat);
       const orderLngNum = toFiniteNumber(orderLng);
       const availableRiders = await Promise.all(
-        activeRiders
-          .filter(r => !ridersOnDelivery.has(r.id))
-          .map(async (rider) => {
-            let distanceToOrder: number | undefined;
-            if (orderLatNum !== null && orderLngNum !== null) {
-              const latest = await storage.getLatestRiderLocation(rider.id);
-              const riderLat = toFiniteNumber(latest?.latitude);
-              const riderLng = toFiniteNumber(latest?.longitude);
-              if (riderLat !== null && riderLng !== null) {
-                distanceToOrder = haversineDistanceKm(riderLat, riderLng, orderLatNum, orderLngNum);
-              }
-            }
-            
-            return {
-              id: rider.id,
-              name: rider.name,
-              email: rider.email,
-              phone: rider.phone,
-              profileImage: rider.profileImage || null,
-              isAvailable: true,
-              zoneId: resolveZoneByRiderProfile(rider, zones),
-              zoneMatched:
-                ENABLE_SOFT_ZONE_MATCH &&
-                !!orderZoneId &&
-                String(resolveZoneByRiderProfile(rider, zones) || "") === String(orderZoneId),
-              sellerZoneMatched:
-                ENABLE_SOFT_ZONE_MATCH &&
-                !!sellerZoneId &&
-                String(resolveZoneByRiderProfile(rider, zones) || "") === String(sellerZoneId),
-              distanceToOrder,
-            };
-          })
-      );
+        activeRiders.map(async (rider) => {
+          const [latest] = await Promise.all([
+            storage.getLatestRiderLocation(rider.id),
+          ]);
+          const riderPrefs = (((rider as any).riderPreferences || {}) as Record<string, any>);
+          const prefLocation = (riderPrefs.lastKnownLocation || {}) as Record<string, any>;
+          const riderLat = toFiniteNumber(latest?.latitude) ?? toFiniteNumber(prefLocation.latitude);
+          const riderLng = toFiniteNumber(latest?.longitude) ?? toFiniteNumber(prefLocation.longitude);
+          const locationTs = Math.max(toTimestampMs(latest?.timestamp), toTimestampMs(prefLocation.timestamp));
+          const gpsAgeMs = locationTs > 0 ? Math.max(0, now - locationTs) : Number.POSITIVE_INFINITY;
+          const gpsFresh = Number.isFinite(gpsAgeMs) && gpsAgeMs <= RIDER_GPS_FRESHNESS_MS;
+          const onlineByFlag = (rider as any).riderOnline !== false;
+          const presence = presenceService.getPresence(rider.id);
+          const onlineByPresence = Boolean(presence && (presence.status === "online" || presence.status === "away"));
+          const activeOrderCount = activeOrderCountByRider.get(rider.id) || 0;
+          const maxCapacity = resolveRiderMaxCapacity(rider);
+          const riskScore = Number(getRiderRiskScore(rider.id).score || 0);
+          const zoneId = resolveZoneByRiderProfile(rider, zones);
+          const distanceToOrder =
+            orderLatNum !== null && orderLngNum !== null && riderLat !== null && riderLng !== null
+              ? haversineDistanceKm(riderLat, riderLng, orderLatNum, orderLngNum)
+              : undefined;
+          const isAvailable =
+            onlineByFlag &&
+            onlineByPresence &&
+            gpsFresh &&
+            activeOrderCount < maxCapacity &&
+            riskScore < RIDER_RISK_BLOCK_THRESHOLD;
 
-      availableRiders.sort((a, b) => {
+          return {
+            id: rider.id,
+            name: rider.name,
+            email: rider.email,
+            phone: rider.phone,
+            profileImage: rider.profileImage || null,
+            isAvailable,
+            zoneId,
+            zoneMatched:
+              ENABLE_SOFT_ZONE_MATCH &&
+              !!orderZoneId &&
+              String(zoneId || "") === String(orderZoneId),
+            sellerZoneMatched:
+              ENABLE_SOFT_ZONE_MATCH &&
+              !!sellerZoneId &&
+              String(zoneId || "") === String(sellerZoneId),
+            distanceToOrder,
+            currentLocation: riderLat !== null && riderLng !== null ? { lat: riderLat, lng: riderLng } : undefined,
+            activeOrderCount,
+            maxCapacity,
+            gpsFresh,
+            gpsAgeSeconds: Number.isFinite(gpsAgeMs) ? Math.max(0, Math.round(gpsAgeMs / 1000)) : null,
+            riskScore: Number(riskScore.toFixed(2)),
+            rating: toFiniteNumber((rider as any)?.ratings) ?? 0,
+          };
+        })
+      );
+      const eligibleRiders = availableRiders.filter((rider) => rider.isAvailable);
+
+      eligibleRiders.sort((a, b) => {
         if ((a as any).zoneMatched !== (b as any).zoneMatched) {
           return (a as any).zoneMatched ? -1 : 1;
         }
@@ -9225,10 +9479,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const distanceA = typeof a.distanceToOrder === "number" ? a.distanceToOrder : Number.MAX_SAFE_INTEGER;
         const distanceB = typeof b.distanceToOrder === "number" ? b.distanceToOrder : Number.MAX_SAFE_INTEGER;
         if (distanceA !== distanceB) return distanceA - distanceB;
+        const loadA = Number((a as any).activeOrderCount || 0);
+        const loadB = Number((b as any).activeOrderCount || 0);
+        if (loadA !== loadB) return loadA - loadB;
+        const ratingA = Number((a as any).rating || 0);
+        const ratingB = Number((b as any).rating || 0);
+        if (ratingA !== ratingB) return ratingB - ratingA;
         return a.name.localeCompare(b.name);
       });
 
-      res.json(availableRiders);
+      res.json(eligibleRiders);
     } catch (error: any) {
       console.error("Error fetching available riders:", error);
       res.status(400).json({ error: error.message });
