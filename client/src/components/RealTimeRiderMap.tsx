@@ -1,13 +1,14 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MapContainer, Marker, Popup, Polyline, useMap } from "react-leaflet";
-import { Icon, LatLng } from "leaflet";
+import { Icon, LatLng, Map as LeafletMap } from "leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -165,15 +166,17 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [mapboxError, setMapboxError] = useState<string>("");
   const [mapboxRetryNonce, setMapboxRetryNonce] = useState(0);
   const [isRetryingMapbox, setIsRetryingMapbox] = useState(false);
+  const [preferOpenSourceMap, setPreferOpenSourceMap] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedRider, setSelectedRider] = useState<RiderLocation | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null);
   const [showDispatchPanel, setShowDispatchPanel] = useState(false);
   const [availableRiders, setAvailableRiders] = useState<AvailableRider[]>([]);
   const socketRef = useRef<Socket | null>(null);
+  const leafletMapRef = useRef<LeafletMap | null>(null);
   const { toast } = useToast();
   const usageSnapshot = useUsageMonitorSnapshot();
-  const shouldUseMapboxGl = (forceMapboxGl || isMapboxGlPreferred()) && !mapboxInitFailed;
+  const shouldUseMapboxGl = (forceMapboxGl || isMapboxGlPreferred()) && !mapboxInitFailed && !preferOpenSourceMap;
 
   // Fetch initial active riders
   const { data: initialRiders = [], isLoading, refetch: refetchActiveRiders } = useQuery<RiderLocation[]>({
@@ -249,6 +252,14 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   useEffect(() => {
     setAvailableRiders(availableRidersData);
   }, [availableRidersData]);
+
+  useEffect(() => {
+    if (preferOpenSourceMap) return;
+    if (!mapboxInitFailed) return;
+    setMapboxInitFailed(false);
+    setMapboxError("");
+    setMapboxRetryNonce((prev) => prev + 1);
+  }, [preferOpenSourceMap, mapboxInitFailed]);
 
   const fleetAnimationInput = useMemo(
     () => riders.map((rider) => ({
@@ -358,6 +369,77 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   // Count riders with valid location data
   const ridersWithLocation = riders.filter(r => r.latitude !== null && r.longitude !== null);
   const ridersWithoutLocation = riders.filter(r => r.latitude === null || r.longitude === null);
+  const focusPoint = useMemo<[number, number] | null>(() => {
+    const selectedAnimated = selectedRider ? animatedFleetPositions[selectedRider.riderId] : null;
+    if (selectedAnimated) return [selectedAnimated.lat, selectedAnimated.lng];
+    if (selectedRider?.latitude != null && selectedRider?.longitude != null) return [selectedRider.latitude, selectedRider.longitude];
+    const firstRider = riders.find((r) => r.latitude != null && r.longitude != null);
+    if (firstRider) return [firstRider.latitude as number, firstRider.longitude as number];
+    const firstOrder = pendingOrders.find((o) => o.deliveryLatitude != null && o.deliveryLongitude != null);
+    if (firstOrder) return [Number(firstOrder.deliveryLatitude), Number(firstOrder.deliveryLongitude)];
+    return null;
+  }, [animatedFleetPositions, pendingOrders, riders, selectedRider]);
+  const mapPointsForFit = useMemo<Array<[number, number]>>(() => {
+    const points: Array<[number, number]> = [];
+    riders.forEach((r) => {
+      if (r.latitude != null && r.longitude != null) points.push([r.latitude, r.longitude]);
+    });
+    pendingOrders.forEach((o) => {
+      if (o.deliveryLatitude != null && o.deliveryLongitude != null) {
+        points.push([Number(o.deliveryLatitude), Number(o.deliveryLongitude)]);
+      }
+    });
+    return points;
+  }, [pendingOrders, riders]);
+  const zoomLeafletIn = useCallback(() => {
+    const map = leafletMapRef.current;
+    if (!map) return;
+    const nextZoom = Math.min(Number(map.getZoom?.() || 12) + 1, 20);
+    if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
+    else map.zoomIn(1, { animate: true });
+  }, [focusPoint]);
+  const zoomLeafletOut = useCallback(() => {
+    const map = leafletMapRef.current;
+    if (!map) return;
+    const nextZoom = Math.max(Number(map.getZoom?.() || 12) - 1, 2);
+    if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
+    else map.zoomOut(1, { animate: true });
+  }, [focusPoint]);
+  const streetLeaflet = useCallback(() => {
+    const map = leafletMapRef.current;
+    if (!map || !focusPoint) return;
+    map.setView(focusPoint, 18, { animate: true });
+  }, [focusPoint]);
+  const fitLeaflet = useCallback(() => {
+    const map = leafletMapRef.current;
+    if (!map || !mapPointsForFit.length) return;
+    if (mapPointsForFit.length === 1) {
+      map.setView(mapPointsForFit[0], 16, { animate: true });
+      return;
+    }
+    map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: 18, animate: true });
+  }, [mapPointsForFit]);
+  const focusLeaflet = useCallback(() => {
+    const map = leafletMapRef.current;
+    if (!map || !focusPoint) return;
+    const zoom = Math.max(Number(map.getZoom?.() || 12), 16);
+    map.setView(focusPoint, zoom, { animate: true });
+  }, [focusPoint]);
+  const northLeaflet = useCallback(() => {
+    const map = leafletMapRef.current;
+    if (!map) return;
+    if (focusPoint) {
+      map.setView(focusPoint, Number(map.getZoom?.() || 12), { animate: true });
+      return;
+    }
+    if (mapPointsForFit.length > 1) {
+      map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: 18, animate: true });
+      return;
+    }
+    if (mapPointsForFit.length === 1) {
+      map.setView(mapPointsForFit[0], 16, { animate: true });
+    }
+  }, [focusPoint, mapPointsForFit]);
   const usageSeverity = Math.max(usageSnapshot.tileUsagePct, usageSnapshot.routeUsagePct, usageSnapshot.mapUsagePct);
   const usageToneClass =
     usageSeverity >= 90
@@ -409,6 +491,14 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2 justify-end">
+              <div className="flex items-center gap-2 rounded-full border border-white/20 bg-background/70 px-2.5 py-1 backdrop-blur">
+                <span className="text-[11px] font-medium text-muted-foreground">Open-source mode</span>
+                <Switch
+                  checked={preferOpenSourceMap}
+                  onCheckedChange={setPreferOpenSourceMap}
+                  data-testid="switch-open-source-map"
+                />
+              </div>
               <Badge variant="secondary" data-testid="badge-active-riders">
                 {ridersWithLocation.length}/{riders.length} On Map
               </Badge>
@@ -425,6 +515,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
               <Button
                 variant="outline"
                 size="icon"
+                className="rounded-full bg-background/80 backdrop-blur"
                 onClick={() => {
                   refetchActiveRiders();
                   refetchPendingOrders();
@@ -439,6 +530,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
               <Button
                 variant="outline"
                 size="icon"
+                className="rounded-full bg-background/80 backdrop-blur"
                 onClick={toggleFullscreen}
                 data-testid="button-fullscreen"
               >
@@ -458,7 +550,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                 {usageSummary}
               </Badge>
               <p className="ml-auto text-[11px] text-muted-foreground">
-                Guardrails: reroute {usageSnapshot.disableReroute ? "limited" : "normal"} • layers {usageSnapshot.freezeSecondaryLayers ? "reduced" : "normal"}
+                Guardrails: reroute {usageSnapshot.disableReroute ? "limited" : "normal"} | layers {usageSnapshot.freezeSecondaryLayers ? "reduced" : "normal"}
               </p>
             </div>
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -493,7 +585,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           <div className={`flex ${isFullscreen ? "flex-1 min-h-0" : ""}`}>
             {/* Map Container */}
             <div 
-              className={`relative transition-all duration-300 ${selectedRider ? "flex-1" : "w-full"} ${isFullscreen ? "h-full min-h-0" : "h-[460px] lg:h-[500px]"}`}
+              className={`relative transition-all duration-300 ${selectedRider ? "flex-1" : "w-full"} ${isFullscreen ? "h-full min-h-0" : "h-[400px] lg:h-[440px]"}`}
               data-testid="map-container"
             >
               {isLoading ? (
@@ -552,8 +644,10 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                     />
                   ) : (
                     <MapContainer
+                      ref={leafletMapRef}
                       center={center}
                       zoom={12}
+                      zoomControl={false}
                       style={{ height: "100%", width: "100%" }}
                     >
                       <MapTileLayer />
@@ -661,7 +755,22 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                     </MapContainer>
                   )}
 
-                  {forceMapboxGl && mapboxInitFailed && (
+                  {!shouldUseMapboxGl && (
+                    <div className="pointer-events-none absolute right-3 top-3 z-[1300]">
+                      <div className="pointer-events-auto rounded-2xl border border-white/20 bg-black/35 p-1.5 shadow-2xl backdrop-blur-md">
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-800 transition hover:bg-white" onClick={zoomLeafletIn} title="Zoom In">+</button>
+                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-800 transition hover:bg-white" onClick={zoomLeafletOut} title="Zoom Out">-</button>
+                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={streetLeaflet} title="Street Level">Street</button>
+                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={fitLeaflet} title="Recenter / Fit">Fit</button>
+                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={focusLeaflet} title="Focus Rider">Focus</button>
+                          <button type="button" className="rounded-xl bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-white" onClick={northLeaflet} title="Reset North">N</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {forceMapboxGl && mapboxInitFailed && !preferOpenSourceMap && (
                     <div className="absolute left-3 right-3 top-3 z-[1200] rounded-lg border border-destructive/30 bg-background/95 p-3 shadow-sm backdrop-blur">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="min-w-0">
@@ -722,7 +831,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
             {/* Rider Detail Sidebar */}
             {selectedRider && (
               <div 
-                className={`${isFullscreen ? "w-[330px] xl:w-[390px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[460px] lg:h-[500px]"} border-l bg-background overflow-hidden`}
+                className={`${isFullscreen ? "w-[330px] xl:w-[390px] h-full min-h-0 flex-shrink-0" : "w-1/3 h-[400px] lg:h-[440px]"} border-l bg-background overflow-hidden`}
                 >
                 <ScrollArea className="h-full">
                   <div className="p-4">

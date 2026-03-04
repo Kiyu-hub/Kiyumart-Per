@@ -316,6 +316,12 @@ export default function MapboxSingleTripMap({
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
     autoCameraLockUntilRef.current = Date.now() + 10_000;
+    const anchor = cameraPointsRef.current[0];
+    const nextZoom = Math.min((map.getZoom?.() ?? 12) + 1, 20);
+    if (anchor) {
+      map.easeTo({ center: anchor, zoom: nextZoom, duration: 250 });
+      return;
+    }
     map.zoomIn({ duration: 250 });
   };
 
@@ -323,6 +329,12 @@ export default function MapboxSingleTripMap({
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
     autoCameraLockUntilRef.current = Date.now() + 10_000;
+    const anchor = cameraPointsRef.current[0];
+    const nextZoom = Math.max((map.getZoom?.() ?? 12) - 1, 2);
+    if (anchor) {
+      map.easeTo({ center: anchor, zoom: nextZoom, duration: 250 });
+      return;
+    }
     map.zoomOut({ duration: 250 });
   };
 
