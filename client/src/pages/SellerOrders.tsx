@@ -12,6 +12,7 @@ import { Loader2, Search, Eye, Package, ShoppingBag, Store } from "lucide-react"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { io, Socket } from "socket.io-client";
 
 interface Order {
   id: string;
@@ -48,8 +49,26 @@ export default function SellerOrders() {
     contextFromUrl === "buyer" ? "buyer" : "seller",
   );
   const highlightedOrderRef = useRef<HTMLDivElement | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   const normalize = (value?: string) => (value || "").toLowerCase().trim();
+  const extractApiErrorMessage = (error: any) => {
+    const raw = String(error?.message || "Could not update order status");
+    const trimmed = raw.replace(/^\d+:\s*/, "");
+    const jsonStart = trimmed.indexOf("{");
+    if (jsonStart >= 0) {
+      const jsonCandidate = trimmed.slice(jsonStart);
+      try {
+        const parsed = JSON.parse(jsonCandidate);
+        if (typeof parsed?.error === "string" && parsed.error.trim()) {
+          return parsed.error;
+        }
+      } catch {
+        // ignore parse errors and return trimmed fallback
+      }
+    }
+    return trimmed;
+  };
   const normalizePaymentStatus = (value?: string) => {
     const s = normalize(value);
     if (s === "payment_pending") return "pending";
@@ -58,8 +77,9 @@ export default function SellerOrders() {
     return s || "pending";
   };
 
-  const { data: orders = [], isLoading } = useQuery<Order[]>({
+  const { data: orders = [], isLoading, refetch } = useQuery<Order[]>({
     queryKey: [`/api/orders?context=${orderContext}`],
+    refetchInterval: 8_000,
   });
 
   const updateOrderStatusMutation = useMutation({
@@ -80,7 +100,7 @@ export default function SellerOrders() {
     onError: (error: any) => {
       toast({
         title: "Status update failed",
-        description: error?.message || "Could not update order status",
+        description: extractApiErrorMessage(error),
         variant: "destructive",
       });
     },
@@ -134,6 +154,23 @@ export default function SellerOrders() {
     if (!focusedOrderId || isLoading || !highlightedOrderRef.current) return;
     highlightedOrderRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [focusedOrderId, isLoading, filteredOrders.length]);
+
+  useEffect(() => {
+    socketRef.current = io();
+    const refreshOrders = () => {
+      void refetch();
+    };
+
+    socketRef.current.on("order_status_updated", refreshOrders);
+    socketRef.current.on("order_rider_assigned", refreshOrders);
+
+    return () => {
+      socketRef.current?.off("order_status_updated", refreshOrders);
+      socketRef.current?.off("order_rider_assigned", refreshOrders);
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, [refetch]);
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -298,7 +335,7 @@ export default function SellerOrders() {
                     isPaid &&
                     !hasRiderAssigned &&
                     ["rider", "bus"].includes(deliveryMethod) &&
-                    ["ready", "processing", "confirmed"].includes(s);
+                    ["ready"].includes(s);
 
                   if (orderContext === "buyer") {
                     if (canResumePayment) {

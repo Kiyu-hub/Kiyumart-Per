@@ -25,6 +25,16 @@ async function run() {
     throw new Error("Expected pending -> delivered to be rejected");
   }
 
+  const sellerReady = assertCanTransition({
+    order: { ...baseOrder, status: "processing", paymentStatus: "completed", riderId: null },
+    targetStatus: "ready",
+    actorId: "s-1",
+    actorRole: "seller",
+  });
+  if (!sellerReady.valid) {
+    throw new Error("Expected processing -> ready to be allowed for seller");
+  }
+
   console.log("✅ order-state-machine.test passed");
 }
 

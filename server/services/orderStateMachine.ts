@@ -173,6 +173,16 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
   },
 
   processing: {
+    ready: {
+      allowedRoles: ["seller", "admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before marking order ready",
+        }),
+      ],
+      sideEffects: [],
+    },
     searching_rider: {
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [
