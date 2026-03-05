@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { MapContainer, Marker, Popup, Polyline, useMap, Circle, CircleMarker } from "react-leaflet";
-import { Icon, DivIcon, LatLng, Map as LeafletMap } from "leaflet";
+import { MapContainer, Marker, Popup, Polyline, useMap, useMapEvents, Circle, CircleMarker } from "react-leaflet";
+import { DivIcon, LatLng, Map as LeafletMap } from "leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import "leaflet/dist/leaflet.css";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -309,32 +309,79 @@ function dedupeRiderSnapshots(rows: RiderLocation[]): RiderLocation[] {
   });
 }
 
-function getVehicleGlyph(vehicleType: string | null | undefined): string {
-  const normalized = normalizeVehicleType(vehicleType);
-  if (normalized === "car") return "C";
-  if (normalized === "van") return "V";
-  if (normalized === "truck") return "T";
-  if (normalized === "bicycle") return "B";
-  return "M";
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
-function getVehicleMarkerIcon(vehicleType: string | null | undefined, isOnline: boolean, activeOrderCount: number): DivIcon {
-  const glyph = getVehicleGlyph(vehicleType);
+function getVehicleSprite(vehicleType: string | null | undefined): string {
+  const normalized = normalizeVehicleType(vehicleType);
+  if (normalized === "car") {
+    return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+      <defs><linearGradient id="carBody" x1="0" x2="1"><stop offset="0%" stop-color="#e2e8f0"/><stop offset="100%" stop-color="#94a3b8"/></linearGradient></defs>
+      <rect x="10" y="26" width="44" height="14" rx="5" fill="url(#carBody)" />
+      <rect x="18" y="19" width="28" height="10" rx="4" fill="#cbd5e1" />
+      <circle cx="20" cy="43" r="5" fill="#0f172a"/><circle cx="44" cy="43" r="5" fill="#0f172a"/>
+    </svg>`;
+  }
+  if (normalized === "van") {
+    return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+      <defs><linearGradient id="vanBody" x1="0" x2="1"><stop offset="0%" stop-color="#e2e8f0"/><stop offset="100%" stop-color="#a8b4c8"/></linearGradient></defs>
+      <rect x="8" y="22" width="48" height="20" rx="5" fill="url(#vanBody)" />
+      <rect x="12" y="26" width="14" height="9" rx="2" fill="#0ea5e9" opacity="0.7"/>
+      <rect x="29" y="26" width="13" height="9" rx="2" fill="#0ea5e9" opacity="0.6"/>
+      <circle cx="21" cy="45" r="5" fill="#0f172a"/><circle cx="45" cy="45" r="5" fill="#0f172a"/>
+    </svg>`;
+  }
+  if (normalized === "truck") {
+    return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+      <defs><linearGradient id="truckBody" x1="0" x2="1"><stop offset="0%" stop-color="#e2e8f0"/><stop offset="100%" stop-color="#94a3b8"/></linearGradient></defs>
+      <rect x="6" y="24" width="34" height="17" rx="3" fill="url(#truckBody)" />
+      <rect x="40" y="28" width="17" height="13" rx="3" fill="#cbd5e1" />
+      <circle cx="18" cy="44" r="5" fill="#0f172a"/><circle cx="36" cy="44" r="5" fill="#0f172a"/><circle cx="50" cy="44" r="5" fill="#0f172a"/>
+    </svg>`;
+  }
+  if (normalized === "bicycle") {
+    return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+      <circle cx="18" cy="43" r="9" stroke="#cbd5e1" stroke-width="4" fill="none"/>
+      <circle cx="46" cy="43" r="9" stroke="#cbd5e1" stroke-width="4" fill="none"/>
+      <path d="M18 43 L28 30 L37 43 L28 43 L23 33" stroke="#e2e8f0" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M37 43 L45 31" stroke="#e2e8f0" stroke-width="3" fill="none" stroke-linecap="round"/>
+    </svg>`;
+  }
+  return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+    <defs><linearGradient id="motoBody" x1="0" x2="1"><stop offset="0%" stop-color="#e2e8f0"/><stop offset="100%" stop-color="#94a3b8"/></linearGradient></defs>
+    <circle cx="18" cy="44" r="7" fill="#0f172a"/><circle cx="46" cy="44" r="7" fill="#0f172a"/>
+    <path d="M20 34 L30 30 L40 34 L45 28" stroke="url(#motoBody)" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <rect x="25" y="27" width="12" height="5" rx="2" fill="#cbd5e1"/>
+  </svg>`;
+}
+
+function getVehicleMarkerIcon(
+  vehicleType: string | null | undefined,
+  isOnline: boolean,
+  activeOrderCount: number,
+  headingDegrees: number,
+  markerScale = 1,
+): DivIcon {
   const tone = isOnline ? "#0f766e" : "#475569";
   const indicator = isOnline ? "#10b981" : "#ef4444";
+  const safeHeading = Number.isFinite(headingDegrees) ? headingDegrees : 0;
+  const safeScale = clamp(markerScale, 0.75, 1.45);
   const badge = activeOrderCount > 0
     ? `<span style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:9999px;background:#f59e0b;color:white;font-size:10px;line-height:16px;font-weight:700;text-align:center;border:1px solid rgba(255,255,255,0.92);">${activeOrderCount}</span>`
     : "";
   return new DivIcon({
     className: "rider-vehicle-marker",
-    html: `<div style="position:relative;width:38px;height:38px;border-radius:14px;background:linear-gradient(160deg, ${tone} 0%, #0f172a 78%);display:flex;align-items:center;justify-content:center;box-shadow:0 12px 24px rgba(15,23,42,0.33), inset 0 1px 0 rgba(255,255,255,0.22);border:1.5px solid rgba(226,232,240,0.92);font-size:12px;font-weight:700;color:#f8fafc;letter-spacing:0.02em;transform:translateZ(0);">
-      <span>${glyph}</span>
+    html: `<div style="position:relative;width:40px;height:40px;transform:scale(${safeScale});transform-origin:center;">
+      <div style="position:relative;width:40px;height:40px;border-radius:14px;background:linear-gradient(160deg, ${tone} 0%, #0f172a 78%);display:flex;align-items:center;justify-content:center;box-shadow:0 12px 24px rgba(15,23,42,0.33), inset 0 1px 0 rgba(255,255,255,0.22);border:1.5px solid rgba(226,232,240,0.92);color:#f8fafc;letter-spacing:0.02em;transform:translateZ(0) rotate(${safeHeading}deg);transition:transform 220ms ease;">
+      ${getVehicleSprite(vehicleType)}
       <span style="position:absolute;top:4px;left:6px;width:18px;height:6px;border-radius:9999px;background:rgba(255,255,255,0.22);filter:blur(0.2px);"></span>
       <span style="position:absolute;bottom:-4px;left:-4px;width:10px;height:10px;border-radius:9999px;background:${indicator};border:2px solid white;"></span>
       ${badge}
+      </div>
     </div>`,
-    iconSize: [38, 38],
-    iconAnchor: [19, 19],
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
     popupAnchor: [0, -19],
   });
 }
@@ -389,6 +436,27 @@ function MapInvalidator() {
   return null;
 }
 
+function LeafletInteractionWatcher({
+  onUserCameraAction,
+  onZoomLevelChange,
+}: {
+  onUserCameraAction: () => void;
+  onZoomLevelChange: (zoom: number) => void;
+}) {
+  const map = useMapEvents({
+    dragstart: onUserCameraAction,
+    zoomstart: onUserCameraAction,
+    moveend: () => onZoomLevelChange(Number(map.getZoom?.() || 0)),
+    zoomend: () => onZoomLevelChange(Number(map.getZoom?.() || 0)),
+  });
+
+  useEffect(() => {
+    onZoomLevelChange(Number(map.getZoom?.() || 0));
+  }, [map, onZoomLevelChange]);
+
+  return null;
+}
+
 interface RealTimeRiderMapProps {
   forceMapboxGl?: boolean;
 }
@@ -398,7 +466,8 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const isSuperAdmin = user?.role === "super_admin";
   const [riders, setRiders] = useState<RiderLocation[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
-  const [center] = useState<LatLng>(new LatLng(5.6037, -0.1870)); // Accra, Ghana
+  const [leafletZoom, setLeafletZoom] = useState(0);
+  const [mapBootstrapCenter, setMapBootstrapCenter] = useState<[number, number] | null>(null);
   const [mapboxStyleUrl, setMapboxStyleUrl] = useState<string>(() => {
     const resolved = String(resolveMapboxStyleUrl() || "").trim();
     if (!resolved || resolved === "mapbox://styles/mapbox/dark-v11") {
@@ -591,6 +660,10 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     setMessageDraft("");
   }, [selectedRider]);
 
+  const handleLeafletUserCameraAction = useCallback(() => {
+    leafletAutoLockUntilRef.current = Date.now() + 2_200;
+  }, []);
+
   useEffect(() => {
     setMapProviderMode(preferOpenSourceMap ? "open_source" : "mapbox");
   }, [preferOpenSourceMap]);
@@ -730,25 +803,61 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   // Socket.IO for real-time updates
   useEffect(() => {
     socketRef.current = io();
+    const queuedUpdates = new Map<string, RiderLocation>();
+    let flushTimeout: number | null = null;
+
+    const flushQueuedUpdates = () => {
+      flushTimeout = null;
+      if (!queuedUpdates.size) return;
+      const updates = Array.from(queuedUpdates.values());
+      queuedUpdates.clear();
+      setRiders((prevRiders) => dedupeRiderSnapshots([...prevRiders, ...updates]));
+      const selectedId = selectedRiderIdRef.current;
+      if (selectedId) {
+        const selectedUpdate = updates.find((entry) => entry.riderId === selectedId);
+        if (selectedUpdate) {
+          setSelectedRider((prev) => {
+            if (!prev) return null;
+            const merged = dedupeRiderSnapshots([prev, selectedUpdate]);
+            return merged.find((entry) => entry.riderId === prev.riderId) || prev;
+          });
+        }
+      }
+    };
 
     socketRef.current.on("admin_rider_location_updated", (locationUpdate: RiderLocation) => {
       const normalizedUpdate = normalizeRiderSnapshot(locationUpdate as RiderLocation);
-      setRiders((prevRiders) => {
-        const merged = [...prevRiders, normalizedUpdate];
-        return dedupeRiderSnapshots(merged);
-      });
-      
-      // Update route if this is the selected rider
+      if (!normalizedUpdate.riderId) return;
+      queuedUpdates.set(normalizedUpdate.riderId, normalizedUpdate);
+      if (flushTimeout === null) {
+        flushTimeout = window.setTimeout(flushQueuedUpdates, 1_000);
+      }
       if (selectedRiderIdRef.current === normalizedUpdate.riderId) {
         setSelectedRider((prev) => {
-          if (!prev) return null;
+          if (!prev) return prev;
           const merged = dedupeRiderSnapshots([prev, normalizedUpdate]);
           return merged.find((entry) => entry.riderId === prev.riderId) || prev;
         });
       }
+      if (queuedUpdates.size > 40) {
+        window.clearTimeout(flushTimeout as number);
+        flushQueuedUpdates();
+      }
     });
 
+    const flushOnVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        flushQueuedUpdates();
+      }
+    };
+    document.addEventListener("visibilitychange", flushOnVisibilityChange);
+
     return () => {
+      document.removeEventListener("visibilitychange", flushOnVisibilityChange);
+      if (flushTimeout !== null) {
+        window.clearTimeout(flushTimeout);
+      }
+      flushQueuedUpdates();
       socketRef.current?.disconnect();
     };
   }, []);
@@ -847,29 +956,20 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     if (selectedRider?.latitude != null && selectedRider?.longitude != null) return [selectedRider.latitude, selectedRider.longitude];
     const firstRider = visibleRiders.find((r) => r.latitude != null && r.longitude != null);
     if (firstRider) return [firstRider.latitude as number, firstRider.longitude as number];
-    const firstOrder = pendingOrders.find((o) => o.deliveryLatitude != null && o.deliveryLongitude != null);
-    if (firstOrder) return [Number(firstOrder.deliveryLatitude), Number(firstOrder.deliveryLongitude)];
     return null;
-  }, [animatedFleetPositions, pendingOrders, selectedRider, visibleRiders]);
+  }, [animatedFleetPositions, selectedRider, visibleRiders]);
   const mapPointsForFit = useMemo<Array<[number, number]>>(() => {
     const points: Array<[number, number]> = [];
     visibleRiders.forEach((r) => {
       if (r.latitude != null && r.longitude != null) points.push([r.latitude, r.longitude]);
     });
-    const hasRiderPoints = points.length > 0;
     if (trackSelectedOnly) {
       if (selectedRiderOrder?.deliveryLatitude != null && selectedRiderOrder?.deliveryLongitude != null) {
         points.push([Number(selectedRiderOrder.deliveryLatitude), Number(selectedRiderOrder.deliveryLongitude)]);
       }
-    } else if (!hasRiderPoints) {
-      pendingOrders.forEach((o) => {
-        if (o.deliveryLatitude != null && o.deliveryLongitude != null) {
-          points.push([Number(o.deliveryLatitude), Number(o.deliveryLongitude)]);
-        }
-      });
     }
     return points;
-  }, [pendingOrders, selectedRiderOrder, trackSelectedOnly, visibleRiders]);
+  }, [selectedRiderOrder, trackSelectedOnly, visibleRiders]);
   const selectedOpenSourcePreset = useMemo(
     () => OPEN_SOURCE_MAP_PRESETS.find((entry) => entry.id === openSourceStyleId) || OPEN_SOURCE_MAP_PRESETS[0],
     [openSourceStyleId],
@@ -896,6 +996,44 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     [mapboxStyleUrl],
   );
   const viewerLocationPoint = viewerLocation ? ([viewerLocation.lat, viewerLocation.lng] as [number, number]) : null;
+  const bootstrapCenterCandidate = useMemo<[number, number] | null>(() => {
+    if (focusPoint) return focusPoint;
+    if (viewerLocationPoint) return viewerLocationPoint;
+    const firstVisible = visibleRiders.find((r) => r.latitude != null && r.longitude != null);
+    if (firstVisible) return [firstVisible.latitude as number, firstVisible.longitude as number];
+    return null;
+  }, [focusPoint, viewerLocationPoint, visibleRiders]);
+  useEffect(() => {
+    if (!bootstrapCenterCandidate) return;
+    setMapBootstrapCenter((prev) => prev || bootstrapCenterCandidate);
+  }, [bootstrapCenterCandidate]);
+  const clusterBreakZoom = useMemo(() => {
+    const riderCount = visibleRidersWithLocation.length;
+    if (riderCount <= 1) return undefined;
+    const minZoom = Number(selectedOpenSourcePreset.minZoom ?? 2);
+    const maxZoom = Number(selectedOpenSourcePreset.maxZoom ?? 19);
+    const midZoom = (minZoom + maxZoom) / 2;
+    const densityPenalty = Math.log2(riderCount + 1) * 0.8;
+    return Math.round(clamp(midZoom - densityPenalty, minZoom + 2, maxZoom - 1));
+  }, [selectedOpenSourcePreset.maxZoom, selectedOpenSourcePreset.minZoom, visibleRidersWithLocation.length]);
+  const leafletMarkerScale = useMemo(() => {
+    const minZoom = Number(selectedOpenSourcePreset.minZoom ?? 2);
+    const maxZoom = Number(selectedOpenSourcePreset.maxZoom ?? 19);
+    const normalized = clamp((leafletZoom - minZoom) / Math.max(1, maxZoom - minZoom), 0, 1);
+    return 0.8 + normalized * 0.55;
+  }, [leafletZoom, selectedOpenSourcePreset.maxZoom, selectedOpenSourcePreset.minZoom]);
+  const mapboxInitialZoom = useMemo(() => {
+    const pointCount = mapPointsForFit.length;
+    if (pointCount <= 1) return 14;
+    const lats = mapPointsForFit.map((p) => p[0]);
+    const lngs = mapPointsForFit.map((p) => p[1]);
+    const latSpan = Math.max(...lats) - Math.min(...lats);
+    const lngSpan = Math.max(...lngs) - Math.min(...lngs);
+    const dominantSpan = Math.max(latSpan, lngSpan);
+    if (dominantSpan <= 0) return 14;
+    const estimated = Math.log2(360 / dominantSpan) - 1.2;
+    return clamp(estimated, 3, 19);
+  }, [mapPointsForFit]);
 
   const applyMapboxStyle = useCallback((styleUrl: string) => {
     setMapboxStyleUrl(styleUrl);
@@ -945,24 +1083,25 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     if (!map) return;
     leafletAutoLockUntilRef.current = Date.now() + 2_500;
     const maxZoom = Number(selectedOpenSourcePreset.maxZoom ?? 19);
-    const nextZoom = Math.min(Number(map.getZoom?.() || 12) + 1, maxZoom);
+    const nextZoom = Math.min(Number(map.getZoom?.() || (leafletZoom || maxZoom / 2)) + 1.25, maxZoom);
     if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
     else map.zoomIn(1, { animate: true });
-  }, [focusPoint, selectedOpenSourcePreset.maxZoom]);
+  }, [focusPoint, leafletZoom, selectedOpenSourcePreset.maxZoom]);
   const zoomLeafletOut = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
     leafletAutoLockUntilRef.current = Date.now() + 2_500;
     const minZoom = Number(selectedOpenSourcePreset.minZoom ?? 2);
-    const nextZoom = Math.max(Number(map.getZoom?.() || 12) - 1, minZoom);
+    const nextZoom = Math.max(Number(map.getZoom?.() || (leafletZoom || minZoom + 1)) - 1.15, minZoom);
     if (focusPoint) map.setView(focusPoint, nextZoom, { animate: true });
     else map.zoomOut(1, { animate: true });
-  }, [focusPoint, selectedOpenSourcePreset.minZoom]);
+  }, [focusPoint, leafletZoom, selectedOpenSourcePreset.minZoom]);
   const streetLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !focusPoint) return;
     leafletAutoLockUntilRef.current = Date.now() + 2_500;
-    const streetZoom = Math.min(18, Number(selectedOpenSourcePreset.maxZoom ?? 19));
+    const maxZoom = Number(selectedOpenSourcePreset.maxZoom ?? 19);
+    const streetZoom = Math.min(maxZoom, Number(map.getZoom?.() || maxZoom / 2) + 1.35);
     map.setView(focusPoint, streetZoom, { animate: true });
   }, [focusPoint, selectedOpenSourcePreset.maxZoom]);
   const fitLeaflet = useCallback(() => {
@@ -970,32 +1109,34 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     if (!map || !mapPointsForFit.length) return;
     leafletAutoLockUntilRef.current = 0;
     if (focusPoint) {
-      map.setView(focusPoint, 17, { animate: true });
+      const targetZoom = Math.min(Number(selectedOpenSourcePreset.maxZoom ?? 19), Number(map.getZoom?.() || 10) + 0.8);
+      map.setView(focusPoint, targetZoom, { animate: true });
       leafletLastAutoCameraAtRef.current = Date.now();
       return;
     }
     if (mapPointsForFit.length === 1) {
-      map.setView(mapPointsForFit[0], 17, { animate: true });
+      const targetZoom = Math.min(Number(selectedOpenSourcePreset.maxZoom ?? 19), Number(map.getZoom?.() || 10) + 0.75);
+      map.setView(mapPointsForFit[0], targetZoom, { animate: true });
       leafletLastAutoCameraAtRef.current = Date.now();
       return;
     }
-    map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: Math.min(18, Number(selectedOpenSourcePreset.maxZoom ?? 19)), animate: true });
+    map.fitBounds(mapPointsForFit, { padding: [42, 42], maxZoom: Number(selectedOpenSourcePreset.maxZoom ?? 19), animate: true });
     leafletLastAutoCameraAtRef.current = Date.now();
   }, [focusPoint, mapPointsForFit, selectedOpenSourcePreset.maxZoom]);
   const focusLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !focusPoint) return;
     leafletAutoLockUntilRef.current = Date.now() + 1_500;
-    const zoom = Math.max(Number(map.getZoom?.() || 12), 17);
+    const zoom = Math.min(Number(selectedOpenSourcePreset.maxZoom ?? 19), Number(map.getZoom?.() || 10) + 0.9);
     map.setView(focusPoint, zoom, { animate: true });
-  }, [focusPoint]);
+  }, [focusPoint, selectedOpenSourcePreset.maxZoom]);
   const locateLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map || !viewerLocationPoint) return;
     leafletAutoLockUntilRef.current = Date.now() + 2_500;
-    const zoom = Math.max(Number(map.getZoom?.() || 12), 17);
+    const zoom = Math.min(Number(selectedOpenSourcePreset.maxZoom ?? 19), Number(map.getZoom?.() || 10) + 0.9);
     map.setView(viewerLocationPoint, zoom, { animate: true });
-  }, [viewerLocationPoint]);
+  }, [selectedOpenSourcePreset.maxZoom, viewerLocationPoint]);
   const northLeaflet = useCallback(() => {
     const map = leafletMapRef.current;
     if (!map) return;
@@ -1005,11 +1146,12 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       return;
     }
     if (mapPointsForFit.length > 1) {
-      map.fitBounds(mapPointsForFit, { padding: [40, 40], maxZoom: Math.min(18, Number(selectedOpenSourcePreset.maxZoom ?? 19)), animate: true });
+      map.fitBounds(mapPointsForFit, { padding: [42, 42], maxZoom: Number(selectedOpenSourcePreset.maxZoom ?? 19), animate: true });
       return;
     }
     if (mapPointsForFit.length === 1) {
-      map.setView(mapPointsForFit[0], 17, { animate: true });
+      const targetZoom = Math.min(Number(selectedOpenSourcePreset.maxZoom ?? 19), Number(map.getZoom?.() || 10) + 0.8);
+      map.setView(mapPointsForFit[0], targetZoom, { animate: true });
     }
   }, [focusPoint, mapPointsForFit, selectedOpenSourcePreset.maxZoom]);
 
@@ -1022,27 +1164,34 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     if (now - leafletLastAutoCameraAtRef.current < 900) return;
 
     if (focusPoint) {
-      const nextZoom = Math.max(Number(map.getZoom?.() || 12), 17);
+      const nextZoom = Math.min(
+        Number(selectedOpenSourcePreset.maxZoom ?? 19),
+        Number(map.getZoom?.() || (leafletZoom || 10)) + 0.45,
+      );
       map.setView(focusPoint, nextZoom, { animate: true });
       leafletLastAutoCameraAtRef.current = now;
       return;
     }
 
     if (mapPointsForFit.length === 1) {
-      map.setView(mapPointsForFit[0], 17, { animate: true });
+      const nextZoom = Math.min(
+        Number(selectedOpenSourcePreset.maxZoom ?? 19),
+        Number(map.getZoom?.() || (leafletZoom || 10)) + 0.4,
+      );
+      map.setView(mapPointsForFit[0], nextZoom, { animate: true });
       leafletLastAutoCameraAtRef.current = now;
       return;
     }
 
     if (mapPointsForFit.length > 1) {
       map.fitBounds(mapPointsForFit, {
-        padding: [40, 40],
-        maxZoom: Math.min(18, Number(selectedOpenSourcePreset.maxZoom ?? 19)),
+        padding: [42, 42],
+        maxZoom: Number(selectedOpenSourcePreset.maxZoom ?? 19),
         animate: true,
       });
       leafletLastAutoCameraAtRef.current = now;
     }
-  }, [focusPoint, mapPointsForFit, selectedOpenSourcePreset.maxZoom, shouldUseMapboxGl]);
+  }, [focusPoint, leafletZoom, mapPointsForFit, selectedOpenSourcePreset.maxZoom, shouldUseMapboxGl]);
 
   useEffect(() => {
     if (shouldUseMapboxGl) return;
@@ -1375,10 +1524,15 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                 </div>
               ) : (
                 <>
-                  {shouldUseMapboxGl ? (
+                  {!mapBootstrapCenter ? (
+                    <div className="h-full flex items-center justify-center bg-muted">
+                      <p className="text-sm text-muted-foreground">No active riders yet. Waiting for live GPS stream...</p>
+                    </div>
+                  ) : shouldUseMapboxGl ? (
                     <MapboxFleetMap
                       key={`fleet-mapbox-${mapboxRetryNonce}-${mapboxStyleUrl}`}
-                      center={[center.lat, center.lng]}
+                      initialCenter={mapBootstrapCenter}
+                      initialZoom={mapboxInitialZoom}
                       mapStyleUrl={mapboxStyleUrl}
                       cameraFocus={focusPoint}
                       viewerLocation={viewerLocationPoint}
@@ -1390,6 +1544,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                           longitude: animatedFleetPositions[rider.riderId]?.lng ?? rider.longitude,
                           vehicleType: rider.vehicleType || "motorcycle",
                           isOnline: isRiderOnlineSnapshot(rider),
+                          heading: Number(rider.heading || 0),
                           activeOrderCount: Number(rider.activeOrderCount || 0),
                         }))}
                       pendingOrders={
@@ -1433,15 +1588,20 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                   ) : (
                     <MapContainer
                       ref={leafletMapRef}
-                      center={center}
-                      zoom={17}
+                      center={new LatLng(mapBootstrapCenter[0], mapBootstrapCenter[1])}
+                      zoom={Math.round((Number(selectedOpenSourcePreset.minZoom ?? 2) + Number(selectedOpenSourcePreset.maxZoom ?? 19)) / 2)}
                       zoomControl={isFullscreen}
+                      scrollWheelZoom
                       style={{ height: "100%", width: "100%" }}
                     >
                       <MapTileLayer presetId={selectedOpenSourcePreset.id} />
                       <MapUsageTracker />
                       
                       <MapInvalidator />
+                      <LeafletInteractionWatcher
+                        onUserCameraAction={handleLeafletUserCameraAction}
+                        onZoomLevelChange={setLeafletZoom}
+                      />
                       
                       {/* Route polyline */}
                       {!usageSnapshot.freezeSecondaryLayers && selectedRouteGeometry.length > 1 && (
@@ -1478,7 +1638,12 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                       )}
                       
                       {/* Clustered rider markers */}
-                      <MarkerClusterGroup chunkedLoading>
+                      <MarkerClusterGroup
+                        chunkedLoading
+                        disableClusteringAtZoom={clusterBreakZoom}
+                        spiderfyOnMaxZoom
+                        showCoverageOnHover={false}
+                      >
                         {visibleRiders.filter((rider): rider is RiderLocation & { latitude: number; longitude: number } => 
                           rider.latitude !== null && rider.longitude !== null
                         ).map((rider) => (
@@ -1493,6 +1658,8 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                               rider.vehicleType || "motorcycle",
                               isRiderOnlineSnapshot(rider),
                               Number(rider.activeOrderCount || 0),
+                              Number(rider.heading || 0),
+                              leafletMarkerScale,
                             )}
                             eventHandlers={{
                               click: () => setSelectedRider(rider),
@@ -1641,7 +1808,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                             </p>
                           </>
                         ) : (
-                          <p className="text-muted-foreground">No riders available in this area</p>
+                          <p className="text-muted-foreground">No active riders</p>
                         )}
                       </div>
                     </div>
@@ -1916,6 +2083,112 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(isFullscreen && selectedRider)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRider(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Rider Details</DialogTitle>
+            <DialogDescription>
+              Live rider profile and current movement data.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedRider && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-3">
+                <UserAvatar
+                  profileImage={selectedRider.riderProfileImage || null}
+                  name={selectedRider.riderName}
+                  size="lg"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">{selectedRider.riderName}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {normalizeVehicleType(selectedRider.vehicleType)} | {isRiderOnlineSnapshot(selectedRider) ? "Online" : "Offline"}
+                  </p>
+                </div>
+                <Badge variant={isRiderOnlineSnapshot(selectedRider) ? "secondary" : "outline"}>
+                  {Number(selectedRider.activeOrderCount || 0)} active
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-md border bg-background p-2">
+                  <p className="text-muted-foreground">Speed</p>
+                  <p className="font-semibold">
+                    {selectedRider.speed !== null ? `${Math.round(selectedRider.speed * 3.6)} km/h` : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded-md border bg-background p-2">
+                  <p className="text-muted-foreground">Last Update</p>
+                  <p className="font-semibold">
+                    {selectedRider.timestamp
+                      ? formatTimestamp(selectedRider.timestamp)
+                      : selectedRider.lastSeenAt
+                        ? formatTimestamp(selectedRider.lastSeenAt)
+                        : "N/A"}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-md border bg-background p-2 text-xs">
+                <p className="text-muted-foreground">Location</p>
+                <p className="font-mono">
+                  {selectedRider.latitude != null && selectedRider.longitude != null
+                    ? `${selectedRider.latitude.toFixed(5)}, ${selectedRider.longitude.toFixed(5)}`
+                    : "No location data"}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Recent Journeys</p>
+                {selectedRiderDeliveries.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No delivery history found for this rider.</p>
+                ) : (
+                  <div className="max-h-40 space-y-2 overflow-auto pr-1">
+                    {selectedRiderDeliveries.slice(0, 6).map((delivery) => (
+                      <div key={delivery.id} className="rounded-md border bg-muted/30 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold">#{delivery.orderNumber || "N/A"}</p>
+                          <Badge variant="outline" className="text-[10px]">
+                            {String(delivery.status || "unknown").replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                          {delivery.deliveryAddress || "No address"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  disabled={!selectedRider.riderPhone}
+                  onClick={() => {
+                    if (!selectedRider.riderPhone) return;
+                    window.open(`tel:${selectedRider.riderPhone}`, "_self");
+                  }}
+                >
+                  <Phone className="mr-2 h-4 w-4" />
+                  Call Rider
+                </Button>
+                <Button
+                  onClick={() => {
+                    setMessageDraft("");
+                    setIsMessageDialogOpen(true);
+                  }}
+                >
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  Message Rider
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
         <DialogContent className="sm:max-w-md">

@@ -15,6 +15,7 @@ interface FleetRiderMarker {
   longitude: number;
   vehicleType?: string | null;
   isOnline?: boolean;
+  heading?: number | null;
   activeOrderCount?: number;
 }
 
@@ -25,7 +26,8 @@ interface FleetOrderMarker {
 }
 
 interface MapboxFleetMapProps {
-  center: [number, number];
+  initialCenter?: [number, number] | null;
+  initialZoom?: number;
   mapStyleUrl?: string;
   cameraFocus?: [number, number] | null;
   viewerLocation?: [number, number] | null;
@@ -53,16 +55,16 @@ function fitMapToPoints(
     padding?: number;
     maxZoom?: number;
     duration?: number;
-    singleZoom?: number;
   },
 ) {
   if (!points.length) return;
   const padding = options?.padding ?? 50;
   const maxZoom = options?.maxZoom ?? 18;
   const duration = options?.duration ?? 800;
-  const singleZoom = options?.singleZoom ?? 16;
   if (points.length === 1) {
-    map.easeTo({ center: points[0], zoom: singleZoom, duration });
+    const currentZoom = Number(map.getZoom?.() || 12);
+    const nextZoom = Math.min(maxZoom, Math.max(2, currentZoom + 0.85));
+    map.easeTo({ center: points[0], zoom: nextZoom, duration });
     return;
   }
   const mapboxgl = (window as any).mapboxgl;
@@ -118,6 +120,50 @@ function vehicleGlyph(vehicleType: string | null | undefined): string {
   return "M";
 }
 
+function vehicleSprite(vehicleType: string | null | undefined): string {
+  const normalized = normalizeVehicleType(vehicleType);
+  if (normalized === "car") {
+    return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+      <rect x="10" y="26" width="44" height="14" rx="5" fill="#cbd5e1" />
+      <rect x="18" y="19" width="28" height="10" rx="4" fill="#94a3b8" />
+      <circle cx="20" cy="43" r="5" fill="#0f172a"/><circle cx="44" cy="43" r="5" fill="#0f172a"/>
+    </svg>`;
+  }
+  if (normalized === "van") {
+    return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+      <rect x="8" y="22" width="48" height="20" rx="5" fill="#cbd5e1" />
+      <rect x="12" y="26" width="14" height="9" rx="2" fill="#0ea5e9" opacity="0.7"/>
+      <rect x="29" y="26" width="13" height="9" rx="2" fill="#0ea5e9" opacity="0.6"/>
+      <circle cx="21" cy="45" r="5" fill="#0f172a"/><circle cx="45" cy="45" r="5" fill="#0f172a"/>
+    </svg>`;
+  }
+  if (normalized === "truck") {
+    return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+      <rect x="6" y="24" width="34" height="17" rx="3" fill="#cbd5e1" />
+      <rect x="40" y="28" width="17" height="13" rx="3" fill="#94a3b8" />
+      <circle cx="18" cy="44" r="5" fill="#0f172a"/><circle cx="36" cy="44" r="5" fill="#0f172a"/><circle cx="50" cy="44" r="5" fill="#0f172a"/>
+    </svg>`;
+  }
+  if (normalized === "bicycle") {
+    return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+      <circle cx="18" cy="43" r="9" stroke="#cbd5e1" stroke-width="4" fill="none"/>
+      <circle cx="46" cy="43" r="9" stroke="#cbd5e1" stroke-width="4" fill="none"/>
+      <path d="M18 43 L28 30 L37 43 L28 43 L23 33" stroke="#e2e8f0" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M37 43 L45 31" stroke="#e2e8f0" stroke-width="3" fill="none" stroke-linecap="round"/>
+    </svg>`;
+  }
+  return `<svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+    <circle cx="18" cy="44" r="7" fill="#0f172a"/><circle cx="46" cy="44" r="7" fill="#0f172a"/>
+    <path d="M20 34 L30 30 L40 34 L45 28" stroke="#cbd5e1" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <rect x="25" y="27" width="12" height="5" rx="2" fill="#94a3b8"/>
+  </svg>`;
+}
+
+function markerScaleForZoom(zoom: number): number {
+  const normalized = Math.min(1, Math.max(0, (zoom - 3) / 15));
+  return 0.82 + normalized * 0.58;
+}
+
 function makeVehicleMarkerElement(
   vehicleType: string | null | undefined,
   isOnline: boolean,
@@ -145,10 +191,13 @@ function makeVehicleMarkerElement(
   el.style.color = "#f8fafc";
   el.style.boxShadow = "0 12px 24px rgba(15,23,42,0.33), inset 0 1px 0 rgba(255,255,255,0.22)";
   el.style.transform = "translateZ(0)";
-  el.innerHTML = `<span>${glyph}</span>
+  el.innerHTML = `<div style="position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+    ${vehicleSprite(vehicleType)}
+    <span style="position:absolute;bottom:10px;font-size:9px;font-weight:800;color:#f8fafc;">${glyph}</span>
     <span style="position:absolute;top:4px;left:6px;width:18px;height:6px;border-radius:9999px;background:rgba(255,255,255,0.22);filter:blur(0.2px);"></span>
     <span style="position:absolute;bottom:-4px;left:-4px;width:10px;height:10px;border-radius:9999px;background:${indicator};border:2px solid white;"></span>
-    ${badge}`;
+    ${badge}
+  </div>`;
   return el;
 }
 
@@ -169,7 +218,8 @@ function toGeoJsonLine(positions: [number, number][]) {
 }
 
 export default function MapboxFleetMap({
-  center,
+  initialCenter = null,
+  initialZoom,
   mapStyleUrl,
   cameraFocus = null,
   viewerLocation = null,
@@ -202,6 +252,14 @@ export default function MapboxFleetMap({
   const cameraPointsRef = useRef<Array<[number, number]>>([]);
 
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
+  const resolvedInitialCenter = useMemo<[number, number]>(() => {
+    if (initialCenter) return [initialCenter[1], initialCenter[0]];
+    if (cameraFocus) return [cameraFocus[1], cameraFocus[0]];
+    if (viewerLocation) return [viewerLocation[1], viewerLocation[0]];
+    if (riders.length > 0) return [riders[0].longitude, riders[0].latitude];
+    if (pendingOrders.length > 0) return [pendingOrders[0].longitude, pendingOrders[0].latitude];
+    return [0, 0];
+  }, [cameraFocus, initialCenter, pendingOrders, riders, viewerLocation]);
 
   useEffect(() => {
     onLoadRef.current = onLoad;
@@ -239,8 +297,8 @@ export default function MapboxFleetMap({
         const map = new mapboxgl.Map({
           container: containerRef.current,
           style: styleValue,
-          center: [center[1], center[0]],
-          zoom: 16,
+          center: resolvedInitialCenter,
+          zoom: Number.isFinite(initialZoom as number) ? Number(initialZoom) : 14,
           minZoom: 2,
           maxZoom: 20,
           pitch: 45,
@@ -353,13 +411,7 @@ export default function MapboxFleetMap({
       loadedRef.current = false;
       hasInitialAutoFitRef.current = false;
     };
-  }, [fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, mapStyleUrl, presentationMode, requireMapboxToken]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !loadedRef.current) return;
-    map.easeTo({ center: [center[1], center[0]], duration: 400 });
-  }, [center]);
+  }, [fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, initialZoom, mapStyleUrl, presentationMode, requireMapboxToken, resolvedInitialCenter]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -414,9 +466,40 @@ export default function MapboxFleetMap({
         marker.__markerKey = markerKey;
         riderMarkersRef.current.set(rider.riderId, marker);
       }
+      if (typeof marker.setRotation === "function") {
+        marker.setRotation(Number(rider.heading || 0));
+        marker.setRotationAlignment?.("map");
+        marker.setPitchAlignment?.("map");
+      }
+      const currentZoom = Number(map.getZoom?.() || 12);
+      const scale = markerScaleForZoom(currentZoom);
+      const markerElement = marker.getElement?.();
+      if (markerElement) {
+        markerElement.style.transform = `scale(${scale})`;
+        markerElement.style.transformOrigin = "center";
+      }
       marker.setLngLat([rider.longitude, rider.latitude]).addTo(map);
     });
   }, [onRiderClick, riders]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    const refreshScale = () => {
+      const scale = markerScaleForZoom(Number(map.getZoom?.() || 12));
+      riderMarkersRef.current.forEach((marker) => {
+        const markerElement = marker.getElement?.();
+        if (!markerElement) return;
+        markerElement.style.transform = `scale(${scale})`;
+        markerElement.style.transformOrigin = "center";
+      });
+    };
+    refreshScale();
+    map.on("zoom", refreshScale);
+    return () => {
+      map.off("zoom", refreshScale);
+    };
+  }, [riders.length]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -479,9 +562,6 @@ export default function MapboxFleetMap({
     const focusAnchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : null;
     if (focusAnchor) points.push(focusAnchor);
     riders.forEach((rider) => points.push([rider.longitude, rider.latitude]));
-    if (!riders.length) {
-      pendingOrders.forEach((order) => points.push([order.longitude, order.latitude]));
-    }
     if (selectedDestination) {
       points.push([selectedDestination[1], selectedDestination[0]]);
     }
@@ -493,14 +573,15 @@ export default function MapboxFleetMap({
     if (hasInitialAutoFitRef.current && now - lastAutoCameraAtRef.current < 900) return;
     if (focusAnchor) {
       const currentZoom = Number(map.getZoom?.() || 12);
-      const nextZoom = hasInitialAutoFitRef.current ? Math.max(currentZoom, 17) : 17;
+      const zoomBoost = hasInitialAutoFitRef.current ? 0.35 : 0.85;
+      const nextZoom = Math.min(Number(map.getMaxZoom?.() || 20), currentZoom + zoomBoost);
       map.easeTo({ center: focusAnchor, zoom: nextZoom, duration: 650 });
       hasInitialAutoFitRef.current = true;
       lastAutoCameraAtRef.current = Date.now();
       return;
     }
     if (hasInitialAutoFitRef.current && points.every((point) => isPointVisibleWithMargin(map, point, 0.14))) return;
-    fitMapToPoints(map, points, { padding: 50, maxZoom: 19, duration: 900, singleZoom: 17 });
+    fitMapToPoints(map, points, { padding: 50, maxZoom: 19, duration: 900 });
     hasInitialAutoFitRef.current = true;
     lastAutoCameraAtRef.current = Date.now();
   }, [cameraFocus, pendingOrders, riders, selectedDestination]);
@@ -539,12 +620,13 @@ export default function MapboxFleetMap({
     autoCameraLockUntilRef.current = 0;
     const focusAnchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : points[0];
     if (focusAnchor) {
-      map.easeTo({ center: focusAnchor, zoom: 17, bearing: 0, duration: 650 });
+      const nextZoom = Math.min(Number(map.getMaxZoom?.() || 20), Number(map.getZoom?.() || 12) + 0.8);
+      map.easeTo({ center: focusAnchor, zoom: nextZoom, bearing: 0, duration: 650 });
       hasInitialAutoFitRef.current = true;
       lastAutoCameraAtRef.current = Date.now();
       return;
     }
-    fitMapToPoints(map, points, { padding: 60, maxZoom: 19, duration: 700, singleZoom: 17 });
+    fitMapToPoints(map, points, { padding: 60, maxZoom: 19, duration: 700 });
     hasInitialAutoFitRef.current = true;
     lastAutoCameraAtRef.current = Date.now();
   };
@@ -555,7 +637,7 @@ export default function MapboxFleetMap({
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : cameraPointsRef.current[0];
     if (!anchor) return;
     autoCameraLockUntilRef.current = Date.now() + 2_500;
-    const zoom = Math.max((map.getZoom?.() ?? 12), 17);
+    const zoom = Math.min(Number(map.getMaxZoom?.() || 20), Number(map.getZoom?.() ?? 12) + 0.75);
     map.easeTo({ center: anchor, zoom, duration: 320 });
   };
 
@@ -566,7 +648,8 @@ export default function MapboxFleetMap({
     if (!points.length) return;
     autoCameraLockUntilRef.current = Date.now() + 2_500;
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : points[0];
-    map.easeTo({ center: anchor, zoom: 18, duration: 350 });
+    const zoom = Math.min(Number(map.getMaxZoom?.() || 20), Number(map.getZoom?.() || 12) + 1.35);
+    map.easeTo({ center: anchor, zoom, duration: 350 });
   };
 
   const resetBearing = () => {
