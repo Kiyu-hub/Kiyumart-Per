@@ -21,6 +21,14 @@ function normalizeMapboxGlVersion(raw: unknown): string {
   return `v${major}.${minor}.${patch}`;
 }
 
+function resolveMajorGlVersion(raw: unknown): number {
+  const value = String(raw || "").trim();
+  const match = value.match(/^v?(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return 0;
+  const major = Number(match[1]);
+  return Number.isFinite(major) ? major : 0;
+}
+
 function normalizeMapboxPublicToken(raw: unknown): string {
   const token = String(raw || "").trim();
   return token.startsWith("pk.") ? token : "";
@@ -201,7 +209,17 @@ export async function loadMapboxGl(): Promise<any> {
   if (typeof window === "undefined") {
     throw new Error("Mapbox GL can only load in browser");
   }
-  if ((window as any).mapboxgl) return (window as any).mapboxgl;
+  if ((window as any).mapboxgl) {
+    const runtimeVersion = String((window as any).mapboxgl?.version || "").trim();
+    if (resolveMajorGlVersion(runtimeVersion) >= 3) {
+      return (window as any).mapboxgl;
+    }
+    try {
+      delete (window as any).mapboxgl;
+    } catch {
+      // Fallback to script reload path below.
+    }
+  }
   await ensureMapboxRuntimeConfig();
   if (!loaderPromise) {
     loaderPromise = (async () => {
