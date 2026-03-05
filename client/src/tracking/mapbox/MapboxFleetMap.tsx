@@ -250,6 +250,7 @@ export default function MapboxFleetMap({
   const lastAutoCameraAtRef = useRef(0);
   const hasInitialAutoFitRef = useRef(false);
   const cameraPointsRef = useRef<Array<[number, number]>>([]);
+  const initialCenterRef = useRef<[number, number] | null>(null);
 
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
   const resolvedInitialCenter = useMemo<[number, number]>(() => {
@@ -260,6 +261,9 @@ export default function MapboxFleetMap({
     if (pendingOrders.length > 0) return [pendingOrders[0].longitude, pendingOrders[0].latitude];
     return [0, 0];
   }, [cameraFocus, initialCenter, pendingOrders, riders, viewerLocation]);
+  if (!initialCenterRef.current) {
+    initialCenterRef.current = resolvedInitialCenter;
+  }
 
   useEffect(() => {
     onLoadRef.current = onLoad;
@@ -297,7 +301,7 @@ export default function MapboxFleetMap({
         const map = new mapboxgl.Map({
           container: containerRef.current,
           style: styleValue,
-          center: resolvedInitialCenter,
+          center: initialCenterRef.current || resolvedInitialCenter,
           zoom: Number.isFinite(initialZoom as number) ? Number(initialZoom) : 14,
           minZoom: 2,
           maxZoom: 20,
@@ -323,14 +327,17 @@ export default function MapboxFleetMap({
         map.dragRotate.enable();
         map.touchZoomRotate.enable();
         const canvas = map.getCanvas?.();
+        let handleMouseDown: (() => void) | null = null;
+        let resetCursor: (() => void) | null = null;
         if (canvas) {
           canvas.style.cursor = "grab";
-          canvas.addEventListener("mousedown", () => {
+          handleMouseDown = () => {
             canvas.style.cursor = "grabbing";
-          });
-          const resetCursor = () => {
+          };
+          resetCursor = () => {
             canvas.style.cursor = "grab";
           };
+          canvas.addEventListener("mousedown", handleMouseDown);
           canvas.addEventListener("mouseup", resetCursor);
           canvas.addEventListener("mouseleave", resetCursor);
         }
@@ -411,7 +418,7 @@ export default function MapboxFleetMap({
       loadedRef.current = false;
       hasInitialAutoFitRef.current = false;
     };
-  }, [fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, initialZoom, mapStyleUrl, presentationMode, requireMapboxToken, resolvedInitialCenter]);
+  }, [fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, initialZoom, mapStyleUrl, presentationMode, requireMapboxToken]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -478,7 +485,22 @@ export default function MapboxFleetMap({
         markerElement.style.transform = `scale(${scale})`;
         markerElement.style.transformOrigin = "center";
       }
-      marker.setLngLat([rider.longitude, rider.latitude]).addTo(map);
+      const prevLat = Number(marker.__lastLat);
+      const prevLng = Number(marker.__lastLng);
+      const moved =
+        !Number.isFinite(prevLat) ||
+        !Number.isFinite(prevLng) ||
+        Math.abs(prevLat - rider.latitude) > 0.0000001 ||
+        Math.abs(prevLng - rider.longitude) > 0.0000001;
+      if (moved) {
+        marker.setLngLat([rider.longitude, rider.latitude]);
+        marker.__lastLat = rider.latitude;
+        marker.__lastLng = rider.longitude;
+      }
+      if (!marker.__isAdded) {
+        marker.addTo(map);
+        marker.__isAdded = true;
+      }
     });
   }, [onRiderClick, riders]);
 
@@ -523,7 +545,22 @@ export default function MapboxFleetMap({
         marker = new mapboxgl.Marker({ element: el });
         orderMarkersRef.current.set(order.id, marker);
       }
-      marker.setLngLat([order.longitude, order.latitude]).addTo(map);
+      const prevLat = Number(marker.__lastLat);
+      const prevLng = Number(marker.__lastLng);
+      const moved =
+        !Number.isFinite(prevLat) ||
+        !Number.isFinite(prevLng) ||
+        Math.abs(prevLat - order.latitude) > 0.0000001 ||
+        Math.abs(prevLng - order.longitude) > 0.0000001;
+      if (moved) {
+        marker.setLngLat([order.longitude, order.latitude]);
+        marker.__lastLat = order.latitude;
+        marker.__lastLng = order.longitude;
+      }
+      if (!marker.__isAdded) {
+        marker.addTo(map);
+        marker.__isAdded = true;
+      }
     });
   }, [onOrderClick, pendingOrders]);
 

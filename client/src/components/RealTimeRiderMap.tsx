@@ -499,7 +499,6 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   const [viewerLocation, setViewerLocation] = useState<{ lat: number; lng: number; accuracyM: number | null } | null>(null);
   const [isUpdatingMapAccess, setIsUpdatingMapAccess] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
-  const selectedRiderIdRef = useRef<string | null>(null);
   const leafletMapRef = useRef<LeafletMap | null>(null);
   const leafletAutoLockUntilRef = useRef(0);
   const leafletLastAutoCameraAtRef = useRef(0);
@@ -625,10 +624,6 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
   useEffect(() => {
     setRiders(dedupeRiderSnapshots(initialRiders as RiderLocation[]));
   }, [initialRiders]);
-
-  useEffect(() => {
-    selectedRiderIdRef.current = selectedRider?.riderId || null;
-  }, [selectedRider?.riderId]);
 
   useEffect(() => {
     if (!selectedRider) return;
@@ -812,17 +807,6 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       const updates = Array.from(queuedUpdates.values());
       queuedUpdates.clear();
       setRiders((prevRiders) => dedupeRiderSnapshots([...prevRiders, ...updates]));
-      const selectedId = selectedRiderIdRef.current;
-      if (selectedId) {
-        const selectedUpdate = updates.find((entry) => entry.riderId === selectedId);
-        if (selectedUpdate) {
-          setSelectedRider((prev) => {
-            if (!prev) return null;
-            const merged = dedupeRiderSnapshots([prev, selectedUpdate]);
-            return merged.find((entry) => entry.riderId === prev.riderId) || prev;
-          });
-        }
-      }
     };
 
     socketRef.current.on("admin_rider_location_updated", (locationUpdate: RiderLocation) => {
@@ -831,13 +815,6 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       queuedUpdates.set(normalizedUpdate.riderId, normalizedUpdate);
       if (flushTimeout === null) {
         flushTimeout = window.setTimeout(flushQueuedUpdates, 1_000);
-      }
-      if (selectedRiderIdRef.current === normalizedUpdate.riderId) {
-        setSelectedRider((prev) => {
-          if (!prev) return prev;
-          const merged = dedupeRiderSnapshots([prev, normalizedUpdate]);
-          return merged.find((entry) => entry.riderId === prev.riderId) || prev;
-        });
       }
       if (queuedUpdates.size > 40) {
         window.clearTimeout(flushTimeout as number);
@@ -1466,6 +1443,25 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                 ))}
               </div>
               <p className="mt-1 text-[10px] text-muted-foreground">Rider map access is always enabled by default.</p>
+            </div>
+          )}
+          {!isFullscreen && showDetailPanels && (
+            <div className="border-b bg-emerald-50/70 px-3 py-2 text-[11px] text-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-200">
+              <p className="font-semibold uppercase tracking-wide">Map + Rider Feature Notes</p>
+              <p className="mt-1">
+                Rider Risk Overlay flags stale GPS pings (older than ~10s), high active load, or route-deviation risk. Use it to message rider,
+                rebalance assignments, or trigger manual verification before dispatching new orders.
+              </p>
+              <p className="mt-1">
+                Fleet Control Intelligence ranks assignment candidates by live distance, zone match, and current rider load counter.
+                AI ETA Control Center updates ETA from live route geometry and speed; riders without fresh GPS are shown in the
+                <span className="font-semibold"> No GPS </span>
+                panel and excluded from live map markers.
+              </p>
+              <p className="mt-1">
+                Order flow: Buyer places order - Payment confirmed - Seller packages and marks ready - Admin assigns rider - Pickup OTP/QR verification -
+                In transit - Delivered (or bus handoff confirmation).
+              </p>
             </div>
           )}
           {!isFullscreen && showDetailPanels && (

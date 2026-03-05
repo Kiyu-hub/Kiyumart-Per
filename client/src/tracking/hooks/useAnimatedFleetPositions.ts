@@ -16,6 +16,56 @@ export function useAnimatedFleetPositions(input: FleetInput[]) {
   const [positions, setPositions] = useState<Record<string, { lat: number; lng: number }>>({});
   const unsubscribersRef = useRef<Map<string, () => void>>(new Map());
   const lastRealitySignatureRef = useRef<Map<string, string>>(new Map());
+  const positionsRef = useRef<Record<string, { lat: number; lng: number }>>({});
+  const pendingPositionsRef = useRef<Record<string, { lat: number; lng: number }>>({});
+  const animationFrameRef = useRef<number | null>(null);
+
+  const flushPendingPositions = () => {
+    animationFrameRef.current = null;
+    const queued = pendingPositionsRef.current;
+    const vehicleIds = Object.keys(queued);
+    if (!vehicleIds.length) return;
+    pendingPositionsRef.current = {};
+
+    setPositions((prev) => {
+      let changed = false;
+      let next = prev;
+      vehicleIds.forEach((vehicleId) => {
+        const queuedPosition = queued[vehicleId];
+        const current = prev[vehicleId];
+        if (
+          current &&
+          Math.abs(current.lat - queuedPosition.lat) < 0.0000005 &&
+          Math.abs(current.lng - queuedPosition.lng) < 0.0000005
+        ) {
+          return;
+        }
+        if (!changed) {
+          next = { ...prev };
+          changed = true;
+        }
+        next[vehicleId] = queuedPosition;
+      });
+      if (!changed) return prev;
+      positionsRef.current = next;
+      return next;
+    });
+  };
+
+  const queuePositionUpdate = (vehicleId: string, position: { lat: number; lng: number }) => {
+    const current = pendingPositionsRef.current[vehicleId] || positionsRef.current[vehicleId];
+    if (
+      current &&
+      Math.abs(current.lat - position.lat) < 0.0000005 &&
+      Math.abs(current.lng - position.lng) < 0.0000005
+    ) {
+      return;
+    }
+    pendingPositionsRef.current[vehicleId] = position;
+    if (animationFrameRef.current === null) {
+      animationFrameRef.current = window.requestAnimationFrame(flushPendingPositions);
+    }
+  };
 
   useEffect(() => {
     const seenIds = new Set<string>();
@@ -50,45 +100,50 @@ export function useAnimatedFleetPositions(input: FleetInput[]) {
       if (!unsubscribersRef.current.has(item.vehicleId)) {
         const unsubscribe = animator.subscribe((state) => {
           if (!state.position) return;
-          setPositions((prev) => {
-            const current = prev[item.vehicleId];
-            if (
-              current &&
-              Math.abs(current.lat - state.position!.lat) < 0.0000005 &&
-              Math.abs(current.lng - state.position!.lng) < 0.0000005
-            ) {
-              return prev;
-            }
-            return {
-              ...prev,
-              [item.vehicleId]: state.position!,
-            };
-          });
+          queuePositionUpdate(item.vehicleId, state.position);
         });
         unsubscribersRef.current.set(item.vehicleId, unsubscribe);
       }
     });
 
+    const removedIds: string[] = [];
     unsubscribersRef.current.forEach((unsubscribe, vehicleId) => {
       if (seenIds.has(vehicleId)) return;
       unsubscribe();
       unsubscribersRef.current.delete(vehicleId);
       lastRealitySignatureRef.current.delete(vehicleId);
+      delete pendingPositionsRef.current[vehicleId];
+      removedIds.push(vehicleId);
+    });
+
+    if (removedIds.length) {
       setPositions((prev) => {
-        if (!(vehicleId in prev)) return prev;
+        let changed = false;
         const next = { ...prev };
-        delete next[vehicleId];
+        removedIds.forEach((vehicleId) => {
+          if (!(vehicleId in next)) return;
+          changed = true;
+          delete next[vehicleId];
+        });
+        if (!changed) return prev;
+        positionsRef.current = next;
         return next;
       });
-    });
+    }
 
   }, [input]);
 
   useEffect(() => {
     return () => {
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
       unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
       unsubscribersRef.current.clear();
       lastRealitySignatureRef.current.clear();
+      pendingPositionsRef.current = {};
+      positionsRef.current = {};
     };
   }, []);
 
