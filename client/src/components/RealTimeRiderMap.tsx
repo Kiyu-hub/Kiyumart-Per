@@ -1446,25 +1446,6 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
             </div>
           )}
           {!isFullscreen && showDetailPanels && (
-            <div className="border-b bg-emerald-50/70 px-3 py-2 text-[11px] text-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-200">
-              <p className="font-semibold uppercase tracking-wide">Map + Rider Feature Notes</p>
-              <p className="mt-1">
-                Rider Risk Overlay flags stale GPS pings (older than ~10s), high active load, or route-deviation risk. Use it to message rider,
-                rebalance assignments, or trigger manual verification before dispatching new orders.
-              </p>
-              <p className="mt-1">
-                Fleet Control Intelligence ranks assignment candidates by live distance, zone match, and current rider load counter.
-                AI ETA Control Center updates ETA from live route geometry and speed; riders without fresh GPS are shown in the
-                <span className="font-semibold"> No GPS </span>
-                panel and excluded from live map markers.
-              </p>
-              <p className="mt-1">
-                Order flow: Buyer places order - Payment confirmed - Seller packages and marks ready - Admin assigns rider - Pickup OTP/QR verification -
-                In transit - Delivered (or bus handoff confirmation).
-              </p>
-            </div>
-          )}
-          {!isFullscreen && showDetailPanels && (
           <div className={`border-b bg-gradient-to-r from-background to-muted/30 ${isFullscreen ? "p-2" : "p-2.5"}`} data-testid="map-usage-bar">
             <div className="flex flex-wrap items-center gap-2">
               <p className={`text-xs font-semibold uppercase tracking-wide ${usageToneClass}`}>Map Usage</p>
