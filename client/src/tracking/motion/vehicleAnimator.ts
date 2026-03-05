@@ -16,23 +16,21 @@ function normalizeSpeed(speedMps?: number | null): number {
 
 class RouteSnappedVehicleAnimator implements VehicleAnimator {
   private listeners = new Set<(state: VehicleAnimatorState) => void>();
-  private rafId: number | null = null;
-  private lastTickMs = 0;
+  private isRunning = false;
   private route?: RouteResult;
   private state: VehicleAnimatorState = { speedMps: 0, bearingDeg: 0 };
   private latestReality?: RealityGpsUpdate;
 
   start() {
-    if (this.rafId !== null) return;
-    this.lastTickMs = performance.now();
-    this.rafId = requestAnimationFrame(this.tick);
+    if (this.isRunning) return;
+    this.isRunning = true;
+    attachAnimator(this);
   }
 
   stop() {
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
+    if (!this.isRunning) return;
+    this.isRunning = false;
+    detachAnimator(this);
   }
 
   setRoute(route: RouteResult | undefined) {
@@ -88,10 +86,7 @@ class RouteSnappedVehicleAnimator implements VehicleAnimator {
     return lerpCoordinates(current, target, MOTION_CONFIG.predictionBlend);
   }
 
-  private tick = (nowMs: number) => {
-    const dtSeconds = Math.max(0.016, Math.min(0.25, (nowMs - this.lastTickMs) / 1000));
-    this.lastTickMs = nowMs;
-
+  tickFrame(dtSeconds: number) {
     const current = this.state.position;
     const latestReality = this.latestReality;
     if (current && latestReality) {
@@ -120,12 +115,54 @@ class RouteSnappedVehicleAnimator implements VehicleAnimator {
       };
       this.emit();
     }
-
-    this.rafId = requestAnimationFrame(this.tick);
-  };
+  }
 }
 
 const registry = new Map<string, RouteSnappedVehicleAnimator>();
+const activeAnimators = new Set<RouteSnappedVehicleAnimator>();
+const SHARED_FRAME_INTERVAL_MS = 1000 / 30;
+let sharedRafId: number | null = null;
+let sharedLastTickMs = 0;
+
+function runSharedAnimationFrame(nowMs: number) {
+  if (!activeAnimators.size) {
+    sharedRafId = null;
+    return;
+  }
+
+  if (!sharedLastTickMs) {
+    sharedLastTickMs = nowMs;
+  }
+
+  const elapsedMs = nowMs - sharedLastTickMs;
+  if (elapsedMs < SHARED_FRAME_INTERVAL_MS) {
+    sharedRafId = requestAnimationFrame(runSharedAnimationFrame);
+    return;
+  }
+
+  const dtSeconds = Math.max(0.016, Math.min(0.25, elapsedMs / 1000));
+  sharedLastTickMs = nowMs;
+
+  activeAnimators.forEach((animator) => animator.tickFrame(dtSeconds));
+  sharedRafId = requestAnimationFrame(runSharedAnimationFrame);
+}
+
+function attachAnimator(animator: RouteSnappedVehicleAnimator) {
+  activeAnimators.add(animator);
+  if (sharedRafId !== null) return;
+  sharedLastTickMs = 0;
+  sharedRafId = requestAnimationFrame(runSharedAnimationFrame);
+}
+
+function detachAnimator(animator: RouteSnappedVehicleAnimator) {
+  activeAnimators.delete(animator);
+  if (activeAnimators.size > 0) return;
+  if (sharedRafId !== null) {
+    cancelAnimationFrame(sharedRafId);
+    sharedRafId = null;
+  }
+  sharedLastTickMs = 0;
+}
 
 export function getVehicleAnimator(vehicleId: string): VehicleAnimator {
   const existing = registry.get(vehicleId);
