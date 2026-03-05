@@ -60,9 +60,9 @@ const VEHICLE_MODEL_IDS: Record<SupportedVehicleType, string> = {
 };
 
 const VEHICLE_MODEL_URLS: Record<SupportedVehicleType, string> = {
-  car: "/assets/vehicles/car.glb",
-  motorcycle: "/assets/vehicles/motorcycle.glb",
-  bicycle: "/assets/vehicles/bicycle.glb",
+  car: "/assets/vehicles/car_textured.glb",
+  motorcycle: "/assets/vehicles/moto_textured.glb",
+  bicycle: "/assets/vehicles/bycicle_textured.glb",
 };
 
 function fitMapToPoints(

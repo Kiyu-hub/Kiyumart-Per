@@ -1519,7 +1519,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
                           riderId: rider.riderId,
                           latitude: animatedFleetPositions[rider.riderId]?.lat ?? rider.latitude,
                           longitude: animatedFleetPositions[rider.riderId]?.lng ?? rider.longitude,
-                          vehicleType: rider.vehicleType,
+                          vehicleType: normalizeVehicleType(rider.vehicleType),
                           isOnline: isRiderOnlineSnapshot(rider),
                           heading: Number(rider.heading || 0),
                           activeOrderCount: Number(rider.activeOrderCount || 0),
