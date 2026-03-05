@@ -122,8 +122,6 @@ function toSupportedVehicleType(vehicleType: string | null | undefined): Support
   if (value === "car") return "car";
   if (value === "motorcycle") return "motorcycle";
   if (value === "bicycle") return "bicycle";
-  if (value.includes("motor")) return "motorcycle";
-  if (value.includes("bike")) return "bicycle";
   return null;
 }
 
@@ -147,8 +145,7 @@ function toRiderFeatureCollection(
         properties: {
           riderId: rider.riderId,
           vehicleType,
-          bearing: Number(rider.heading || 0),
-          rotation: [0, 0, Number(rider.heading || 0)],
+          bearing: [0, 0, Number(rider.heading || 0)],
         },
       };
     })
@@ -295,7 +292,7 @@ export default function MapboxFleetMap({
             ],
           },
           paint: {
-            "model-rotation": ["coalesce", ["get", "rotation"], ["literal", [0, 0, 0]]],
+            "model-rotation": ["coalesce", ["get", "bearing"], ["literal", [0, 0, 0]]],
             "model-scale": [
               "interpolate",
               ["linear"],
