@@ -4,6 +4,22 @@ let loaderPromise: Promise<any> | null = null;
 let mapboxConfigPromise: Promise<void> | null = null;
 const MAP_PROVIDER_MODE_KEY = "map_provider_mode";
 type MapProviderMode = "mapbox" | "open_source";
+const DEFAULT_MAPBOX_GL_VERSION = "v3.17.0";
+
+function normalizeMapboxGlVersion(raw: unknown): string {
+  const fallback = DEFAULT_MAPBOX_GL_VERSION;
+  const value = String(raw || "").trim();
+  if (!value) return fallback;
+  const match = value.match(/^v?(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return fallback;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (!Number.isFinite(major) || !Number.isFinite(minor) || !Number.isFinite(patch)) return fallback;
+  // 3D model layers require modern Mapbox GL JS; reject older major versions.
+  if (major < 3) return fallback;
+  return `v${major}.${minor}.${patch}`;
+}
 
 function normalizeMapboxPublicToken(raw: unknown): string {
   const token = String(raw || "").trim();
@@ -190,11 +206,11 @@ export async function loadMapboxGl(): Promise<any> {
   if (!loaderPromise) {
     loaderPromise = (async () => {
       try {
-        const version = String(
+        const version = normalizeMapboxGlVersion(
           (window as any).__MAPBOX_GL_VERSION__ ||
             (import.meta.env as any).VITE_MAPBOX_GL_VERSION ||
-            "v3.4.0",
-        ).trim();
+            DEFAULT_MAPBOX_GL_VERSION,
+        );
         const base = `https://api.mapbox.com/mapbox-gl-js/${version}`;
         ensureStylesheet(`${base}/mapbox-gl.css`);
         await appendScript(`${base}/mapbox-gl.js`);

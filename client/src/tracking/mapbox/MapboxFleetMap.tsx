@@ -49,6 +49,7 @@ const ROUTE_SOURCE_ID = "fleet-route-source";
 const ROUTE_LAYER_ID = "fleet-route-layer";
 const RIDERS_SOURCE_ID = "fleet-riders-source";
 const RIDERS_LAYER_ID = "fleet-riders-3d-layer";
+const RIDERS_HIT_LAYER_ID = "fleet-riders-hit-layer";
 type SupportedVehicleType = "car" | "motorcycle" | "bicycle";
 type ModelLoadState = "idle" | "loading" | "ready" | "failed";
 
@@ -259,7 +260,6 @@ export default function MapboxFleetMap({
         } catch (error) {
           riderModelStateRef.current[vehicleType] = "failed";
           console.error(`3D model load failed for ${vehicleType}:`, error);
-          onErrorRef.current?.(error);
         }
       }
     },
@@ -276,49 +276,68 @@ export default function MapboxFleetMap({
             data: toRiderFeatureCollection([], {}),
           });
         }
-        if (map.getLayer(RIDERS_LAYER_ID)) return;
-        map.addLayer({
-          id: RIDERS_LAYER_ID,
-          type: "model",
-          source: RIDERS_SOURCE_ID,
-          layout: {
-            "model-id": [
-              "match",
-              ["get", "vehicleType"],
-              "car", VEHICLE_MODEL_IDS.car,
-              "motorcycle", VEHICLE_MODEL_IDS.motorcycle,
-              "bicycle", VEHICLE_MODEL_IDS.bicycle,
-              "",
-            ],
-          },
-          paint: {
-            "model-rotation": ["coalesce", ["get", "bearing"], ["literal", [0, 0, 0]]],
-            "model-scale": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              7, ["literal", [0.32, 0.32, 0.32]],
-              13, ["literal", [0.68, 0.68, 0.68]],
-              18, ["literal", [1.08, 1.08, 1.08]],
-            ],
-          },
-        });
+        if (!map.getLayer(RIDERS_HIT_LAYER_ID)) {
+          map.addLayer({
+            id: RIDERS_HIT_LAYER_ID,
+            type: "circle",
+            source: RIDERS_SOURCE_ID,
+            paint: {
+              "circle-radius": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                8, 8,
+                14, 14,
+                18, 20,
+              ],
+              "circle-opacity": 0,
+              "circle-stroke-opacity": 0,
+            },
+          });
+        }
+        if (!map.getLayer(RIDERS_LAYER_ID)) {
+          map.addLayer({
+            id: RIDERS_LAYER_ID,
+            type: "model",
+            source: RIDERS_SOURCE_ID,
+            layout: {
+              "model-id": [
+                "match",
+                ["get", "vehicleType"],
+                "car", VEHICLE_MODEL_IDS.car,
+                "motorcycle", VEHICLE_MODEL_IDS.motorcycle,
+                "bicycle", VEHICLE_MODEL_IDS.bicycle,
+                "",
+              ],
+            },
+            paint: {
+              "model-rotation": ["coalesce", ["get", "bearing"], ["literal", [0, 0, 0]]],
+              "model-scale": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                7, ["literal", [0.32, 0.32, 0.32]],
+                13, ["literal", [0.68, 0.68, 0.68]],
+                18, ["literal", [1.08, 1.08, 1.08]],
+              ],
+            },
+          });
+        }
 
-        map.on("click", RIDERS_LAYER_ID, (event: any) => {
+        map.on("click", RIDERS_HIT_LAYER_ID, (event: any) => {
           const riderId = String(event?.features?.[0]?.properties?.riderId || "").trim();
           if (riderId) onRiderClick?.(riderId);
         });
-        map.on("mouseenter", RIDERS_LAYER_ID, () => {
+        map.on("mouseenter", RIDERS_HIT_LAYER_ID, () => {
           const canvas = map.getCanvas?.();
           if (canvas) canvas.style.cursor = "pointer";
         });
-        map.on("mouseleave", RIDERS_LAYER_ID, () => {
+        map.on("mouseleave", RIDERS_HIT_LAYER_ID, () => {
           const canvas = map.getCanvas?.();
           if (canvas) canvas.style.cursor = "grab";
         });
       } catch (error) {
         console.error("Failed to initialize rider 3D layer:", error);
-        onErrorRef.current?.(error);
       }
     },
     [ensureRiderModelsLoaded, onRiderClick],
@@ -406,10 +425,15 @@ export default function MapboxFleetMap({
         usageMonitor.trackMapInstantiation();
         map.on("sourcedata", () => usageMonitor.trackTileLoad());
         map.on("error", (event: any) => {
-          if (disposed || initErrorReportedRef.current) return;
+          if (disposed) return;
           const errorPayload = event?.error || event || new Error("Mapbox map failed to initialize.");
-          initErrorReportedRef.current = true;
-          onErrorRef.current?.(errorPayload);
+          if (!loadedRef.current && !initErrorReportedRef.current) {
+            initErrorReportedRef.current = true;
+            onErrorRef.current?.(errorPayload);
+            return;
+          }
+          // Runtime layer/source errors should not force fallback away from Mapbox.
+          console.error("Mapbox runtime error:", errorPayload);
         });
         map.on("load", () => {
           if (disposed) return;
