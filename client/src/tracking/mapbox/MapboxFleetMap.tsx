@@ -50,6 +50,7 @@ const ROUTE_LAYER_ID = "fleet-route-layer";
 const RIDERS_SOURCE_ID = "fleet-riders-source";
 const RIDERS_LAYER_ID = "fleet-riders-3d-layer";
 const RIDERS_HIT_LAYER_ID = "fleet-riders-hit-layer";
+const RIDER_SOURCE_UPDATE_MIN_INTERVAL_MS = 120;
 type SupportedVehicleType = "car" | "motorcycle" | "bicycle";
 type ModelLoadState = "idle" | "loading" | "ready" | "failed";
 
@@ -201,6 +202,8 @@ export default function MapboxFleetMap({
     bicycle: "idle",
   });
   const riderSourceUpdateRafRef = useRef<number | null>(null);
+  const riderSourceUpdateTimeoutRef = useRef<number | null>(null);
+  const lastRiderSourceCommitAtRef = useRef(0);
   const pendingRiderSourceDataRef = useRef<any | null>(null);
   const orderMarkersRef = useRef<Map<string, any>>(new Map());
   const destinationMarkerRef = useRef<any>(null);
@@ -493,6 +496,10 @@ export default function MapboxFleetMap({
         window.cancelAnimationFrame(riderSourceUpdateRafRef.current);
         riderSourceUpdateRafRef.current = null;
       }
+      if (riderSourceUpdateTimeoutRef.current !== null) {
+        window.clearTimeout(riderSourceUpdateTimeoutRef.current);
+        riderSourceUpdateTimeoutRef.current = null;
+      }
       pendingRiderSourceDataRef.current = null;
       orderMarkersRef.current.forEach((marker) => marker.remove());
       orderMarkersRef.current.clear();
@@ -526,28 +533,33 @@ export default function MapboxFleetMap({
       bicycle: riderModelStateRef.current.bicycle === "failed",
     };
     pendingRiderSourceDataRef.current = toRiderFeatureCollection(riders, failedModelMap);
+    const commitSourceData = () => {
+      if (riderSourceUpdateRafRef.current !== null) return;
+      riderSourceUpdateRafRef.current = window.requestAnimationFrame(() => {
+        riderSourceUpdateRafRef.current = null;
+        const source = map.getSource(RIDERS_SOURCE_ID);
+        if (!source || !pendingRiderSourceDataRef.current) return;
+        try {
+          source.setData(pendingRiderSourceDataRef.current);
+          lastRiderSourceCommitAtRef.current = Date.now();
+        } catch (error) {
+          console.error("Failed to update rider 3D source data:", error);
+        }
+      });
+    };
 
-    if (riderSourceUpdateRafRef.current !== null) {
+    const now = Date.now();
+    const elapsed = now - lastRiderSourceCommitAtRef.current;
+    if (elapsed >= RIDER_SOURCE_UPDATE_MIN_INTERVAL_MS) {
+      commitSourceData();
       return;
     }
 
-    riderSourceUpdateRafRef.current = window.requestAnimationFrame(() => {
-      riderSourceUpdateRafRef.current = null;
-      const source = map.getSource(RIDERS_SOURCE_ID);
-      if (!source || !pendingRiderSourceDataRef.current) return;
-      try {
-        source.setData(pendingRiderSourceDataRef.current);
-      } catch (error) {
-        console.error("Failed to update rider 3D source data:", error);
-      }
-    });
-
-    return () => {
-      if (riderSourceUpdateRafRef.current !== null) {
-        window.cancelAnimationFrame(riderSourceUpdateRafRef.current);
-        riderSourceUpdateRafRef.current = null;
-      }
-    };
+    if (riderSourceUpdateTimeoutRef.current !== null) return;
+    riderSourceUpdateTimeoutRef.current = window.setTimeout(() => {
+      riderSourceUpdateTimeoutRef.current = null;
+      commitSourceData();
+    }, Math.max(16, RIDER_SOURCE_UPDATE_MIN_INTERVAL_MS - elapsed));
   }, [riders]);
 
   useEffect(() => {
@@ -634,20 +646,21 @@ export default function MapboxFleetMap({
     const now = Date.now();
     const focusVisible = focusAnchor ? isPointVisibleWithMargin(map, focusAnchor, 0.2) : true;
     if (now < autoCameraLockUntilRef.current && focusVisible) return;
-    if (hasInitialAutoFitRef.current && now - lastAutoCameraAtRef.current < 900) return;
+    if (hasInitialAutoFitRef.current && now - lastAutoCameraAtRef.current < 1_500) return;
     if (focusAnchor) {
+      if (focusVisible && hasInitialAutoFitRef.current) return;
       const currentZoom = Number(map.getZoom?.() || 12);
-      const zoomBoost = hasInitialAutoFitRef.current ? 0.35 : 0.85;
-      const nextZoom = Math.min(Number(map.getMaxZoom?.() || 20), currentZoom + zoomBoost);
-      map.easeTo({ center: focusAnchor, zoom: nextZoom, duration: 650 });
+      const maxZoom = Number(map.getMaxZoom?.() || 20);
+      const targetZoom = hasInitialAutoFitRef.current ? currentZoom : Math.min(maxZoom, Math.max(currentZoom, 16.8));
+      map.easeTo({ center: focusAnchor, zoom: targetZoom, duration: 520 });
       hasInitialAutoFitRef.current = true;
-      lastAutoCameraAtRef.current = Date.now();
+      lastAutoCameraAtRef.current = now;
       return;
     }
     if (hasInitialAutoFitRef.current && points.every((point) => isPointVisibleWithMargin(map, point, 0.14))) return;
     fitMapToPoints(map, points, { padding: 50, maxZoom: 19, duration: 900 });
     hasInitialAutoFitRef.current = true;
-    lastAutoCameraAtRef.current = Date.now();
+    lastAutoCameraAtRef.current = now;
   }, [cameraFocus, pendingOrders, riders, selectedDestination]);
 
   const zoomIn = () => {

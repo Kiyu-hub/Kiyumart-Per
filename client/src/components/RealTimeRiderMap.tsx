@@ -147,7 +147,8 @@ interface RiderDeliveryHistory {
 }
 
 const GPS_STALE_TIMEOUT_MS = 15_000;
-const GPS_MONITOR_TICK_MS = 2_000;
+const GPS_MONITOR_TICK_MS = 5_000;
+const MAX_ANIMATED_RIDERS = 24;
 
 function normalizeVehicleType(vehicleType: string | null | undefined): string {
   const value = String(vehicleType || "").toLowerCase().trim();
@@ -777,8 +778,21 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     return () => window.clearInterval(intervalId);
   }, []);
 
-  const fleetAnimationInput = useMemo(
-    () => riders.map((rider) => ({
+  const fleetAnimationInput = useMemo(() => {
+    const selectedId = selectedRider?.riderId || null;
+    const liveCandidates = riders.filter(
+      (rider) =>
+        rider.latitude !== null &&
+        rider.longitude !== null &&
+        isRiderEffectivelyOnline(rider, gpsMonitorNowMs),
+    );
+    const prioritized = selectedId
+      ? [
+          ...liveCandidates.filter((rider) => rider.riderId === selectedId),
+          ...liveCandidates.filter((rider) => rider.riderId !== selectedId),
+        ]
+      : liveCandidates;
+    return prioritized.slice(0, MAX_ANIMATED_RIDERS).map((rider) => ({
       vehicleId: rider.riderId,
       orderId: rider.orderId || undefined,
       latitude: rider.latitude,
@@ -786,9 +800,8 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       speed: rider.speed,
       heading: rider.heading,
       timestamp: rider.timestamp,
-    })),
-    [riders],
-  );
+    }));
+  }, [gpsMonitorNowMs, riders, selectedRider]);
   const animatedFleetPositions = useAnimatedFleetPositions(fleetAnimationInput);
 
   const selectedRiderOrder =
@@ -1199,27 +1212,29 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
     if (now < leafletAutoLockUntilRef.current) return;
     if (now - leafletLastAutoCameraAtRef.current < 900) return;
 
+    const bounds = map.getBounds?.();
+    const focusVisible = focusPoint && bounds ? bounds.pad(-0.2).contains(focusPoint as any) : false;
     if (focusPoint) {
-      const nextZoom = Math.min(
-        Number(selectedOpenSourcePreset.maxZoom ?? 19),
-        Number(map.getZoom?.() || (leafletZoom || 10)) + 0.45,
-      );
-      map.setView(focusPoint, nextZoom, { animate: true });
+      if (focusVisible) return;
+      map.panTo(focusPoint, { animate: true });
       leafletLastAutoCameraAtRef.current = now;
       return;
     }
 
     if (mapPointsForFit.length === 1) {
-      const nextZoom = Math.min(
-        Number(selectedOpenSourcePreset.maxZoom ?? 19),
-        Number(map.getZoom?.() || (leafletZoom || 10)) + 0.4,
-      );
-      map.setView(mapPointsForFit[0], nextZoom, { animate: true });
+      const onlyPoint = mapPointsForFit[0];
+      const singleVisible = bounds ? bounds.pad(-0.2).contains(onlyPoint as any) : false;
+      if (singleVisible) return;
+      map.panTo(onlyPoint, { animate: true });
       leafletLastAutoCameraAtRef.current = now;
       return;
     }
 
     if (mapPointsForFit.length > 1) {
+      const areAllVisible = bounds
+        ? mapPointsForFit.every((point) => bounds.pad(-0.1).contains(point as any))
+        : false;
+      if (areAllVisible) return;
       map.fitBounds(mapPointsForFit, {
         padding: [42, 42],
         maxZoom: Number(selectedOpenSourcePreset.maxZoom ?? 19),
@@ -1227,7 +1242,7 @@ export default function RealTimeRiderMap({ forceMapboxGl = false }: RealTimeRide
       });
       leafletLastAutoCameraAtRef.current = now;
     }
-  }, [focusPoint, leafletZoom, mapPointsForFit, selectedOpenSourcePreset.maxZoom, shouldUseMapboxGl]);
+  }, [focusPoint, mapPointsForFit, selectedOpenSourcePreset.maxZoom, shouldUseMapboxGl]);
 
   useEffect(() => {
     if (shouldUseMapboxGl) return;
