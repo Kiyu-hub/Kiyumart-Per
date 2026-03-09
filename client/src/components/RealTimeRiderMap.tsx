@@ -153,9 +153,25 @@ const MAX_ANIMATED_RIDERS = 24;
 function normalizeVehicleType(vehicleType: string | null | undefined): string {
   const value = String(vehicleType || "").toLowerCase().trim();
   if (!value) return "motorcycle";
-  if (value.includes("motor")) return "motorcycle";
-  if (value.includes("bike")) return "bicycle";
-  if (value.includes("car") || value.includes("sedan")) return "car";
+  if (value.includes("motor") || value.includes("moto") || value.includes("scooter")) return "motorcycle";
+  if (
+    value === "bike" ||
+    value.includes("bicycle") ||
+    value.includes("bycicle") ||
+    value.includes("cycle") ||
+    value.includes("pedal")
+  ) {
+    return "bicycle";
+  }
+  if (
+    value.includes("car") ||
+    value.includes("sedan") ||
+    value.includes("saloon") ||
+    value.includes("hatchback") ||
+    value.includes("suv")
+  ) {
+    return "car";
+  }
   if (value.includes("van")) return "van";
   if (value.includes("truck")) return "truck";
   return value;

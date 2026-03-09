@@ -121,9 +121,31 @@ function makeMarkerElement(color: string, size = 12): HTMLDivElement {
 function toSupportedVehicleType(vehicleType: string | null | undefined): SupportedVehicleType | null {
   const value = String(vehicleType || "").toLowerCase().trim();
   if (!value) return null;
-  if (value === "car") return "car";
-  if (value === "motorcycle") return "motorcycle";
-  if (value === "bicycle") return "bicycle";
+  if (
+    value === "car" ||
+    value.includes("car") ||
+    value.includes("sedan") ||
+    value.includes("saloon") ||
+    value.includes("hatchback") ||
+    value.includes("suv") ||
+    value.includes("van") ||
+    value.includes("truck")
+  ) {
+    return "car";
+  }
+  if (value === "motorcycle" || value.includes("motor") || value.includes("moto") || value.includes("scooter")) {
+    return "motorcycle";
+  }
+  if (
+    value === "bicycle" ||
+    value === "bike" ||
+    value.includes("bicycle") ||
+    value.includes("bycicle") ||
+    value.includes("cycle") ||
+    value.includes("pedal")
+  ) {
+    return "bicycle";
+  }
   return null;
 }
 
