@@ -40,7 +40,7 @@
 ## 6. Real-Time Guarantees (Keep Existing Infra)
 - [ ] Confirm rider GPS publish cadence remains 3-5s (no regression).
 - [ ] Ensure same location stream is consumed by Customer/Admin/Super Admin.
-- [ ] Add runtime monitor for stale GPS (>15s).
+- [x] Add runtime monitor for stale GPS (>15s).
 
 ## 7. Super Admin Command Center (Vehicle-Aware Map)
 - [ ] Render vehicle-type icon mapping (car/bike/bicycle/van).
