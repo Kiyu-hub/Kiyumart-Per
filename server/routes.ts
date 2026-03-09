@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { Server as SocketIOServer } from "socket.io";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs/promises";
@@ -99,6 +101,9 @@ const RIDER_RISK_BLOCK_THRESHOLD = Math.max(1, Number(process.env.RIDER_RISK_BLO
 const ENABLE_NON_PROD_APPLICATION_AUTOFILL = process.env.NODE_ENV !== "production";
 const CHAT_ATTACHMENT_PREFIX = "__CHAT_ATTACHMENT__:";
 const SUPPORT_ATTACHMENT_PREFIX = "__SUPPORT_ATTACHMENT__:";
+const execFileAsync = promisify(execFile);
+const PLATFORM_AUDIT_REPORT_PATH = path.resolve(process.cwd(), "docs", "platform-audit-report.json");
+const PLATFORM_AUDIT_README_PATH = path.resolve(process.cwd(), "docs", "platform-living-readme.md");
 
 const PUBLIC_UPLOAD_MIME_TO_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -361,6 +366,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ mode: runtimeMapProviderMode });
       } catch (error: any) {
         return res.status(400).json({ error: error?.message || "Failed to update map provider mode" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/platform-audit",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("view_analytics"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const reportRaw = await fs.readFile(PLATFORM_AUDIT_REPORT_PATH, "utf8");
+        const report = JSON.parse(reportRaw);
+        const readme = await fs.readFile(PLATFORM_AUDIT_README_PATH, "utf8").catch(() => "");
+        return res.json({
+          ok: true,
+          report,
+          readme,
+        });
+      } catch (error: any) {
+        return res.status(404).json({
+          error: "Platform audit artifacts not found. Run npm run audit:platform first.",
+          details: error?.message || "Unknown error",
+        });
+      }
+    },
+  );
+
+  app.get(
+    "/api/agent/platform-audit",
+    requireAuth,
+    requireRole("agent", "admin", "super_admin"),
+    requireRoleFeatureIfRole(["agent"], "support.view"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const reportRaw = await fs.readFile(PLATFORM_AUDIT_REPORT_PATH, "utf8");
+        const report = JSON.parse(reportRaw);
+        const readme = await fs.readFile(PLATFORM_AUDIT_README_PATH, "utf8").catch(() => "");
+        return res.json({
+          ok: true,
+          summary: report?.summary || null,
+          version: report?.version || null,
+          timestamp: report?.timestamp || null,
+          issues: Array.isArray(report?.issues) ? report.issues : [],
+          readme,
+        });
+      } catch (error: any) {
+        return res.status(404).json({
+          error: "Platform audit artifacts not found.",
+          details: error?.message || "Unknown error",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/platform-audit/run",
+    requireAuth,
+    requireRole("super_admin"),
+    requirePermission("manage_platform_settings"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const { stdout, stderr } = await execFileAsync(
+          "npx",
+          ["tsx", "scripts/generate-platform-audit.ts"],
+          {
+            cwd: process.cwd(),
+            timeout: 180_000,
+          },
+        );
+        const reportRaw = await fs.readFile(PLATFORM_AUDIT_REPORT_PATH, "utf8");
+        const report = JSON.parse(reportRaw);
+        return res.json({
+          ok: true,
+          report,
+          stdout: String(stdout || "").trim(),
+          stderr: String(stderr || "").trim(),
+        });
+      } catch (error: any) {
+        return res.status(500).json({
+          error: "Failed to run platform audit",
+          details: error?.message || "Unknown error",
+          stdout: String(error?.stdout || "").trim(),
+          stderr: String(error?.stderr || "").trim(),
+        });
       }
     },
   );
