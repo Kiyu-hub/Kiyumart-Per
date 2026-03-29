@@ -126,14 +126,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const invalidatePlatformQueries = useCallback(() => {
-    const livePrefixes = [
-      "/api/orders",
-      "/api/analytics",
-      "/api/admin",
-      "/api/support",
-      "/api/users",
-      "/api/stores",
+    const invalidatePlatformQueries = useCallback(() => {
+      const livePrefixes = [
+        "/api/orders",
+        "/api/analytics",
+        "/api/admin",
+        "/api/products",
+        "/api/support",
+        "/api/users",
+        "/api/stores",
       "/api/transactions",
       "/api/notifications",
       "/api/messages",
@@ -243,6 +244,23 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         variant: "destructive",
         duration: 8000,
       });
+    });
+
+    newSocket.on("product_inventory_updated", (data: {
+      orderIds?: string[];
+      buyerId?: string;
+      items?: Array<{ productId: string; quantityPurchased: number }>;
+      timestamp?: string;
+    }) => {
+      console.log("📦 Product inventory updated:", data);
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          return typeof key === "string" && key.startsWith("/api/products");
+        },
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
     });
 
     // Delivery Updates

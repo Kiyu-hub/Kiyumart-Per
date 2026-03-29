@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PageLoadingState, SectionLoadingState } from "@/components/ui/loading-state";
+import { PageLoadingState } from "@/components/ui/loading-state";
 import {
   ArrowRightLeft,
   Calendar,
@@ -373,8 +373,12 @@ export default function AdminPlatformEarnings() {
   if (summaryLoading || earningsLoading || transactionsLoading) {
     return (
       <DashboardLayout role={user.role as "admin" | "super_admin"} showBackButton>
-        <div className="p-4 md:p-6">
-          <SectionLoadingState title="Loading real-time finance data" description="Preparing the latest commission, promotion revenue, and ledger entries." lines={3} />
+        <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 py-16 text-center">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <h2 className="mt-4 text-2xl font-semibold text-foreground">Loading platform earnings</h2>
+          <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+            Preparing the latest commission, promotion revenue, and ledger entries.
+          </p>
         </div>
       </DashboardLayout>
     );

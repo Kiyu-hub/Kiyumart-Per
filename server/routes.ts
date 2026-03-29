@@ -7932,6 +7932,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("[ORDERS] Could not send ops notification for created order:", opsNotifyErr);
       }
 
+      try {
+        const inventorySnapshot = validatedItems.map((item: any) => ({
+          productId: item.productId,
+          quantityPurchased: Number(item.quantity || 0),
+        }));
+        clearProductListCache();
+        io.emit("product_inventory_updated", {
+          orderIds: createdOrders.map((o: any) => o.id),
+          buyerId: req.user!.id,
+          items: inventorySnapshot,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (inventoryEventError) {
+        console.error("[ORDERS] Could not emit product inventory update:", inventoryEventError);
+      }
+
       // Return response: single order for single-vendor (backward compatible)
       // or first order + session info for multi-vendor
       if (isMultiVendor) {

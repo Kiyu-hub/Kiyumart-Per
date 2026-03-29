@@ -1142,7 +1142,7 @@ export default function AdminOrders() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${showInternalRiderFeatures ? "lg:grid-cols-7" : "lg:grid-cols-6"}`}>
           <Card className="p-3">
             <div className="flex items-center gap-2">
               <Package className="h-5 w-5 text-blue-500" />
@@ -1161,15 +1161,17 @@ export default function AdminOrders() {
               </div>
             </div>
           </Card>
-          <Card className="p-3">
-            <div className="flex items-center gap-2">
-              <Truck className="h-5 w-5 text-orange-500" />
-              <div>
-                <p className="text-xs text-muted-foreground">En Route</p>
-                <p className="text-xl font-bold">{stats.enRoute}</p>
+          {showInternalRiderFeatures ? (
+            <Card className="p-3">
+              <div className="flex items-center gap-2">
+                <Truck className="h-5 w-5 text-orange-500" />
+                <div>
+                  <p className="text-xs text-muted-foreground">En Route</p>
+                  <p className="text-xl font-bold">{stats.enRoute}</p>
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          ) : null}
           <Card className="p-3">
             <div className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-green-500" />

@@ -24,6 +24,122 @@ import { eq, and, desc, sql, lte, gte, or, isNull, isNotNull } from "drizzle-orm
 
 const generateNumericOtp = (): string => String(Math.floor(100000 + Math.random() * 900000));
 
+const normalizeRequestedQuantity = (value: unknown) => {
+  const quantity = Number(value || 0);
+  return Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0;
+};
+
+const reconcileProductInventory = async (tx: any, productId: string) => {
+  const [productRow] = await tx
+    .select({
+      id: products.id,
+      stock: products.stock,
+      updatedAt: products.updatedAt,
+      createdAt: products.createdAt,
+    })
+    .from(products)
+    .where(eq(products.id, productId))
+    .for("update");
+
+  if (!productRow) return null;
+
+  const baselineDate =
+    productRow.updatedAt instanceof Date
+      ? productRow.updatedAt
+      : productRow.createdAt instanceof Date
+        ? productRow.createdAt
+        : new Date(0);
+
+  const [reservationSummary] = await tx
+    .select({
+      quantity: sql<number>`COALESCE(SUM(${orderItems.quantity}), 0)`,
+    })
+    .from(orderItems)
+    .leftJoin(orders, eq(orderItems.orderId, orders.id))
+    .where(
+      and(
+        eq(orderItems.productId, productId),
+        sql`${orders.createdAt} > ${baselineDate}`,
+        sql`${orders.status} <> 'cancelled'`,
+        sql`${orders.paymentStatus} <> 'failed'`,
+      ),
+    );
+
+  const currentStock = Number(productRow.stock || 0);
+  const reservedQuantity = Number(reservationSummary?.quantity || 0);
+  if (reservedQuantity <= 0) {
+    return { ...productRow, stock: currentStock };
+  }
+
+  const reconciledStock = Math.max(0, currentStock - reservedQuantity);
+  if (reconciledStock === currentStock) {
+    return { ...productRow, stock: currentStock };
+  }
+
+  const [updatedProduct] = await tx
+    .update(products)
+    .set({
+      stock: reconciledStock,
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, productId))
+    .returning({
+      id: products.id,
+      stock: products.stock,
+      updatedAt: products.updatedAt,
+      createdAt: products.createdAt,
+    });
+
+  return updatedProduct || { ...productRow, stock: reconciledStock, updatedAt: new Date() };
+};
+
+const reserveProductStock = async (
+  tx: any,
+  items: Array<{ productId: string; quantity: number }>,
+) => {
+  const quantityByProduct = new Map<string, number>();
+
+  for (const item of items) {
+    const productId = String(item.productId || "").trim();
+    const quantity = normalizeRequestedQuantity(item.quantity);
+    if (!productId || quantity <= 0) continue;
+    quantityByProduct.set(productId, (quantityByProduct.get(productId) || 0) + quantity);
+  }
+
+  for (const [productId, requestedQuantity] of quantityByProduct.entries()) {
+    await reconcileProductInventory(tx, productId);
+    const currentRows = await tx
+      .select({
+        id: products.id,
+        name: products.name,
+        stock: products.stock,
+      })
+      .from(products)
+      .where(eq(products.id, productId))
+      .for("update");
+
+    const currentProduct = currentRows[0];
+    if (!currentProduct) {
+      throw new Error(`Product not found for stock reservation: ${productId}`);
+    }
+
+    const availableStock = Number(currentProduct.stock || 0);
+    if (availableStock < requestedQuantity) {
+      throw new Error(
+        `${currentProduct.name} has only ${availableStock} item(s) left. Please refresh and try again.`,
+      );
+    }
+
+    await tx
+      .update(products)
+      .set({
+        stock: availableStock - requestedQuantity,
+        updatedAt: new Date(),
+      })
+      .where(eq(products.id, productId));
+  }
+};
+
 async function withStorageTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: NodeJS.Timeout | null = null;
   try {
@@ -319,8 +435,11 @@ export class DbStorage implements IStorage {
   }
 
   async getProduct(id: string): Promise<Product | undefined> {
-    const result = await db.select().from(products).where(eq(products.id, id)).limit(1);
-    return result[0];
+    return await db.transaction(async (tx) => {
+      await reconcileProductInventory(tx, id);
+      const result = await tx.select().from(products).where(eq(products.id, id)).limit(1);
+      return result[0];
+    });
   }
 
   async getProducts(filters?: { sellerId?: string; storeId?: string; category?: string; isActive?: boolean }): Promise<Product[]> {
@@ -340,8 +459,18 @@ export class DbStorage implements IStorage {
     }
 
     const query = db.select().from(products);
+    const rows = await (conditions.length > 0 ? query.where(and(...conditions)) : query).orderBy(desc(products.createdAt));
 
-    return (conditions.length > 0 ? query.where(and(...conditions)) : query).orderBy(desc(products.createdAt));
+    if (rows.length === 0) return rows;
+
+    await db.transaction(async (tx) => {
+      for (const row of rows) {
+        await reconcileProductInventory(tx, row.id);
+      }
+    });
+
+    const refreshedQuery = db.select().from(products);
+    return (conditions.length > 0 ? refreshedQuery.where(and(...conditions)) : refreshedQuery).orderBy(desc(products.createdAt));
   }
 
   async updateProduct(id: string, data: Partial<Product>): Promise<Product | undefined> {
@@ -359,36 +488,39 @@ export class DbStorage implements IStorage {
     order: InsertOrder, 
     items: Array<{ productId: string; quantity: number; price: string; total: string }>
   ): Promise<Order> {
-    const orderNumber = `ORD-${Date.now()}`;
-    const qrCode = `${orderNumber}-${order.buyerId}`;
-    const deliveryOtp = generateNumericOtp();
-    const pickupOtp = generateNumericOtp();
-    
-    const [newOrder] = await db.insert(orders).values({
-      ...order,
-      orderNumber,
-      qrCode,
-      deliveryOtp,
-      pickupOtp,
-    }).returning();
+    return await db.transaction(async (tx) => {
+      await reserveProductStock(tx, items);
 
-    for (const item of items) {
-      await db.insert(orderItems).values({
-        orderId: newOrder.id,
-        ...item,
-      });
-    }
+      const orderNumber = `ORD-${Date.now()}`;
+      const qrCode = `${orderNumber}-${order.buyerId}`;
+      const deliveryOtp = generateNumericOtp();
+      const pickupOtp = generateNumericOtp();
+      
+      const [newOrder] = await tx.insert(orders).values({
+        ...order,
+        orderNumber,
+        qrCode,
+        deliveryOtp,
+        pickupOtp,
+      }).returning();
 
-    // Increment coupon usage count atomically if coupon was applied
-    if (order.couponCode) {
-      await db.update(coupons)
-        .set({ usedCount: sql`COALESCE(${coupons.usedCount}, 0) + 1` })
-        .where(eq(coupons.code, order.couponCode));
-    }
+      for (const item of items) {
+        await tx.insert(orderItems).values({
+          orderId: newOrder.id,
+          ...item,
+        });
+      }
 
-    await this.clearCart(order.buyerId);
+      if (order.couponCode) {
+        await tx.update(coupons)
+          .set({ usedCount: sql`COALESCE(${coupons.usedCount}, 0) + 1` })
+          .where(eq(coupons.code, order.couponCode));
+      }
 
-    return newOrder;
+      await tx.delete(cart).where(eq(cart.userId, order.buyerId));
+
+      return newOrder;
+    });
   }
 
   async createMultiSellerOrders(
@@ -405,6 +537,11 @@ export class DbStorage implements IStorage {
     }>
   ): Promise<{ sessionId: string; orders: Order[] }> {
     return await db.transaction(async (tx) => {
+      await reserveProductStock(
+        tx,
+        itemsBySeller.flatMap((sellerGroup) => sellerGroup.items),
+      );
+
       const sessionId = `SESSION-${Date.now()}`;
       const createdOrders: Order[] = [];
 
@@ -1059,22 +1196,85 @@ export class DbStorage implements IStorage {
       .leftJoin(users, eq(promotionApplications.sellerId, users.id))
       .where(and(...promotionConditions));
 
+    const cachedUsers = new Map<string, any>();
+    const cachedStores = new Map<string, any>();
+    const cachedProducts = new Map<string, any>();
+    const getCachedUser = async (userId?: string | null) => {
+      const id = String(userId || "").trim();
+      if (!id) return null;
+      if (!cachedUsers.has(id)) {
+        cachedUsers.set(id, await this.getUser(id).catch(() => null));
+      }
+      return cachedUsers.get(id) || null;
+    };
+    const getCachedStore = async (storeId?: string | null) => {
+      const id = String(storeId || "").trim();
+      if (!id) return null;
+      if (!cachedStores.has(id)) {
+        cachedStores.set(id, await this.getStore(id).catch(() => null));
+      }
+      return cachedStores.get(id) || null;
+    };
+    const getCachedPromotionProduct = async (productId?: string | null) => {
+      const id = String(productId || "").trim();
+      if (!id) return null;
+      if (!cachedProducts.has(id)) {
+        const [product] = await db.select({
+          id: products.id,
+          name: products.name,
+          sellerId: products.sellerId,
+          storeId: products.storeId,
+        }).from(products).where(eq(products.id, id)).limit(1);
+        cachedProducts.set(id, product || null);
+      }
+      return cachedProducts.get(id) || null;
+    };
+
     const promotionRows = [] as any[];
     for (const promotionRow of promotionBaseRows) {
       let resolvedStoreId: string | null = null;
       let resolvedStoreName: string | null = null;
+      let resolvedSellerId: string | null = String(promotionRow.sellerId || "").trim() || null;
+      let resolvedSellerName: string | null = String(promotionRow.sellerName || "").trim() || null;
 
       if (promotionRow.type === "store") {
-        const store = await this.getStore(String(promotionRow.targetId || "")).catch(() => null);
+        const store = await getCachedStore(String(promotionRow.targetId || ""));
         resolvedStoreId = store?.id || null;
         resolvedStoreName = store?.name || promotionRow.targetName || "Store Promotion";
+        resolvedSellerId = String(store?.primarySellerId || resolvedSellerId || "").trim() || null;
       } else {
-        const product = await this.getProduct(String(promotionRow.targetId || "")).catch(() => null);
+        const product = await getCachedPromotionProduct(String(promotionRow.targetId || ""));
         if (product?.storeId) {
-          const store = await this.getStore(String(product.storeId)).catch(() => null);
+          const store = await getCachedStore(String(product.storeId));
           resolvedStoreId = store?.id || null;
           resolvedStoreName = store?.name || null;
         }
+        if (!resolvedStoreId && product?.sellerId) {
+          const sellerStore = await this.getStoreByPrimarySeller(String(product.sellerId)).catch(() => null);
+          if (sellerStore) {
+            resolvedStoreId = sellerStore.id || null;
+            resolvedStoreName = sellerStore.name || resolvedStoreName;
+          }
+        }
+        resolvedSellerId = String(product?.sellerId || resolvedSellerId || "").trim() || null;
+        resolvedStoreName = resolvedStoreName || promotionRow.targetName || "Product Promotion";
+      }
+
+      if (!resolvedStoreName && resolvedSellerId) {
+        const sellerStore = await this.getStoreByPrimarySeller(resolvedSellerId).catch(() => null);
+        if (sellerStore) {
+          resolvedStoreId = sellerStore.id || resolvedStoreId;
+          resolvedStoreName = sellerStore.name || resolvedStoreName;
+        }
+      }
+
+      const sellerUser = await getCachedUser(resolvedSellerId);
+      if (sellerUser) {
+        resolvedSellerName =
+          String(sellerUser.name || "").trim() ||
+          String(sellerUser.storeName || "").trim() ||
+          String(sellerUser.email || "").trim() ||
+          resolvedSellerName;
       }
 
       if (options?.storeId && resolvedStoreId !== options.storeId) {
@@ -1089,10 +1289,10 @@ export class DbStorage implements IStorage {
         type: "promotion",
         description: `${promotionRow.type === "store" ? "Store" : "Product"} promotion income for ${promotionRow.targetName}`,
         createdAt: promotionRow.approvedAt,
-        sellerId: promotionRow.sellerId,
-        sellerName: promotionRow.sellerName,
+        sellerId: resolvedSellerId,
+        sellerName: resolvedSellerName || "Unknown Seller",
         storeId: resolvedStoreId,
-        storeName: resolvedStoreName || "Promotion Campaign",
+        storeName: resolvedStoreName || "Unknown Store",
         orderNumber: null,
         orderCreatedAt: null,
       });
