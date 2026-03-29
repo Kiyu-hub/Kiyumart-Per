@@ -85,13 +85,24 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
 }
 
 export function requireRole(...roles: string[]) {
+  return buildRequireRole({ allowInactiveOperationalUsers: false }, ...roles);
+}
+
+export function requireRoleAllowInactive(...roles: string[]) {
+  return buildRequireRole({ allowInactiveOperationalUsers: true }, ...roles);
+}
+
+function buildRequireRole(
+  options: { allowInactiveOperationalUsers: boolean },
+  ...roles: string[]
+) {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: "Authentication required" });
     }
 
     const latestUser = await storage.getUser(req.user.id);
-    if (!latestUser || !latestUser.isActive) {
+    if (!latestUser) {
       return res.status(401).json({ error: "Authentication required" });
     }
 
@@ -104,6 +115,12 @@ export function requireRole(...roles: string[]) {
 
     if (!latestUser.isApproved && (latestRole === "seller" || latestRole === "rider")) {
       return res.status(403).json({ error: "Account pending approval" });
+    }
+
+    const isInactiveOperationalUser =
+      latestUser.isActive === false && (latestRole === "seller" || latestRole === "rider");
+    if (latestUser.isActive === false && !(options.allowInactiveOperationalUsers && isInactiveOperationalUser)) {
+      return res.status(401).json({ error: "Authentication required" });
     }
 
     // Keep downstream checks aligned with freshest role value.
@@ -253,6 +270,12 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "earnings.view": true,
     "profile.manage": true,
     "maps.view": true,
+  },
+  pickup_agent: {
+    "orders.view": true,
+    "support.view": true,
+    "support.manage": true,
+    "profile.manage": true,
   },
   agent: {
     "orders.view": true,

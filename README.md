@@ -1,37 +1,114 @@
-# KiyuMart Platform Manual
+﻿# KiyuMart Platform Manual
 
-This document is the primary operational and technical manual for the KiyuMart platform.
+This is the single operational and technical manual for the KiyuMart platform.
 It is written for:
 
 - Developers
-- Admins and Super Admins
+- Super Admins and Admins
 - Agents and support operators
-- AI builders and assistants (including Claude/Codex-like contributors)
+- Riders, Sellers, and Buyer-operation teams
+- AI builders/assistants (Claude, Codex, and similar tools)
 - Auditors and compliance reviewers
-- Future contributors and onboarding engineers
+- Future contributors
+- Newbies (including first-time platform operators)
 
 ## Table of Contents
 
-1. Platform Overview
-2. Source of Truth Map
-3. System Architecture
-4. Role Dashboards
-5. Platform Features
-6. Order Lifecycle and Fulfillment Flows
-7. Realtime Tracking and Map System
-8. Security, Permissions, and Governance
-9. Integrations and Resource Inventory
-10. Developer Setup and Commands
-11. Automated Platform Audit and Living README
-12. Operational Runbooks
-13. Contribution Guide
-14. Appendices
+1. What This Platform Is
+2. How To Read This Manual
+3. Core Rules (Source of Truth)
+4. System Architecture
+5. Role Map and Permission Model
+6. Dashboard Guide (Role by Role)
+7. End-to-End Order Lifecycle
+8. Store Operating Modes (Single Store vs Multi-Vendor)
+9. Live Map and Dispatch System (Uber-like Operations)
+10. Messaging, Support, and Calls
+11. Finance, Fees, Commissions, and Payouts
+12. Platform Settings Reference
+13. Data Model and Canonical Statuses
+14. Realtime and Event Consistency
+15. API and Workflow Health Checks
+16. Setup, Environment, and Developer Commands
+17. Audit System and Living README
+18. Production Smoke Checklist
+19. Troubleshooting Playbook
+20. Source-of-Truth File Index
 
-## 1) Platform Overview
+## 1) What This Platform Is
 
-KiyuMart is a multi-role commerce and logistics platform with role-scoped dashboards, backend-authoritative order transitions, realtime rider tracking, support workflows, and analytics/reporting.
+KiyuMart is a role-based commerce + logistics platform. It combines:
 
-### Supported roles
+- Marketplace ordering
+- Seller packaging and readiness workflows
+- Rider assignment and live dispatch tracking
+- Buyer order tracking and support
+- Super Admin command-center control
+- Finance operations (processing fees, commissions, payouts)
+
+In plain words:
+
+- Buyer places order
+- Seller prepares order
+- Rider picks up and delivers
+- Admin roles monitor, validate, and control the flow
+- Everything important is stored and validated on the backend
+
+## 2) How To Read This Manual
+
+If you are new, read in this order:
+
+1. `Core Rules`
+2. `Dashboard Guide`
+3. `Order Lifecycle`
+4. `Live Map and Dispatch`
+5. `Finance and Payouts`
+
+If you are a developer or AI assistant:
+
+1. Start at `Source-of-Truth File Index`
+2. Verify behavior in code before changing UI
+3. Never assume state; use backend responses and canonical transitions
+
+## 3) Core Rules (Source of Truth)
+
+These are platform design rules enforced by architecture:
+
+- Backend is authoritative for business state
+- UI reflects backend state; UI does not invent transitions
+- Role access is enforced server-side (`requireAuth`, `requireRole`, `requirePermission`, role features)
+- Realtime state is derived from live presence/GPS/heartbeat, not stale toggles
+- Order transitions must pass state-machine validation
+- Rider map visibility depends on freshness and role-feature access
+
+## 4) System Architecture
+
+### Frontend
+
+- React + TypeScript
+- Wouter routing (`client/src/App.tsx`)
+- TanStack Query for server-state
+- Role dashboards and pages for super_admin/admin/agent/seller/rider/buyer
+- Map rendering:
+  - Mapbox GL mode (`client/src/tracking/mapbox/MapboxFleetMap.tsx`)
+  - Open-source tile mode (Leaflet presets)
+
+### Backend
+
+- Express + TypeScript
+- Central route layer (`server/routes.ts`)
+- Service-layer policies (state machine, messaging, permissions)
+- RBAC and role-feature checks (`server/auth.ts`)
+
+### Data + Realtime
+
+- PostgreSQL schema contracts (`shared/schema.ts`)
+- Socket.IO live channels for map, chat, support, and notifications
+- Presence and heartbeat services for online/offline consistency
+
+## 5) Role Map and Permission Model
+
+Roles:
 
 - `super_admin`
 - `admin`
@@ -40,249 +117,147 @@ KiyuMart is a multi-role commerce and logistics platform with role-scoped dashbo
 - `rider`
 - `buyer`
 
-### Core principles
+Permission layers:
 
-- Backend is the authority for business state.
-- UI reflects API state and does not invent transitions.
-- Role access is enforced with middleware and role features.
-- Realtime updates are streamed through shared channels.
-- Tracking supports Mapbox mode and open-source mode.
+- Authentication: `requireAuth`
+- Role validation: `requireRole`
+- Admin permission gates: `requirePermission`
+- Feature toggles per role: `requireRoleFeature`
 
-## 2) Source of Truth Map
+Important map rule:
 
-Use this table first when making decisions.
+- Riders always keep `maps.view` enabled by policy fallback
+- Other roles can have map access toggled by super admin role-feature settings
 
-| Domain | Source of truth |
-| --- | --- |
-| Frontend routes/pages | `client/src/App.tsx` |
-| Dashboard navigation wiring | `client/src/components/DashboardLayout.tsx` |
-| Role feature defaults and RBAC helpers | `server/auth.ts` |
-| API routes and role checks | `server/routes.ts` |
-| Order transition rules and canonical status mapping | `server/services/orderStateMachine.ts` |
-| Realtime support identity and masking rules | `server/services/supportMessagingService.ts` |
-| Presence and heartbeats | `server/services/presenceService.ts` |
-| Chat permissions | `server/services/chatPermissionService.ts` |
-| Shared schema and table contracts | `shared/schema.ts` |
-| Storage/data access | `server/storage.ts` |
-| Realtime super admin live map UI | `client/src/components/RealTimeRiderMap.tsx` |
-| Mapbox renderer and 3D models | `client/src/tracking/mapbox/MapboxFleetMap.tsx` |
-| Map mode loader/runtime config | `client/src/tracking/mapbox/mapboxLoader.ts` |
-| Platform audit generator | `scripts/generate-platform-audit.ts` |
-| Living audit artifacts | `docs/platform-audit-report.json`, `docs/platform-living-readme.md`, `docs/platform-audit-log.jsonl` |
+## 6) Dashboard Guide (Role by Role)
 
-## 3) System Architecture
-
-### Frontend
-
-- React + TypeScript
-- Wouter routing
-- TanStack Query for API state
-- Role dashboards for admin/seller/rider/agent/buyer
-- Map surfaces for tracking and operations
-
-### Backend
-
-- Express + TypeScript
-- Service-layer policy checks
-- Role/permission middleware (`requireAuth`, `requireRole`, `requirePermission`, role features)
-- REST endpoints for commerce, fulfillment, support, analytics, media
-
-### Data and realtime
-
-- PostgreSQL schema via shared contracts (`shared/schema.ts`)
-- Socket.IO for realtime status, map, support, and notification events
-- Presence and heartbeat-based online/offline derivation
-
-### Tracking and map providers
-
-- Mapbox mode (with GLB 3D model support)
-- Open-source mode (Leaflet tile-based rendering)
-- Shared rider stream, role-scoped rendering logic
-
-## 4) Role Dashboards
-
-This section is operationally focused. Full route inventory is generated by `npm run audit:platform`.
+All route definitions come from `client/src/App.tsx`.
 
 ### Super Admin Dashboard
 
-Purpose:
+Primary purpose:
 
-- Platform governance and global controls
-- Role feature management
-- Operational command center, live tracking, and policy enforcement
+- Platform governance
+- Global permission and map-access control
+- Live command center monitoring
 
-Primary routes:
+Key areas:
 
 - `/admin`
 - `/admin/permissions`
-- `/admin/analytics`
-- `/admin/live-support`
 - `/admin/delivery-tracking`
+- `/admin/analytics`
+- `/admin/settings`
 
-Key controls:
+Core actions:
 
-- Map provider mode
-- Role-level map access and feature gates
-- Support routing/assignment policy
-- Platform-wide visibility into users/orders/riders
+- Enable/disable role feature access
+- Control map provider mode
+- Review payouts, analytics, and operational alerts
 
 ### Admin Dashboard
 
-Purpose:
+Primary purpose:
 
-- Operational management of users, orders, products, zones, payouts, and support
+- Day-to-day operations
 
-Primary routes:
+Key areas:
 
 - `/admin/orders`
 - `/admin/users`
 - `/admin/sellers`
 - `/admin/riders`
-- `/admin/products`
 - `/admin/zones`
-- `/admin/settings`
+- `/admin/payouts` routes and earnings screens
 
-Key actions:
+Core actions:
 
-- Approvals/rejections
-- Assignment workflows
-- Promotion/content configuration
-- Payout review and operational analytics
+- Manage orders and assignments
+- Manage users, approvals, zones, and store operations
+- Process payout workflows
 
 ### Agent Dashboard
 
-Purpose:
+Primary purpose:
 
-- Support and customer operations
+- Support operations and customer issue handling
 
-Primary routes:
+Key areas:
 
 - `/agent`
 - `/agent/tickets`
 - `/agent/messages`
 - `/agent/customers`
-- `/agent/notifications`
 
-Key limits:
+Core actions:
 
-- Agent is support-focused and role-feature gated
-- No super admin governance controls
+- Resolve support conversations
+- Communicate with users under support rules
 
 ### Seller Dashboard
 
-Purpose:
+Primary purpose:
 
-- Catalog management, order fulfillment prep, promotions, messaging, analytics
+- Store operations and order preparation
 
-Primary routes:
+Key areas:
 
-- `/seller`
 - `/seller/products`
 - `/seller/orders`
 - `/seller/deliveries`
 - `/seller/promotions`
 - `/seller/payment-setup`
 
-Key actions:
+Core actions:
 
-- Product lifecycle and media management
-- Packaging and ready-state operations
-- Promotion/coupon management
-- Seller payout configuration
+- Manage catalog and promotions
+- Move paid orders through seller-side preparation states
+- Configure payout setup
 
 ### Rider Dashboard
 
-Purpose:
+Primary purpose:
 
-- Assignment acceptance/rejection, active delivery execution, route navigation, earnings
+- Delivery execution and live routing
 
-Primary routes:
+Key areas:
 
-- `/rider`
 - `/rider/deliveries`
 - `/rider/route`
 - `/rider/messages`
 - `/rider/earnings`
 
-Key actions:
+Core actions:
 
-- Assignment offer response
-- Active route handling
-- Verification checkpoints
-- Realtime navigation and communication
+- Accept/reject assignments
+- Execute pickup and delivery state transitions
+- Use live map routing and comms
 
-### Customer / Buyer Dashboard
+### Buyer Dashboard
 
-Purpose:
+Primary purpose:
 
-- Purchase, payment, tracking, order history, support
+- Shopping, checkout, payment, tracking, support
 
-Primary routes:
+Key areas:
 
 - `/buyer`
 - `/orders`
-- `/orders/:id`
 - `/checkout`
 - `/payment/:orderId`
 - `/support`
 
-Key actions:
+Core actions:
 
-- Place order and complete payment
-- Track fulfillment status
-- Access receipt and support
+- Place and pay for orders
+- Track order journey
+- Contact support
 
-## 5) Platform Features
+## 7) End-to-End Order Lifecycle
 
-### Commerce and catalog
+Canonical state logic lives in `server/services/orderStateMachine.ts`.
 
-- Product browsing, categories, store pages
-- Multi-role product and media management
-- Cart, checkout, and payment verification
-- Wishlist and review support
-
-### Fulfillment and assignment
-
-- Deterministic order state transitions
-- Seller preparation and ready workflow
-- Rider assignment offers and response lifecycle
-- Admin and super admin operational controls
-
-### Delivery modes
-
-- Rider delivery flow
-- Pickup flow
-- BUS/terminal-related logic traces (audited and documented in feature inventory)
-
-### Tracking and maps
-
-- Super admin live rider operations map
-- Rider route map and active delivery context
-- Provider mode switching (Mapbox/open-source)
-- Vehicle-type rendering path and realtime updates
-
-### Messaging, support, and calls
-
-- Role-aware messaging
-- Support conversation routing
-- Support identity masking policy where required
-- Call infrastructure services for admin workflows
-
-### Verification and compliance
-
-- QR/OTP verification flows in delivery lifecycle
-- Role-gated transition controls
-- Status history and auditability via backend endpoints
-
-### Reporting and finance
-
-- Admin analytics and platform earnings views
-- Seller/rider earnings surfaces
-- Receipt generation and order financial traceability
-
-## 6) Order Lifecycle and Fulfillment Flows
-
-Canonical statuses (from service-layer state machine):
+Canonical statuses:
 
 - `created`
 - `searching_rider`
@@ -299,85 +274,278 @@ Canonical statuses (from service-layer state machine):
 - `cancelled`
 - `disputed`
 
-Legacy aliases are normalized in the state machine (for backward compatibility).
+Legacy aliases are normalized:
 
-### Delivery flow (high level)
+- `pending -> created`
+- `delivering -> en_route`
+- several legacy delivery aliases are mapped to canonical statuses
 
-1. Buyer creates and pays order.
-2. Seller confirms/processes and marks ready.
-3. Assignment is initiated and rider is selected/accepted.
-4. Rider reaches pickup, verifies, and moves to transit.
-5. Drop-off verification and completion are recorded.
+High-level delivery flow:
 
-### Pickup flow (high level)
+1. Buyer creates order and pays
+2. Seller confirms/processes
+3. Seller marks ready
+4. Rider matching and assignment
+5. Rider arrives/picks up
+6. In-transit and en-route tracking
+7. Delivered and completed
 
-1. Buyer places and pays order.
-2. Seller confirms/processes order.
-3. Seller marks ready and verifies pickup.
-4. Order completes without rider dispatch path.
+High-level pickup flow:
 
-## 7) Realtime Tracking and Map System
+1. Buyer creates and pays
+2. Seller processes and marks ready
+3. Pickup verification and completion (no rider transit path)
 
-### Key capabilities
+Transition safety:
 
-- Live rider positions for command center operations
-- Freshness-aware rider visibility
-- Provider parity behavior goal across map modes
-- Vehicle rendering pipeline by type
+- Every status move checks role + preconditions
+- Invalid moves return deterministic errors (for example: `Cannot transition from X to Y`)
 
-### Key files
+## 8) Store Operating Modes (Single Store vs Multi-Vendor)
+
+Source of truth:
+
+- `platform_settings.is_multi_vendor`
+- `platform_settings.primary_store_id`
+
+### Single Store Mode
+
+- `isMultiVendor = false`
+- Platform uses `primaryStoreId`
+- Catalog and checkout are scoped to the primary store model
+
+### Multi-Vendor Mode
+
+- `isMultiVendor = true`
+- Orders may span multiple sellers
+- Checkout/payment metadata carries multi-order/session context
+- Commission and subaccount logic is applied per seller as configured
+
+Where this is wired:
+
+- Backend branching in `server/routes.ts` around product loading, checkout creation, and payment verification
+- Admin controls in `client/src/pages/AdminSettings.tsx` and `client/src/pages/AdminStoreManager.tsx`
+
+## 9) Live Map and Dispatch System (Uber-like Operations)
+
+Core files:
 
 - `client/src/components/RealTimeRiderMap.tsx`
 - `client/src/tracking/mapbox/MapboxFleetMap.tsx`
 - `client/src/tracking/mapbox/mapboxLoader.ts`
+- `client/src/tracking/components/MapTileLayer.tsx`
 - `client/src/tracking/hooks/useAnimatedFleetPositions.ts`
-- `client/src/tracking/motion/vehicleAnimator.ts`
 
-### Operational notes
+### Provider model
 
-- Mapbox mode supports GLB model-based rendering path.
-- Open-source mode renders marker-based map visuals.
-- Freshness/heartbeat rules gate online visibility.
+- `mapbox` mode: Mapbox GL pipeline
+- `open_source` mode: Leaflet + open presets
+- Runtime provider config from `/api/public/map-provider-config`
+- Provider mode persisted in local storage key: `map_provider_mode`
 
-## 8) Security, Permissions, and Governance
+### Mapbox 3D rider models
 
-### Enforcement layers
+3D model mapping is data-driven for supported vehicle types:
 
-- Authentication: `requireAuth`
-- Role check: `requireRole`
-- Permission check: `requirePermission`, `requirePermissionIfAdmin`
-- Role feature check: `requireRoleFeature`, `requireRoleFeatureIfRole`
+- `car -> /assets/vehicles/car_textured.glb`
+- `motorcycle -> /assets/vehicles/moto_textured.glb`
+- `bicycle -> /assets/vehicles/bycicle_textured.glb`
 
-### Role feature defaults
+Unsupported/invalid vehicle types are not rendered as 3D models in the Mapbox 3D layer.
 
-Role feature defaults are defined in `server/auth.ts` and may be overridden by persisted role features.
+### Open-source map presets (Leaflet)
 
-### Governance expectations
+Current preset catalog includes:
 
-- Super admin controls global features and sensitive toggles.
-- Admin handles operations under permissions.
-- Agent operates under support-focused feature gates.
-- Seller/rider/buyer are restricted to their scoped capabilities.
+- Voyager
+- Positron
+- OpenStreetMap
+- Humanitarian
+- Topo
+- Cycle
+- Esri Satellite
+- Esri Topo
+- Dark
 
-## 9) Integrations and Resource Inventory
+### Camera and controls
 
-### Core stack
+Implemented controls include:
 
-- React, TypeScript, TanStack Query, Wouter
-- Express, Socket.IO, Drizzle/SQL schema contracts
+- Zoom in/out
+- Street zoom quick action
+- Recenter/Fit
+- Focus anchor
+- Reset bearing (north)
+- 2D/3D pitch toggle
 
-### External or metered integrations (documented, not hidden)
+Auto-focus behavior:
 
-- Mapbox (when Mapbox mode is enabled)
-- Cloudinary (media path)
-- Paystack (payment path)
+- Camera refits/focuses on available rider/destination points
+- User interactions temporarily lock auto-camera before next auto adjustment
 
-### Open-source alternatives
+### Realtime rider visibility and freshness
 
-- Open-source map mode is supported for map rendering.
-- Audit command inventories dependencies and cost classification.
+Operational behavior in live map logic:
 
-## 10) Developer Setup and Commands
+- Rider snapshots are normalized and deduplicated
+- Online status uses presence + GPS recency interpretation
+- Riders without GPS are separated into dedicated no-GPS panels
+- Active order count is surfaced per rider to avoid visual duplication
+
+### Role map access enforcement
+
+- Riders: map access is always available
+- Other roles: map access controlled by `maps.view` feature toggle
+- Super admin can update role map access controls
+
+## 10) Messaging, Support, and Calls
+
+Core files:
+
+- `server/services/chatPermissionService.ts`
+- `server/services/messageDeliveryService.ts`
+- `server/services/supportMessagingService.ts`
+- `server/services/jitsiMeetService.ts`
+- messaging and support routes in `server/routes.ts`
+
+### Chat permission model
+
+- Admin/Super Admin: full chat access
+- Agent: support access across users
+- Buyer/Seller/Rider chat is constrained by active order relationships
+- Support contact with agent/admin roles is allowed by policy
+
+### Message delivery reliability
+
+Message delivery service tracks states with retry behavior:
+
+- queued
+- sent
+- delivered
+- read
+- failed (after max retries)
+
+It also supports reconnect delivery for pending queues.
+
+### Support conversations
+
+Support module manages:
+
+- conversation lifecycle (`open`, `assigned`, `resolved`)
+- first-response analytics
+- role-scoped support visibility
+- optional identity masking rules for support display
+
+### Calls
+
+Jitsi service provides room/session generation for call-enabled workflows.
+
+## 11) Finance, Fees, Commissions, and Payouts
+
+Primary schemas (`shared/schema.ts`):
+
+- `commissions`
+- `seller_payouts`
+- `rider_payouts`
+- `platform_earnings`
+
+### Processing fee
+
+- Configurable by `platform_settings.processing_fee_percent`
+- Applied in checkout and payment totals
+
+### Seller commission accounting
+
+- Commission rows are created per order as payout source
+- Seller payout requests consume pending commission balances
+- Exact-composition validation is enforced for payout amount composition
+
+### Rider payout lifecycle
+
+- Rider payouts are queued from delivery-completion events
+- Admin/Super Admin approval/rejection endpoints update payout states
+- Notifications and realtime events are emitted on payout decision
+
+### Platform earnings
+
+- Platform earnings are recorded with commission linkage
+- Admin earnings views aggregate by type/date
+
+### Paystack integration
+
+- Payment initialize + verify + webhook flows implemented
+- Supports seller payout setup/subaccount flows
+- Supports bank-account and mobile-money payout types for stores
+
+## 12) Platform Settings Reference
+
+Source:
+
+- `platform_settings` table in `shared/schema.ts`
+- Settings UI in `client/src/pages/AdminSettings.tsx`
+
+Major setting groups:
+
+- Branding and theme colors
+- Mode toggles (`isMultiVendor`, `primaryStoreId`)
+- Currency and frontend callback URL
+- Mapbox token/style/version
+- Processing fee and default commission rate
+- Paystack keys
+- Cloudinary keys
+- Registration gates for seller/rider
+- Contact/social/footer/ads toggles
+- Homepage/banner/shop display controls
+
+Security handling:
+
+- Secret fields are masked in API responses
+- Env import helpers can backfill missing settings safely
+
+## 13) Data Model and Canonical Statuses
+
+Critical enums and core tables are in `shared/schema.ts`:
+
+- user roles
+- order status
+- delivery method
+- payment status
+- support status
+- payout types
+- notification types
+
+Entity highlights:
+
+- Users include role/approval/vehicle/location preference fields
+- Orders hold delivery coordinates, payment state, and lifecycle status
+- Delivery tracking stores GPS snapshots per order/rider
+- Role features store per-role feature flags used at runtime
+
+## 14) Realtime and Event Consistency
+
+Realtime behavior combines:
+
+- Socket.IO channels for state push
+- TanStack Query invalidation and re-fetch
+- Presence services for online/offline truth
+
+Consistency goals:
+
+- No stale state from UI-only assumptions
+- Role dashboards consume same backend truth
+- Map and dashboard counters should reconcile via shared data streams
+
+## 15) API and Workflow Health Checks
+
+Use these checkpoints during operations:
+
+- Verify route exists in `client/src/App.tsx`
+- Verify backend endpoint exists and has role guards
+- Verify order transition is permitted by state machine
+- Verify query invalidation/realtime events after action
+- Verify role feature access (`maps.view`, support features, etc.)
+
+## 16) Setup, Environment, and Developer Commands
 
 ### Prerequisites
 
@@ -385,7 +553,7 @@ Role feature defaults are defined in `server/auth.ts` and may be overridden by p
 - npm
 - PostgreSQL
 
-### Install and run
+### Local run
 
 ```bash
 npm install
@@ -393,7 +561,7 @@ npm run dev:backend
 npm run dev:frontend
 ```
 
-### Quality commands
+### Quality checks
 
 ```bash
 npm run typecheck
@@ -402,87 +570,105 @@ npm run test:unit
 npm run test:e2e
 ```
 
-### Audit commands
+### Platform audit
 
 ```bash
 npm run audit:platform
 npm run audit:platform:check
 ```
 
-## 11) Automated Platform Audit and Living README
+## 17) Audit System and Living README
 
-The platform includes an internal read-only audit system that:
+Audit generator:
 
-- Scans routes, dashboards, feature modules, and dependencies
-- Builds health findings (broken routes, orphan pages, coverage flags)
-- Generates living audit docs and injects README section
-- Supports strict check mode for release gating
+- `scripts/generate-platform-audit.ts`
 
 Generated artifacts:
 
 - `docs/platform-audit-report.json`
-- `docs/platform-living-readme.md`
 - `docs/platform-audit-log.jsonl`
+- `docs/platform-living-readme.md`
 
 API controls:
 
-- `POST /api/admin/platform-audit/run` (super admin trigger)
-- `GET /api/admin/platform-audit` (admin/super admin read)
-- `GET /api/agent/platform-audit` (agent/admin/super admin read-only summary)
+- `POST /api/admin/platform-audit/run`
+- `GET /api/admin/platform-audit`
+- `GET /api/agent/platform-audit`
 
-## 12) Operational Runbooks
+Behavior:
 
-### If map appears blank or frozen
+- Scans routes, dashboard coverage, feature keyword matches, dependencies, and health findings
+- Injects/updates the `PLATFORM_AUDIT` section in this README
 
-1. Check provider mode and token/style configuration.
-2. Verify rider heartbeat freshness and GPS presence.
-3. Check browser console and backend logs for map/runtime errors.
-4. Run `npm run audit:platform` and review issue section.
+## 18) Production Smoke Checklist
 
-### If state transitions fail
+Run this before release:
 
-1. Validate actor role permissions.
-2. Validate order preconditions in `orderStateMachine.ts`.
-3. Inspect API response details and status history endpoints.
+1. Login as Super Admin and open `/admin/delivery-tracking`
+2. Toggle map provider between Mapbox and open-source mode
+3. Confirm rider markers appear in both modes for fresh GPS riders
+4. Click rider marker and confirm rider detail dialog opens
+5. Verify no-GPS panel entries match riders missing live coordinates
+6. Validate map access toggle behavior for non-rider roles
+7. Validate seller order status buttons only allow legal transitions
+8. Validate rider assignment and active route updates in realtime
+9. Validate payout approval/rejection flows update rider/seller views
+10. Run `npm run audit:platform:check` and resolve blockers
 
-### If dashboard action appears stale
+## 19) Troubleshooting Playbook
 
-1. Confirm API endpoint returns expected state.
-2. Confirm query invalidation/realtime event path.
-3. Confirm role feature is enabled for that role.
+### Map is blank or freezing
 
-## 13) Contribution Guide
+- Validate provider mode and Mapbox token/style settings
+- Validate Mapbox GL version supports 3D model layers
+- Check browser console for model/layer load errors
+- Confirm rider GPS data is fresh and valid
 
-For human and AI contributors:
+### Transition error (example: processing -> ready)
 
-- Read this README and `docs/platform-audit-todo.md` first.
-- Use source-of-truth files before making assumptions.
-- Avoid UI-only fixes for backend-authoritative flows.
-- Keep changes role-safe and transition-safe.
-- Run:
-  - `npm run typecheck`
-  - `npm run build:frontend`
-  - `npm run audit:platform`
+- Check order current canonical status
+- Check actor role and permissions
+- Check state-machine preconditions for target status
 
-Pull request expectations:
+### Online counters look wrong
 
-- Explain behavioral change
-- Reference modified source-of-truth files
-- Include validation commands and outcomes
-- Note any role/permission impact
+- Verify presence heartbeat inputs
+- Verify GPS timestamps and freshness gating
+- Verify dashboards consume same backend stream
 
-## 14) Appendices
+### Payment verification fails
 
-### Appendix A: Primary docs
+- Check Paystack keys in platform settings
+- Confirm webhook signature and idempotency handling
+- Confirm order/payment metadata consistency
 
-- `docs/system-master-checklist.md`
-- `docs/platform-audit-todo.md`
-- `docs/platform-living-readme.md`
-- `docs/platform-audit-report.json`
+## 20) Source-of-Truth File Index
 
-### Appendix B: Known strict-audit blockers
+Use this index before making any change.
 
-Strict audit currently flags non-free/unknown dependencies where applicable. This is expected until those dependencies are replaced or explicitly accepted by policy.
+| Domain | Source of truth |
+| --- | --- |
+| App route definitions | `client/src/App.tsx` |
+| Dashboard layout/sidebar wiring | `client/src/components/DashboardLayout.tsx` |
+| Auth, RBAC, role features | `server/auth.ts` |
+| API routes and workflow handlers | `server/routes.ts` |
+| Order lifecycle state machine | `server/services/orderStateMachine.ts` |
+| Chat permission rules | `server/services/chatPermissionService.ts` |
+| Support identity and masking | `server/services/supportMessagingService.ts` |
+| Message retry/delivery state machine | `server/services/messageDeliveryService.ts` |
+| Presence and heartbeat state | `server/services/presenceService.ts` |
+| Shared DB schema contracts | `shared/schema.ts` |
+| Data access implementation | `server/storage.ts` |
+| Super admin live map UI | `client/src/components/RealTimeRiderMap.tsx` |
+| Mapbox 3D fleet map renderer | `client/src/tracking/mapbox/MapboxFleetMap.tsx` |
+| Map runtime loader/provider mode | `client/src/tracking/mapbox/mapboxLoader.ts` |
+| Open-source map presets | `client/src/tracking/components/MapTileLayer.tsx` |
+| Fleet animation hook | `client/src/tracking/hooks/useAnimatedFleetPositions.ts` |
+| Platform audit generator | `scripts/generate-platform-audit.ts` |
+
+---
+
+This document is intentionally operational and strict. If a feature exists in code, it must be documented here and in generated audit output.
 
 ---
 
@@ -492,8 +678,8 @@ The section below is auto-generated by the platform audit script. Do not edit it
 
 ## Platform Living Audit README
 
-Generated version: `v10`
-Generated at: `2026-03-09T23:51:57.106Z`
+Generated version: `v12`
+Generated at: `2026-03-16T10:03:23.710Z`
 
 ### 1. Platform Overview
 - Continuous internal audit for routes, dashboards, features, flows, services, and dependencies.
@@ -666,7 +852,7 @@ Generated at: `2026-03-09T23:51:57.106Z`
 
 ### Health Findings
 - [medium] ORPHAN_PAGES: 12 orphan pages (client/src/pages/AdminDashboardConnected.tsx, client/src/pages/AdminDashboardRouter.tsx, client/src/pages/AdminLiveSupportDashboard.tsx, client/src/pages/AgentTickets.tsx, client/src/pages/ChatPageConnected.tsx, client/src/pages/ChatPageSimple.tsx, client/src/pages/CheckoutConnected.tsx, client/src/pages/HomeConnected.tsx, client/src/pages/MultiVendorHome.tsx, client/src/pages/not-found.tsx)
-- [medium] NON_FREE_OR_UNKNOWN_DEPENDENCIES: 4 non-free or unknown dependencies (@replit/vite-plugin-cartographer, @replit/vite-plugin-dev-banner, @replit/vite-plugin-runtime-error-modal, cloudinary)
+- [high] NON_FREE_OR_UNKNOWN_DEPENDENCIES: 4 non-free or unknown dependencies (@replit/vite-plugin-cartographer, @replit/vite-plugin-dev-banner, @replit/vite-plugin-runtime-error-modal, cloudinary)
 
 <!-- PLATFORM_AUDIT:END -->
 

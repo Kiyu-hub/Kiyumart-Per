@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -272,10 +272,7 @@ export default function AdminStoresList() {
 
   const { data: sellers = [] } = useQuery<Seller[]>({
     queryKey: ["/api/users", "seller"],
-    queryFn: async () => {
-      const res = await fetch("/api/users?role=seller");
-      return res.json();
-    },
+    queryFn: () => fetchApiJson<Seller[]>("/api/users?role=seller"),
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
@@ -398,7 +395,7 @@ export default function AdminStoresList() {
                           <Button 
                             variant="ghost" 
                             size="icon"
-                            onClick={() => navigate(`/sellers/${store.id}`)}
+                            onClick={() => navigate(`/admin/stores/${store.id}`)}
                             data-testid={`button-view-${store.id}`}
                           >
                             <Eye className="h-4 w-4" />

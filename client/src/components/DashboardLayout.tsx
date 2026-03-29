@@ -4,20 +4,27 @@ import DashboardSidebar from "./DashboardSidebar";
 import BackButton from "./BackButton";
 import { useQuery } from "@tanstack/react-query";
 import { useSellerProfileGuard } from "@/hooks/useSellerProfileGuard";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import ThemeToggle from "@/components/ThemeToggle";
+import { ShieldAlert } from "lucide-react";
 
 interface User {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "seller" | "buyer" | "rider" | "agent" | "super_admin";
+  role: "admin" | "seller" | "buyer" | "rider" | "pickup_agent" | "agent" | "super_admin";
+  isActive?: boolean;
   isApproved?: boolean;
+  rejectionReason?: string | null;
   profileImage?: string;
   roleFeatures?: Record<string, boolean>;
 }
 
 interface DashboardLayoutProps {
   children: ReactNode;
-  role: "admin" | "seller" | "buyer" | "rider" | "agent" | "super_admin";
+  role: "admin" | "seller" | "buyer" | "rider" | "pickup_agent" | "agent" | "super_admin";
   showBackButton?: boolean;
 }
 
@@ -27,6 +34,7 @@ const roleBasePaths: Record<string, string> = {
   seller: "/seller",
   buyer: "/buyer",
   rider: "/rider",
+  pickup_agent: "/pickup-agent",
   agent: "/agent",
 };
 
@@ -44,6 +52,7 @@ const routeToMenuId: Record<string, string> = {
   "/admin/permissions": "permissions",
   "/admin/zones": "zones",
   "/admin/delivery-zones": "zones",
+  "/admin/pickup-stations": "pickup-stations",
   "/admin/delivery-tracking": "delivery-tracking",
   "/admin/manual-rider-assignment": "manual-rider-assignment",
   "/admin/notifications": "notifications",
@@ -60,6 +69,7 @@ const routeToMenuId: Record<string, string> = {
   "/seller": "dashboard",
   "/seller/media-library": "media-library",
   "/seller/products": "products",
+  "/seller/categories": "categories",
   "/seller/orders": "orders",
   "/seller/coupons": "coupons",
   "/seller/promotions": "promotions",
@@ -86,6 +96,10 @@ const routeToMenuId: Record<string, string> = {
   "/rider/messages": "messages",
   "/rider/earnings": "earnings",
   "/rider/settings": "settings",
+  "/pickup-agent": "dashboard",
+  "/pickup-agent/notifications": "notifications",
+  "/pickup-agent/support": "support",
+  "/pickup-agent/settings": "settings",
   "/agent": "dashboard",
   "/agent/tickets": "tickets",
   "/agent/customers": "customers",
@@ -93,6 +107,45 @@ const routeToMenuId: Record<string, string> = {
   "/agent/notifications": "notifications",
   "/agent/settings": "settings",
 };
+
+function InactiveAccountNotice({
+  role,
+  reason,
+}: {
+  role: "seller" | "rider";
+  reason?: string | null;
+}) {
+  return (
+    <Card className="border-destructive/30 bg-card/95 shadow-sm">
+      <CardContent className="p-6 md:p-8">
+        <div className="max-w-3xl space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-semibold">Account Deactivated</h1>
+              <p className="text-sm text-muted-foreground">
+                Your {role} dashboard is restricted. Use the support ticket section in the sidebar to submit your appeal.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="destructive">Dashboard Access Restricted</Badge>
+          </div>
+
+          <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+            <p className="text-sm font-medium">Reason from admin</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+                {reason || "Your account was deactivated by admin. Submit an appeal through Support to request reactivation."}
+              </p>
+            </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function DashboardLayout({
   children,
@@ -103,6 +156,11 @@ export default function DashboardLayout({
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/me"],
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 15000,
+    refetchIntervalInBackground: true,
   });
 
   // CRITICAL: Enforce profile completion for sellers
@@ -130,6 +188,29 @@ export default function DashboardLayout({
     return "dashboard";
   }, [location, role]);
 
+  const pageTitle = useMemo(() => {
+    if (activeItem === "dashboard") {
+      const roleLabel =
+        normalizedRole === "super_admin"
+          ? "Super Admin"
+          : normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1);
+      return `${roleLabel} Dashboard`;
+    }
+
+    return activeItem
+      .split("-")
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join(" ");
+  }, [activeItem, normalizedRole]);
+
+  const inactiveAppealPath = "/support";
+  const isInactiveSellerOrRider = Boolean(
+    user &&
+    (normalizedRole === "seller" || normalizedRole === "rider") &&
+    user.role === normalizedRole &&
+    user.isActive === false,
+  );
+
   useEffect(() => {
     if (!user) return;
     // Seller/Rider dashboards require explicit admin approval.
@@ -140,17 +221,21 @@ export default function DashboardLayout({
         setLocation("/");
         return;
       }
+      if (user.isActive === false && location !== inactiveAppealPath) {
+        setLocation(inactiveAppealPath);
+        return;
+      }
     }
     const isSellerMessagesRoute = normalizedRole === "seller" && location.startsWith("/seller/messages");
     const isRiderMessagesRoute = normalizedRole === "rider" && location.startsWith("/rider/messages");
     if (!isSellerMessagesRoute && !isRiderMessagesRoute) return;
 
     const canViewMessages = user.roleFeatures?.["messages.view"] === true;
-    if (!canViewMessages) {
+    if (user.isActive !== false && !canViewMessages) {
       const basePath = roleBasePaths[normalizedRole] || "/";
       setLocation(basePath);
     }
-  }, [location, normalizedRole, setLocation, user]);
+  }, [inactiveAppealPath, location, normalizedRole, setLocation, user]);
 
   const handleItemClick = (id: string) => {
     const basePath = roleBasePaths[normalizedRole];
@@ -170,7 +255,7 @@ export default function DashboardLayout({
       // All non-buyer roles access their wishlist at /wishlist
       setLocation("/wishlist");
     } else if (id === "support") {
-      setLocation("/support");
+      setLocation(normalizedRole === "pickup_agent" ? "/pickup-agent/support" : "/support");
     } else if (normalizedRole === "buyer" && (id === "orders" || id === "wishlist" || id === "support" || id === "notifications" || id === "settings")) {
       // Buyer uses global routes for these pages
       setLocation(`/${id}`);
@@ -192,6 +277,20 @@ export default function DashboardLayout({
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">
+        <header className="border-b bg-card px-6 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
+              {pageTitle}
+            </h1>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <Button variant="outline" onClick={() => setLocation("/")} data-testid="button-shop">
+                Shop
+              </Button>
+            </div>
+          </div>
+        </header>
+
         {showBackButton && !isDashboardHome && (
           <div className="border-b px-6 py-3 bg-card">
             <BackButton fallbackRoute={fallbackRoute} />
@@ -199,7 +298,17 @@ export default function DashboardLayout({
         )}
         
         <main className="flex-1 overflow-y-auto" data-route-scroll-container>
-          {children}
+          {isInactiveSellerOrRider ? (
+            <div className="space-y-6 p-6 md:p-8">
+              <InactiveAccountNotice
+                role={normalizedRole as "seller" | "rider"}
+                reason={user?.rejectionReason}
+              />
+              {location === inactiveAppealPath ? children : null}
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

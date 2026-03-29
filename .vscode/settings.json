@@ -4,5 +4,21 @@
   "less.lint.unknownAtRules": "ignore",
   "files.associations": {
     "*.css": "tailwindcss"
+  },
+  "remote.autoForwardPorts": true,
+  "remote.restoreForwardedPorts": true,
+  "remote.portsAttributes": {
+    "5000": {
+      "label": "KiyuMart Backend",
+      "onAutoForward": "silent"
+    },
+    "5173": {
+      "label": "KiyuMart Frontend",
+      "onAutoForward": "openPreview"
+    },
+    "5174": {
+      "label": "KiyuMart Frontend Fallback",
+      "onAutoForward": "silent"
+    }
   }
 }

@@ -115,31 +115,63 @@ export default function SellerNotifications() {
     setDialogOpen(false);
     
     const { metadata, type } = selectedNotification;
-    
-    if (metadata?.link) {
-      navigate(metadata.link);
-      return;
-    }
 
     switch (type) {
       case "order":
-        navigate("/seller/orders");
+        if (metadata?.orderId) {
+          navigate(`/seller/orders?orderId=${encodeURIComponent(String(metadata.orderId))}`);
+        } else if (metadata?.link) {
+          navigate(metadata.link);
+        } else {
+          navigate("/seller/orders");
+        }
         break;
       case "product":
-        navigate("/seller/products");
+        if (metadata?.productId) {
+          navigate(`/seller/products?productId=${encodeURIComponent(String(metadata.productId))}`);
+        } else if (metadata?.link) {
+          navigate(metadata.link);
+        } else {
+          navigate("/seller/products");
+        }
         break;
       case "message":
         // Navigate to messages with sender ID for direct chat
         if (metadata?.senderId) {
           navigate(`/seller/messages?userId=${metadata.senderId}`);
+        } else if (metadata?.conversationId) {
+          navigate(`/seller/messages?conversationId=${encodeURIComponent(String(metadata.conversationId))}`);
+        } else if (metadata?.link) {
+          navigate(metadata.link);
         } else {
           navigate("/seller/messages");
+        }
+        break;
+      case "user":
+      case "system":
+        if (metadata?.promotionApplicationId) {
+          navigate(`/seller/promotions?applicationId=${encodeURIComponent(String(metadata.promotionApplicationId))}`);
+        } else if (metadata?.productId) {
+          navigate(`/seller/products?productId=${encodeURIComponent(String(metadata.productId))}`);
+        } else if (metadata?.orderId) {
+          navigate(`/seller/orders?orderId=${encodeURIComponent(String(metadata.orderId))}`);
+        } else if (metadata?.link) {
+          navigate(metadata.link);
         }
         break;
       case "payout":
         navigate("/seller/payouts");
         break;
       default:
+        if (metadata?.productId) {
+          navigate(`/seller/products?productId=${encodeURIComponent(String(metadata.productId))}`);
+        } else if (metadata?.orderId) {
+          navigate(`/seller/orders?orderId=${encodeURIComponent(String(metadata.orderId))}`);
+        } else if (metadata?.promotionApplicationId) {
+          navigate(`/seller/promotions?applicationId=${encodeURIComponent(String(metadata.promotionApplicationId))}`);
+        } else if (metadata?.link) {
+          navigate(metadata.link);
+        }
         break;
     }
   };

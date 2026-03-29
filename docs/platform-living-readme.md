@@ -1,7 +1,7 @@
 ## Platform Living Audit README
 
-Generated version: `v10`
-Generated at: `2026-03-09T23:51:57.106Z`
+Generated version: `v12`
+Generated at: `2026-03-16T10:03:23.710Z`
 
 ### 1. Platform Overview
 - Continuous internal audit for routes, dashboards, features, flows, services, and dependencies.
@@ -174,4 +174,4 @@ Generated at: `2026-03-09T23:51:57.106Z`
 
 ### Health Findings
 - [medium] ORPHAN_PAGES: 12 orphan pages (client/src/pages/AdminDashboardConnected.tsx, client/src/pages/AdminDashboardRouter.tsx, client/src/pages/AdminLiveSupportDashboard.tsx, client/src/pages/AgentTickets.tsx, client/src/pages/ChatPageConnected.tsx, client/src/pages/ChatPageSimple.tsx, client/src/pages/CheckoutConnected.tsx, client/src/pages/HomeConnected.tsx, client/src/pages/MultiVendorHome.tsx, client/src/pages/not-found.tsx)
-- [medium] NON_FREE_OR_UNKNOWN_DEPENDENCIES: 4 non-free or unknown dependencies (@replit/vite-plugin-cartographer, @replit/vite-plugin-dev-banner, @replit/vite-plugin-runtime-error-modal, cloudinary)
+- [high] NON_FREE_OR_UNKNOWN_DEPENDENCIES: 4 non-free or unknown dependencies (@replit/vite-plugin-cartographer, @replit/vite-plugin-dev-banner, @replit/vite-plugin-runtime-error-modal, cloudinary)

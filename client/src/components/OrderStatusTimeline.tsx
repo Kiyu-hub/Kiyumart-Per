@@ -17,17 +17,23 @@ interface OrderStatusTimelineProps {
 const normalizeStatus = (status?: string) => {
   const s = (status || "").toLowerCase().trim();
   if (s === "created") return "pending";
+  if (s === "packaged") return "packaged";
   if (s === "ready_for_pickup") return "ready";
   if (s === "assigned_to_rider") return "assigned";
   if (s === "out_for_delivery" || s === "delivering") return "en_route";
+  if (s === "external_dispatch_arranged") return "processing";
   return s || "pending";
 };
 
 const normalizeBusStage = (value?: string | null) => String(value || "").trim().toUpperCase();
+const isPickupMethod = (value?: string) => {
+  const method = (value || "").toLowerCase().trim();
+  return method === "pickup" || method === "store_pickup" || method === "store pickup";
+};
 
 const toCustomerTimelineStatus = (status?: string, deliveryMethod?: string, busStage?: string | null) => {
   const s = normalizeStatus(status);
-  const isPickup = (deliveryMethod || "").toLowerCase().trim() === "pickup";
+  const isPickup = isPickupMethod(deliveryMethod);
   const isBus = (deliveryMethod || "").toLowerCase().trim() === "bus";
   if (s === "cancelled" || s === "disputed") return s;
   if (["pending"].includes(s)) return "pending";
@@ -42,9 +48,11 @@ const toCustomerTimelineStatus = (status?: string, deliveryMethod?: string, busS
     return "pending";
   }
   if (isPickup) {
-    if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return s === "ready" ? "ready_for_pickup" : "processing";
+    if (s === "packaged") return "packaged";
+    if (["searching_rider", "confirmed", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
+    if (s === "ready") return "ready_for_pickup";
     if (["picked_up", "in_transit", "en_route"].includes(s)) return "ready_for_pickup";
-    if (["delivered", "completed"].includes(s)) return "delivered";
+    if (["delivered", "completed"].includes(s)) return "completed";
     return "pending";
   }
   if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
@@ -63,12 +71,13 @@ const deliveryStatusSteps = [
 const pickupStatusSteps = [
   { key: "pending", label: "Order Placed", icon: Clock },
   { key: "processing", label: "Preparing Order", icon: Package },
+  { key: "packaged", label: "Packaged", icon: Package },
   { key: "ready_for_pickup", label: "Ready for Pickup", icon: MapPin },
-  { key: "delivered", label: "Completed", icon: CheckCircle2 },
+  { key: "completed", label: "Completed", icon: CheckCircle2 },
 ];
 
 const deliveryStatusOrder = ["pending", "processing", "en_route", "delivered"];
-const pickupStatusOrder = ["pending", "processing", "ready_for_pickup", "delivered"];
+const pickupStatusOrder = ["pending", "processing", "packaged", "ready_for_pickup", "completed"];
 
 export default function OrderStatusTimeline({ 
   currentStatus, 
@@ -79,7 +88,7 @@ export default function OrderStatusTimeline({
   deliveredAt,
   className 
 }: OrderStatusTimelineProps) {
-  const isPickup = (deliveryMethod || "").toLowerCase().trim() === "pickup";
+  const isPickup = isPickupMethod(deliveryMethod);
   const isBus = (deliveryMethod || "").toLowerCase().trim() === "bus";
   const busStage = normalizeBusStage(busDeliveryWorkflow?.stage);
   const normalizedStatus = toCustomerTimelineStatus(currentStatus, deliveryMethod, busStage);
@@ -182,10 +191,10 @@ export default function OrderStatusTimeline({
       </div>
 
       {/* Timestamp Information */}
-      {normalizedStatus === "delivered" && deliveredAt && (
+      {["delivered", "completed"].includes(normalizedStatus) && deliveredAt && (
         <div className="mt-4 text-center" data-testid="delivery-timestamp">
           <p className="text-sm text-muted-foreground">
-            Delivered on {new Date(deliveredAt).toLocaleDateString()} at{" "}
+            {isPickup ? "Completed" : "Delivered"} on {new Date(deliveredAt).toLocaleDateString()} at{" "}
             {new Date(deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
         </div>

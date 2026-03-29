@@ -13,6 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Shield, ArrowLeft, Save, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { getRoleDisplayName } from "@/lib/roleLabels";
 
 interface RoleFeature {
   id: string;
@@ -34,7 +36,7 @@ const FEATURE_MANIFEST: Record<string, { label: string; description: string; cat
   "users.create": { label: "Create Users", description: "Create new user accounts", category: "User Management" },
   "users.edit": { label: "Edit Users", description: "Edit user details", category: "User Management" },
   "users.delete": { label: "Delete Users", description: "Delete user accounts", category: "User Management" },
-  "users.approve": { label: "Approve Applications", description: "Approve seller/rider applications", category: "User Management" },
+  "users.approve": { label: "Approve Applications", description: "Approve marketplace applications", category: "User Management" },
   "settings.view": { label: "View Settings", description: "View platform settings", category: "Platform Settings" },
   "settings.edit": { label: "Edit Settings", description: "Modify platform settings", category: "Platform Settings" },
   "branding.edit": { label: "Edit Branding", description: "Customize platform branding", category: "Platform Settings" },
@@ -49,9 +51,9 @@ const FEATURE_MANIFEST: Record<string, { label: string; description: string; cat
   "support.view": { label: "View Support", description: "Access support conversations", category: "Messaging & Support" },
   "support.manage": { label: "Manage Support", description: "Manage support tickets and responses", category: "Messaging & Support" },
   "store.manage": { label: "Manage Store", description: "Manage store profile and settings", category: "Operations" },
-  "deliveries.view": { label: "View Deliveries", description: "View delivery assignments", category: "Operations" },
+  "deliveries.view": { label: "View Deliveries", description: "View delivery operations", category: "Operations" },
   "deliveries.manage": { label: "Manage Deliveries", description: "Update delivery lifecycle", category: "Operations" },
-  "tracking.update": { label: "Update Tracking", description: "Post rider tracking updates", category: "Operations" },
+  "tracking.update": { label: "Update Tracking", description: "Update live delivery tracking", category: "Operations" },
   "maps.view": { label: "Map Access", description: "Allow user to view map and live tracking interfaces", category: "Operations" },
   "earnings.view": { label: "View Earnings", description: "View earnings and payouts", category: "Operations" },
   "payouts.request": { label: "Request Payouts", description: "Submit payout requests", category: "Operations" },
@@ -113,6 +115,7 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "maps.view": true,
   },
   seller: {
+    "orders.create": true,
     "products.create": true,
     "products.edit": true,
     "products.delete": true,
@@ -152,6 +155,12 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "profile.manage": true,
     "maps.view": true,
   },
+  pickup_agent: {
+    "orders.view": true,
+    "support.view": true,
+    "support.manage": true,
+    "profile.manage": true,
+  },
   buyer: {
     "orders.create": true,
     "orders.view": true,
@@ -165,7 +174,12 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
   },
 };
 
-const ROLE_OPTIONS = ["super_admin", "admin", "agent", "seller", "rider", "buyer"] as const;
+const ROLE_OPTIONS = ["super_admin", "admin", "pickup_agent", "agent", "seller", "rider", "buyer"] as const;
+const INTERNAL_RIDER_ONLY_FEATURE_KEYS = new Set([
+  "deliveries.view",
+  "deliveries.manage",
+  "tracking.update",
+]);
 
 const ABSOLUTE_SUPER_ADMIN_KEYS = Array.from(
   new Set([
@@ -186,16 +200,14 @@ const ABSOLUTE_SUPER_ADMIN_KEYS = Array.from(
   ]),
 );
 
-const roleLabel = (role: string) =>
-  role
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+const roleLabel = (role: string) => getRoleDisplayName(role);
 
 export default function SuperAdminPermissions() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
 
   const [selectedRole, setSelectedRole] = useState<string>("admin");
   const [localFeatures, setLocalFeatures] = useState<Record<string, boolean>>({});
@@ -203,12 +215,22 @@ export default function SuperAdminPermissions() {
   const [featureSearch, setFeatureSearch] = useState("");
 
   const isSuperAdminRole = selectedRole === "super_admin";
+  const visibleRoleOptions = useMemo(
+    () => (showInternalRiderFeatures ? ROLE_OPTIONS : ROLE_OPTIONS.filter((role) => role !== "rider")),
+    [showInternalRiderFeatures],
+  );
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== "super_admin")) {
       navigate("/auth");
     }
   }, [isAuthenticated, authLoading, user, navigate]);
+
+  useEffect(() => {
+    if (!showInternalRiderFeatures && selectedRole === "rider") {
+      setSelectedRole("admin");
+    }
+  }, [selectedRole, showInternalRiderFeatures]);
 
   const { data: roleFeatures = [], isLoading } = useQuery<RoleFeature[]>({
     queryKey: ["/api/role-features"],
@@ -276,13 +298,30 @@ export default function SuperAdminPermissions() {
       }
     });
 
+    if (!showInternalRiderFeatures) {
+      if (merged["users.approve"]) {
+        merged["users.approve"] = {
+          ...merged["users.approve"],
+          description: "Approve seller applications",
+        };
+      }
+      if (merged["tracking.update"]) {
+        merged["tracking.update"] = {
+          ...merged["tracking.update"],
+          description: "Update delivery tracking",
+        };
+      }
+    }
+
     return merged;
-  }, [localFeatures, roleFeatures]);
+  }, [localFeatures, roleFeatures, showInternalRiderFeatures]);
 
   const featuresByCategory = useMemo(() => {
     const grouped: Record<string, string[]> = {};
     const query = featureSearch.trim().toLowerCase();
-    const allKeys = Object.keys(mergedFeatureManifest);
+    const allKeys = Object.keys(mergedFeatureManifest).filter(
+      (key) => showInternalRiderFeatures || !INTERNAL_RIDER_ONLY_FEATURE_KEYS.has(key),
+    );
 
     for (const key of allKeys) {
       const feature = mergedFeatureManifest[key];
@@ -364,7 +403,7 @@ export default function SuperAdminPermissions() {
   return (
     <DashboardLayout role="super_admin">
       <div className="p-4 md:p-6 lg:p-8 space-y-6">
-        <Card className="border-primary/25 bg-gradient-to-r from-primary/10 via-background to-sky-500/10 overflow-hidden">
+        <Card className="overflow-hidden border-border/70 bg-card shadow-sm dark:border-primary/25 dark:bg-gradient-to-r dark:from-primary/10 dark:via-background dark:to-sky-500/10">
           <CardContent className="p-6 md:p-7">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div className="space-y-2">
@@ -387,7 +426,7 @@ export default function SuperAdminPermissions() {
                   Manage role-level capabilities from one place. Super Admin access is enforced as absolute.
                 </p>
                 <div className="flex gap-2 flex-wrap">
-                  <Badge className="bg-emerald-600 text-white gap-1">
+                  <Badge className="gap-1 border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-600 dark:text-white">
                     <ShieldCheck className="h-3.5 w-3.5" />
                     Absolute Super Admin
                   </Badge>
@@ -455,7 +494,7 @@ export default function SuperAdminPermissions() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex gap-2 flex-wrap">
-              {ROLE_OPTIONS.map((role) => (
+              {visibleRoleOptions.map((role) => (
                 <Button
                   key={role}
                   variant={selectedRole === role ? "default" : "outline"}
@@ -517,7 +556,7 @@ export default function SuperAdminPermissions() {
                     {featuresByCategory[category].map((featureKey) => {
                       const feature = mergedFeatureManifest[featureKey];
                       const isEnabled = !!localFeatures[featureKey];
-                      const isRiderMapLock = selectedRole === "rider" && featureKey === "maps.view";
+                      const isRiderMapLock = showInternalRiderFeatures && selectedRole === "rider" && featureKey === "maps.view";
                       return (
                         <div key={featureKey} className="rounded-lg border bg-card/50 px-3 py-2.5">
                           <div className="flex items-start justify-between gap-4">

@@ -30,6 +30,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
 const normalizeStatus = (status?: string) => {
   const s = (status || "").toLowerCase().trim();
   if (s === "delivering" || s === "out_for_delivery") return "en_route";
+  if (s === "external_dispatch_arranged") return "processing";
   return s;
 };
 

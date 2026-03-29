@@ -223,18 +223,36 @@ export class PaystackService {
   }
 
   // Initiate a transfer to a recipient
-  async initiateTransfer(data: { amountKobo: number; recipient: string; reason?: string }, secret?: string) {
+  async initiateTransfer(data: { amountKobo: number; recipient: string; reason?: string; reference?: string }, secret?: string) {
     try {
       const payload = {
         source: 'balance',
         amount: data.amountKobo,
         recipient: data.recipient,
         reason: data.reason || 'Seller payout',
+        reference: data.reference,
       };
       const response = await axios.post(`${PAYSTACK_BASE_URL}/transfer`, payload, { headers: buildHeaders(secret), timeout: 20000 });
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'Failed to initiate transfer');
+    }
+  }
+
+  async verifyTransfer(reference: string, secret?: string) {
+    try {
+      const response = await axios.get(
+        `${PAYSTACK_BASE_URL}/transfer/verify/${reference}`,
+        { headers: buildHeaders(secret), timeout: 20000 }
+      );
+      return response.data;
+    } catch (error: any) {
+      const message = error.response?.data?.message || 'Failed to verify transfer';
+      const err: any = new Error(message);
+      if (error.response?.status === 404 || /not found/i.test(message)) {
+        err.code = 'TRANSFER_NOT_FOUND';
+      }
+      throw err;
     }
   }
 

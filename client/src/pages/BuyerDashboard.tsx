@@ -7,7 +7,9 @@ import { Package, MapPin, Loader2, ShoppingBag, Wallet, TrendingUp, Receipt } fr
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PageLoadingState } from "@/components/ui/loading-state";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
@@ -24,6 +26,8 @@ export default function BuyerDashboard() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== "buyer")) {
@@ -37,11 +41,7 @@ export default function BuyerDashboard() {
   });
 
   if (authLoading || !isAuthenticated || user?.role !== "buyer") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-buyer" />
-      </div>
-    );
+    return <PageLoadingState title="Loading buyer dashboard" description="Preparing your orders, spend overview, and delivery updates." />;
   }
 
   const normalize = (s?: string) => (s || "").toLowerCase().trim();
@@ -69,14 +69,14 @@ export default function BuyerDashboard() {
 
   const trackStatuses = new Set([
     "processing",
+    "packaged",
     "ready",
-    "searching_rider",
-    "assigned",
-    "rider_arrived",
     "picked_up",
     "in_transit",
     "en_route",
     "arrived",
+    "external_dispatch_arranged",
+    ...(showInternalRiderFeatures ? ["searching_rider", "assigned", "rider_arrived"] : []),
   ]);
   const activeDeliveries = orders.filter((o) => trackStatuses.has(normalize(o.status))).length;
   const recentOrders = [...orders]

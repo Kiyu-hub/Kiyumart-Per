@@ -5,9 +5,12 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { buildCsv, createSimplePdf, logReportActivity, triggerDownload } from "@/lib/reporting";
+import { queryClient } from "@/lib/queryClient";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageLoadingState } from "@/components/ui/loading-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
@@ -24,7 +27,7 @@ import {
   Users,
 } from "lucide-react";
 
-type Method = "rider" | "bus" | "pickup";
+type Method = "rider" | "delivery" | "bus" | "pickup";
 
 type OrderRow = {
   id: string;
@@ -33,19 +36,37 @@ type OrderRow = {
   paymentStatus?: string;
   total: string;
   deliveryMethod: string;
+  externalDeliveryType?: string | null;
+  externalDeliveryByBus?: boolean | null;
   deliveryZoneId?: string | null;
+  deliveryAddress?: string | null;
+  deliveryCity?: string | null;
   riderId?: string | null;
   createdAt: string;
   updatedAt?: string | null;
   deliveredAt?: string | null;
   busDeliveryWorkflow?: BusWorkflow;
+  pickupStationInfo?: {
+    city?: string | null;
+    region?: string | null;
+    locationLabel?: string | null;
+  } | null;
   seller?: { id?: string | null; name?: string | null; storeName?: string | null };
   rider?: { id?: string | null; name?: string | null };
 };
 
 type Zone = { id: string; name: string; city?: string | null; region?: string | null };
 type LiteUser = { id: string; name: string; isActive?: boolean | null; riderOnline?: boolean | null; deliveryZoneId?: string | null };
-type Analytics = { totalRevenue?: number; totalOrders?: number; totalUsers?: number; totalProducts?: number };
+type Analytics = {
+  totalRevenue?: number;
+  totalOrders?: number;
+  totalUsers?: number;
+  totalProducts?: number;
+  totalReceivedMoney?: number;
+  platformCommissionTotal?: number;
+  processingFeesTotal?: number;
+  deliveryReserveTotal?: number;
+};
 
 type SupportAnalytics = {
   totals?: { total?: number; open?: number; assigned?: number; resolved?: number; unresolved?: number };
@@ -113,7 +134,7 @@ type ReportActivityRow = {
   createdAt: string;
 };
 
-const ACTIVE = new Set(["searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route"]);
+const ACTIVE = new Set(["searching_rider", "assigned", "rider_arrived", "picked_up", "in_transit", "en_route", "external_dispatch_arranged"]);
 const FINAL = new Set(["completed", "delivered"]);
 const FAILED = new Set(["cancelled", "disputed"]);
 
@@ -149,6 +170,45 @@ const statusFlow = (rawFlow: unknown, current: unknown) => {
   return flow.length ? flow.join(" -> ") : currentStatus;
 };
 
+const GHANA_REGION_PATTERNS: Array<{ label: string; patterns: string[] }> = [
+  { label: "Greater Accra Region", patterns: ["greater accra", "accra"] },
+  { label: "Ashanti Region", patterns: ["ashanti", "kumasi"] },
+  { label: "Central Region", patterns: ["central region", "cape coast", "central"] },
+  { label: "Eastern Region", patterns: ["eastern region", "eastern", "koforidua"] },
+  { label: "Western Region", patterns: ["western region", "takoradi", "sekondi", "western"] },
+  { label: "Western North Region", patterns: ["western north"] },
+  { label: "Volta Region", patterns: ["volta", "ho,"] },
+  { label: "Oti Region", patterns: ["oti"] },
+  { label: "Northern Region", patterns: ["northern region", "tamale", "northern"] },
+  { label: "North East Region", patterns: ["north east"] },
+  { label: "Savannah Region", patterns: ["savannah"] },
+  { label: "Upper East Region", patterns: ["upper east", "bolgatanga"] },
+  { label: "Upper West Region", patterns: ["upper west", "wa "] },
+  { label: "Bono Region", patterns: ["bono", "sunyani"] },
+  { label: "Bono East Region", patterns: ["bono east", "techiman"] },
+  { label: "Ahafo Region", patterns: ["ahafo"] },
+];
+
+const compactText = (value?: string | null) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+const inferRegionFromLocationText = (...values: Array<string | null | undefined>) => {
+  const haystack = values
+    .map((value) => compactText(value))
+    .filter(Boolean)
+    .join(" | ");
+  if (!haystack) return "";
+  const exactRegion = GHANA_REGION_PATTERNS.find(({ label }) => haystack.includes(compactText(label)));
+  if (exactRegion) return exactRegion.label;
+  const matchedRegion = GHANA_REGION_PATTERNS.find(({ patterns }) =>
+    patterns.some((pattern) => haystack.includes(pattern)),
+  );
+  return matchedRegion?.label || "";
+};
+
 function LoadingSkeleton() {
   return (
     <div className="space-y-4">
@@ -169,6 +229,8 @@ export default function AdminAnalytics() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
 
   const role = useMemo(() => {
     const raw = String(user?.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
@@ -179,9 +241,23 @@ export default function AdminAnalytics() {
   const canView = isSuperAdmin || isAdmin;
   const adminZoneId = isAdmin ? String((user as any)?.deliveryZoneId || "") : "";
 
-  const [preset, setPreset] = useState<"7d" | "30d" | "90d" | "custom">("30d");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const formatInputDate = (value: Date) => {
+    const year = value.getFullYear();
+    const month = `${value.getMonth() + 1}`.padStart(2, "0");
+    const day = `${value.getDate()}`.padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const today = useMemo(() => new Date(), []);
+  const defaultFrom = useMemo(() => {
+    const value = new Date(today);
+    value.setDate(value.getDate() - 6);
+    return formatInputDate(value);
+  }, [today]);
+  const defaultTo = useMemo(() => formatInputDate(today), [today]);
+
+  const [preset, setPreset] = useState<"7d" | "30d" | "90d" | "custom">("7d");
+  const [fromDate, setFromDate] = useState(defaultFrom);
+  const [toDate, setToDate] = useState(defaultTo);
   const [methodFilter, setMethodFilter] = useState<"all" | Method>("all");
   const [zoneFilter, setZoneFilter] = useState("all");
   const [exporting, setExporting] = useState<"none" | "csv" | "pdf">("none");
@@ -194,9 +270,51 @@ export default function AdminAnalytics() {
     if (isAdmin && adminZoneId) setZoneFilter(adminZoneId);
   }, [adminZoneId, isAdmin]);
 
+  useEffect(() => {
+    if (!showInternalRiderFeatures && methodFilter === "rider") {
+      setMethodFilter("all");
+    }
+  }, [methodFilter, showInternalRiderFeatures]);
+
+  useEffect(() => {
+    if (preset === "custom") return;
+    const end = new Date();
+    const start = new Date(end);
+    const days = preset === "7d" ? 6 : preset === "30d" ? 29 : 89;
+    start.setDate(start.getDate() - days);
+    setFromDate(formatInputDate(start));
+    setToDate(formatInputDate(end));
+  }, [preset]);
+
+  const normalizeDeliveryMethod = (
+    value?: string | null,
+    orderLike?: { externalDeliveryType?: string | null; externalDeliveryByBus?: boolean | null },
+  ) => {
+    const method = n(value);
+    const externalType = n(orderLike?.externalDeliveryType);
+    const byBus = Boolean(orderLike?.externalDeliveryByBus);
+    if (externalType === "bus" || byBus) return "bus";
+    if (externalType === "third_party") return "delivery";
+    if (!showInternalRiderFeatures && method === "rider") return "delivery";
+    return method;
+  };
+  const getStatusLabel = (value?: string | null) => {
+    const status = n(value);
+    if (!showInternalRiderFeatures) {
+      if (["searching_rider", "assigned", "external_dispatch_arranged"].includes(status)) return "External Dispatch Arranged";
+      if (["rider_arrived", "picked_up", "in_transit", "en_route", "arrived"].includes(status)) return "Delivery In Progress";
+      if (["delivered", "completed"].includes(status)) return "Completed";
+    }
+    return status.replace(/_/g, " ") || "pending";
+  };
+  const locationEntityLabel = "Zone";
+  const locationEntityLabelPlural = "zones";
+
   const { data: analytics, isLoading: aLoading, refetch: refetchAnalytics } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
     enabled: isAuthenticated && canView,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
     refetchInterval: 20000,
   });
 
@@ -209,6 +327,8 @@ export default function AdminAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: isAuthenticated && canView,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
     refetchInterval: 20000,
   });
 
@@ -221,6 +341,8 @@ export default function AdminAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: isAuthenticated && canView,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
     refetchInterval: 20000,
   });
 
@@ -233,9 +355,11 @@ export default function AdminAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: isAuthenticated && canView,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 
-  const userQuery = (roleName: string) => useQuery<LiteUser[]>({
+  const userQuery = (roleName: string, enabled = true) => useQuery<LiteUser[]>({
     queryKey: ["/api/users", roleName, "analytics"],
     queryFn: async () => {
       const r = await fetch(`/api/users?role=${roleName}`, { credentials: "include" });
@@ -243,22 +367,28 @@ export default function AdminAnalytics() {
       const p = await r.json();
       return Array.isArray(p) ? p : [];
     },
-    enabled: isAuthenticated && canView,
+    enabled: isAuthenticated && canView && enabled,
   });
 
-  const ridersQuery = userQuery("rider");
+  const ridersQuery = userQuery("rider", showInternalRiderFeatures);
   const sellersQuery = userQuery("seller");
   const buyersQuery = userQuery("buyer");
   const agentsQuery = userQuery("agent");
-  const riders = ridersQuery.data || [];
+  const pickupAgentsQuery = userQuery("pickup_agent");
+  const adminsQuery = userQuery("admin");
+  const superAdminsQuery = userQuery("super_admin");
+  const riders = showInternalRiderFeatures ? (ridersQuery.data || []) : [];
   const sellers = sellersQuery.data || [];
   const buyers = buyersQuery.data || [];
   const agents = agentsQuery.data || [];
+  const pickupAgents = pickupAgentsQuery.data || [];
+  const admins = adminsQuery.data || [];
+  const superAdmins = superAdminsQuery.data || [];
 
-  const { data: support } = useQuery<SupportAnalytics>({ queryKey: ["/api/support/analytics"], enabled: isAuthenticated && canView, refetchInterval: 20000 });
-  const { data: health } = useQuery<SystemHealth>({ queryKey: ["/api/admin/system-health"], enabled: isAuthenticated && canView, refetchInterval: 15000 });
-  const { data: messaging } = useQuery<MessagingStats>({ queryKey: ["/api/admin/messaging-stats"], enabled: isAuthenticated && canView, refetchInterval: 15000 });
-  const { data: revenueViews } = useQuery<any>({ queryKey: ["/api/admin/revenue/views/summary"], enabled: isAuthenticated && canView, refetchInterval: 20000 });
+  const { data: support } = useQuery<SupportAnalytics>({ queryKey: ["/api/support/analytics"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
+  const { data: health } = useQuery<SystemHealth>({ queryKey: ["/api/admin/system-health"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
+  const { data: messaging } = useQuery<MessagingStats>({ queryKey: ["/api/admin/messaging-stats"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
+  const { data: revenueViews } = useQuery<any>({ queryKey: ["/api/admin/revenue/views/summary"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
   const { data: reportActivity = [], refetch: refetchReportActivity } = useQuery<ReportActivityRow[]>({
     queryKey: ["/api/reports/activity", "admin-analytics"],
     queryFn: async () => {
@@ -268,6 +398,8 @@ export default function AdminAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: isAuthenticated && canView,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
     refetchInterval: 20000,
   });
 
@@ -293,18 +425,44 @@ export default function AdminAnalytics() {
     zones.forEach((z) => m.set(z.id, z.name || z.city || z.region || z.id));
     return m;
   }, [zones]);
+  const regionName = useMemo(() => {
+    const m = new Map<string, string>();
+    zones.forEach((z) => m.set(z.id, z.region || z.city || z.name || `Unspecified region`));
+    return m;
+  }, [zones]);
+  const resolveOrderRegion = useMemo(() => {
+    return (order: OrderRow) => {
+      const derivedFromCustomerLocation = inferRegionFromLocationText(
+        order.deliveryCity,
+        order.deliveryAddress,
+        order.pickupStationInfo?.region,
+        order.pickupStationInfo?.city,
+        order.pickupStationInfo?.locationLabel,
+      );
+      if (derivedFromCustomerLocation) return derivedFromCustomerLocation;
+      return regionName.get(String(order.deliveryZoneId || "")) || "Unspecified region";
+    };
+  }, [regionName]);
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
       const d = new Date(o.createdAt);
       if (Number.isNaN(d.getTime()) || d < rangeStart || d > rangeEnd) return false;
-      if (methodFilter !== "all" && n(o.deliveryMethod) !== methodFilter) return false;
+      if (methodFilter !== "all" && normalizeDeliveryMethod(o.deliveryMethod, o) !== methodFilter) return false;
       if (zoneScope && String(o.deliveryZoneId || "") !== zoneScope) return false;
       return true;
     });
-  }, [methodFilter, orders, rangeEnd, rangeStart, zoneScope]);
+  }, [methodFilter, normalizeDeliveryMethod, orders, rangeEnd, rangeStart, zoneScope]);
 
   const paidDone = useMemo(() => filtered.filter((o) => paid(o.paymentStatus) && completed(o.status)), [filtered]);
+  const paidDeliveries = useMemo(
+    () => paidDone.filter((o) => normalizeDeliveryMethod(o.deliveryMethod, o) !== "pickup"),
+    [normalizeDeliveryMethod, paidDone],
+  );
+  const paidPickups = useMemo(
+    () => paidDone.filter((o) => normalizeDeliveryMethod(o.deliveryMethod, o) === "pickup"),
+    [normalizeDeliveryMethod, paidDone],
+  );
 
   const todayStart = useMemo(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d;
@@ -317,12 +475,13 @@ export default function AdminAnalytics() {
     const week = filtered.filter((o) => new Date(o.createdAt) >= weekStart).length;
     const month = filtered.filter((o) => new Date(o.createdAt) >= monthStart).length;
     const active = filtered.filter((o) => ACTIVE.has(n(o.status)));
-    const riderActive = active.filter((o) => n(o.deliveryMethod) === "rider").length;
-    const busActive = active.filter((o) => n(o.deliveryMethod) === "bus").length;
+    const riderActive = active.filter((o) => normalizeDeliveryMethod(o.deliveryMethod, o) === "rider").length;
+    const deliveryActive = active.filter((o) => normalizeDeliveryMethod(o.deliveryMethod, o) === "delivery").length;
+    const busActive = active.filter((o) => normalizeDeliveryMethod(o.deliveryMethod, o) === "bus").length;
     const failed = filtered.filter((o) => FAILED.has(n(o.status)) || n(o.paymentStatus) === "failed").length;
     const delayed = filtered.filter((o) => ACTIVE.has(n(o.status)) && (Date.now() - new Date(o.createdAt).getTime()) / 60000 > 120).length;
-    return { ordersToday, week, month, riderActive, busActive, failed, delayed };
-  }, [filtered, todayStart]);
+    return { ordersToday, week, month, riderActive, deliveryActive, busActive, failed, delayed };
+  }, [filtered, normalizeDeliveryMethod, todayStart]);
 
   const onlineRiders = useMemo(() => {
     return riders.filter((r) => (!zoneScope || String(r.deliveryZoneId || "") === zoneScope) && r.isActive !== false && r.riderOnline !== false).length;
@@ -342,37 +501,51 @@ export default function AdminAnalytics() {
   }, [paidDone, revenueViews?.dailyRevenue]);
   const revenueByMethod = useMemo(() => {
     const map = new Map<string, number>();
-    paidDone.forEach((o) => map.set(n(o.deliveryMethod), (map.get(n(o.deliveryMethod)) || 0) + num(o.total)));
+    paidDone.forEach((o) => {
+      const method = normalizeDeliveryMethod(o.deliveryMethod, o);
+      map.set(method, (map.get(method) || 0) + num(o.total));
+    });
     return [
-      { label: "Rider", revenue: map.get("rider") || 0 },
+      ...(showInternalRiderFeatures ? [{ label: "Rider", revenue: map.get("rider") || 0 }] : []),
+      ...(!showInternalRiderFeatures ? [{ label: "External Delivery", revenue: map.get("delivery") || 0 }] : []),
       { label: "Bus", revenue: map.get("bus") || 0 },
       { label: "Pickup", revenue: map.get("pickup") || 0 },
     ];
-  }, [paidDone]);
+  }, [normalizeDeliveryMethod, paidDone, showInternalRiderFeatures]);
 
-  const revenueByZone = useMemo(() => {
+  const revenueByRegion = useMemo(() => {
     const map = new Map<string, number>();
     paidDone.forEach((o) => {
-      const z = zoneName.get(String(o.deliveryZoneId || "")) || "Unspecified";
-      map.set(z, (map.get(z) || 0) + num(o.total));
+      const region = resolveOrderRegion(o);
+      map.set(region, (map.get(region) || 0) + num(o.total));
     });
-    return Array.from(map.entries()).map(([zone, revenue]) => ({ zone, revenue })).sort((a, b) => b.revenue - a.revenue).slice(0, 8);
-  }, [paidDone, zoneName]);
+    return Array.from(map.entries()).map(([region, revenue]) => ({ region, revenue })).sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+  }, [paidDone, resolveOrderRegion]);
+  const hasRevenueOverTimeData = useMemo(() => revenueTime.some((row) => num(row.revenue) > 0), [revenueTime]);
+  const hasRevenueByMethodData = useMemo(() => revenueByMethod.some((row) => num(row.revenue) > 0), [revenueByMethod]);
+  const hasRevenueByRegionData = useMemo(() => revenueByRegion.some((row) => num(row.revenue) > 0), [revenueByRegion]);
 
   const finance = useMemo(() => {
     const rows = Array.isArray(revenueViews?.platformCommission) ? revenueViews.platformCommission : [];
     return {
-      fees: rows.reduce((s: number, r: any) => s + num(r.commission_amount), 0),
+      fees: num(analytics?.platformCommissionTotal),
+      processing: num(analytics?.processingFeesTotal),
       payouts: rows.reduce((s: number, r: any) => s + num(r.seller_amount), 0),
     };
-  }, [revenueViews?.platformCommission]);
+  }, [analytics?.platformCommissionTotal, analytics?.processingFeesTotal, revenueViews?.platformCommission]);
 
   const ops = useMemo(() => {
-    const funnel = ["pending", "processing", "assigned", "in_transit", "completed"].map((status) => ({
-      status: status.replace("_", " "),
-      count: filtered.filter((o) => n(o.status) === status).length,
-    }));
-    const riderOrders = filtered.filter((o) => n(o.deliveryMethod) === "rider");
+      const funnel = [
+        "pending",
+        "processing",
+        showInternalRiderFeatures ? "assigned" : "external_dispatch_arranged",
+        "in_transit",
+        "completed",
+      ].map((status) => ({
+      status: getStatusLabel(status),
+        count: filtered.filter((o) => n(o.status) === status).length,
+      }));
+    const riderOrders = filtered.filter((o) => normalizeDeliveryMethod(o.deliveryMethod, o) === "rider");
     const assignmentRate = riderOrders.length ? (riderOrders.filter((o) => !!o.riderId).length / riderOrders.length) * 100 : 0;
     const avgMins = filtered
       .filter((o) => completed(o.status) && o.deliveredAt)
@@ -382,11 +555,11 @@ export default function AdminAnalytics() {
     const busOrders = filtered.filter((o) => n(o.deliveryMethod) === "bus");
     const busRate = busOrders.length ? (busOrders.filter((o) => completed(o.status)).length / busOrders.length) * 100 : 0;
     return { funnel, assignmentRate, avgTime, busRate };
-  }, [filtered]);
+  }, [filtered, getStatusLabel, normalizeDeliveryMethod]);
 
   const feed = useMemo(() => {
     return [...filtered].sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()).slice(0, 8);
-  }, [filtered]);
+  }, [filtered, normalizeDeliveryMethod, showInternalRiderFeatures]);
 
   const topSellers = useMemo(() => {
     const map = new Map<string, { name: string; revenue: number }>();
@@ -401,6 +574,7 @@ export default function AdminAnalytics() {
   }, [paidDone]);
 
   const topRiders = useMemo(() => {
+    if (!showInternalRiderFeatures) return [];
     const map = new Map<string, { name: string; completed: number }>();
     filtered.forEach((o) => {
       if (!o.rider?.id || !completed(o.status)) return;
@@ -410,13 +584,18 @@ export default function AdminAnalytics() {
       map.set(id, row);
     });
     return Array.from(map.values()).sort((a, b) => b.completed - a.completed).slice(0, 5);
-  }, [filtered]);
+  }, [filtered, showInternalRiderFeatures]);
 
   const roleStats = [
     { role: "Buyers", active: buyers.filter((u) => u.isActive !== false).length, total: buyers.length },
     { role: "Sellers", active: sellers.filter((u) => u.isActive !== false).length, total: sellers.length },
-    { role: "Riders", active: riders.filter((u) => u.isActive !== false).length, total: riders.length },
-    { role: "Agents", active: agents.filter((u) => u.isActive !== false).length, total: agents.length },
+    ...(showInternalRiderFeatures
+      ? [{ role: "Riders", active: riders.filter((u) => u.isActive !== false).length, total: riders.length }]
+      : []),
+    { role: "Customer Agents", active: agents.filter((u) => u.isActive !== false).length, total: agents.length },
+    { role: "Pickup Agents", active: pickupAgents.filter((u) => u.isActive !== false).length, total: pickupAgents.length },
+    { role: "Admins", active: admins.filter((u) => u.isActive !== false).length, total: admins.length },
+    { role: "Super Admins", active: superAdmins.filter((u) => u.isActive !== false).length, total: superAdmins.length },
   ];
 
   const zoneOrders = useMemo(() => (adminZoneId ? filtered.filter((o) => String(o.deliveryZoneId || "") === adminZoneId) : []), [adminZoneId, filtered]);
@@ -439,7 +618,7 @@ export default function AdminAnalytics() {
     rows.filter((o) => {
       const d = new Date(o.createdAt);
       if (Number.isNaN(d.getTime()) || d < rangeStart || d > rangeEnd) return false;
-      if (methodFilter !== "all" && n(o.deliveryMethod) !== methodFilter) return false;
+      if (methodFilter !== "all" && normalizeDeliveryMethod(o.deliveryMethod, o) !== methodFilter) return false;
       if (zoneScope && String(o.deliveryZoneId || "") !== zoneScope) return false;
       return true;
     });
@@ -517,15 +696,57 @@ export default function AdminAnalytics() {
   });
 
   const refreshAll = async () => {
-    await logReportActivity({
+    void logReportActivity({
       action: "request",
       reportType: currentReportType,
       format: "json",
       scope: buildReportScope(),
       status: "success",
-    });
-    await Promise.all([refetchAnalytics(), refetchOrders(), refetchOrderLedger()]);
-    void refetchReportActivity();
+    }).catch(() => undefined);
+
+    await Promise.allSettled([
+      refetchAnalytics(),
+      refetchOrders(),
+      refetchOrderLedger(),
+      refetchReportActivity(),
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          if (typeof key !== "string") return false;
+          return [
+            "/api/support/analytics",
+            "/api/admin/system-health",
+            "/api/admin/messaging-stats",
+            "/api/admin/revenue/views/summary",
+            "/api/reports/activity",
+            "/api/delivery-zones",
+            "/api/users",
+            "/api/orders",
+            "/api/analytics",
+            "/api/admin/revenue/views/order-ledger",
+          ].some((prefix) => key.startsWith(prefix));
+        },
+        refetchType: "active",
+      }),
+      queryClient.refetchQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          if (typeof key !== "string") return false;
+          return [
+            "/api/support/analytics",
+            "/api/admin/system-health",
+            "/api/admin/messaging-stats",
+            "/api/admin/revenue/views/summary",
+            "/api/reports/activity",
+            "/api/delivery-zones",
+            "/api/users",
+            "/api/orders",
+            "/api/analytics",
+            "/api/admin/revenue/views/order-ledger",
+          ].some((prefix) => key.startsWith(prefix));
+        },
+      }),
+    ]);
   };
 
   const exportCsv = async () => {
@@ -587,7 +808,7 @@ export default function AdminAnalytics() {
       rows.forEach((row, index) => {
         lines.push(`${index + 1}. Order ${row.order_number} (${row.order_id})`);
         lines.push(`Status: ${row.current_status} | Completed: ${row.completed} | Payment: ${row.payment_status}`);
-        lines.push(`Method: ${row.delivery_method} | BUS Stage: ${row.bus_stage || "N/A"} | Zone: ${row.zone || "N/A"}`);
+        lines.push(`Method: ${row.delivery_method} | BUS Stage: ${row.bus_stage || "N/A"} | ${locationEntityLabel}: ${row.zone || "N/A"}`);
         lines.push(`Store: ${row.store_name || "N/A"} | Seller: ${row.seller_name || "N/A"}`);
         lines.push(`Order Total: ${row.order_total} ${row.currency}`);
         lines.push(`Seller Paid: ${row.seller_paid_amount} | Platform Commission: ${row.platform_commission_amount} | Platform Amount: ${row.platform_amount}`);
@@ -615,7 +836,7 @@ export default function AdminAnalytics() {
   };
 
   if (authLoading || !isAuthenticated || !canView) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+    return <PageLoadingState title="Loading analytics" description="Gathering live platform metrics and reports." />;
   }
 
   const loading = aLoading || oLoading || ledgerLoading;
@@ -623,40 +844,72 @@ export default function AdminAnalytics() {
   return (
     <DashboardLayout role={role as any}>
       <div className="p-4 md:p-6 space-y-4 pb-8 min-h-full overflow-x-hidden">
-        <Card className="sticky top-2 z-20 border-emerald-500/30 bg-[linear-gradient(96deg,rgba(6,78,59,0.46)_0%,rgba(2,6,23,0.96)_47%,rgba(8,47,73,0.52)_100%)] text-white">
+        <Card className="sticky top-2 z-20 border-border/70 bg-card text-card-foreground shadow-sm dark:border-emerald-500/30 dark:bg-[linear-gradient(96deg,rgba(6,78,59,0.46)_0%,rgba(2,6,23,0.96)_47%,rgba(8,47,73,0.52)_100%)] dark:text-white">
           <CardContent className="p-4 md:p-5 space-y-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <h1 className="text-2xl md:text-3xl font-semibold" data-testid="heading-analytics">{isSuperAdmin ? "Operations Command Center" : "Zone Operations Analytics"}</h1>
-                <p className="text-white/80 text-sm mt-1">{isSuperAdmin ? "Uber-grade command view for financial, operational, and real-time insights." : "Zone-scoped execution analytics with no cross-zone exposure."}</p>
+                <h1 className="text-2xl md:text-3xl font-semibold" data-testid="heading-analytics">
+                  {isSuperAdmin
+                    ? "Platform Analytics"
+                    : `${locationEntityLabel} Operations Analytics`}
+                </h1>
+                <p className="mt-1 text-sm text-muted-foreground dark:text-white/80">
+                  {isSuperAdmin
+                    ? (showInternalRiderFeatures
+                        ? "Unified financial, operational, and rider-dispatch insights for the whole platform."
+                        : "Unified financial, operational, and manual-delivery insights for the whole platform.")
+                    : `${locationEntityLabel}-scoped execution analytics with no cross-${locationEntityLabelPlural} exposure.`}
+                </p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge className="bg-emerald-500/25 border-emerald-300/50 text-emerald-50"><ShieldCheck className="h-3.5 w-3.5 mr-1" />Role-Aware</Badge>
-                  {isAdmin && <Badge className="bg-slate-500/25 border-slate-300/40 text-slate-50">Zone: {zoneName.get(adminZoneId) || "Unassigned"}</Badge>}
-                  <Badge className="bg-sky-500/25 border-sky-300/50 text-sky-50">Live DB rows: {filteredLedger.length}</Badge>
+                  <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-300/50 dark:bg-emerald-500/25 dark:text-emerald-50"><ShieldCheck className="mr-1 h-3.5 w-3.5" />Role-Aware</Badge>
+                  {isAdmin && <Badge className="border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-300/40 dark:bg-slate-500/25 dark:text-slate-50">{locationEntityLabel}: {zoneName.get(adminZoneId) || "Unassigned"}</Badge>}
+                  <Badge className="border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-300/50 dark:bg-sky-500/25 dark:text-sky-50">Live DB rows: {filteredLedger.length}</Badge>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void refreshAll()} disabled={exporting !== "none"}>
+                <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void refreshAll()} disabled={exporting !== "none"}>
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Refresh
                 </Button>
-                <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void exportCsv()} disabled={exporting !== "none"}>
+                <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void exportCsv()} disabled={exporting !== "none"}>
                   <Download className="h-4 w-4 mr-2" />
                   {exporting === "csv" ? "Preparing..." : "CSV"}
                 </Button>
-                <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void exportPdf()} disabled={exporting !== "none"}>
+                <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void exportPdf()} disabled={exporting !== "none"}>
                   <Download className="h-4 w-4 mr-2" />
                   {exporting === "pdf" ? "Preparing..." : "PDF"}
                 </Button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
-              <Card className="border-white/20 bg-white/5"><CardContent className="p-3"><p className="text-xs text-white/70">Total Revenue</p><p className="text-xl font-semibold">{formatPrice(num(analytics?.totalRevenue))}</p></CardContent></Card>
-              <Card className="border-white/20 bg-white/5"><CardContent className="p-3"><p className="text-xs text-white/70">Orders Today</p><p className="text-xl font-semibold">{kpi.ordersToday}</p></CardContent></Card>
-              <Card className="border-white/20 bg-white/5"><CardContent className="p-3"><p className="text-xs text-white/70">Orders Week</p><p className="text-xl font-semibold">{kpi.week}</p></CardContent></Card>
-              <Card className="border-white/20 bg-white/5"><CardContent className="p-3"><p className="text-xs text-white/70">Active Deliveries</p><p className="text-xl font-semibold">{kpi.riderActive + kpi.busActive}</p><p className="text-[11px] text-white/70">Rider {kpi.riderActive} • Bus {kpi.busActive}</p></CardContent></Card>
-              <Card className="border-white/20 bg-white/5"><CardContent className="p-3"><p className="text-xs text-white/70">Online Riders</p><p className="text-xl font-semibold">{onlineRiders}</p><p className="text-[11px] text-red-300">{kpi.failed + kpi.delayed} failed/delayed</p></CardContent></Card>
+            <div className={showInternalRiderFeatures ? "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-8" : "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-7"}>
+              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Total Revenue</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.platformCommissionTotal))}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Received Money</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.totalReceivedMoney))}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Processing Fees</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.processingFeesTotal))}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Orders Today</p><p className="text-xl font-semibold text-foreground dark:text-white">{kpi.ordersToday}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Orders Week</p><p className="text-xl font-semibold text-foreground dark:text-white">{kpi.week}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Deliveries</p><p className="text-xl font-semibold text-foreground dark:text-white">{paidDeliveries.length}</p><p className="text-[11px] text-muted-foreground dark:text-white/70">{showInternalRiderFeatures ? `Successful rider and bus deliveries` : `Successful external and VIP bus deliveries`}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Successful Pickups</p><p className="text-xl font-semibold text-foreground dark:text-white">{paidPickups.length}</p><p className="text-[11px] text-muted-foreground dark:text-white/70">Completed after QR or OTP pickup validation</p></CardContent></Card>
+              {showInternalRiderFeatures ? <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Online Riders</p><p className="text-xl font-semibold text-foreground dark:text-white">{onlineRiders}</p><p className="text-[11px] text-red-600 dark:text-red-300">{`${kpi.failed + kpi.delayed} failed/delayed`}</p></CardContent></Card> : null}
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-border/70 bg-background/85 p-4">
+                <p className="text-sm font-medium">Total Revenue</p>
+                <p className="mt-1 text-sm text-muted-foreground">Platform commission only. This is the platform share after the split, not gross customer intake.</p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/85 p-4">
+                <p className="text-sm font-medium">Received Money</p>
+                <p className="mt-1 text-sm text-muted-foreground">Gross paid customer amount across orders. It includes seller share, platform commission, delivery fees, and the exact checkout processing fee charged to the customer.</p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/85 p-4">
+                <p className="text-sm font-medium">Processing Fees</p>
+                <p className="mt-1 text-sm text-muted-foreground">Customer-paid Paystack checkout fees recorded separately from commission and seller settlement.</p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/85 p-4">
+                <p className="text-sm font-medium">Deliveries</p>
+                <p className="mt-1 text-sm text-muted-foreground">Successful completed delivery orders only. Pickup completions are tracked separately after QR or OTP validation.</p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -667,8 +920,8 @@ export default function AdminAnalytics() {
               <div className="space-y-1"><label className="text-xs text-muted-foreground">Date Range</label><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={preset} onChange={(e) => setPreset(e.target.value as any)}><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="90d">Last 90 days</option><option value="custom">Custom</option></select></div>
               <div className="space-y-1"><label className="text-xs text-muted-foreground">From</label><input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="h-9 w-full rounded-md border bg-background px-2 text-sm" /></div>
               <div className="space-y-1"><label className="text-xs text-muted-foreground">To</label><input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="h-9 w-full rounded-md border bg-background px-2 text-sm" /></div>
-              <div className="space-y-1"><label className="text-xs text-muted-foreground">Delivery Method</label><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={methodFilter} onChange={(e) => setMethodFilter(e.target.value as any)}><option value="all">All</option><option value="rider">Rider</option><option value="bus">Bus</option><option value="pickup">Pickup</option></select></div>
-              {isSuperAdmin && <div className="space-y-1 md:col-span-2"><label className="text-xs text-muted-foreground">Zone</label><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)}><option value="all">All zones</option>{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}</select></div>}
+              <div className="space-y-1"><label className="text-xs text-muted-foreground">Delivery Method</label><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={methodFilter} onChange={(e) => setMethodFilter(e.target.value as any)}><option value="all">All</option>{showInternalRiderFeatures ? <option value="rider">Rider</option> : <option value="delivery">External Delivery</option>}<option value="bus">VIP Bus</option><option value="pickup">Pickup</option></select></div>
+              {isSuperAdmin && showInternalRiderFeatures && <div className="space-y-1 md:col-span-2"><label className="text-xs text-muted-foreground">{locationEntityLabel}</label><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)}><option value="all">All {locationEntityLabelPlural}</option>{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}</select></div>}
             </div>
           </CardContent>
         </Card>
@@ -680,43 +933,62 @@ export default function AdminAnalytics() {
                 <Card>
                   <CardHeader><CardTitle>Revenue Over Time</CardTitle><CardDescription>Completed paid revenue trend</CardDescription></CardHeader>
                   <CardContent>
-                    <ChartContainer config={{ revenue: { label: "Revenue", color: "#14b8a6" } }} className="h-[260px] w-full">
-                      <AreaChart data={revenueTime}><CartesianGrid vertical={false} /><XAxis dataKey="day" tickLine={false} axisLine={false} /><YAxis tickLine={false} axisLine={false} /><ChartTooltip content={<ChartTooltipContent />} /><Area dataKey="revenue" stroke="var(--color-revenue)" fill="var(--color-revenue)" fillOpacity={0.22} /></AreaChart>
-                    </ChartContainer>
+                    {hasRevenueOverTimeData ? (
+                      <ChartContainer config={{ revenue: { label: "Revenue", color: "#14b8a6" } }} className="h-[260px] w-full">
+                        <AreaChart data={revenueTime}><CartesianGrid vertical={false} /><XAxis dataKey="day" tickLine={false} axisLine={false} /><YAxis tickLine={false} axisLine={false} /><ChartTooltip content={<ChartTooltipContent />} /><Area dataKey="revenue" stroke="var(--color-revenue)" fill="var(--color-revenue)" fillOpacity={0.22} /></AreaChart>
+                      </ChartContainer>
+                    ) : (
+                      <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 text-center text-sm text-muted-foreground">
+                        No completed paid revenue found for the current filters.
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
                 <Card>
                   <CardHeader><CardTitle>Revenue by Delivery Method</CardTitle><CardDescription>Method contribution</CardDescription></CardHeader>
                   <CardContent>
-                    <ChartContainer config={{ revenue: { label: "Revenue", color: "#0ea5e9" } }} className="h-[260px] w-full">
-                      <BarChart data={revenueByMethod}><CartesianGrid vertical={false} /><XAxis dataKey="label" tickLine={false} axisLine={false} /><YAxis tickLine={false} axisLine={false} /><ChartTooltip content={<ChartTooltipContent />} /><Bar dataKey="revenue" fill="var(--color-revenue)" radius={[6, 6, 0, 0]} /></BarChart>
-                    </ChartContainer>
+                    {hasRevenueByMethodData ? (
+                      <ChartContainer config={{ revenue: { label: "Revenue", color: "#0ea5e9" } }} className="h-[260px] w-full">
+                        <BarChart data={revenueByMethod}><CartesianGrid vertical={false} /><XAxis dataKey="label" tickLine={false} axisLine={false} /><YAxis tickLine={false} axisLine={false} /><ChartTooltip content={<ChartTooltipContent />} /><Bar dataKey="revenue" fill="var(--color-revenue)" radius={[6, 6, 0, 0]} /></BarChart>
+                      </ChartContainer>
+                    ) : (
+                      <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 text-center text-sm text-muted-foreground">
+                        No delivery-method revenue is available for the current filters.
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <Card className="xl:col-span-2">
-                  <CardHeader><CardTitle>Revenue by Zone</CardTitle><CardDescription>Top regional performers</CardDescription></CardHeader>
+                  <CardHeader><CardTitle>Revenue by Region</CardTitle><CardDescription>{showInternalRiderFeatures ? "Top regional performers" : "Top regional performance under manual delivery mode"}</CardDescription></CardHeader>
                   <CardContent>
-                    <ChartContainer config={{ revenue: { label: "Revenue", color: "#22c55e" } }} className="h-[250px] w-full">
-                      <BarChart data={revenueByZone}><CartesianGrid vertical={false} /><XAxis dataKey="zone" tickLine={false} axisLine={false} /><YAxis tickLine={false} axisLine={false} /><ChartTooltip content={<ChartTooltipContent />} /><Bar dataKey="revenue" fill="var(--color-revenue)" radius={[6, 6, 0, 0]} /></BarChart>
-                    </ChartContainer>
+                    {hasRevenueByRegionData ? (
+                      <ChartContainer config={{ revenue: { label: "Revenue", color: "#22c55e" } }} className="h-[250px] w-full">
+                        <BarChart data={revenueByRegion}><CartesianGrid vertical={false} /><XAxis dataKey="region" tickLine={false} axisLine={false} /><YAxis tickLine={false} axisLine={false} /><ChartTooltip content={<ChartTooltipContent />} /><Bar dataKey="revenue" fill="var(--color-revenue)" radius={[6, 6, 0, 0]} /></BarChart>
+                      </ChartContainer>
+                    ) : (
+                      <div className="flex h-[250px] items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 text-center text-sm text-muted-foreground">
+                        No regional revenue is available for the current filters.
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
                 <Card>
                   <CardHeader><CardTitle>Platform Fees vs Payouts</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Platform Fees</p><p className="text-lg font-semibold">{formatPrice(finance.fees)}</p></div>
-                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Seller Payouts</p><p className="text-lg font-semibold">{formatPrice(finance.payouts)}</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Platform Commission</p><p className="text-lg font-semibold">{formatPrice(finance.fees)}</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Processing Fees</p><p className="text-lg font-semibold">{formatPrice(finance.processing)}</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Seller Settlements</p><p className="text-lg font-semibold">{formatPrice(finance.payouts)}</p></div>
                   </CardContent>
                 </Card>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <Card><CardHeader><CardTitle>Order Lifecycle Funnel</CardTitle></CardHeader><CardContent className="space-y-2">{ops.funnel.map((f) => <div key={f.status} className="space-y-1"><div className="flex items-center justify-between text-sm"><span className="capitalize">{f.status}</span><span className="font-medium">{f.count}</span></div><div className="h-1.5 rounded bg-muted"><div className="h-full rounded bg-primary" style={{ width: `${Math.min(100, f.count * 5)}%` }} /></div></div>)}</CardContent></Card>
-                <Card><CardHeader><CardTitle>Operations & Performance</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><div className="flex justify-between"><span>Rider Assignment Success</span><span className="font-semibold">{ops.assignmentRate.toFixed(1)}%</span></div><div className="flex justify-between"><span>Average Delivery Time</span><span className="font-semibold">{fm(ops.avgTime)}</span></div><div className="flex justify-between"><span>Bus Completion Rate</span><span className="font-semibold">{ops.busRate.toFixed(1)}%</span></div><div className="flex justify-between"><span>Orders This Month</span><span className="font-semibold">{kpi.month}</span></div></CardContent></Card>
-                <Card><CardHeader><CardTitle>Real-Time System Activity</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-500" /><span>Dispatch backlog: {messaging?.operations?.dispatchBacklog || 0}</span></div><div className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-amber-500" /><span>Message queue: {messaging?.messageQueue?.queueSize || 0}</span></div><div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-red-500" /><span>Stale GPS orders: {health?.tracking?.staleGpsOrders || 0}</span></div><div className="flex items-center gap-2"><Truck className="h-4 w-4 text-blue-500" /><span>In transit: {health?.pipeline?.inTransit || 0}</span></div><div className="flex items-center gap-2"><Bus className="h-4 w-4 text-blue-500" /><span>Searching rider: {health?.pipeline?.searchingRider || 0}</span></div></CardContent></Card>
+                <Card><CardHeader><CardTitle>Operations & Performance</CardTitle></CardHeader><CardContent className="space-y-2 text-sm">{showInternalRiderFeatures ? <div className="flex justify-between"><span>Rider Assignment Success</span><span className="font-semibold">{ops.assignmentRate.toFixed(1)}%</span></div> : <div className="flex justify-between"><span>External Dispatch Volume</span><span className="font-semibold">{kpi.deliveryActive}</span></div>}<div className="flex justify-between"><span>Average Delivery Time</span><span className="font-semibold">{fm(ops.avgTime)}</span></div><div className="flex justify-between"><span>Bus Completion Rate</span><span className="font-semibold">{ops.busRate.toFixed(1)}%</span></div><div className="flex justify-between"><span>Orders This Month</span><span className="font-semibold">{kpi.month}</span></div></CardContent></Card>
+                <Card><CardHeader><CardTitle>Real-Time System Activity</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-500" /><span>Dispatch backlog: {messaging?.operations?.dispatchBacklog || 0}</span></div><div className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-amber-500" /><span>Message queue: {messaging?.messageQueue?.queueSize || 0}</span></div><div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-red-500" /><span>{showInternalRiderFeatures ? `Stale GPS orders: ${health?.tracking?.staleGpsOrders || 0}` : `Manual delivery exceptions: ${kpi.failed + kpi.delayed}`}</span></div><div className="flex items-center gap-2"><Truck className="h-4 w-4 text-blue-500" /><span>In transit: {health?.pipeline?.inTransit || 0}</span></div>{showInternalRiderFeatures ? <div className="flex items-center gap-2"><Bus className="h-4 w-4 text-blue-500" /><span>Searching rider: {health?.pipeline?.searchingRider || 0}</span></div> : <div className="flex items-center gap-2"><Bus className="h-4 w-4 text-blue-500" /><span>External dispatch arranged: {filtered.filter((o) => n(o.status) === "external_dispatch_arranged").length}</span></div>}</CardContent></Card>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -728,7 +1000,7 @@ export default function AdminAnalytics() {
                         <div className="min-w-0">
                           <p className="font-medium truncate">#{o.orderNumber}</p>
                           <p className="text-xs text-muted-foreground truncate capitalize">
-                            {n(o.status).replace("_", " ")} • {zoneName.get(String(o.deliveryZoneId || "")) || "Unspecified"}
+                            {getStatusLabel(o.status)} | {zoneName.get(String(o.deliveryZoneId || "")) || `Unspecified ${locationEntityLabel.toLowerCase()}`}
                           </p>
                         </div>
                         <p className="text-xs text-muted-foreground">{new Date(o.updatedAt || o.createdAt).toLocaleTimeString()}</p>
@@ -736,7 +1008,7 @@ export default function AdminAnalytics() {
                     ))}
                   </CardContent>
                 </Card>
-                <Card><CardHeader><CardTitle>User & Role Analytics</CardTitle></CardHeader><CardContent className="space-y-3"><div className="grid grid-cols-2 gap-2">{roleStats.map((r) => <div key={r.role} className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{r.role}</p><p className="text-lg font-semibold">{r.active}/{r.total}</p></div>)}</div><div className="space-y-2"><p className="text-sm font-medium">Seller Performance Ranking</p>{topSellers.map((s, i) => <div key={`${s.name}-${i}`} className="flex justify-between text-sm"><span className="truncate">{s.name}</span><span className="font-semibold">{formatPrice(s.revenue)}</span></div>)}</div><div className="space-y-2"><p className="text-sm font-medium">Rider Performance Metrics</p>{topRiders.map((r, i) => <div key={`${r.name}-${i}`} className="flex justify-between text-sm"><span className="truncate">{r.name}</span><span className="font-semibold">{r.completed} completed</span></div>)}</div><div className="rounded-lg border p-3 text-sm"><p className="font-medium mb-1">Agent Activity Metrics</p><p>Open: {num(support?.totals?.open)} • Assigned: {num(support?.totals?.assigned)} • Resolved: {num(support?.totals?.resolved)}</p><p className="text-muted-foreground">Avg first response: {Math.round(num(support?.responseTime?.avgFirstResponseSeconds) / 60)} min</p></div></CardContent></Card>
+                <Card><CardHeader><CardTitle>User & Role Analytics</CardTitle></CardHeader><CardContent className="space-y-4"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">{roleStats.map((r) => <div key={r.role} className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-sm"><p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{r.role}</p><p className="mt-2 text-xl font-semibold">{r.active}/{r.total}</p><p className="mt-1 text-xs text-muted-foreground">Active / Total</p></div>)}</div><div className="space-y-2"><p className="text-sm font-medium">Seller Performance Ranking</p>{topSellers.map((s, i) => <div key={`${s.name}-${i}`} className="flex justify-between text-sm"><span className="truncate">{s.name}</span><span className="font-semibold">{formatPrice(s.revenue)}</span></div>)}</div>{showInternalRiderFeatures ? <div className="space-y-2"><p className="text-sm font-medium">Rider Performance Metrics</p>{topRiders.map((r, i) => <div key={`${r.name}-${i}`} className="flex justify-between text-sm"><span className="truncate">{r.name}</span><span className="font-semibold">{r.completed} completed</span></div>)}</div> : <div className="space-y-2"><p className="text-sm font-medium">Manual Delivery Oversight</p><div className="flex justify-between text-sm"><span>External delivery orders</span><span className="font-semibold">{kpi.deliveryActive}</span></div><div className="flex justify-between text-sm"><span>VIP bus orders</span><span className="font-semibold">{kpi.busActive}</span></div></div>}<div className="rounded-lg border p-3 text-sm"><p className="font-medium mb-1">Customer Agent Activity Metrics</p><p>Open: {num(support?.totals?.open)} | Assigned: {num(support?.totals?.assigned)} | Resolved: {num(support?.totals?.resolved)}</p><p className="text-muted-foreground">Avg first response: {Math.round(num(support?.responseTime?.avgFirstResponseSeconds) / 60)} min</p></div></CardContent></Card>
               </div>
 
               <Card>
@@ -791,12 +1063,12 @@ export default function AdminAnalytics() {
             </>
           ) : (
             <>
-              <Card className="border-blue-500/25"><CardContent className="p-4 text-sm text-muted-foreground">Zone-scoped mode is active. Global financial and cross-zone analytics are intentionally hidden for admins.</CardContent></Card>
+              <Card className="border-blue-500/25"><CardContent className="p-4 text-sm text-muted-foreground">{showInternalRiderFeatures ? "Zone-scoped mode is active. Global financial and cross-zone analytics are intentionally hidden for admins." : "Zone-scoped mode is active. Global financial and cross-zone analytics remain hidden for admins while manual delivery mode is active."}</CardContent></Card>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Zone Orders</p><p className="text-2xl font-semibold">{zoneOrders.length}</p></CardContent></Card>
+                <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{locationEntityLabel} Orders</p><p className="text-2xl font-semibold">{zoneOrders.length}</p></CardContent></Card>
                 <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Completed</p><p className="text-2xl font-semibold">{zoneOrders.filter((o) => completed(o.status)).length}</p></CardContent></Card>
-                <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Zone Revenue</p><p className="text-2xl font-semibold">{formatPrice(zoneOrders.filter((o) => completed(o.status) && paid(o.paymentStatus)).reduce((s, o) => s + num(o.total), 0))}</p></CardContent></Card>
-                <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Rider Availability</p><p className="text-2xl font-semibold">{onlineRiders}</p></CardContent></Card>
+                <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{locationEntityLabel} Revenue</p><p className="text-2xl font-semibold">{formatPrice(zoneOrders.filter((o) => completed(o.status) && paid(o.paymentStatus)).reduce((s, o) => s + num(o.total), 0))}</p></CardContent></Card>
+                <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{showInternalRiderFeatures ? "Rider Availability" : "Service Alerts"}</p><p className="text-2xl font-semibold">{showInternalRiderFeatures ? onlineRiders : kpi.failed + kpi.delayed}</p></CardContent></Card>
                 <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">SLA Risk</p><p className="text-2xl font-semibold">{kpi.delayed}</p></CardContent></Card>
               </div>
 
@@ -806,7 +1078,7 @@ export default function AdminAnalytics() {
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                <Card><CardHeader><CardTitle>Rider Performance</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><div className="flex justify-between"><span>Total Riders (zone)</span><span className="font-semibold">{riders.filter((r) => String(r.deliveryZoneId || "") === adminZoneId).length}</span></div><div className="flex justify-between"><span>Online Riders</span><span className="font-semibold">{onlineRiders}</span></div><div className="flex justify-between"><span>Active Deliveries</span><span className="font-semibold">{zoneOrders.filter((o) => ACTIVE.has(n(o.status))).length}</span></div></CardContent></Card>
+                {showInternalRiderFeatures ? <Card><CardHeader><CardTitle>Rider Performance</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><div className="flex justify-between"><span>Total Riders ({locationEntityLabel.toLowerCase()})</span><span className="font-semibold">{riders.filter((r) => String(r.deliveryZoneId || "") === adminZoneId).length}</span></div><div className="flex justify-between"><span>Online Riders</span><span className="font-semibold">{onlineRiders}</span></div><div className="flex justify-between"><span>Active Deliveries</span><span className="font-semibold">{zoneOrders.filter((o) => ACTIVE.has(n(o.status))).length}</span></div></CardContent></Card> : <Card><CardHeader><CardTitle>Delivery Performance</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><div className="flex justify-between"><span>Active Deliveries</span><span className="font-semibold">{zoneOrders.filter((o) => ACTIVE.has(n(o.status))).length}</span></div><div className="flex justify-between"><span>External Deliveries</span><span className="font-semibold">{zoneOrders.filter((o) => normalizeDeliveryMethod(o.deliveryMethod, o) === "delivery").length}</span></div><div className="flex justify-between"><span>VIP Bus Deliveries</span><span className="font-semibold">{zoneOrders.filter((o) => normalizeDeliveryMethod(o.deliveryMethod, o) === "bus").length}</span></div><div className="flex justify-between"><span>Pickup Orders</span><span className="font-semibold">{zoneOrders.filter((o) => normalizeDeliveryMethod(o.deliveryMethod, o) === "pickup").length}</span></div></CardContent></Card>}
                 <Card><CardHeader><CardTitle>SLA Metrics</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><div className="flex justify-between"><span>Average Delivery Time</span><span className="font-semibold">{fm(ops.avgTime)}</span></div><div className="flex justify-between"><span>Bus Completion Rate</span><span className="font-semibold">{ops.busRate.toFixed(1)}%</span></div><div className="flex justify-between"><span>Intervention Backlog</span><span className="font-semibold">{num(support?.unresolvedBacklog?.over30MinutesWithoutFirstResponse)}</span></div></CardContent></Card>
                 <Card><CardHeader><CardTitle>Operational Alerts</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-500" /><span>Dispatch backlog: {messaging?.operations?.dispatchBacklog || 0}</span></div><div className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-amber-500" /><span>Message queue: {messaging?.messageQueue?.queueSize || 0}</span></div><div className="flex items-center gap-2"><Truck className="h-4 w-4 text-blue-500" /><span>In transit: {health?.pipeline?.inTransit || 0}</span></div></CardContent></Card>
               </div>
@@ -862,3 +1134,6 @@ export default function AdminAnalytics() {
     </DashboardLayout>
   );
 }
+
+
+

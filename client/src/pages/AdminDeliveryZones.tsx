@@ -11,7 +11,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useSocket } from "@/contexts/NotificationContext";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -33,14 +35,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2, Plus, Edit, Trash2, MapPin } from "lucide-react";
+import { Loader2, Plus, Edit, Trash2, MapPin, Users, Mail, Phone } from "lucide-react";
+
+const GHANA_REGIONS = [
+  "Greater Accra",
+  "Ashanti",
+  "Central",
+  "Eastern",
+  "Western",
+  "Western North",
+  "Volta",
+  "Oti",
+  "Northern",
+  "Savannah",
+  "North East",
+  "Upper East",
+  "Upper West",
+  "Bono",
+  "Bono East",
+  "Ahafo",
+] as const;
 
 const zoneSchema = z.object({
   name: z.string().min(1, "Zone name is required"),
   type: z.enum(["city", "region"]).default("city"),
   city: z.string().optional(),
   region: z.string().optional(),
-  fee: z.string().refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) >= 0, {
+  fee: z.string().optional().refine((val) => val === undefined || val === "" || (!isNaN(parseFloat(val)) && parseFloat(val) >= 0), {
     message: "Fee must be a positive number",
   }),
   isActive: z.boolean(),
@@ -50,6 +71,7 @@ type ZoneFormData = z.infer<typeof zoneSchema>;
 
 interface DeliveryZone {
   id: string;
+  entityKind?: "delivery_zone" | "pickup_station";
   name: string;
   type?: "city" | "region";
   city?: string | null;
@@ -59,12 +81,28 @@ interface DeliveryZone {
   createdAt: string;
 }
 
-export default function AdminDeliveryZones() {
+interface PickupAgent {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  businessAddress?: string | null;
+  deliveryZoneId?: string | null;
+  isActive?: boolean;
+}
+
+export function AdminDeliveryZonesPage({
+  entityKind = "delivery_zone",
+}: {
+  entityKind?: "delivery_zone" | "pickup_station";
+}) {
   const { toast } = useToast();
   const { formatPrice, currency } = useLanguage();
   const socket = useSocket();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<DeliveryZone | null>(null);
+  const [selectedPickupAgentIds, setSelectedPickupAgentIds] = useState<string[]>([]);
+  const [hasInitializedAgentSelection, setHasInitializedAgentSelection] = useState(false);
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const normalizedRole = (() => {
@@ -72,6 +110,13 @@ export default function AdminDeliveryZones() {
     return raw === "superadmin" ? "super_admin" : raw;
   })();
   const isAdminViewer = normalizedRole === "admin" || normalizedRole === "super_admin";
+  const isPickupStationPage = entityKind === "pickup_station";
+  const pageTitle = isPickupStationPage ? "Pickup Stations" : "Delivery Zones & Pricing";
+  const pageDescription = isPickupStationPage
+    ? "Manage pickup stations used for pickup-agent assignment and pickup order routing"
+    : "Manage delivery zones and their associated fees";
+  const entityLabel = isPickupStationPage ? "pickup station" : "zone";
+  const entityLabelPlural = isPickupStationPage ? "pickup stations" : "zones";
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || !isAdminViewer)) {
@@ -80,9 +125,10 @@ export default function AdminDeliveryZones() {
   }, [isAuthenticated, authLoading, isAdminViewer, navigate]);
 
   const { data: zones = [], isLoading } = useQuery<DeliveryZone[]>({
-    queryKey: ["/api/admin/delivery-zones"],
+    queryKey: ["/api/admin/delivery-zones", entityKind],
     queryFn: async () => {
-      const res = await fetch("/api/admin/delivery-zones", { credentials: "include", cache: "no-store" });
+      const endpoint = isPickupStationPage ? "/api/admin/pickup-stations" : "/api/admin/delivery-zones";
+      const res = await fetch(endpoint, { credentials: "include", cache: "no-store" });
       if (!res.ok) throw new Error("Failed to fetch delivery zones");
       const payload = await res.json();
       return Array.isArray(payload) ? payload : [];
@@ -94,11 +140,29 @@ export default function AdminDeliveryZones() {
     refetchOnWindowFocus: true,
   });
 
+  const { data: pickupAgents = [], isLoading: pickupAgentsLoading } = useQuery<PickupAgent[]>({
+    queryKey: ["/api/users", "pickup_agent", "station-assignment"],
+    queryFn: async () => {
+      const res = await fetch("/api/users?role=pickup_agent", { credentials: "include", cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch pickup agents");
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && isAdminViewer && isPickupStationPage,
+    staleTime: 0,
+    refetchInterval: 10000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+  });
+
   useEffect(() => {
     if (!socket) return;
     const handleZonesUpdate = () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pickup-stations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pickup-stations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users", "pickup_agent", "station-assignment"] });
       queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
     };
@@ -121,26 +185,80 @@ export default function AdminDeliveryZones() {
     },
   });
 
+  const normalizeZonePayload = (data: ZoneFormData): ZoneFormData => {
+    const normalizedFee = isPickupStationPage ? "0" : String(data.fee || "0");
+    return {
+      ...data,
+      entityKind,
+      fee: normalizedFee,
+    } as ZoneFormData;
+  };
+
+  const syncPickupAgentAssignments = async (zoneId: string) => {
+    if (!isPickupStationPage) return;
+
+    const normalizedZoneId = String(zoneId || "").trim();
+    const selectedIds = new Set(selectedPickupAgentIds.map((id) => String(id).trim()).filter(Boolean));
+
+    const updates = pickupAgents.flatMap((agent) => {
+      const agentId = String(agent.id || "").trim();
+      if (!agentId) return [];
+
+      const currentZoneId = String(agent.deliveryZoneId || "").trim();
+      const shouldAssignHere = selectedIds.has(agentId);
+
+      if (shouldAssignHere && currentZoneId !== normalizedZoneId) {
+        return [apiRequest("PATCH", `/api/users/${agentId}`, { deliveryZoneId: normalizedZoneId })];
+      }
+
+      if (!shouldAssignHere && currentZoneId === normalizedZoneId) {
+        return [apiRequest("PATCH", `/api/users/${agentId}`, { deliveryZoneId: null })];
+      }
+
+      return [];
+    });
+
+    await Promise.all(updates);
+  };
+
   const createZoneMutation = useMutation({
     mutationFn: async (data: ZoneFormData) => {
-      const res = await apiRequest("POST", "/api/delivery-zones", data);
+      const normalizedData = normalizeZonePayload(data);
+      const res = await apiRequest("POST", "/api/delivery-zones", normalizedData);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (zone: DeliveryZone) => {
+      let assignmentError: Error | null = null;
+      if (isPickupStationPage) {
+        try {
+          await syncPickupAgentAssignments(zone.id);
+        } catch (error) {
+          assignmentError = error as Error;
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/admin/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pickup-stations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pickup-stations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users", "pickup_agent", "station-assignment"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
       toast({
-        title: "Delivery zone created",
-        description: "New delivery zone has been added successfully.",
+        title: isPickupStationPage ? "Pickup station created" : "Delivery zone created",
+        description: assignmentError
+          ? `Pickup station saved, but pickup-agent assignment could not be completed: ${assignmentError.message}`
+          : isPickupStationPage
+            ? "New pickup station has been added successfully and pickup agents were updated."
+            : "New delivery zone has been added successfully.",
+        variant: assignmentError ? "destructive" : "default",
       });
-      setIsDialogOpen(false);
+      handleDialogOpenChange(false);
       form.reset();
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to create zone",
+        title: isPickupStationPage ? "Failed to create pickup station" : "Failed to create zone",
         description: error.message,
         variant: "destructive",
       });
@@ -149,25 +267,42 @@ export default function AdminDeliveryZones() {
 
   const updateZoneMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: ZoneFormData }) => {
-      const res = await apiRequest("PATCH", `/api/delivery-zones/${id}`, data);
+      const normalizedData = normalizeZonePayload(data);
+      const res = await apiRequest("PATCH", `/api/delivery-zones/${id}`, normalizedData);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (zone: DeliveryZone) => {
+      let assignmentError: Error | null = null;
+      if (isPickupStationPage) {
+        try {
+          await syncPickupAgentAssignments(zone.id);
+        } catch (error) {
+          assignmentError = error as Error;
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/admin/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pickup-stations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pickup-stations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users", "pickup_agent", "station-assignment"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
       toast({
-        title: "Delivery zone updated",
-        description: "Delivery zone has been updated successfully.",
+        title: isPickupStationPage ? "Pickup station updated" : "Delivery zone updated",
+        description: assignmentError
+          ? `Pickup station saved, but pickup-agent assignment could not be completed: ${assignmentError.message}`
+          : isPickupStationPage
+            ? "Pickup station has been updated successfully and pickup agents were updated."
+            : "Delivery zone has been updated successfully.",
+        variant: assignmentError ? "destructive" : "default",
       });
-      setIsDialogOpen(false);
-      setEditingZone(null);
+      handleDialogOpenChange(false);
       form.reset();
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to update zone",
+        title: isPickupStationPage ? "Failed to update pickup station" : "Failed to update zone",
         description: error.message,
         variant: "destructive",
       });
@@ -181,17 +316,23 @@ export default function AdminDeliveryZones() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pickup-stations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/delivery-zones"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pickup-stations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users", "pickup_agent", "station-assignment"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       queryClient.invalidateQueries({ queryKey: ["/api/riders/available"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/available-riders"] });
       toast({
-        title: "Delivery zone deleted",
-        description: "Delivery zone has been removed successfully.",
+        title: isPickupStationPage ? "Pickup station deleted" : "Delivery zone deleted",
+        description: isPickupStationPage
+          ? "Pickup station has been removed successfully."
+          : "Delivery zone has been removed successfully.",
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to delete zone",
+        title: isPickupStationPage ? "Failed to delete pickup station" : "Failed to delete zone",
         description: error.message,
         variant: "destructive",
       });
@@ -199,6 +340,14 @@ export default function AdminDeliveryZones() {
   });
 
   const handleSubmit = (data: ZoneFormData) => {
+    if (!isPickupStationPage) {
+      const feeValue = parseFloat(String(data.fee || "0"));
+      if (Number.isNaN(feeValue) || feeValue < 0) {
+        form.setError("fee", { type: "manual", message: "Fee must be a positive number" });
+        return;
+      }
+    }
+
     if (editingZone) {
       updateZoneMutation.mutate({ id: editingZone.id, data });
     } else {
@@ -208,6 +357,7 @@ export default function AdminDeliveryZones() {
 
   const openEditDialog = (zone: DeliveryZone) => {
     setEditingZone(zone);
+    setHasInitializedAgentSelection(false);
     form.reset({
       name: zone.name,
       type: (zone.type as "city" | "region") || "city",
@@ -216,11 +366,13 @@ export default function AdminDeliveryZones() {
       fee: zone.fee,
       isActive: zone.isActive,
     });
+    setSelectedPickupAgentIds([]);
     setIsDialogOpen(true);
   };
 
   const openCreateDialog = () => {
     setEditingZone(null);
+    setHasInitializedAgentSelection(true);
     form.reset({
       name: "",
       type: "city",
@@ -229,7 +381,42 @@ export default function AdminDeliveryZones() {
       fee: "0",
       isActive: true,
     });
+    setSelectedPickupAgentIds([]);
     setIsDialogOpen(true);
+  };
+
+  useEffect(() => {
+    if (!isDialogOpen || !editingZone || !isPickupStationPage || hasInitializedAgentSelection) return;
+    setSelectedPickupAgentIds(
+      pickupAgents
+        .filter((agent) => String(agent.deliveryZoneId || "").trim() === String(editingZone.id))
+        .map((agent) => agent.id),
+    );
+    setHasInitializedAgentSelection(true);
+  }, [
+    editingZone,
+    hasInitializedAgentSelection,
+    isDialogOpen,
+    pickupAgents,
+    isPickupStationPage,
+  ]);
+
+  const togglePickupAgentSelection = (agentId: string) => {
+    setSelectedPickupAgentIds((current) =>
+      current.includes(agentId) ? current.filter((id) => id !== agentId) : [...current, agentId],
+    );
+  };
+
+  const getAssignedPickupAgents = (zoneId: string) =>
+    pickupAgents.filter((agent) => String(agent.deliveryZoneId || "").trim() === String(zoneId));
+
+  const handleDialogOpenChange = (open: boolean) => {
+    setIsDialogOpen(open);
+    if (!open) {
+      setEditingZone(null);
+      setSelectedPickupAgentIds([]);
+      setHasInitializedAgentSelection(false);
+    }
   };
 
   if (authLoading || isLoading || !isAuthenticated || !isAdminViewer) {
@@ -247,40 +434,42 @@ export default function AdminDeliveryZones() {
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2" data-testid="heading-delivery-zones">
               <MapPin className="h-8 w-8" />
-              Delivery Zones & Pricing
+              {pageTitle}
             </h1>
             <p className="text-muted-foreground mt-2">
-              Manage delivery zones and their associated fees
+              {pageDescription}
             </p>
           </div>
           
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
             <DialogTrigger asChild>
               <Button onClick={openCreateDialog} data-testid="button-add-zone">
                 <Plus className="h-4 w-4 mr-2" />
-                Add Zone
+                {isPickupStationPage ? "Add Pickup Station" : "Add Zone"}
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-3xl">
               <form onSubmit={form.handleSubmit(handleSubmit)}>
                 <DialogHeader>
                   <DialogTitle>
-                    {editingZone ? "Edit Delivery Zone" : "Add Delivery Zone"}
+                    {editingZone
+                      ? isPickupStationPage ? "Edit Pickup Station" : "Edit Delivery Zone"
+                      : isPickupStationPage ? "Add Pickup Station" : "Add Delivery Zone"}
                   </DialogTitle>
                   <DialogDescription>
                     {editingZone 
-                      ? "Update the delivery zone details" 
-                      : "Create a new delivery zone with pricing"}
+                      ? isPickupStationPage ? "Update the pickup station details" : "Update the delivery zone details"
+                      : isPickupStationPage ? "Create a new pickup station and assign pickup agents" : "Create a new delivery zone with pricing"}
                   </DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
-                    <Label htmlFor="name">Zone Name</Label>
+                    <Label htmlFor="name">{isPickupStationPage ? "Pickup Station Name" : "Zone Name"}</Label>
                     <Input
                       id="name"
                       {...form.register("name")}
-                      placeholder="e.g., Accra Central, Tema, Kumasi"
+                        placeholder={isPickupStationPage ? "e.g., Osu Pickup Station" : "e.g., Accra Central, Tema, Kumasi"}
                       data-testid="input-zone-name"
                     />
                     {form.formState.errors.name && (
@@ -292,7 +481,7 @@ export default function AdminDeliveryZones() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="space-y-2">
-                      <Label htmlFor="type">Zone Type</Label>
+                      <Label htmlFor="type">{isPickupStationPage ? "Station Type" : "Zone Type"}</Label>
                       <Select
                         value={form.watch("type")}
                         onValueChange={(value) => form.setValue("type", value as "city" | "region")}
@@ -317,37 +506,133 @@ export default function AdminDeliveryZones() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="region">Region</Label>
-                      <Input
-                        id="region"
-                        {...form.register("region")}
-                        placeholder="Greater Accra"
-                        data-testid="input-zone-region"
-                      />
+                      {isPickupStationPage ? (
+                        <Select
+                          value={form.watch("region") || "__none__"}
+                          onValueChange={(value) => form.setValue("region", value === "__none__" ? "" : value, { shouldDirty: true })}
+                        >
+                          <SelectTrigger id="region" data-testid="select-pickup-station-region">
+                            <SelectValue placeholder="Select Ghana region" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Select region</SelectItem>
+                            {GHANA_REGIONS.map((region) => (
+                              <SelectItem key={region} value={region}>
+                                {region}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          id="region"
+                          {...form.register("region")}
+                          placeholder="Greater Accra"
+                          data-testid="input-zone-region"
+                        />
+                      )}
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="fee">Delivery Fee ({currency})</Label>
-                    <Input
-                      id="fee"
-                      type="number"
-                      step="0.01"
-                      {...form.register("fee")}
-                      placeholder="0.00"
-                      data-testid="input-zone-fee"
-                    />
-                    {form.formState.errors.fee && (
-                      <p className="text-sm text-destructive">
-                        {form.formState.errors.fee.message}
-                      </p>
-                    )}
-                  </div>
+                  {!isPickupStationPage ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="fee">Delivery Fee ({currency})</Label>
+                      <Input
+                        id="fee"
+                        type="number"
+                        step="0.01"
+                        {...form.register("fee")}
+                        placeholder="0.00"
+                        data-testid="input-zone-fee"
+                      />
+                      {form.formState.errors.fee && (
+                        <p className="text-sm text-destructive">
+                          {form.formState.errors.fee.message}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <Label className="text-base">Assign Pickup Agents</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Choose the pickup agents who should handle orders routed to this station.
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                          {selectedPickupAgentIds.length} selected
+                        </Badge>
+                      </div>
+
+                      {pickupAgentsLoading ? (
+                        <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/70 px-4 py-3 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading pickup agents...
+                        </div>
+                      ) : pickupAgents.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-border/70 px-4 py-3 text-sm text-muted-foreground">
+                          No pickup agents found yet. Create pickup-agent accounts first, then assign them here.
+                        </div>
+                      ) : (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {pickupAgents.map((agent) => {
+                            const isSelected = selectedPickupAgentIds.includes(agent.id);
+                            const currentStationName = zones.find(
+                              (zone) => String(zone.id) === String(agent.deliveryZoneId || ""),
+                            )?.name;
+
+                            return (
+                              <button
+                                key={agent.id}
+                                type="button"
+                                onClick={() => togglePickupAgentSelection(agent.id)}
+                                className={`rounded-xl border p-4 text-left transition ${
+                                  isSelected
+                                    ? "border-primary/50 bg-primary/10 shadow-sm"
+                                    : "border-border/70 bg-card hover:border-primary/30 hover:bg-muted/30"
+                                }`}
+                                data-testid={`pickup-agent-option-${agent.id}`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <Checkbox checked={isSelected} className="mt-1 pointer-events-none" />
+                                  <div className="min-w-0 flex-1 space-y-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="font-medium text-foreground">{agent.name}</p>
+                                      <Badge variant={agent.isActive ? "default" : "secondary"}>
+                                        {agent.isActive ? "Active" : "Inactive"}
+                                      </Badge>
+                                    </div>
+                                    <div className="space-y-1 text-sm text-muted-foreground">
+                                      <div className="flex items-center gap-2">
+                                        <Mail className="h-3.5 w-3.5" />
+                                        <span className="truncate">{agent.email}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Phone className="h-3.5 w-3.5" />
+                                        <span>{agent.phone || "No phone"}</span>
+                                      </div>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      {currentStationName
+                                        ? `Currently assigned to: ${currentStationName}`
+                                        : "Currently unassigned"}
+                                    </p>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between p-4 border rounded-lg">
                     <div className="space-y-0.5">
                       <Label htmlFor="isActive">Active</Label>
                       <p className="text-sm text-muted-foreground">
-                        Make this zone available for orders
+                         {isPickupStationPage ? "Make this pickup station available for orders" : "Make this zone available for orders"}
                       </p>
                     </div>
                     <Switch
@@ -363,7 +648,7 @@ export default function AdminDeliveryZones() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setIsDialogOpen(false)}
+                      onClick={() => handleDialogOpenChange(false)}
                   >
                     Cancel
                   </Button>
@@ -378,8 +663,10 @@ export default function AdminDeliveryZones() {
                         Saving...
                       </>
                     ) : (
-                      editingZone ? "Update Zone" : "Create Zone"
-                    )}
+                       editingZone
+                         ? isPickupStationPage ? "Update Pickup Station" : "Update Zone"
+                         : isPickupStationPage ? "Create Pickup Station" : "Create Zone"
+                     )}
                   </Button>
                 </DialogFooter>
               </form>
@@ -389,28 +676,34 @@ export default function AdminDeliveryZones() {
 
         <Card>
           <CardHeader>
-            <CardTitle>All Delivery Zones</CardTitle>
+            <CardTitle>{isPickupStationPage ? "All Pickup Stations" : "All Delivery Zones"}</CardTitle>
             <CardDescription>
-              {zones.length} zone{zones.length !== 1 ? "s" : ""} configured
+              {zones.length} {entityLabel}{zones.length !== 1 ? "s" : ""} configured
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {zones.length === 0 ? (
+                {zones.length === 0 ? (
               <div className="text-center py-12">
                 <MapPin className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No delivery zones</h3>
+                <h3 className="text-lg font-semibold mb-2">No {entityLabelPlural}</h3>
                 <p className="text-muted-foreground mb-4">
-                  Add your first delivery zone to start managing delivery fees
+                  {isPickupStationPage
+                    ? "Add your first pickup station to start assigning pickup agents and routing pickup orders"
+                    : "Add your first delivery zone to start managing delivery fees"}
                 </p>
               </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Zone Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>City/Region</TableHead>
-                    <TableHead>Delivery Fee</TableHead>
+                      <TableHead>{isPickupStationPage ? "Pickup Station" : "Zone Name"}</TableHead>
+                      <TableHead>{isPickupStationPage ? "Station Type" : "Type"}</TableHead>
+                      <TableHead>City/Region</TableHead>
+                      {!isPickupStationPage ? (
+                        <TableHead>Delivery Fee</TableHead>
+                      ) : (
+                        <TableHead>Assigned Pickup Agents</TableHead>
+                      )}
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -421,7 +714,28 @@ export default function AdminDeliveryZones() {
                       <TableCell className="font-medium">{zone.name}</TableCell>
                       <TableCell className="capitalize">{zone.type || "city"}</TableCell>
                       <TableCell>{zone.city || zone.region || "-"}</TableCell>
-                      <TableCell>{formatPrice(parseFloat(zone.fee))}</TableCell>
+                      {!isPickupStationPage ? (
+                        <TableCell>{formatPrice(parseFloat(zone.fee || "0"))}</TableCell>
+                      ) : (
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            {getAssignedPickupAgents(zone.id).length > 0 ? (
+                              getAssignedPickupAgents(zone.id).map((agent) => (
+                                <Badge
+                                  key={agent.id}
+                                  variant="outline"
+                                  className="border-primary/30 bg-primary/10 text-primary"
+                                >
+                                  <Users className="mr-1 h-3 w-3" />
+                                  {agent.name}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-sm text-muted-foreground">No agents assigned</span>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
                       <TableCell>
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -446,7 +760,7 @@ export default function AdminDeliveryZones() {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            if (confirm(`Delete delivery zone "${zone.name}"?`)) {
+                            if (confirm(`Delete ${isPickupStationPage ? "pickup station" : "delivery zone"} "${zone.name}"?`)) {
                               deleteZoneMutation.mutate(zone.id);
                             }
                           }}
@@ -465,4 +779,8 @@ export default function AdminDeliveryZones() {
       </div>
     </DashboardLayout>
   );
+}
+
+export default function AdminDeliveryZones() {
+  return <AdminDeliveryZonesPage entityKind="delivery_zone" />;
 }

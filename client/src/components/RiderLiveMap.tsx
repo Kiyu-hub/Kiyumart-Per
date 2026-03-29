@@ -25,7 +25,7 @@ import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
-import { ensureMapboxRuntimeConfig, isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
+import { isMapboxGlPreferred, reloadMapboxRuntimeConfig } from "@/tracking/mapbox/mapboxLoader";
 import MapboxSingleTripMap from "@/tracking/mapbox/MapboxSingleTripMap";
 
 interface ActiveDelivery {
@@ -101,9 +101,12 @@ interface RiderLiveMapProps {
   className?: string;
 }
 
+const RIDER_MAPBOX_STYLE_URL = "mapbox://styles/mapbox/navigation-day-v1";
+
 export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   const { user } = useAuth();
   const [, bumpMapModeVersion] = useState(0);
+  const [mapboxConfigVersion, setMapboxConfigVersion] = useState(0);
   const [riderPosition, setRiderPosition] = useState<[number, number] | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<"acquiring" | "active" | "error">("acquiring");
@@ -132,9 +135,13 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   }, []);
 
   useEffect(() => {
-    void ensureMapboxRuntimeConfig().catch(() => {
+    void reloadMapboxRuntimeConfig(false)
+      .then(() => {
+        setMapboxConfigVersion((value) => value + 1);
+      })
+      .catch(() => {
       // Keep local provider fallback when runtime map config is unavailable.
-    });
+      });
   }, []);
 
   // Fetch active delivery
@@ -271,6 +278,7 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
   }
 
   const defaultCenter = new LatLng(animatedRiderPos?.[0] || 5.6037, animatedRiderPos?.[1] || -0.1870);
+  const mapboxCenter: [number, number] = animatedRiderPos || destPos || [defaultCenter.lat, defaultCenter.lng];
 
   return (
     <>
@@ -371,9 +379,11 @@ export default function RiderLiveMap({ className }: RiderLiveMapProps) {
           </div>
         )}
 
-        {shouldUseMapboxGl && destPos ? (
+        {shouldUseMapboxGl ? (
           <MapboxSingleTripMap
-            center={animatedRiderPos || destPos}
+            key={`rider-live-mapbox-${mapboxConfigVersion}`}
+            center={mapboxCenter}
+            mapStyleUrl={RIDER_MAPBOX_STYLE_URL}
             riderPos={animatedRiderPos}
             viewerLocation={animatedRiderPos}
             destinationPos={destPos}

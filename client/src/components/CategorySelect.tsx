@@ -32,7 +32,11 @@ export function CategorySelect({
   testId = "select-category",
 }: CategorySelectProps) {
   const { data: allCategories = [], isLoading } = useQuery<Category[]>({
-    queryKey: ["/api/categories"],
+    queryKey: ["/api/categories", "active"],
+    queryFn: async () => {
+      const res = await fetch("/api/categories?isActive=true");
+      return res.json();
+    },
   });
 
   const categories = storeType

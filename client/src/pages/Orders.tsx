@@ -10,6 +10,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard, AlertCircle, Loader2, MapPin } from "lucide-react";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface Order {
   id: string;
@@ -22,6 +23,8 @@ interface Order {
   createdAt: string;
   deliveryAddress: string;
   deliveryPhone?: string;
+  externalDeliveryType?: string | null;
+  externalDeliveryByBus?: boolean;
   items: Array<{
     productId: string;
     productName: string;
@@ -33,12 +36,22 @@ interface Order {
     riderToBuyer?: string | null;
     sellerToBuyer?: string | null;
   };
+  pickupStationInfo?: {
+    id?: string | null;
+    name?: string | null;
+    city?: string | null;
+    region?: string | null;
+    locationLabel?: string | null;
+    pickupAgentName?: string | null;
+    pickupAgentPhone?: string | null;
+  } | null;
 }
 
 export default function Orders() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const { currencySymbol, formatPrice } = useLanguage();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
 
   const normalize = (value?: string) => (value || "").toLowerCase().trim();
   const normalizePaymentStatus = (value?: string) => {
@@ -51,10 +64,18 @@ export default function Orders() {
   const getEffectiveOrderStatus = (order: Order) => {
     const orderStatus = normalize(order.status) || "pending";
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+    const isPickup = normalize(order.deliveryMethod) === "pickup";
+    const externalManualFlow = isExternalRiderSystemEnabled && !isPickup;
     if ((orderStatus === "pending" || orderStatus === "created") && (paymentStatus === "paid" || paymentStatus === "processing")) {
       return "processing";
     }
-    if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(orderStatus)) {
+    if (externalManualFlow && ["rider_arrived", "delivered"].includes(orderStatus)) {
+      return "completed";
+    }
+    if (isPickup && orderStatus === "packaged") {
+      return "packaged";
+    }
+    if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived", "external_dispatch_arranged"].includes(orderStatus)) {
       return "processing";
     }
     if (["picked_up", "in_transit", "en_route", "out_for_delivery", "delivering"].includes(orderStatus)) {
@@ -67,15 +88,18 @@ export default function Orders() {
 
   const getStatusLabel = (status: string, deliveryMethod?: string) => {
     const isPickup = normalize(deliveryMethod) === "pickup";
+    const externalManualFlow = isExternalRiderSystemEnabled && !isPickup;
     switch (status.toLowerCase()) {
       case "pending":
         return "Pending";
       case "processing":
         return isPickup ? "Preparing Order" : "Preparing Delivery";
+      case "packaged":
+        return "Packaged";
       case "en_route":
         return isPickup ? "Ready for Pickup" : "On the Way";
       case "delivered":
-        return "Delivered";
+        return externalManualFlow ? "Completed" : "Delivered";
       case "completed":
         return "Completed";
       case "cancelled":
@@ -134,6 +158,8 @@ export default function Orders() {
       case "pending":
         return <Clock className="h-4 w-4" />;
       case "processing":
+        return <Package className="h-4 w-4" />;
+      case "packaged":
         return <Package className="h-4 w-4" />;
       case "en_route":
         return isPickup ? <MapPin className="h-4 w-4" /> : <Truck className="h-4 w-4" />;
@@ -230,6 +256,19 @@ export default function Orders() {
     if (normalizedRaw.length > 0) return normalizedRaw;
     return `ORD-${String(order.id || "").replace(/-/g, "").slice(0, 12).toUpperCase()}`;
   };
+  const getFulfillmentLabel = (order: Order) => {
+    const method = normalize(order.deliveryMethod);
+    if (method === "pickup" || method === "store_pickup") return "Pickup";
+    if (!isExternalRiderSystemEnabled) {
+      if (method === "bus") return "Bus Delivery";
+      if (method === "rider") return "Rider Delivery";
+      return order.deliveryMethod || "Delivery";
+    }
+    if (String(order.externalDeliveryType || "").toLowerCase().trim() === "bus" || order.externalDeliveryByBus) {
+      return "VIP Bus Delivery";
+    }
+    return "Third-Party Delivery";
+  };
 
   const OrderCard = ({ order }: { order: Order }) => {
     const paymentButtonConfig = getPaymentButtonConfig(order);
@@ -237,7 +276,10 @@ export default function Orders() {
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const displayOrderNumber = getDisplayOrderNumber(order);
     const isPickup = normalize(order.deliveryMethod) === "pickup";
-    const isBus = normalize(order.deliveryMethod) === "bus";
+    const isBus =
+      normalize(order.deliveryMethod) === "bus" ||
+      (isExternalRiderSystemEnabled &&
+        (String(order.externalDeliveryType || "").toLowerCase().trim() === "bus" || order.externalDeliveryByBus));
     const verification = order.verificationSummary;
     const showVerificationBlock = ["delivered", "completed"].includes(orderStatus);
     const handleCardClick = () => {
@@ -303,7 +345,7 @@ export default function Orders() {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Fulfillment:</span>
-              <span className="font-medium capitalize">{order.deliveryMethod || "pickup"}</span>
+              <span className="font-medium">{getFulfillmentLabel(order)}</span>
             </div>
             {showVerificationBlock && (
               <div className="rounded-md border border-muted p-2 text-xs space-y-1">
@@ -317,17 +359,19 @@ export default function Orders() {
                   </p>
                 ) : isBus ? (
                   <>
+                    {!isExternalRiderSystemEnabled ? (
+                      <p className="text-muted-foreground">
+                        Seller verified rider at pickup:{" "}
+                        <span className="font-medium text-foreground">
+                          {verification?.sellerToRider || "Not recorded"}
+                        </span>
+                      </p>
+                    ) : null}
                     <p className="text-muted-foreground">
-                      Seller verified rider at pickup:{" "}
-                      <span className="font-medium text-foreground">
-                        {verification?.sellerToRider || "Not recorded"}
-                      </span>
-                    </p>
-                    <p className="text-muted-foreground">
-                      BUS handoff monitored by super admin (no rider-to-buyer QR/OTP).
+                      VIP bus handoff is monitored by platform operations until final delivery is confirmed.
                     </p>
                   </>
-                ) : (
+                ) : isExternalRiderSystemEnabled ? null : (
                   <>
                     <p className="text-muted-foreground">
                       Seller verified rider at pickup:{" "}
@@ -357,6 +401,24 @@ export default function Orders() {
                   <span className="text-muted-foreground">Phone:</span>
                   <span className="font-medium">{order.deliveryPhone || user?.phone || "N/A"}</span>
                 </div>
+              </>
+            )}
+            {normalize(order.deliveryMethod) === "pickup" && order.pickupStationInfo?.locationLabel && (
+              <>
+                <div className="flex justify-between text-sm gap-3">
+                  <span className="text-muted-foreground">Pickup Station:</span>
+                  <span className="font-medium text-right">
+                    {order.pickupStationInfo.locationLabel}
+                  </span>
+                </div>
+                {order.pickupStationInfo.pickupAgentPhone && (
+                  <div className="flex justify-between text-sm gap-3">
+                    <span className="text-muted-foreground">Pickup Contact:</span>
+                    <span className="font-medium text-right">
+                      {order.pickupStationInfo.pickupAgentName || "Pickup Agent"} - {order.pickupStationInfo.pickupAgentPhone}
+                    </span>
+                  </div>
+                )}
               </>
             )}
           </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -20,9 +20,11 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Edit, Trash2, ArrowUp, ArrowDown, ArrowLeft, Loader2 } from "lucide-react";
 import type { Category } from "@shared/schema";
 import { STORE_TYPES } from "@shared/storeTypes";
+import { productMatchesCategory } from "@/lib/categoryUtils";
 
 const categoryFormSchema = insertCategorySchema.extend({
   slug: z.string().min(1, "Slug is required").regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
@@ -31,15 +33,27 @@ const categoryFormSchema = insertCategorySchema.extend({
 
 type CategoryFormData = z.infer<typeof categoryFormSchema>;
 
+type CategoryPageProduct = {
+  id: string;
+  category?: string | null;
+  categoryId?: string | null;
+  categoryName?: string | null;
+};
+
 export default function AdminCategoryManager() {
   const { toast } = useToast();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [activeTab, setActiveTab] = useState<"all" | "pending">("all");
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
   const { data: categories = [], isLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
+  });
+  const { data: products = [] } = useQuery<CategoryPageProduct[]>({
+    queryKey: ["/api/products"],
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
   useEffect(() => {
@@ -47,6 +61,21 @@ export default function AdminCategoryManager() {
       navigate("/auth");
     }
   }, [isAuthenticated, authLoading, user, navigate]);
+
+  const focusedCategoryId = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("categoryId") || "";
+  }, [location]);
+
+  const clearFocusedCategory = () => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("categoryId") && !params.has("action")) return;
+    params.delete("categoryId");
+    params.delete("action");
+    const nextQuery = params.toString();
+    navigate(nextQuery ? `/admin/categories?${nextQuery}` : "/admin/categories", { replace: true } as any);
+  };
 
   const form = useForm<CategoryFormData>({
     resolver: zodResolver(categoryFormSchema),
@@ -88,6 +117,7 @@ export default function AdminCategoryManager() {
       setIsDialogOpen(false);
       setEditingCategory(null);
       form.reset();
+      clearFocusedCategory();
       toast({ title: "Success", description: "Category updated successfully" });
     },
     onError: (error: any) => {
@@ -102,7 +132,40 @@ export default function AdminCategoryManager() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      clearFocusedCategory();
       toast({ title: "Success", description: "Category deleted successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("POST", `/api/categories/${id}/approve`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories", "active"] });
+      clearFocusedCategory();
+      toast({ title: "Success", description: "Category approved and now visible on the homepage." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("POST", `/api/categories/${id}/reject`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories", "active"] });
+      clearFocusedCategory();
+      toast({ title: "Success", description: "Category request rejected." });
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -129,6 +192,12 @@ export default function AdminCategoryManager() {
     }
   };
 
+  const handleReject = (category: Category) => {
+    const confirmed = confirm(`Reject "${category.name}" and remove it from pending category requests?`);
+    if (!confirmed) return;
+    rejectMutation.mutate(category.id);
+  };
+
   const onSubmit = (data: CategoryFormData) => {
     if (editingCategory) {
       updateMutation.mutate({ id: editingCategory.id, data });
@@ -151,6 +220,26 @@ export default function AdminCategoryManager() {
     setIsDialogOpen(true);
   };
 
+  useEffect(() => {
+    if (!focusedCategoryId || categories.length === 0) return;
+    const targetCategory = categories.find((category) => category.id === focusedCategoryId);
+    if (!targetCategory) return;
+
+    if (!targetCategory.isActive) {
+      setActiveTab("pending");
+    }
+
+    handleEdit(targetCategory);
+
+    if (typeof document !== "undefined") {
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-testid="card-category-${targetCategory.id}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+  }, [focusedCategoryId, categories]);
+
   // Auto-generate slug from name
   const handleNameChange = (name: string) => {
     if (!editingCategory) {
@@ -163,6 +252,29 @@ export default function AdminCategoryManager() {
       form.setValue("slug", slug);
     }
   };
+
+  const categoryProductCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const category of categories) {
+      counts.set(
+        category.id,
+        products.filter((product) => productMatchesCategory(product as any, category)).length,
+      );
+    }
+    return counts;
+  }, [categories, products]);
+
+  const sortCategoriesByProductCount = (source: Category[]) =>
+    [...source].sort((a, b) => {
+      const productDiff = (categoryProductCounts.get(b.id) || 0) - (categoryProductCounts.get(a.id) || 0);
+      if (productDiff !== 0) return productDiff;
+      const displayOrderDiff = (a.displayOrder || 0) - (b.displayOrder || 0);
+      if (displayOrderDiff !== 0) return displayOrderDiff;
+      return a.name.localeCompare(b.name);
+    });
+
+  const pendingCategories = sortCategoriesByProductCount(categories.filter((category) => !category.isActive));
+  const visibleCategories = activeTab === "pending" ? pendingCategories : sortCategoriesByProductCount(categories);
 
   if (authLoading || isLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
@@ -189,6 +301,11 @@ export default function AdminCategoryManager() {
               <p className="text-muted-foreground mt-2">
                 Manage product categories displayed on the homepage
               </p>
+              {user?.role === "super_admin" && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Seller-submitted categories stay hidden until an admin approves them.
+                </p>
+              )}
             </div>
             <Button onClick={handleOpenDialog} data-testid="button-create-category">
               <Plus className="h-4 w-4 mr-2" />
@@ -196,20 +313,46 @@ export default function AdminCategoryManager() {
             </Button>
           </div>
 
-            {categories.length === 0 ? (
+          {user?.role === "super_admin" && (
+            <Tabs
+              value={activeTab}
+              onValueChange={(value) => setActiveTab((value === "pending" ? "pending" : "all"))}
+              className="mb-6"
+            >
+              <TabsList>
+                <TabsTrigger value="all" data-testid="tab-all-categories">
+                  All Categories ({categories.length})
+                </TabsTrigger>
+                <TabsTrigger value="pending" data-testid="tab-pending-categories">
+                  Pending Categories ({pendingCategories.length})
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value={activeTab} className="mt-0" />
+            </Tabs>
+          )}
+
+            {visibleCategories.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
-                <p className="text-muted-foreground mb-4">No categories yet</p>
-                <Button onClick={handleOpenDialog}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create First Category
-                </Button>
+                <p className="text-muted-foreground mb-4">
+                  {activeTab === "pending" ? "No pending categories right now" : "No categories yet"}
+                </p>
+                {activeTab === "all" && (
+                  <Button onClick={handleOpenDialog}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create First Category
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ) : (
             <div className="grid gap-4">
-              {categories.map((category) => (
-                <Card key={category.id} data-testid={`card-category-${category.id}`}>
+              {visibleCategories.map((category) => (
+                <Card
+                  key={category.id}
+                  data-testid={`card-category-${category.id}`}
+                  className={focusedCategoryId === category.id ? "ring-2 ring-primary/60" : undefined}
+                >
                   <CardContent className="p-6">
                     <div className="flex gap-6 items-start">
                       <div className="w-32 h-32 flex-shrink-0">
@@ -229,7 +372,10 @@ export default function AdminCategoryManager() {
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge variant={category.isActive ? "default" : "secondary"}>
-                              {category.isActive ? "Active" : "Inactive"}
+                              {category.isActive ? "Active" : "Pending Approval"}
+                            </Badge>
+                            <Badge variant="outline">
+                              Products: {categoryProductCounts.get(category.id) || 0}
                             </Badge>
                             <Badge variant="outline">Order: {category.displayOrder}</Badge>
                           </div>
@@ -256,6 +402,30 @@ export default function AdminCategoryManager() {
                         )}
                         
                         <div className="flex gap-2">
+                          {user?.role === "super_admin" && !category.isActive && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => approveMutation.mutate(category.id)}
+                              disabled={approveMutation.isPending}
+                              data-testid={`button-approve-${category.id}`}
+                            >
+                              {approveMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                              Approve
+                            </Button>
+                          )}
+                          {user?.role === "super_admin" && !category.isActive && (
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleReject(category)}
+                              disabled={rejectMutation.isPending}
+                              data-testid={`button-reject-${category.id}`}
+                            >
+                              {rejectMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                              Reject
+                            </Button>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
@@ -265,15 +435,17 @@ export default function AdminCategoryManager() {
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDelete(category.id)}
-                            data-testid={`button-delete-${category.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </Button>
+                          {(category.isActive || user?.role !== "super_admin") && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDelete(category.id)}
+                              data-testid={`button-delete-${category.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -283,7 +455,16 @@ export default function AdminCategoryManager() {
             </div>
           )}
 
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <Dialog
+              open={isDialogOpen}
+              onOpenChange={(open) => {
+                setIsDialogOpen(open);
+                if (!open) {
+                  setEditingCategory(null);
+                  clearFocusedCategory();
+                }
+              }}
+            >
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>

@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { data: currentUser, isLoading, isError } = useQuery<User | null>({
     queryKey: ["/api/auth/me"],
     queryFn: async () => {
-      const res = await fetch("/api/auth/me", { credentials: "include" });
+      const res = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
       if (res.status === 401) {
         return null;
       }
@@ -59,7 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return res.json();
     },
     retry: false,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 15000,
+    refetchIntervalInBackground: true,
   });
 
   useEffect(() => {

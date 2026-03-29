@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
+import { formatCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 
 interface Product {
   id: string;
@@ -18,23 +19,18 @@ interface Product {
   discount: number;
   ratings: string;
   totalRatings: number;
-  category: string;
+  category?: string | null;
+  categoryName?: string | null;
+  categoryId?: string | null;
+  stock?: number;
 }
 
-const categoryInfo: Record<string, { title: string; description: string }> = {
-  abayas: {
-    title: "Elegant Abayas",
-    description: "Discover our stunning collection of elegant abayas featuring luxurious fabrics and intricate embroidery",
-  },
-  hijabs: {
-    title: "Hijabs & Accessories",
-    description: "Beautiful hijabs and modest accessories to complete your Islamic wardrobe",
-  },
-  evening: {
-    title: "Evening Wear",
-    description: "Sophisticated evening abayas and dresses perfect for special occasions",
-  },
-};
+interface CategoryRecord {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+}
 
 export default function CategoryPage() {
   const { id } = useParams();
@@ -45,7 +41,22 @@ export default function CategoryPage() {
   const queryClient = useQueryClient();
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+    queryKey: ["/api/products", "active", "category-page"],
+    queryFn: async () => {
+      const res = await fetch("/api/products?isActive=true");
+      return res.json();
+    },
+  });
+
+  const { data: category } = useQuery<CategoryRecord | null>({
+    queryKey: ["/api/categories/by-slug", id],
+    queryFn: async () => {
+      if (!id) return null;
+      const res = await fetch(`/api/categories/by-slug/${id}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!id,
   });
 
   const { data: wishlistItems = [] } = useQuery<{ productId: string }[]>({
@@ -98,11 +109,11 @@ export default function CategoryPage() {
     }
   };
 
-  const categoryProducts = products.filter((p) => p.category === id);
-  const categoryData = categoryInfo[id || ""] || {
-    title: "Category",
-    description: "Browse our collection",
-  };
+  const categoryProducts = products.filter((product) =>
+    productMatchesCategory(product, { slug: id }),
+  );
+  const categoryTitle = category?.name || formatCategoryLabel(id) || "Category";
+  const categoryDescription = category?.description || "Browse our collection";
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -119,13 +130,13 @@ export default function CategoryPage() {
               className="text-4xl font-bold mb-2"
               data-testid="text-category-title"
             >
-              {categoryData.title}
+              {categoryTitle}
             </h1>
             <p
               className="text-lg text-muted-foreground"
               data-testid="text-category-description"
             >
-              {categoryData.description}
+              {categoryDescription}
             </p>
             <p className="text-sm text-muted-foreground mt-2">
               {categoryProducts.length} products
@@ -179,6 +190,7 @@ export default function CategoryPage() {
                     discount={calculatedDiscount}
                     rating={parseFloat(product.ratings) || 0}
                     reviewCount={product.totalRatings}
+                    inStock={(product.stock || 0) > 0}
                     onToggleWishlist={handleToggleWishlist}
                   />
                 );

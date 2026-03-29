@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import fs from "fs";
 import path from "path";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -12,6 +13,26 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 
 const app = express();
+let processLevelGuardsInstalled = false;
+
+function installProcessLevelGuards() {
+  if (processLevelGuardsInstalled) return;
+  processLevelGuardsInstalled = true;
+
+  process.on("unhandledRejection", (reason) => {
+    console.error("[PROCESS] Unhandled promise rejection:", reason);
+  });
+
+  process.on("uncaughtException", (error) => {
+    console.error("[PROCESS] Uncaught exception:", error?.stack || error?.message || error);
+  });
+
+  process.on("warning", (warning) => {
+    console.warn("[PROCESS] Warning:", warning?.stack || warning?.message || warning);
+  });
+}
+
+installProcessLevelGuards();
 
 // Request logging middleware - placed first to capture all requests including health checks
 app.use((req, res, next) => {
@@ -22,6 +43,10 @@ app.use((req, res, next) => {
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
+    if (res.headersSent || res.writableEnded) {
+      log(`[warn] Suppressed late JSON response for ${req.method} ${path}`);
+      return res;
+    }
     capturedJsonResponse = bodyJson;
     return originalResJson.apply(res, [bodyJson, ...args]);
   };
@@ -130,31 +155,49 @@ if (process.env.NODE_ENV !== 'production') {
 // Add request timeout handling (30 seconds)
 app.use((req, res, next) => {
   res.setTimeout(30000, () => {
+    if (res.headersSent || res.writableEnded) return;
+    res.locals.requestTimedOut = true;
     res.status(408).json({ error: "Request timeout after 30 seconds" });
   });
   next();
 });
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // Health check endpoint for Render + Supabase Heartbeat
 app.get('/api/health', async (_req, res) => {
+  const startedAt = Date.now();
   try {
-    const start = Date.now();
-    // This pokes Supabase to keep it from pausing
-    await db.execute(sql`SELECT 1`);
-    const duration = Date.now() - start;
+    await withTimeout(db.execute(sql`SELECT 1`), 3000, "Database health check");
+    const duration = Date.now() - startedAt;
 
-    res.json({ 
-      status: 'ok', 
+    res.json({
+      status: 'ok',
       database: 'connected',
       latency: `${duration}ms`,
-      timestamp: new Date().toISOString() 
+      timestamp: new Date().toISOString(),
     });
-  } catch (error) {
+  } catch (error: any) {
+    const duration = Date.now() - startedAt;
     console.error("Health check failed:", error);
-    res.status(500).json({ 
-      status: 'error', 
+    res.status(503).json({
+      status: 'degraded',
       database: 'disconnected',
-      timestamp: new Date().toISOString() 
+      latency: `${duration}ms`,
+      message: error?.message || 'Database unavailable',
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -243,8 +286,104 @@ app.use(cookieParser());
 (async () => {
   // Backward-compatible schema self-heal for environments missing latest migration.
   try {
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_enum
+          WHERE enumlabel = 'pickup_agent'
+            AND enumtypid = 'user_role'::regtype
+        ) THEN
+          ALTER TYPE user_role ADD VALUE 'pickup_agent';
+        END IF;
+      END $$;
+    `);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS requested_role user_role`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS users_requested_role_idx ON users(requested_role)`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_admin_operations_panels boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS ads_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS hero_banner_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sidebar_ad_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS footer_ad_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS product_page_ad_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS is_external_rider_system_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_checkout_delivery_map boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_pickup_agent_admin_chat boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_rider_registration boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ALTER COLUMN ads_enabled SET DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ALTER COLUMN hero_banner_enabled SET DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ALTER COLUMN sidebar_ad_enabled SET DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ALTER COLUMN footer_ad_enabled SET DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ALTER COLUMN product_page_ad_enabled SET DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ALTER COLUMN allow_rider_registration SET DEFAULT false`);
+    await db.execute(sql`UPDATE platform_settings SET ads_enabled = false WHERE ads_enabled IS NULL`);
+    await db.execute(sql`UPDATE platform_settings SET hero_banner_enabled = false WHERE hero_banner_enabled IS NULL`);
+    await db.execute(sql`UPDATE platform_settings SET sidebar_ad_enabled = false WHERE sidebar_ad_enabled IS NULL`);
+    await db.execute(sql`UPDATE platform_settings SET footer_ad_enabled = false WHERE footer_ad_enabled IS NULL`);
+    await db.execute(sql`UPDATE platform_settings SET product_page_ad_enabled = false WHERE product_page_ad_enabled IS NULL`);
+    await db.execute(sql`UPDATE platform_settings SET allow_rider_registration = false WHERE allow_rider_registration IS NULL`);
+    await db.execute(sql`UPDATE platform_settings SET is_external_rider_system_enabled = false WHERE is_external_rider_system_enabled IS NULL`);
+    await db.execute(sql`ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS entity_kind text DEFAULT 'delivery_zone'`);
+    await db.execute(sql`UPDATE delivery_zones SET entity_kind = 'delivery_zone' WHERE entity_kind IS NULL`);
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_enum
+          WHERE enumlabel = 'external_dispatch_arranged'
+            AND enumtypid = 'order_status'::regtype
+        ) THEN
+          ALTER TYPE order_status ADD VALUE 'external_dispatch_arranged';
+        END IF;
+      END $$;
+    `);
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_enum
+          WHERE enumlabel = 'packaged'
+            AND enumtypid = 'order_status'::regtype
+        ) THEN
+          ALTER TYPE order_status ADD VALUE 'packaged';
+        END IF;
+      END $$;
+    `);
+    await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_delivery_by_bus boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_delivery_type varchar(32)`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS promotion_applications (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        seller_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type promo_type NOT NULL,
+        target_id varchar NOT NULL,
+        target_name text NOT NULL,
+        duration_type varchar NOT NULL,
+        duration integer NOT NULL,
+        unit_price decimal(10, 2) NOT NULL,
+        total_price decimal(10, 2) NOT NULL,
+        seller_note text,
+        customer_service_note text,
+        status varchar(40) NOT NULL DEFAULT 'pending_payment',
+        payment_confirmed boolean DEFAULT false,
+        payment_confirmed_at timestamp,
+        payment_confirmed_by varchar REFERENCES users(id) ON DELETE SET NULL,
+        approved_at timestamp,
+        approved_by varchar REFERENCES users(id) ON DELETE SET NULL,
+        rejected_at timestamp,
+        rejected_by varchar REFERENCES users(id) ON DELETE SET NULL,
+        rejection_reason text,
+        created_promotion_id varchar REFERENCES promotional_ads(id) ON DELETE SET NULL,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS promotion_applications_seller_id_idx ON promotion_applications(seller_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS promotion_applications_status_idx ON promotion_applications(status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS promotion_applications_created_promotion_id_idx ON promotion_applications(created_promotion_id)`);
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS report_activity_logs (
         id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -296,6 +435,27 @@ app.use(cookieParser());
 
   const server = await registerRoutes(app);
 
+  // ALWAYS serve the app on the port specified in the environment variable PORT.
+  // Default to 5000 for local development.
+  // This starts the API immediately even if optional DB bootstrap tasks are still running.
+  const port = parseInt(process.env.PORT || '5000', 10);
+  const host = process.env.HOST || '0.0.0.0';
+  server.on("error", (err: any) => {
+    if (server.listening) {
+      console.error("[BOOT] Runtime server error:", err?.stack || err?.message || err);
+      return;
+    }
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[BOOT] Port ${port} is already in use. Stop the existing server process or use a different PORT.`);
+    } else {
+      console.error("[BOOT] Server failed to start:", err?.message || err);
+    }
+    process.exit(1);
+  });
+  server.listen(port, host, () => {
+    log(`serving on ${host}:${port}`);
+  });
+
   // Seed default role features on startup (without overriding existing custom config)
   try {
     const { storage } = await import('./storage');
@@ -336,6 +496,7 @@ app.use(cookieParser());
         "maps.view": true,
       },
       seller: {
+        "orders.create": true,
         "products.create": true,
         "products.edit": true,
         "products.delete": true,
@@ -365,6 +526,12 @@ app.use(cookieParser());
         "earnings.view": true,
         "profile.manage": true,
         "maps.view": true,
+      },
+      pickup_agent: {
+        "orders.view": true,
+        "support.view": true,
+        "support.manage": true,
+        "profile.manage": true,
       },
       agent: {
         "orders.view": true,
@@ -480,43 +647,50 @@ app.use(cookieParser());
   // Serve local fallback uploads used when external media provider is unavailable.
   app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
 
-  // importantly only setup vite in development and after
+  // Importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
+  // doesn't interfere with the other routes.
+  // We start listening first so API/health endpoints stay responsive
+  // even if the frontend dev middleware takes time to initialize.
   if (app.get("env") === "development") {
-    await setupVite(app, server);
+    try {
+      await setupVite(app, server);
 
-    // In development, Vite's HMR injects inline scripts which can be blocked by strict CSP.
-    // Set a permissive CSP for dev to allow inline and eval needed by dev tools.
-    app.use((req, res, next) => {
-      // Allow inline scripts and eval in dev for the local dev server only.
-      res.setHeader(
-        'Content-Security-Policy',
-        "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self';"
-      );
-      next();
-    });
+      // In development, Vite's HMR injects inline scripts which can be blocked by strict CSP.
+      // Set a permissive CSP for dev to allow inline and eval needed by dev tools.
+      app.use((req, res, next) => {
+        res.setHeader(
+          'Content-Security-Policy',
+          "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self';"
+        );
+        next();
+      });
+    } catch (viteError: any) {
+      const fallbackDistPath = path.resolve(import.meta.dirname, "public");
+      console.error("[BOOT] Vite dev middleware failed; continuing without crashing the backend:", viteError?.message || viteError);
+
+      if (fs.existsSync(path.resolve(fallbackDistPath, "index.html"))) {
+        console.warn("[BOOT] Serving existing built frontend as a fallback while Vite is unavailable.");
+        serveStatic(app);
+      } else {
+        app.use("*", (req, res) => {
+          if (req.originalUrl.startsWith("/api") || req.originalUrl.startsWith("/socket.io")) {
+            res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+            return;
+          }
+
+          if (req.method !== "GET" && req.method !== "HEAD") {
+            res.status(404).end();
+            return;
+          }
+
+          res.status(503).send("Frontend dev server failed to initialize. The backend is still running.");
+        });
+      }
+    }
   } else {
     serveStatic(app);
   }
-
-  // ALWAYS serve the app on the port specified in the environment variable PORT.
-  // Default to 5000 for local development.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  const host = process.env.HOST || '0.0.0.0';
-  server.on("error", (err: any) => {
-    if (err?.code === "EADDRINUSE") {
-      console.error(`[BOOT] Port ${port} is already in use. Stop the existing server process or use a different PORT.`);
-    } else {
-      console.error("[BOOT] Server failed to start:", err?.message || err);
-    }
-    process.exit(1);
-  });
-  server.listen(port, host, () => {
-    log(`serving on ${host}:${port}`);
-  });
 
   // Start payout worker
   try {
@@ -536,4 +710,6 @@ app.use(cookieParser());
   } catch (e) {
     console.warn('[BOOT] Could not start promotional worker:', (e as any)?.message ?? String(e));
   }
-})();
+})().catch((error) => {
+  console.error("[BOOT] Fatal bootstrap error:", error?.stack || error?.message || error);
+});

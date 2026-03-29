@@ -204,19 +204,19 @@ export default function RiderEarnings() {
   return (
     <DashboardLayout role="rider">
       <div className="p-4 md:p-6 space-y-4">
-        <Card className="border-emerald-500/30 bg-[linear-gradient(98deg,rgba(4,120,87,0.35)_0%,rgba(2,6,23,0.96)_52%,rgba(14,116,144,0.36)_100%)] text-white">
+        <Card className="border-border/70 bg-card text-card-foreground shadow-sm dark:border-emerald-500/30 dark:bg-[linear-gradient(98deg,rgba(4,120,87,0.35)_0%,rgba(2,6,23,0.96)_52%,rgba(14,116,144,0.36)_100%)] dark:text-white">
           <CardContent className="p-4 md:p-5">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <h1 className="text-2xl font-semibold" data-testid="text-page-title">Rider Performance Analytics</h1>
-                <p className="text-white/80 text-sm">Daily and weekly summaries for deliveries, earnings, timing, distance, and bus handoffs.</p>
+                <p className="text-sm text-muted-foreground dark:text-white/80">Daily and weekly summaries for deliveries, earnings, timing, distance, and bus handoffs.</p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void handleExportCsv()} disabled={exporting !== "none"}>
+                <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void handleExportCsv()} disabled={exporting !== "none"}>
                   <Download className="h-4 w-4 mr-2" />
                   {exporting === "csv" ? "Preparing..." : "CSV"}
                 </Button>
-                <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void handleExportPdf()} disabled={exporting !== "none"}>
+                <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void handleExportPdf()} disabled={exporting !== "none"}>
                   <Download className="h-4 w-4 mr-2" />
                   {exporting === "pdf" ? "Preparing..." : "PDF"}
                 </Button>

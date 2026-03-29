@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PageLoadingState } from "@/components/ui/loading-state";
 import { Loader2, DollarSign, CheckCircle2, ArrowLeft, Smartphone, Building2 } from "lucide-react";
 
 const paymentSetupSchema = z.object({
@@ -233,11 +234,7 @@ export default function SellerPaymentSetup() {
   };
 
   if (authLoading || storeLoading || !isAuthenticated || user?.role !== "seller") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoadingState title="Loading payout setup" description="Preparing your payout method, verification, and settlement settings." />;
   }
 
   if (!store) {
@@ -300,18 +297,22 @@ export default function SellerPaymentSetup() {
             </p>
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Choose Payment Method</CardTitle>
-              <CardDescription>
-                Select how you want to receive payments for your sales
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <div className="space-y-3">
-                  <Label>Payment Method</Label>
-                  <RadioGroup
+            <Card>
+              <CardHeader>
+                <CardTitle>Choose Payment Method</CardTitle>
+                <CardDescription>
+                  Select how you want to receive payments for your sales
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                  <div className="rounded-xl border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
+                    Checkout processing fees are charged separately to the customer as the Paystack payment fee. Seller settlement remains separate, and Paystack payout cost references are GHS 1 for mobile money and GHS 8 for bank transfers.
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label>Payment Method</Label>
+                    <RadioGroup
                     value={payoutType}
                     onValueChange={(value) => {
                       setPayoutType(value as "bank_account" | "mobile_money");
@@ -326,7 +327,7 @@ export default function SellerPaymentSetup() {
                         <Building2 className="h-5 w-5 text-muted-foreground" />
                         <div>
                           <div className="font-medium">Bank Account</div>
-                          <div className="text-sm text-muted-foreground">Receive payments to your bank account</div>
+                          <div className="text-sm text-muted-foreground">Receive payments to your bank account. Reference payout cost: GHS 8 when a bank transfer is used.</div>
                         </div>
                       </Label>
                     </div>
@@ -336,7 +337,7 @@ export default function SellerPaymentSetup() {
                         <Smartphone className="h-5 w-5 text-muted-foreground" />
                         <div>
                           <div className="font-medium">Mobile Money</div>
-                          <div className="text-sm text-muted-foreground">MTN, Vodafone/Telecel, AirtelTigo</div>
+                          <div className="text-sm text-muted-foreground">MTN, Vodafone/Telecel, AirtelTigo. Paystack transfer cost: GHS 1 per successful payout.</div>
                         </div>
                       </Label>
                     </div>

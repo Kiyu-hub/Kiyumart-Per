@@ -101,7 +101,7 @@ export default function AgentDashboard() {
           <CardContent className="p-4 md:p-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h1 className="text-2xl font-semibold">Agent Analytics Dashboard</h1>
+                <h1 className="text-2xl font-semibold">Customer Agent Analytics Dashboard</h1>
                 <p className="text-white/80 text-sm">Support-focused analytics for active cases, intervention queue, exceptions, and response quality.</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge className="bg-white/20 text-white border-white/30">No Financial Data</Badge>
@@ -148,7 +148,7 @@ export default function AgentDashboard() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Agent Workload</CardTitle><CardDescription>Operational guidance</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Customer Agent Workload</CardTitle><CardDescription>Operational guidance</CardDescription></CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="rounded-lg border p-3 flex items-center justify-between"><span>Assigned to me</span><span className="font-semibold">{metrics.assignedToMeCount}</span></div>
               <div className="rounded-lg border p-3 flex items-center justify-between"><span>Unread alerts</span><span className="font-semibold">{unreadNotificationData?.count || 0}</span></div>

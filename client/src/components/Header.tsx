@@ -17,6 +17,8 @@ import {
 import CartPopover from "@/components/CartPopover";
 import NotificationPopover from "@/components/NotificationPopover";
 import Logo from "@/components/Logo";
+import { getDashboardRoleLabel } from "@/lib/roleLabels";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface HeaderProps {
   cartItemsCount?: number;
@@ -34,6 +36,7 @@ export default function Header({
   const [location, navigate] = useLocation();
   const { t } = useLanguage();
   const { user, isAuthenticated } = useAuth();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
 
   const { data: platformSettings } = useQuery<{ 
     allowSellerRegistration: boolean; 
@@ -48,32 +51,29 @@ export default function Header({
   
   // Show "Become a Delivery Partner" only for guests or buyers
   const showBecomeRider = platformSettings?.allowRiderRegistration && 
-    (!isAuthenticated || user?.role === 'buyer');
+    (!isAuthenticated || user?.role === 'buyer') &&
+    !isExternalRiderSystemEnabled;
 
   const isActive = (path: string) => location === path;
 
-  // Check if user has a dashboard role (super_admin, admin, seller, rider, buyer, agent)
-  const hasDashboard = user && ['super_admin', 'admin', 'seller', 'rider', 'buyer', 'agent'].includes(user.role);
-  const isDashboardPage = location.startsWith('/admin') || location.startsWith('/seller') || location.startsWith('/rider') || location.startsWith('/buyer') || location.startsWith('/agent');
+  // Check if user has a dashboard role (super_admin, admin, seller, rider, pickup_agent, buyer, agent)
+  const hasDashboard = user && ['super_admin', 'admin', 'seller', 'rider', 'pickup_agent', 'buyer', 'agent'].includes(user.role);
+  const isDashboardPage = location.startsWith('/admin') || location.startsWith('/seller') || location.startsWith('/rider') || location.startsWith('/pickup-agent') || location.startsWith('/buyer') || location.startsWith('/agent');
   
   const getDashboardPath = () => {
     if (user?.role === 'super_admin') return '/admin';
     if (user?.role === 'admin') return '/admin';
     if (user?.role === 'seller') return '/seller';
     if (user?.role === 'rider') return '/rider';
+    if (user?.role === 'pickup_agent') return '/pickup-agent';
     if (user?.role === 'buyer') return '/buyer';
     if (user?.role === 'agent') return '/agent';
     return '/';
   };
   
   const getDashboardLabel = () => {
-    if (user?.role === 'super_admin') return 'Super Admin Dashboard';
-    if (user?.role === 'admin') return 'Admin Dashboard';
-    if (user?.role === 'seller') return 'Seller Dashboard';
-    if (user?.role === 'rider') return 'Rider Dashboard';
     if (user?.role === 'buyer') return 'My Dashboard';
-    if (user?.role === 'agent') return 'Agent Dashboard';
-    return 'Dashboard';
+    return getDashboardRoleLabel(user?.role);
   };
 
   return (

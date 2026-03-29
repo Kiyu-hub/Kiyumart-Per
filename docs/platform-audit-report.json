@@ -1,6 +1,6 @@
 {
-  "version": "v10",
-  "timestamp": "2026-03-09T23:51:57.106Z",
+  "version": "v12",
+  "timestamp": "2026-03-16T10:03:23.710Z",
   "generatedBy": "scripts/generate-platform-audit.ts",
   "summary": {
     "routeCount": 94,
@@ -5840,7 +5840,7 @@
     },
     {
       "code": "NON_FREE_OR_UNKNOWN_DEPENDENCIES",
-      "severity": "medium",
+      "severity": "high",
       "message": "4 non-free or unknown dependencies",
       "details": "@replit/vite-plugin-cartographer, @replit/vite-plugin-dev-banner, @replit/vite-plugin-runtime-error-modal, cloudinary"
     }

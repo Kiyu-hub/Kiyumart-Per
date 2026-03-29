@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Heart, ShoppingCart, Star, ArrowLeft, Minus, Plus, X, ChevronLeft, ChevronRight, Play, Check, Truck, Shield, RotateCcw } from "lucide-react";
+import { Heart, ShoppingCart, Star, ArrowLeft, Minus, Plus, X, ChevronLeft, ChevronRight, Play, Check, Truck, CreditCard, ShieldCheck, BadgeCheck, Flame } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -19,6 +19,7 @@ import UserAvatar from "@/components/UserAvatar";
 import { PriceDisplay } from "@/components/PriceDisplay";
 import AdBanner from "@/components/AdBanner";
 import ProductPageAd from "@/pages/ProductPageAd";
+import { getProductCategoryLabel, normalizeCategoryKey } from "@/lib/categoryUtils";
 import type { PlatformSettings } from "@shared/schema";
 
 interface Product {
@@ -28,14 +29,23 @@ interface Product {
   price: string;
   costPrice?: string;
   discount?: number;
-  category: string;
+  category?: string | null;
+  categoryName?: string | null;
+  categoryId?: string | null;
   images: string[];
   video?: string;
   ratings: string;
   totalRatings: number;
   stock: number;
   deliveryDuration?: string;
+  dynamicFields?: Record<string, unknown>;
   isActive: boolean;
+}
+
+interface CategoryRecord {
+  id: string;
+  name: string;
+  slug: string;
 }
 
 interface WishlistItem {
@@ -67,6 +77,31 @@ interface ProductVariant {
   priceAdjustment: string;
 }
 
+const resolveDeliveryDurationLabel = (value?: string | null) => {
+  const normalized = String(value || "").trim();
+  return normalized || "Not provided";
+};
+
+const resolveExpectedDeliveryText = (value?: string | null) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+
+  const matches = normalized.match(/\d+/g);
+  const offsets = matches?.map((match) => parseInt(match, 10)).filter((num) => !Number.isNaN(num)) || [];
+  const days = offsets.length > 0 ? Math.max(...offsets) : 1;
+  const deliveryDate = new Date();
+  deliveryDate.setDate(deliveryDate.getDate() + days);
+
+  const formattedDate = deliveryDate.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  return `Estimated delivery is on or before ${formattedDate}.`;
+};
+
 export default function ProductDetails() {
   const [, params] = useRoute("/product/:id");
   const [, navigate] = useLocation();
@@ -91,6 +126,20 @@ export default function ProductDetails() {
       if (!res.ok) throw new Error("Product not found");
       return res.json();
     },
+    enabled: !!productId,
+    refetchOnMount: "always",
+  });
+
+  const { data: fallbackCategory } = useQuery<CategoryRecord | null>({
+    queryKey: ["/api/categories", product?.categoryId, "product-details-fallback"],
+    queryFn: async () => {
+      if (!product?.categoryId) return null;
+      const res = await fetch(`/api/categories/${product.categoryId}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!product?.categoryId && !getProductCategoryLabel(product),
+    refetchOnMount: "always",
   });
 
   const { data: wishlist = [] } = useQuery<WishlistItem[]>({
@@ -128,7 +177,13 @@ export default function ProductDetails() {
   });
 
   const { data: relatedProducts = [] } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+    queryKey: ["/api/products", "active", "product-details-related", productId],
+    queryFn: async () => {
+      const res = await fetch("/api/products?isActive=true");
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
     // Select related products using a scoring function (category + name token overlap + price proximity + tags)
     select: (products) => {
       if (!product) return [];
@@ -143,12 +198,14 @@ export default function ProductDetails() {
       const baseTokens = new Set(normalizeTokens(product.name || ''));
 
       const candidates = products.filter((p) => p.id !== product.id);
+      const baseCategoryKey = normalizeCategoryKey(product.categoryName || product.category);
 
       const scored = candidates.map((p) => {
         let score = 0;
+        const candidateCategoryKey = normalizeCategoryKey(p.categoryName || p.category);
 
         // Strong boost for same category
-        if (p.category === product.category) score += 100;
+        if (baseCategoryKey && candidateCategoryKey === baseCategoryKey) score += 100;
 
         // Name token overlap
         const pTokens = normalizeTokens(p.name || '');
@@ -208,6 +265,8 @@ export default function ProductDetails() {
     },
     enabled: !!product,
   });
+
+  const categoryLabel = getProductCategoryLabel(product) || fallbackCategory?.name || "Uncategorized";
 
   // ─── Derived State ──────────────────────────────────────
   const isWishlisted = wishlist.some(item => item.productId === productId);
@@ -394,6 +453,17 @@ export default function ProductDetails() {
     : 0;
   const discount = calculatedDiscount > 0 ? calculatedDiscount : (product.discount || 0);
   const rating = parseFloat(product.ratings) || 0;
+  const deliveryDurationLabel = resolveDeliveryDurationLabel(product.deliveryDuration);
+  const expectedDeliveryText = resolveExpectedDeliveryText(product.deliveryDuration);
+  const isLowStock = availableStock > 0 && availableStock < 10;
+  const isCriticalStock = availableStock > 0 && availableStock <= 3;
+  const shouldShowProductPageAd =
+    (platformSettings?.adsEnabled ?? false) &&
+    (platformSettings?.productPageAdEnabled ?? false) &&
+    Boolean(
+      (platformSettings?.productPageAdImage && platformSettings.productPageAdImage.trim()) ||
+      (platformSettings?.logo && platformSettings.logo.trim())
+    );
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -607,7 +677,7 @@ export default function ProductDetails() {
                   className="rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wider"
                   data-testid="badge-category"
                 >
-                  {product.category}
+                  {categoryLabel}
                 </Badge>
               </div>
 
@@ -664,27 +734,6 @@ export default function ProductDetails() {
                 )}
               </div>
 
-              {/* Delivery Duration */}
-              {product.deliveryDuration && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Truck className="w-4 h-4" />
-                  <span>
-                    {(() => {
-                      const durationMatch = product.deliveryDuration?.match(/(\d+)/);
-                      const days = durationMatch ? parseInt(durationMatch[1]) : 1;
-                      const deliveryDate = new Date();
-                      deliveryDate.setDate(deliveryDate.getDate() + days);
-                      return `Expected delivery: ${deliveryDate.toLocaleDateString('en-US', {
-                        weekday: 'long',
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric'
-                      })}`;
-                    })()}
-                  </span>
-                </div>
-              )}
-
               {/* Description - Reverted from collapsible */}
               {product.description && (
                 <div className="space-y-1">
@@ -703,8 +752,19 @@ export default function ProductDetails() {
                     {/* Stock display */}
                     <p className="text-sm font-medium" data-testid="text-stock">
                       {availableStock > 0
-                        ? <span className="text-green-600 dark:text-green-400">{availableStock} in stock</span>
-                        : <span className="text-destructive">Out of stock</span>
+                        ? isLowStock
+                          ? (
+                            <span className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-bold shadow-sm ${
+                              isCriticalStock
+                                ? "bg-red-500/12 text-red-600 dark:text-red-400 animate-pulse"
+                                : "bg-orange-500/12 text-orange-600 dark:text-orange-400 animate-pulse"
+                            }`}>
+                              <Flame className="h-4 w-4" />
+                              {availableStock} left
+                            </span>
+                          )
+                          : <span className="text-base font-semibold text-green-600 dark:text-green-400">{availableStock} in stock</span>
+                        : <span className="text-base font-semibold text-destructive">Out of stock</span>
                       }
                     </p>
 
@@ -744,7 +804,24 @@ export default function ProductDetails() {
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
-                  <span className="text-sm text-muted-foreground font-medium">({availableStock} available)</span>
+                  {availableStock > 0 ? (
+                    isLowStock ? (
+                      <span
+                        className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-bold shadow-sm ${
+                          isCriticalStock
+                            ? "bg-red-500/12 text-red-600 dark:text-red-400 animate-pulse"
+                            : "bg-orange-500/12 text-orange-600 dark:text-orange-400 animate-pulse"
+                        }`}
+                      >
+                        <Flame className="h-4 w-4" />
+                        {availableStock} left
+                      </span>
+                    ) : (
+                      <span className="text-base text-muted-foreground font-semibold">{availableStock} available</span>
+                    )
+                  ) : (
+                    <span className="text-base text-destructive font-semibold">Out of stock</span>
+                  )}
                 </div>
 
                 {/* Action Buttons */}
@@ -802,32 +879,82 @@ export default function ProductDetails() {
                   </Button>
                 </div>
 
-                {/* Product page ad placement */}
-                <ProductPageAd />
+                {/* Product page ad placement / fallback information */}
+                {shouldShowProductPageAd ? (
+                  <ProductPageAd />
+                ) : (
+                  <div className="mt-6 rounded-2xl border border-border/70 bg-card px-5 py-5 shadow-sm">
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        Shopping Information
+                      </p>
+                      <p className="text-sm text-foreground font-medium">
+                        Secure checkout, trusted payment options, and product details you can review before placing your order.
+                      </p>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+                          <CreditCard className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Flexible Payment Methods</p>
+                          <p className="text-sm text-muted-foreground">
+                            Available payment options are shown clearly at checkout so you can complete your order with confidence.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+                          <ShieldCheck className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Protected Checkout</p>
+                          <p className="text-sm text-muted-foreground">
+                            Your order is processed through a secure payment flow, with pricing and delivery details confirmed before payment.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+                          <BadgeCheck className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Order Confidence</p>
+                          <p className="text-sm text-muted-foreground">
+                            You can view the product photos, watch the video when available, and check the details here so you know exactly what you are ordering.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Trust Indicators - Compact */}
-              <div className="grid grid-cols-3 gap-4 pt-4 border-t border-border/50" style={{ boxSizing: 'border-box' }}>
-                <div className="group flex flex-col items-center text-center gap-2 p-3 rounded-xl hover:bg-muted/50 transition-all duration-300 hover:scale-105" style={{ boxSizing: 'border-box' }}>
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <Truck className="w-5 h-5 text-primary" />
+              <div className="pt-4 border-t border-border/50" style={{ boxSizing: 'border-box' }}>
+                <div className="rounded-2xl border border-border/70 bg-card px-4 py-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                      <Truck className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Delivery Information</p>
+                      <p className="text-base font-semibold text-foreground mt-1">Fast Delivery</p>
+                      <p className="text-sm text-muted-foreground mt-1">{deliveryDurationLabel}</p>
+
+                      {expectedDeliveryText && (
+                        <div className="mt-3 border-l-2 border-primary/30 pl-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
+                            Expected Delivery
+                          </p>
+                          <p className="mt-1 text-sm text-foreground leading-relaxed">{expectedDeliveryText}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-xs font-semibold text-foreground">Fast Delivery</span>
-                  <span className="text-xs text-muted-foreground">2-3 days</span>
-                </div>
-                <div className="group flex flex-col items-center text-center gap-2 p-3 rounded-xl hover:bg-muted/50 transition-all duration-300 hover:scale-105" style={{ boxSizing: 'border-box' }}>
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <Shield className="w-5 h-5 text-primary" />
-                  </div>
-                  <span className="text-xs font-semibold text-foreground">Secure Payment</span>
-                  <span className="text-xs text-muted-foreground">SSL encrypted</span>
-                </div>
-                <div className="group flex flex-col items-center text-center gap-2 p-3 rounded-xl hover:bg-muted/50 transition-all duration-300 hover:scale-105" style={{ boxSizing: 'border-box' }}>
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <RotateCcw className="w-5 h-5 text-primary" />
-                  </div>
-                  <span className="text-xs font-semibold text-foreground">Easy Returns</span>
-                  <span className="text-xs text-muted-foreground">30-day policy</span>
                 </div>
               </div>
             </div>

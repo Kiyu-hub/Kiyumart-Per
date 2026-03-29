@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { getRoleDisplayName } from "@/lib/roleLabels";
 
 const STORE_TYPES = [
   { value: "clothing", label: "Clothing & Fashion" },
@@ -34,7 +36,7 @@ const createUserSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   phone: z.string().optional(),
-  role: z.enum(["buyer", "seller", "rider", "agent", "admin"]),
+  role: z.enum(["buyer", "seller", "rider", "pickup_agent", "agent", "admin"]),
   // Shared KYC fields for seller/rider admin setup
   nationalIdCard: z.string().optional(),
   businessAddress: z.string().optional(),
@@ -47,6 +49,7 @@ const createUserSchema = z.object({
   vehicleLicense: z.string().optional(),
   riderCity: z.string().optional(),
   riderRegion: z.string().optional(),
+  deliveryZoneId: z.string().optional(),
 }).refine((data) => {
   if (data.role === "seller") {
     return data.nationalIdCard?.trim() && data.businessAddress?.trim() && data.storeType;
@@ -63,6 +66,14 @@ const createUserSchema = z.object({
 }, {
   message: "Ghana card number, address, city, region, vehicle type and color are required for riders",
   path: ["vehicleType"],
+}).refine((data) => {
+  if (data.role === "pickup_agent") {
+    return Boolean(data.businessAddress?.trim() && data.deliveryZoneId?.trim());
+  }
+  return true;
+}, {
+  message: "Pickup agents require a location and an assigned pickup station",
+  path: ["deliveryZoneId"],
 }).superRefine((data, ctx) => {
   if (data.role !== "rider") return;
   if ((data.vehicleType === "car" || data.vehicleType === "motorcycle") && !data.vehiclePlateNumber?.trim()) {
@@ -87,6 +98,8 @@ export default function AdminUserCreate() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
 
   const params = new URLSearchParams(window.location.search);
   const defaultRole = params.get("role") as any || "buyer";
@@ -114,11 +127,29 @@ export default function AdminUserCreate() {
       vehicleLicense: "",
       riderCity: "",
       riderRegion: "",
+      deliveryZoneId: "",
     },
   });
 
   const selectedRole = form.watch("role");
   const selectedVehicleType = form.watch("vehicleType");
+  const { data: deliveryZones = [] } = useQuery<Array<{ id: string; name: string; city?: string | null; region?: string | null }>>({
+    queryKey: [selectedRole === "pickup_agent" ? "/api/pickup-stations" : "/api/delivery-zones", selectedRole],
+    queryFn: async () => {
+      const endpoint = selectedRole === "pickup_agent" ? "/api/pickup-stations" : "/api/delivery-zones";
+      const res = await fetch(endpoint, { credentials: "include", cache: "no-store" });
+      if (!res.ok) return [];
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: selectedRole === "pickup_agent" || (showInternalRiderFeatures && selectedRole === "rider"),
+  });
+
+  useEffect(() => {
+    if (!showInternalRiderFeatures && selectedRole === "rider") {
+      form.setValue("role", "buyer");
+    }
+  }, [form, selectedRole, showInternalRiderFeatures]);
 
   const createUserMutation = useMutation({
     mutationFn: async (data: CreateUserFormData) => {
@@ -142,6 +173,14 @@ export default function AdminUserCreate() {
   });
 
   const onSubmit = (data: CreateUserFormData) => {
+    if (!showInternalRiderFeatures && data.role === "rider") {
+      toast({
+        title: "Rider creation disabled",
+        description: "The external rider system is enabled.",
+        variant: "destructive",
+      });
+      return;
+    }
     createUserMutation.mutate(data);
   };
 
@@ -251,8 +290,9 @@ export default function AdminUserCreate() {
                         <SelectContent data-testid="select-role-content">
                           <SelectItem value="buyer" data-testid="select-role-option-buyer">Buyer</SelectItem>
                           <SelectItem value="seller" data-testid="select-role-option-seller">Seller</SelectItem>
-                          <SelectItem value="rider" data-testid="select-role-option-rider">Rider</SelectItem>
-                          <SelectItem value="agent" data-testid="select-role-option-agent">Agent</SelectItem>
+                          {showInternalRiderFeatures ? <SelectItem value="rider" data-testid="select-role-option-rider">Rider</SelectItem> : null}
+                          <SelectItem value="pickup_agent" data-testid="select-role-option-pickup-agent">Pickup Agent</SelectItem>
+                          <SelectItem value="agent" data-testid="select-role-option-agent">Customer Agent</SelectItem>
                           <SelectItem value="admin" data-testid="select-role-option-admin">Admin</SelectItem>
                         </SelectContent>
                       </Select>
@@ -261,20 +301,30 @@ export default function AdminUserCreate() {
                   )}
                 />
 
-                {(selectedRole === "seller" || selectedRole === "rider") && (
+                {(selectedRole === "seller" || selectedRole === "pickup_agent" || (showInternalRiderFeatures && selectedRole === "rider")) && (
                   <>
                     <div className="pt-2 border-t" />
-                    <h3 className="text-base font-semibold">Required KYC Information</h3>
+                    <h3 className="text-base font-semibold">
+                      {selectedRole === "pickup_agent" ? "Pickup Agent Information" : "Required KYC Information"}
+                    </h3>
 
                     <FormField
                       control={form.control}
                       name="nationalIdCard"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Ghana Card Number <span className="text-destructive">*</span></FormLabel>
+                          <FormLabel>
+                            Ghana Card Number
+                            {selectedRole !== "pickup_agent" ? <span className="text-destructive">*</span> : null}
+                          </FormLabel>
                           <FormControl>
                             <Input placeholder="GHA-XXXXXXXXX-X" {...field} data-testid="input-national-id-card" />
                           </FormControl>
+                          {selectedRole === "pickup_agent" ? (
+                            <FormDescription>
+                              Optional for {getRoleDisplayName(selectedRole).toLowerCase()} records.
+                            </FormDescription>
+                          ) : null}
                           <FormMessage />
                         </FormItem>
                       )}
@@ -285,7 +335,7 @@ export default function AdminUserCreate() {
                       name="businessAddress"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Business Address / Location <span className="text-destructive">*</span></FormLabel>
+                            <FormLabel>{selectedRole === "pickup_agent" ? "Pickup Location / Address" : "Business Address / Location"} <span className="text-destructive">*</span></FormLabel>
                           <FormControl>
                             <Textarea
                               rows={2}
@@ -338,7 +388,7 @@ export default function AdminUserCreate() {
                 )}
 
                 {/* Rider-specific fields */}
-                {selectedRole === "rider" && (
+                {showInternalRiderFeatures && selectedRole === "rider" && (
                   <>
                     <FormField
                       control={form.control}
@@ -444,6 +494,40 @@ export default function AdminUserCreate() {
                       />
                     )}
                   </>
+                )}
+
+                {selectedRole === "pickup_agent" && (
+                  <FormField
+                    control={form.control}
+                    name="deliveryZoneId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Pickup Station <span className="text-destructive">*</span></FormLabel>
+                        <Select
+                          onValueChange={(value) => field.onChange(value === "__none__" ? "" : value)}
+                          value={field.value || "__none__"}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-pickup-agent-zone-create">
+                              <SelectValue placeholder="Assign pickup station" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">Select a pickup station</SelectItem>
+                            {deliveryZones.map((zone) => (
+                              <SelectItem key={zone.id} value={zone.id}>
+                                {zone.name} ({zone.city || zone.region || "N/A"})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Pickup agents receive pickup-order alerts and verification access for the zone assigned here.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 )}
 
                 <div className="flex gap-4 pt-4">

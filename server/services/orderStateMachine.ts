@@ -4,7 +4,9 @@ export type CanonicalOrderStatus =
   | "created"
   | "searching_rider"
   | "confirmed"
+  | "packaged"
   | "ready"
+  | "external_dispatch_arranged"
   | "processing"
   | "assigned"
   | "rider_arrived"
@@ -18,7 +20,7 @@ export type CanonicalOrderStatus =
 // Legacy aliases accepted as input for backward compatibility.
 export type OrderStatus = CanonicalOrderStatus | "delivering" | "pending";
 export type PaymentStatus = "pending" | "processing" | "completed" | "failed" | "refunded";
-export type UserRole = "super_admin" | "admin" | "seller" | "buyer" | "rider" | "agent";
+export type UserRole = "super_admin" | "admin" | "seller" | "buyer" | "rider" | "agent" | "pickup_agent";
 
 export interface TransitionContext {
   order: Order;
@@ -26,6 +28,7 @@ export interface TransitionContext {
   actorId: string;
   actorRole: UserRole;
   reason?: string;
+  isExternalRiderSystemEnabled?: boolean;
 }
 
 export interface TransitionRule {
@@ -59,11 +62,19 @@ export function toStorageOrderStatus(status: OrderStatus): string {
   return normalized;
 }
 
+const isExternallyDispatchedDelivery = (ctx: TransitionContext) =>
+  ctx.isExternalRiderSystemEnabled === true &&
+  String(ctx.order.deliveryMethod || "").toLowerCase().trim() !== "pickup";
+
 const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrderStatus, TransitionRule>>> = {
   created: {
     searching_rider: {
       allowedRoles: ["admin", "super_admin", "seller"],
       preconditions: [
+        (ctx) => ({
+          valid: !isExternallyDispatchedDelivery(ctx),
+          error: "Rider matching is disabled while the External Rider System is enabled",
+        }),
         (ctx) => ({
           valid: ctx.order.paymentStatus === "completed",
           error: "Payment must be completed before rider matching starts",
@@ -98,15 +109,42 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [
         (ctx) => ({
+          valid: !isExternallyDispatchedDelivery(ctx),
+          error: "Rider matching is disabled while the External Rider System is enabled",
+        }),
+        (ctx) => ({
           valid: ctx.order.paymentStatus === "completed",
           error: "Payment must be completed before rider matching starts",
         }),
       ],
       sideEffects: [],
     },
+    packaged: {
+      allowedRoles: ["seller"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before packaging is marked complete",
+        }),
+        (ctx) => ({
+          valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() === "pickup",
+          error: "Packaged status is only available for pickup orders",
+        }),
+        (ctx) => ({
+          valid: ctx.actorRole === "seller",
+          error: "Only the seller can mark a pickup order as packaged",
+        }),
+      ],
+      sideEffects: [],
+    },
     ready: {
       allowedRoles: ["seller", "admin", "super_admin"],
-      preconditions: [],
+      preconditions: [
+        (ctx) => ({
+          valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() !== "pickup",
+          error: "Pickup orders must be packaged first and then assigned to a pickup station before they become ready",
+        }),
+      ],
       sideEffects: [],
     },
     processing: {
@@ -114,22 +152,34 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       preconditions: [],
       sideEffects: [],
     },
-    completed: {
-      allowedRoles: ["seller", "admin", "super_admin"],
+    cancelled: {
+      allowedRoles: ["buyer", "seller", "admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [],
+    },
+  },
+
+  packaged: {
+    ready: {
+      allowedRoles: ["admin", "super_admin"],
       preconditions: [
         (ctx) => ({
-          valid: ctx.order.deliveryMethod === "pickup",
-          error: "Only pickup orders can complete directly from confirmed status",
+          valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() === "pickup",
+          error: "Only pickup orders can move from packaged to ready for pickup",
+        }),
+        (ctx) => ({
+          valid: Boolean(String(ctx.order.deliveryZoneId || "").trim()),
+          error: "A pickup station must be assigned before the order can be marked ready for pickup",
         }),
         (ctx) => ({
           valid: ctx.order.paymentStatus === "completed",
-          error: "Payment must be completed before pickup completion",
+          error: "Payment must be completed before pickup can be marked ready",
         }),
       ],
-      sideEffects: [(order) => ({ deliveredAt: order.deliveredAt || new Date() })],
+      sideEffects: [],
     },
     cancelled: {
-      allowedRoles: ["buyer", "seller", "admin", "super_admin"],
+      allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [],
       sideEffects: [],
     },
@@ -140,19 +190,42 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [
         (ctx) => ({
+          valid: !isExternallyDispatchedDelivery(ctx),
+          error: "Rider matching is disabled while the External Rider System is enabled",
+        }),
+        (ctx) => ({
           valid: ctx.order.paymentStatus === "completed",
           error: "Payment must be completed before rider matching starts",
         }),
       ],
       sideEffects: [],
     },
+    external_dispatch_arranged: {
+      allowedRoles: ["admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() !== "pickup",
+          error: "Pickup orders cannot be moved into the external delivery flow",
+        }),
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before external delivery can be arranged",
+        }),
+      ],
+      sideEffects: [(order) => ({ riderId: null })],
+    },
     processing: {
       allowedRoles: ["seller", "admin", "super_admin"],
-      preconditions: [],
+      preconditions: [
+        (ctx) => ({
+          valid: !isExternallyDispatchedDelivery(ctx),
+          error: "Ready delivery orders must wait for external dispatch arrangement while the External Rider System is enabled",
+        }),
+      ],
       sideEffects: [],
     },
     completed: {
-      allowedRoles: ["seller", "admin", "super_admin"],
+      allowedRoles: ["admin", "super_admin", "pickup_agent"],
       preconditions: [
         (ctx) => ({
           valid: ctx.order.deliveryMethod === "pickup",
@@ -172,6 +245,54 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
     },
   },
 
+  external_dispatch_arranged: {
+    en_route: {
+      allowedRoles: ["admin", "super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before external delivery can move in transit",
+        }),
+      ],
+      sideEffects: [(order) => ({ riderId: null })],
+    },
+    completed: {
+      allowedRoles: ["super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before external delivery can be marked complete",
+        }),
+      ],
+      sideEffects: [
+        (order) => ({
+          riderId: null,
+          deliveredAt: new Date(),
+        }),
+      ],
+    },
+    delivered: {
+      allowedRoles: ["super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before external delivery can be marked delivered",
+        }),
+      ],
+      sideEffects: [
+        (order) => ({
+          riderId: null,
+          deliveredAt: new Date(),
+        }),
+      ],
+    },
+    cancelled: {
+      allowedRoles: ["admin", "super_admin"],
+      preconditions: [],
+      sideEffects: [(order) => ({ riderId: null })],
+    },
+  },
+
   processing: {
     ready: {
       allowedRoles: ["seller", "admin", "super_admin"],
@@ -180,12 +301,38 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
           valid: ctx.order.paymentStatus === "completed",
           error: "Payment must be completed before marking order ready",
         }),
+        (ctx) => ({
+          valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() !== "pickup",
+          error: "Pickup orders must be packaged first and then assigned to a pickup station before they become ready",
+        }),
+      ],
+      sideEffects: [],
+    },
+    packaged: {
+      allowedRoles: ["seller"],
+      preconditions: [
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before packaging is marked complete",
+        }),
+        (ctx) => ({
+          valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() === "pickup",
+          error: "Packaged status is only available for pickup orders",
+        }),
+        (ctx) => ({
+          valid: ctx.actorRole === "seller",
+          error: "Only the seller can mark a pickup order as packaged",
+        }),
       ],
       sideEffects: [],
     },
     searching_rider: {
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [
+        (ctx) => ({
+          valid: !isExternallyDispatchedDelivery(ctx),
+          error: "Rider matching is disabled while the External Rider System is enabled",
+        }),
         (ctx) => ({
           valid: ctx.order.paymentStatus === "completed",
           error: "Payment must be completed before rider matching starts",
@@ -226,20 +373,6 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
       allowedRoles: ["buyer", "admin", "super_admin"],
       preconditions: [],
       sideEffects: [],
-    },
-    completed: {
-      allowedRoles: ["seller", "admin", "super_admin"],
-      preconditions: [
-        (ctx) => ({
-          valid: ctx.order.deliveryMethod === "pickup",
-          error: "Only pickup orders can complete directly from processing status",
-        }),
-        (ctx) => ({
-          valid: ctx.order.paymentStatus === "completed",
-          error: "Payment must be completed before pickup completion",
-        }),
-      ],
-      sideEffects: [(order) => ({ deliveredAt: order.deliveredAt || new Date() })],
     },
   },
 
@@ -325,6 +458,25 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
   },
 
   en_route: {
+    completed: {
+      allowedRoles: ["super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: isExternallyDispatchedDelivery(ctx),
+          error: "Only externally dispatched deliveries can complete from en route in this flow",
+        }),
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before external delivery can be marked complete",
+        }),
+      ],
+      sideEffects: [
+        (order) => ({
+          riderId: null,
+          deliveredAt: new Date(),
+        }),
+      ],
+    },
     delivered: {
       allowedRoles: ["rider", "admin", "super_admin"],
       preconditions: [],
@@ -365,6 +517,25 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
   },
 
   rider_arrived: {
+    completed: {
+      allowedRoles: ["super_admin"],
+      preconditions: [
+        (ctx) => ({
+          valid: isExternallyDispatchedDelivery(ctx),
+          error: "Only externally dispatched deliveries can complete directly from this state",
+        }),
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before external delivery can be marked complete",
+        }),
+      ],
+      sideEffects: [
+        (order) => ({
+          riderId: null,
+          deliveredAt: new Date(),
+        }),
+      ],
+    },
     picked_up: {
       allowedRoles: ["rider", "admin", "super_admin"],
       preconditions: [

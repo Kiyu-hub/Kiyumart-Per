@@ -16,7 +16,7 @@ interface MapboxSingleTripMapProps {
   mapStyleUrl?: string;
   riderPos?: LatLngTuple | null;
   viewerLocation?: LatLngTuple | null;
-  destinationPos: LatLngTuple;
+  destinationPos?: LatLngTuple | null;
   routeGeometry?: LatLngTuple[];
   className?: string;
   style?: React.CSSProperties;
@@ -117,7 +117,7 @@ export default function MapboxSingleTripMap({
   mapStyleUrl,
   riderPos,
   viewerLocation = null,
-  destinationPos,
+  destinationPos = null,
   routeGeometry = [],
   className,
   style,
@@ -328,6 +328,10 @@ export default function MapboxSingleTripMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
+    if (!destinationPos) {
+      if (destinationMarkerRef.current) destinationMarkerRef.current.remove();
+      return;
+    }
 
     if (!destinationMarkerRef.current) {
       const mapboxgl = (window as any).mapboxgl;
@@ -370,7 +374,11 @@ export default function MapboxSingleTripMap({
     const points: Array<[number, number]> = [];
     const focusAnchor = riderPos ? ([riderPos[1], riderPos[0]] as [number, number]) : null;
     if (focusAnchor) points.push(focusAnchor);
-    points.push([destinationPos[1], destinationPos[0]]);
+    if (destinationPos) {
+      points.push([destinationPos[1], destinationPos[0]]);
+    } else {
+      points.push([center[1], center[0]]);
+    }
     cameraPointsRef.current = points;
     const now = Date.now();
     if (now < autoCameraLockUntilRef.current) return;
@@ -387,7 +395,7 @@ export default function MapboxSingleTripMap({
     fitMapToPoints(map, points, { padding: 60, maxZoom: 19, duration: 800, singleZoom: 17 });
     hasInitialAutoFitRef.current = true;
     lastAutoCameraAtRef.current = Date.now();
-  }, [destinationPos, riderPos]);
+  }, [center, destinationPos, riderPos]);
 
   const zoomIn = () => {
     const map = mapRef.current;

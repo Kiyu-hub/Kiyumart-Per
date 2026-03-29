@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { io, Socket } from "socket.io-client";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface Order {
   id: string;
@@ -50,6 +51,7 @@ export default function SellerOrders() {
   );
   const highlightedOrderRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
 
   const normalize = (value?: string) => (value || "").toLowerCase().trim();
   const extractApiErrorMessage = (error: any) => {
@@ -75,6 +77,26 @@ export default function SellerOrders() {
     if (s === "payment_failed") return "failed";
     if (s === "completed" || s === "paid") return "paid";
     return s || "pending";
+  };
+  const getDisplayDeliveryMethod = (order: Order) => {
+    const method = normalize(order.deliveryMethod);
+    if (method === "pickup" || method === "store_pickup") return "Pickup";
+    if (isExternalRiderSystemEnabled) return "Delivery";
+    if (method === "bus") return "Bus Delivery";
+    if (method === "rider") return "Rider Delivery";
+    return order.deliveryMethod || "Delivery";
+  };
+  const getDisplayStatus = (order: Order) => {
+    const status = normalize(order.status);
+    const resolved =
+      !isExternalRiderSystemEnabled
+        ? status
+        : status === "external_dispatch_arranged"
+          ? "external dispatch arranged"
+          : ["searching_rider", "assigned", "rider_arrived"].includes(status)
+            ? "processing"
+            : status;
+    return resolved.replace(/_/g, " ");
   };
 
   const { data: orders = [], isLoading, refetch } = useQuery<Order[]>({
@@ -162,15 +184,19 @@ export default function SellerOrders() {
     };
 
     socketRef.current.on("order_status_updated", refreshOrders);
-    socketRef.current.on("order_rider_assigned", refreshOrders);
+    if (!isExternalRiderSystemEnabled) {
+      socketRef.current.on("order_rider_assigned", refreshOrders);
+    }
 
     return () => {
       socketRef.current?.off("order_status_updated", refreshOrders);
-      socketRef.current?.off("order_rider_assigned", refreshOrders);
+      if (!isExternalRiderSystemEnabled) {
+        socketRef.current?.off("order_rider_assigned", refreshOrders);
+      }
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
-  }, [refetch]);
+  }, [isExternalRiderSystemEnabled, refetch]);
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -275,7 +301,7 @@ export default function SellerOrders() {
                 </div>
                 <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <Badge className={`${getStatusColor(order.status)} text-white text-xs`}>
-                    {order.status}
+                    {getDisplayStatus(order)}
                   </Badge>
                   <Badge variant={paymentStatusLabel === "paid" ? "default" : "outline"} className="text-xs">
                     {paymentStatusLabel}
@@ -284,6 +310,10 @@ export default function SellerOrders() {
                 <div className="flex-1 mb-3 space-y-2">
                   <p className="text-lg font-bold">{formatPrice(Number(order.total) || 0)}</p>
                   <div className="text-xs space-y-1">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Method</span>
+                      <span className="font-medium">{getDisplayDeliveryMethod(order)}</span>
+                    </div>
                     <div className="flex justify-between gap-2">
                       <span className="text-muted-foreground">Email</span>
                       <span className="font-medium truncate">{contactEmail}</span>
@@ -308,6 +338,7 @@ export default function SellerOrders() {
                   const trackStatuses = new Set([
                     "processing",
                     "ready",
+                    "external_dispatch_arranged",
                     "searching_rider",
                     "assigned",
                     "rider_arrived",
@@ -329,13 +360,22 @@ export default function SellerOrders() {
                   const canMarkReady =
                     orderContext === "seller" &&
                     isPaid &&
+                    deliveryMethod !== "pickup" &&
+                    ["processing", "confirmed"].includes(s);
+                  const canMarkPackaged =
+                    orderContext === "seller" &&
+                    isPaid &&
+                    deliveryMethod === "pickup" &&
                     ["processing", "confirmed"].includes(s);
                   const canStartRiderMatching =
                     orderContext === "seller" &&
+                    !isExternalRiderSystemEnabled &&
                     isPaid &&
                     !hasRiderAssigned &&
                     ["rider", "bus"].includes(deliveryMethod) &&
                     ["ready"].includes(s);
+                  const hasSellerActionButtons =
+                    canStartPackaging || canMarkPackaged || canMarkReady || canStartRiderMatching;
 
                   if (orderContext === "buyer") {
                     if (canResumePayment) {
@@ -392,7 +432,7 @@ export default function SellerOrders() {
 
                   return (
                     <div className="space-y-2">
-                      {(canStartPackaging || canMarkReady || canStartRiderMatching) && (
+                      {hasSellerActionButtons && (
                         <div className="grid grid-cols-1 gap-2">
                           {canStartPackaging && (
                             <Button
@@ -426,7 +466,29 @@ export default function SellerOrders() {
                               }
                               data-testid={`button-mark-ready-${order.id}`}
                             >
-                              Mark Ready
+                              {deliveryMethod === "pickup"
+                                ? "Mark Ready for Pickup"
+                                : isExternalRiderSystemEnabled
+                                  ? "Mark Ready for Delivery"
+                                  : "Mark Ready"}
+                            </Button>
+                          )}
+                          {canMarkPackaged && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="w-full text-xs"
+                              disabled={updateOrderStatusMutation.isPending || startRiderMatchingMutation.isPending}
+                              onClick={() =>
+                                updateOrderStatusMutation.mutate({
+                                  orderId: order.id,
+                                  status: "packaged",
+                                  reason: "seller_packaged_for_pickup",
+                                })
+                              }
+                              data-testid={`button-mark-packaged-${order.id}`}
+                            >
+                              Mark Packaged
                             </Button>
                           )}
                           {canStartRiderMatching && (
@@ -443,7 +505,7 @@ export default function SellerOrders() {
                           )}
                         </div>
                       )}
-                      {trackStatuses.has(s) ? (
+                      {!hasSellerActionButtons && trackStatuses.has(s) ? (
                         <Button
                           variant="outline"
                           size="sm"
@@ -454,7 +516,7 @@ export default function SellerOrders() {
                           <Package className="h-3 w-3 mr-2" />
                           Track Order
                         </Button>
-                      ) : (
+                      ) : !hasSellerActionButtons ? (
                         <Button
                           variant="outline"
                           size="sm"
@@ -465,7 +527,7 @@ export default function SellerOrders() {
                           <Eye className="h-3 w-3 mr-2" />
                           View Details
                         </Button>
-                      )}
+                      ) : null}
                     </div>
                   );
                 })()}

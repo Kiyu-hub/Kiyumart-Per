@@ -4,9 +4,8 @@ import type { PlatformSettings } from '@shared/schema';
 
 export default function ProductPageAd() {
   const { data: settings } = useQuery<PlatformSettings>({ queryKey: ["/api/platform-settings"], refetchOnMount: true, refetchOnWindowFocus: true, refetchInterval: 5000 });
-  // Be resilient during slow fetches: assume ads enabled by default
-  // Only render product-page ad when admin provided an image OR branding exists.
-  if ((settings && settings.adsEnabled === false) || !(settings?.productPageAdEnabled ?? true)) return null;
+  // Fail closed so product ads only appear after explicit platform settings enable them.
+  if ((settings && settings.adsEnabled === false) || !(settings?.productPageAdEnabled ?? false)) return null;
 
   // If there's no configured ad image AND no platform branding (logo), don't render the placeholder —
   // this prevents a large empty rounded box on product pages when no ad is configured.

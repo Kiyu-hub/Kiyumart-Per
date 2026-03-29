@@ -42,15 +42,20 @@ export default function HeroCarousel() {
   // Determine which store mode to filter by
   const storeMode = platformSettings?.isMultiVendor ? "multivendor" : "single";
 
-  const { data: banners = [], isLoading } = useQuery<HeroBanner[]>({
+  const { data: bannerResponse = [], isLoading } = useQuery<HeroBanner[]>({
     queryKey: ["/api/hero-banners", storeMode],
     queryFn: async () => {
       const res = await fetch(`/api/hero-banners?storeMode=${storeMode}`);
-      return res.json();
+      if (!res.ok) {
+        return [];
+      }
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
     enabled: !!platformSettings,
     staleTime: 0,
   });
+  const banners = Array.isArray(bannerResponse) ? bannerResponse : [];
 
   if (isLoading || !platformSettings || banners.length === 0) {
     return (

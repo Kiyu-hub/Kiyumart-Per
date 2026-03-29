@@ -118,20 +118,27 @@ export default function AdminProductEdit() {
 
   const updateProductMutation = useMutation({
     mutationFn: async (data: ProductFormData) => {
-      return apiRequest("PATCH", `/api/products/${productId}`, {
+      const normalizedCategoryId = String(data.categoryId || "").trim() || undefined;
+      const response = await apiRequest("PATCH", `/api/products/${productId}`, {
         ...data,
+        categoryId: normalizedCategoryId,
         images: imageUrls,
         video: videoUrl || undefined,
       });
+      return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedProduct: any) => {
       toast({
         title: "Success",
         description: "Product updated successfully",
       });
+      if (updatedProduct?.id) {
+        queryClient.setQueryData(["/api/products", updatedProduct.id], updatedProduct);
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products", productId] });
       queryClient.invalidateQueries({ queryKey: ["/api/homepage/featured-products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/new-arrivals"] });
       navigate("/admin/products");
     },
     onError: (error: any) => {

@@ -43,27 +43,25 @@ interface MapboxFleetMapProps {
   requireMapboxToken?: boolean;
   onLoad?: () => void;
   onError?: (error: unknown) => void;
+  onRenderModeChange?: (mode: "3d" | "hybrid" | "fallback") => void;
 }
 
 const ROUTE_SOURCE_ID = "fleet-route-source";
 const ROUTE_LAYER_ID = "fleet-route-layer";
+const ROUTE_OUTLINE_LAYER_ID = "fleet-route-outline-layer";
 const RIDERS_SOURCE_ID = "fleet-riders-source";
 const RIDERS_LAYER_ID = "fleet-riders-3d-layer";
 const RIDERS_HIT_LAYER_ID = "fleet-riders-hit-layer";
-const RIDER_SOURCE_UPDATE_MIN_INTERVAL_MS = 120;
+const RIDER_SOURCE_UPDATE_MIN_INTERVAL_MS = 80;
 type SupportedVehicleType = "car" | "motorcycle" | "bicycle";
 type ModelLoadState = "idle" | "loading" | "ready" | "failed";
+const DEFAULT_3D_PITCH = 60;
+const DEFAULT_3D_BEARING = -12;
 
-const VEHICLE_MODEL_IDS: Record<SupportedVehicleType, string> = {
-  car: "car-model",
-  motorcycle: "motorcycle-model",
-  bicycle: "bicycle-model",
-};
-
-const VEHICLE_MODEL_URLS: Record<SupportedVehicleType, string> = {
-  car: "/assets/vehicles/car_textured.glb",
-  motorcycle: "/assets/vehicles/moto_textured.glb",
-  bicycle: "/assets/vehicles/bycicle_textured.glb",
+const VEHICLE_MODEL_URL_CANDIDATES: Record<SupportedVehicleType, string[]> = {
+  car: ["/assets/vehicles/car.glb"],
+  motorcycle: ["/assets/vehicles/motorcycle.glb"],
+  bicycle: ["/assets/vehicles/bicycle.glb"],
 };
 
 function fitMapToPoints(
@@ -118,6 +116,62 @@ function makeMarkerElement(color: string, size = 12): HTMLDivElement {
   return el;
 }
 
+function makeRiderMarkerElement(
+  color: string,
+  heading = 0,
+  activeOrderCount = 0,
+): HTMLDivElement {
+  const wrapper = document.createElement("div");
+  wrapper.style.position = "relative";
+  wrapper.style.width = "28px";
+  wrapper.style.height = "28px";
+
+  const marker = document.createElement("div");
+  marker.style.width = "28px";
+  marker.style.height = "28px";
+  marker.style.borderRadius = "9999px";
+  marker.style.background = color;
+  marker.style.border = "2px solid rgba(255,255,255,0.92)";
+  marker.style.boxShadow = "0 4px 12px rgba(0,0,0,0.35)";
+  marker.style.display = "flex";
+  marker.style.alignItems = "center";
+  marker.style.justifyContent = "center";
+  marker.style.cursor = "pointer";
+
+  const arrow = document.createElement("div");
+  arrow.style.width = "0";
+  arrow.style.height = "0";
+  arrow.style.borderLeft = "5px solid transparent";
+  arrow.style.borderRight = "5px solid transparent";
+  arrow.style.borderBottom = "9px solid rgba(255,255,255,0.95)";
+  arrow.style.transform = `rotate(${Number.isFinite(heading) ? heading : 0}deg)`;
+  arrow.style.transition = "transform 180ms ease";
+  marker.appendChild(arrow);
+  wrapper.appendChild(marker);
+
+  if (activeOrderCount > 0) {
+    const badge = document.createElement("span");
+    badge.textContent = String(activeOrderCount);
+    badge.style.position = "absolute";
+    badge.style.top = "-4px";
+    badge.style.right = "-4px";
+    badge.style.minWidth = "16px";
+    badge.style.height = "16px";
+    badge.style.padding = "0 4px";
+    badge.style.borderRadius = "9999px";
+    badge.style.background = "#f59e0b";
+    badge.style.color = "#fff";
+    badge.style.fontSize = "10px";
+    badge.style.fontWeight = "700";
+    badge.style.lineHeight = "16px";
+    badge.style.textAlign = "center";
+    badge.style.border = "1px solid rgba(255,255,255,0.92)";
+    wrapper.appendChild(badge);
+  }
+
+  return wrapper;
+}
+
 function toSupportedVehicleType(vehicleType: string | null | undefined): SupportedVehicleType | null {
   const value = String(vehicleType || "").toLowerCase().trim();
   if (!value) return null;
@@ -152,6 +206,7 @@ function toSupportedVehicleType(vehicleType: string | null | undefined): Support
 function toRiderFeatureCollection(
   riders: FleetRiderMarker[],
   failedModels: Partial<Record<SupportedVehicleType, boolean>>,
+  resolvedModelUrls: Partial<Record<SupportedVehicleType, string>>,
 ) {
   const features = riders
     .filter((rider) => rider.isOnline !== false)
@@ -159,6 +214,8 @@ function toRiderFeatureCollection(
       const vehicleType = toSupportedVehicleType(rider.vehicleType);
       if (!vehicleType) return null;
       if (failedModels[vehicleType]) return null;
+      const modelUrl = resolvedModelUrls[vehicleType];
+      if (!modelUrl) return null;
       return {
         type: "Feature" as const,
         id: rider.riderId,
@@ -169,6 +226,7 @@ function toRiderFeatureCollection(
         properties: {
           riderId: rider.riderId,
           vehicleType,
+          modelUrl,
           bearing: [0, 0, Number(rider.heading || 0)],
         },
       };
@@ -197,6 +255,45 @@ function toGeoJsonLine(positions: [number, number][]) {
   };
 }
 
+function buildRiderSourceSignature(riders: FleetRiderMarker[]) {
+  return riders
+    .map((rider) =>
+      [
+        rider.riderId,
+        rider.latitude.toFixed(6),
+        rider.longitude.toFixed(6),
+        Math.round(Number(rider.heading || 0)),
+        rider.isOnline === false ? "0" : "1",
+        toSupportedVehicleType(rider.vehicleType) || "none",
+      ].join(":"),
+    )
+    .join("|");
+}
+
+function buildRouteSignature(routeGeometry: [number, number][]) {
+  return routeGeometry.map(([lat, lng]) => `${lat.toFixed(6)}:${lng.toFixed(6)}`).join("|");
+}
+
+function getFailedModelMap(modelState: Record<SupportedVehicleType, ModelLoadState>) {
+  return {
+    car: modelState.car === "failed",
+    motorcycle: modelState.motorcycle === "failed",
+    bicycle: modelState.bicycle === "failed",
+  } satisfies Partial<Record<SupportedVehicleType, boolean>>;
+}
+
+function isRiderUsingFallbackMarker(
+  rider: FleetRiderMarker,
+  failedModels: Partial<Record<SupportedVehicleType, boolean>>,
+  forceFallback: boolean,
+) {
+  if (forceFallback) return true;
+  if (rider.isOnline === false) return true;
+  const vehicleType = toSupportedVehicleType(rider.vehicleType);
+  if (!vehicleType) return true;
+  return failedModels[vehicleType] === true;
+}
+
 export default function MapboxFleetMap({
   initialCenter = null,
   initialZoom,
@@ -215,6 +312,7 @@ export default function MapboxFleetMap({
   requireMapboxToken = false,
   onLoad,
   onError,
+  onRenderModeChange,
 }: MapboxFleetMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -223,22 +321,32 @@ export default function MapboxFleetMap({
     motorcycle: "idle",
     bicycle: "idle",
   });
+  const resolvedModelUrlsRef = useRef<Partial<Record<SupportedVehicleType, string>>>({});
   const riderSourceUpdateRafRef = useRef<number | null>(null);
   const riderSourceUpdateTimeoutRef = useRef<number | null>(null);
   const lastRiderSourceCommitAtRef = useRef(0);
   const pendingRiderSourceDataRef = useRef<any | null>(null);
+  const riderMarkersRef = useRef<Map<string, any>>(new Map());
   const orderMarkersRef = useRef<Map<string, any>>(new Map());
   const destinationMarkerRef = useRef<any>(null);
   const viewerMarkerRef = useRef<any>(null);
   const loadedRef = useRef(false);
   const initErrorReportedRef = useRef(false);
+  const riderLayerInteractionsBoundRef = useRef(false);
+  const useDomRiderMarkerFallbackRef = useRef(false);
   const onLoadRef = useRef<MapboxFleetMapProps["onLoad"]>(onLoad);
   const onErrorRef = useRef<MapboxFleetMapProps["onError"]>(onError);
+  const onRenderModeChangeRef = useRef<MapboxFleetMapProps["onRenderModeChange"]>(onRenderModeChange);
+  const onRiderClickRef = useRef<MapboxFleetMapProps["onRiderClick"]>(onRiderClick);
+  const onOrderClickRef = useRef<MapboxFleetMapProps["onOrderClick"]>(onOrderClick);
   const autoCameraLockUntilRef = useRef(0);
   const lastAutoCameraAtRef = useRef(0);
   const hasInitialAutoFitRef = useRef(false);
   const cameraPointsRef = useRef<Array<[number, number]>>([]);
   const initialCenterRef = useRef<[number, number] | null>(null);
+  const lastRiderSourceSignatureRef = useRef("");
+  const lastRouteSignatureRef = useRef("");
+  const lastRenderModeRef = useRef<"3d" | "hybrid" | "fallback" | null>(null);
 
   const fallbackMapRenderConfig = useMemo(() => getMapRenderer().getRenderConfig(), []);
   const resolvedInitialCenter = useMemo<[number, number]>(() => {
@@ -253,6 +361,12 @@ export default function MapboxFleetMap({
     initialCenterRef.current = resolvedInitialCenter;
   }
 
+  const reportRenderMode = useCallback((mode: "3d" | "hybrid" | "fallback") => {
+    if (lastRenderModeRef.current === mode) return;
+    lastRenderModeRef.current = mode;
+    onRenderModeChangeRef.current?.(mode);
+  }, []);
+
   useEffect(() => {
     onLoadRef.current = onLoad;
   }, [onLoad]);
@@ -261,26 +375,40 @@ export default function MapboxFleetMap({
     onErrorRef.current = onError;
   }, [onError]);
 
+  useEffect(() => {
+    onRenderModeChangeRef.current = onRenderModeChange;
+  }, [onRenderModeChange]);
+
+  useEffect(() => {
+    onRiderClickRef.current = onRiderClick;
+  }, [onRiderClick]);
+
+  useEffect(() => {
+    onOrderClickRef.current = onOrderClick;
+  }, [onOrderClick]);
+
   const ensureRiderModelsLoaded = useCallback(
-    async (map: any) => {
+    async () => {
       const vehicleTypes: SupportedVehicleType[] = ["car", "motorcycle", "bicycle"];
       for (const vehicleType of vehicleTypes) {
         const state = riderModelStateRef.current[vehicleType];
         if (state === "ready" || state === "failed" || state === "loading") continue;
         riderModelStateRef.current[vehicleType] = "loading";
-        const modelId = VEHICLE_MODEL_IDS[vehicleType];
-        const modelUrl = VEHICLE_MODEL_URLS[vehicleType];
         try {
-          const hasModel = typeof map.hasModel === "function" ? map.hasModel(modelId) : false;
-          if (!hasModel && typeof map.addModel === "function") {
-            try {
-              await Promise.resolve(map.addModel(modelId, { uri: modelUrl, type: "gltf" }));
-            } catch {
-              await Promise.resolve(map.addModel(modelId, modelUrl));
+          let resolvedUrl = "";
+          for (const candidateUrl of VEHICLE_MODEL_URL_CANDIDATES[vehicleType]) {
+            const assetResponse = await fetch(candidateUrl, { method: "HEAD" });
+            if (assetResponse.ok) {
+              resolvedUrl = candidateUrl;
+              break;
             }
-          } else if (!hasModel) {
-            throw new Error("Mapbox model API unavailable on this runtime");
           }
+          if (!resolvedUrl) {
+            throw new Error(
+              `Vehicle model asset missing for ${vehicleType}: ${VEHICLE_MODEL_URL_CANDIDATES[vehicleType].join(", ")}`,
+            );
+          }
+          resolvedModelUrlsRef.current[vehicleType] = resolvedUrl;
           riderModelStateRef.current[vehicleType] = "ready";
         } catch (error) {
           riderModelStateRef.current[vehicleType] = "failed";
@@ -294,11 +422,18 @@ export default function MapboxFleetMap({
   const ensureRiderModelLayer = useCallback(
     async (map: any) => {
       try {
-        await ensureRiderModelsLoaded(map);
+        await ensureRiderModelsLoaded();
+        const allModelLoadsFailed = (
+          Object.values(riderModelStateRef.current) as ModelLoadState[]
+        ).every((state) => state === "failed");
+        if (allModelLoadsFailed) {
+          useDomRiderMarkerFallbackRef.current = true;
+          return;
+        }
         if (!map.getSource(RIDERS_SOURCE_ID)) {
           map.addSource(RIDERS_SOURCE_ID, {
             type: "geojson",
-            data: toRiderFeatureCollection([], {}),
+            data: toRiderFeatureCollection([], {}, resolvedModelUrlsRef.current),
           });
         }
         if (!map.getLayer(RIDERS_HIT_LAYER_ID)) {
@@ -326,46 +461,37 @@ export default function MapboxFleetMap({
             type: "model",
             source: RIDERS_SOURCE_ID,
             layout: {
-              "model-id": [
-                "match",
-                ["get", "vehicleType"],
-                "car", VEHICLE_MODEL_IDS.car,
-                "motorcycle", VEHICLE_MODEL_IDS.motorcycle,
-                "bicycle", VEHICLE_MODEL_IDS.bicycle,
-                "",
-              ],
+              "model-id": ["get", "modelUrl"],
             },
             paint: {
+              "model-type": "location-indicator",
               "model-rotation": ["coalesce", ["get", "bearing"], ["literal", [0, 0, 0]]],
-              "model-scale": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                7, ["literal", [0.32, 0.32, 0.32]],
-                13, ["literal", [0.68, 0.68, 0.68]],
-                18, ["literal", [1.08, 1.08, 1.08]],
-              ],
+              "model-scale": [10, 10, 10],
             },
           });
         }
 
-        map.on("click", RIDERS_HIT_LAYER_ID, (event: any) => {
-          const riderId = String(event?.features?.[0]?.properties?.riderId || "").trim();
-          if (riderId) onRiderClick?.(riderId);
-        });
-        map.on("mouseenter", RIDERS_HIT_LAYER_ID, () => {
-          const canvas = map.getCanvas?.();
-          if (canvas) canvas.style.cursor = "pointer";
-        });
-        map.on("mouseleave", RIDERS_HIT_LAYER_ID, () => {
-          const canvas = map.getCanvas?.();
-          if (canvas) canvas.style.cursor = "grab";
-        });
+        if (!riderLayerInteractionsBoundRef.current) {
+          map.on("click", RIDERS_HIT_LAYER_ID, (event: any) => {
+            const riderId = String(event?.features?.[0]?.properties?.riderId || "").trim();
+            if (riderId) onRiderClickRef.current?.(riderId);
+          });
+          map.on("mouseenter", RIDERS_HIT_LAYER_ID, () => {
+            const canvas = map.getCanvas?.();
+            if (canvas) canvas.style.cursor = "pointer";
+          });
+          map.on("mouseleave", RIDERS_HIT_LAYER_ID, () => {
+            const canvas = map.getCanvas?.();
+            if (canvas) canvas.style.cursor = "grab";
+          });
+          riderLayerInteractionsBoundRef.current = true;
+        }
       } catch (error) {
+        useDomRiderMarkerFallbackRef.current = true;
         console.error("Failed to initialize rider 3D layer:", error);
       }
     },
-    [ensureRiderModelsLoaded, onRiderClick],
+    [ensureRiderModelsLoaded],
   );
 
   useEffect(() => {
@@ -399,9 +525,11 @@ export default function MapboxFleetMap({
           center: initialCenterRef.current || resolvedInitialCenter,
           zoom: Number.isFinite(initialZoom as number) ? Number(initialZoom) : 14,
           minZoom: 2,
-          maxZoom: 20,
-          pitch: 45,
+          maxZoom: 22,
+          pitch: DEFAULT_3D_PITCH,
+          bearing: DEFAULT_3D_BEARING,
           antialias: true,
+          fadeDuration: 200,
         });
         const lockAutoCamera = () => {
           autoCameraLockUntilRef.current = Date.now() + 2_500;
@@ -475,27 +603,44 @@ export default function MapboxFleetMap({
               data: toGeoJsonLine([]),
             });
           }
+          // Outer casing / glow layer (Uber-grade route styling)
+          if (!map.getLayer(ROUTE_OUTLINE_LAYER_ID)) {
+            map.addLayer({
+              id: ROUTE_OUTLINE_LAYER_ID,
+              type: "line",
+              source: ROUTE_SOURCE_ID,
+              paint: {
+                "line-color": "#93c5fd",
+                "line-width": 10,
+                "line-opacity": 0.35,
+                "line-blur": 4,
+              },
+            });
+          }
           if (!map.getLayer(ROUTE_LAYER_ID)) {
             map.addLayer({
               id: ROUTE_LAYER_ID,
               type: "line",
               source: ROUTE_SOURCE_ID,
               paint: {
-                "line-color": "#3b82f6",
-                "line-width": 4,
-                "line-opacity": 0.85,
+                "line-color": "#2563eb",
+                "line-width": 5,
+                "line-opacity": 0.95,
+                "line-dasharray": [1, 0],
               },
             });
           }
           void ensureRiderModelLayer(map).then(() => {
-            const source = map.getSource(RIDERS_SOURCE_ID);
-            if (!source) return;
+            if (useDomRiderMarkerFallbackRef.current) return;
+            const hitSource = map.getSource(RIDERS_SOURCE_ID);
+            if (!hitSource) return;
             const failedModelMap = {
               car: riderModelStateRef.current.car === "failed",
               motorcycle: riderModelStateRef.current.motorcycle === "failed",
               bicycle: riderModelStateRef.current.bicycle === "failed",
             };
-            source.setData(toRiderFeatureCollection(riders, failedModelMap));
+            lastRiderSourceSignatureRef.current = buildRiderSourceSignature(riders);
+            hitSource.setData(toRiderFeatureCollection(riders, failedModelMap, resolvedModelUrlsRef.current));
           });
         });
       } catch (error) {
@@ -523,6 +668,8 @@ export default function MapboxFleetMap({
         riderSourceUpdateTimeoutRef.current = null;
       }
       pendingRiderSourceDataRef.current = null;
+      riderMarkersRef.current.forEach((marker) => marker.remove());
+      riderMarkersRef.current.clear();
       orderMarkersRef.current.forEach((marker) => marker.remove());
       orderMarkersRef.current.clear();
       if (destinationMarkerRef.current) destinationMarkerRef.current.remove();
@@ -531,17 +678,25 @@ export default function MapboxFleetMap({
         mapRef.current.remove();
         mapRef.current = null;
       }
+      riderLayerInteractionsBoundRef.current = false;
+      useDomRiderMarkerFallbackRef.current = false;
       initErrorReportedRef.current = false;
       loadedRef.current = false;
       hasInitialAutoFitRef.current = false;
+      lastRiderSourceSignatureRef.current = "";
+      lastRouteSignatureRef.current = "";
+      lastRenderModeRef.current = null;
     };
-  }, [ensureRiderModelLayer, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, initialZoom, mapStyleUrl, presentationMode, requireMapboxToken]);
+  }, [ensureRiderModelLayer, fallbackMapRenderConfig.attribution, fallbackMapRenderConfig.tileUrl, initialZoom, mapStyleUrl, requireMapboxToken]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
+    const nextSignature = buildRouteSignature(routeGeometry);
+    if (lastRouteSignatureRef.current === nextSignature) return;
     const source = map.getSource(ROUTE_SOURCE_ID);
     if (source && source.setData) {
+      lastRouteSignatureRef.current = nextSignature;
       source.setData(toGeoJsonLine(routeGeometry));
     }
   }, [routeGeometry]);
@@ -549,20 +704,73 @@ export default function MapboxFleetMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    const failedModelMap = {
-      car: riderModelStateRef.current.car === "failed",
-      motorcycle: riderModelStateRef.current.motorcycle === "failed",
-      bicycle: riderModelStateRef.current.bicycle === "failed",
-    };
-    pendingRiderSourceDataRef.current = toRiderFeatureCollection(riders, failedModelMap);
+    const mapboxgl = (window as any).mapboxgl;
+    const failedModelMap = getFailedModelMap(riderModelStateRef.current);
+    const forceFallback = useDomRiderMarkerFallbackRef.current;
+    const modelEligibleRiders = riders.filter((rider) => !isRiderUsingFallbackMarker(rider, failedModelMap, forceFallback));
+    const fallbackRiders = riders.filter((rider) => isRiderUsingFallbackMarker(rider, failedModelMap, forceFallback));
+
+    if (!riders.length) {
+      reportRenderMode("fallback");
+    } else if (!modelEligibleRiders.length) {
+      reportRenderMode("fallback");
+    } else if (fallbackRiders.length > 0) {
+      reportRenderMode("hybrid");
+    } else {
+      reportRenderMode("3d");
+    }
+
+    const nextIds = new Set(fallbackRiders.map((rider) => rider.riderId));
+    riderMarkersRef.current.forEach((marker, id) => {
+      if (!nextIds.has(id)) {
+        marker.remove();
+        riderMarkersRef.current.delete(id);
+      }
+    });
+
+    fallbackRiders.forEach((rider) => {
+      const color = rider.isOnline === false ? "#64748b" : "#0f766e";
+      const heading = Number(rider.heading || 0);
+      const activeOrderCount = Number(rider.activeOrderCount || 0);
+      let marker = riderMarkersRef.current.get(rider.riderId);
+      const shouldRecreate =
+        !marker ||
+        marker.__color !== color ||
+        marker.__heading !== heading ||
+        marker.__activeOrderCount !== activeOrderCount;
+
+      if (shouldRecreate) {
+        if (marker) {
+          marker.remove();
+        }
+        const el = makeRiderMarkerElement(color, heading, activeOrderCount);
+        el.addEventListener("click", () => onRiderClickRef.current?.(rider.riderId));
+        marker = new mapboxgl.Marker({ element: el, rotationAlignment: "map" });
+        marker.__color = color;
+        marker.__heading = heading;
+        marker.__activeOrderCount = activeOrderCount;
+        riderMarkersRef.current.set(rider.riderId, marker);
+      }
+
+      marker.setLngLat([rider.longitude, rider.latitude]);
+      if (!marker.__isAdded || shouldRecreate) {
+        marker.addTo(map);
+        marker.__isAdded = true;
+      }
+    });
+
+    const nextSignature = buildRiderSourceSignature(modelEligibleRiders);
+    if (lastRiderSourceSignatureRef.current === nextSignature) return;
+    lastRiderSourceSignatureRef.current = nextSignature;
+    pendingRiderSourceDataRef.current = toRiderFeatureCollection(modelEligibleRiders, {}, resolvedModelUrlsRef.current);
     const commitSourceData = () => {
       if (riderSourceUpdateRafRef.current !== null) return;
       riderSourceUpdateRafRef.current = window.requestAnimationFrame(() => {
         riderSourceUpdateRafRef.current = null;
-        const source = map.getSource(RIDERS_SOURCE_ID);
-        if (!source || !pendingRiderSourceDataRef.current) return;
+        const hitSource = map.getSource(RIDERS_SOURCE_ID);
+        if (!hitSource || !pendingRiderSourceDataRef.current) return;
         try {
-          source.setData(pendingRiderSourceDataRef.current);
+          hitSource.setData(pendingRiderSourceDataRef.current);
           lastRiderSourceCommitAtRef.current = Date.now();
         } catch (error) {
           console.error("Failed to update rider 3D source data:", error);
@@ -582,7 +790,7 @@ export default function MapboxFleetMap({
       riderSourceUpdateTimeoutRef.current = null;
       commitSourceData();
     }, Math.max(16, RIDER_SOURCE_UPDATE_MIN_INTERVAL_MS - elapsed));
-  }, [riders]);
+  }, [reportRenderMode, riders]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -602,7 +810,7 @@ export default function MapboxFleetMap({
       if (!marker) {
         const el = makeMarkerElement("#f59e0b", 12);
         el.style.cursor = "pointer";
-        el.addEventListener("click", () => onOrderClick?.(order.id));
+        el.addEventListener("click", () => onOrderClickRef.current?.(order.id));
         marker = new mapboxgl.Marker({ element: el });
         orderMarkersRef.current.set(order.id, marker);
       }
@@ -623,7 +831,7 @@ export default function MapboxFleetMap({
         marker.__isAdded = true;
       }
     });
-  }, [onOrderClick, pendingOrders]);
+  }, [pendingOrders]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -674,7 +882,13 @@ export default function MapboxFleetMap({
       const currentZoom = Number(map.getZoom?.() || 12);
       const maxZoom = Number(map.getMaxZoom?.() || 20);
       const targetZoom = hasInitialAutoFitRef.current ? currentZoom : Math.min(maxZoom, Math.max(currentZoom, 16.8));
-      map.easeTo({ center: focusAnchor, zoom: targetZoom, duration: 520 });
+      map.easeTo({
+        center: focusAnchor,
+        zoom: targetZoom,
+        pitch: Math.max(Number(map.getPitch?.() || 0), presentationMode ? 64 : DEFAULT_3D_PITCH),
+        bearing: Number.isFinite(Number(map.getBearing?.())) ? Number(map.getBearing?.()) : DEFAULT_3D_BEARING,
+        duration: 520,
+      });
       hasInitialAutoFitRef.current = true;
       lastAutoCameraAtRef.current = now;
       return;
@@ -683,7 +897,7 @@ export default function MapboxFleetMap({
     fitMapToPoints(map, points, { padding: 50, maxZoom: 19, duration: 900 });
     hasInitialAutoFitRef.current = true;
     lastAutoCameraAtRef.current = now;
-  }, [cameraFocus, pendingOrders, riders, selectedDestination]);
+  }, [cameraFocus, riders, selectedDestination]);
 
   const zoomIn = () => {
     const map = mapRef.current;
@@ -692,7 +906,12 @@ export default function MapboxFleetMap({
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : cameraPointsRef.current[0];
     const nextZoom = Math.min((map.getZoom?.() ?? 12) + 1, 20);
     if (anchor) {
-      map.easeTo({ center: anchor, zoom: nextZoom, duration: 250 });
+      map.easeTo({
+        center: anchor,
+        zoom: nextZoom,
+        pitch: Math.max(Number(map.getPitch?.() || 0), DEFAULT_3D_PITCH),
+        duration: 250,
+      });
       return;
     }
     map.zoomIn({ duration: 250 });
@@ -705,7 +924,12 @@ export default function MapboxFleetMap({
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : cameraPointsRef.current[0];
     const nextZoom = Math.max((map.getZoom?.() ?? 12) - 1, 2);
     if (anchor) {
-      map.easeTo({ center: anchor, zoom: nextZoom, duration: 250 });
+      map.easeTo({
+        center: anchor,
+        zoom: nextZoom,
+        pitch: Math.max(Number(map.getPitch?.() || 0), presentationMode ? 58 : 52),
+        duration: 250,
+      });
       return;
     }
     map.zoomOut({ duration: 250 });
@@ -720,7 +944,13 @@ export default function MapboxFleetMap({
     const focusAnchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : points[0];
     if (focusAnchor) {
       const nextZoom = Math.min(Number(map.getMaxZoom?.() || 20), Number(map.getZoom?.() || 12) + 0.8);
-      map.easeTo({ center: focusAnchor, zoom: nextZoom, bearing: 0, duration: 650 });
+      map.easeTo({
+        center: focusAnchor,
+        zoom: nextZoom,
+        pitch: Math.max(Number(map.getPitch?.() || 0), presentationMode ? 64 : DEFAULT_3D_PITCH),
+        bearing: DEFAULT_3D_BEARING,
+        duration: 650,
+      });
       hasInitialAutoFitRef.current = true;
       lastAutoCameraAtRef.current = Date.now();
       return;
@@ -737,7 +967,12 @@ export default function MapboxFleetMap({
     if (!anchor) return;
     autoCameraLockUntilRef.current = Date.now() + 2_500;
     const zoom = Math.min(Number(map.getMaxZoom?.() || 20), Number(map.getZoom?.() ?? 12) + 0.75);
-    map.easeTo({ center: anchor, zoom, duration: 320 });
+    map.easeTo({
+      center: anchor,
+      zoom,
+      pitch: Math.max(Number(map.getPitch?.() || 0), presentationMode ? 64 : DEFAULT_3D_PITCH),
+      duration: 320,
+    });
   };
 
   const streetZoom = () => {
@@ -748,14 +983,23 @@ export default function MapboxFleetMap({
     autoCameraLockUntilRef.current = Date.now() + 2_500;
     const anchor = cameraFocus ? ([cameraFocus[1], cameraFocus[0]] as [number, number]) : points[0];
     const zoom = Math.min(Number(map.getMaxZoom?.() || 20), Number(map.getZoom?.() || 12) + 1.35);
-    map.easeTo({ center: anchor, zoom, duration: 350 });
+    map.easeTo({
+      center: anchor,
+      zoom,
+      pitch: Math.max(Number(map.getPitch?.() || 0), presentationMode ? 64 : DEFAULT_3D_PITCH),
+      duration: 350,
+    });
   };
 
   const resetBearing = () => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
     autoCameraLockUntilRef.current = Date.now() + 2_500;
-    map.easeTo({ bearing: 0, duration: 300 });
+    map.easeTo({
+      bearing: DEFAULT_3D_BEARING,
+      pitch: Math.max(Number(map.getPitch?.() || 0), DEFAULT_3D_PITCH),
+      duration: 300,
+    });
   };
 
   const togglePitch = () => {
@@ -763,7 +1007,7 @@ export default function MapboxFleetMap({
     if (!map || !loadedRef.current) return;
     autoCameraLockUntilRef.current = Date.now() + 2_500;
     const current = Number(map.getPitch?.() || 0);
-    const next = current < 20 ? 45 : current < 50 ? 60 : 0;
+    const next = current < 20 ? 48 : current < 56 ? DEFAULT_3D_PITCH : 0;
     map.easeTo({ pitch: next, duration: 350 });
   };
 

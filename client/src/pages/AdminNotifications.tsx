@@ -8,11 +8,13 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, Bell, Check, Trash2, ExternalLink, Package, ShoppingCart, User, MessageSquare, AlertCircle, Tag, RefreshCw } from "lucide-react";
+import { Bell, Check, Trash2, ExternalLink, Package, ShoppingCart, User, MessageSquare, AlertCircle, Tag, RefreshCw } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { useSocket } from "@/contexts/NotificationContext";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { SectionLoadingState } from "@/components/ui/loading-state";
 
 interface Notification {
   id: string;
@@ -27,6 +29,7 @@ interface Notification {
 export default function AdminNotifications() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const [, navigate] = useLocation();
   const socket = useSocket();
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
@@ -148,13 +151,29 @@ export default function AdminNotifications() {
 
     switch (type) {
       case "order":
-        navigate("/admin/orders");
+        if (metadata?.orderId) {
+          navigate(`/admin/orders/${metadata.orderId}/action`);
+        } else {
+          navigate("/admin/orders");
+        }
         break;
       case "user":
-        navigate("/admin/users");
+        if (metadata?.promotionApplicationId) {
+          navigate(`/admin/applications?tab=promotions&promotionId=${encodeURIComponent(String(metadata.promotionApplicationId))}`);
+        } else if (metadata?.userId && metadata?.role) {
+          navigate(`/admin/applications?userId=${encodeURIComponent(String(metadata.userId))}&role=${encodeURIComponent(String(metadata.role).toLowerCase())}`);
+        } else if (metadata?.userId) {
+          navigate(`/admin/users/${metadata.userId}/edit`);
+        } else {
+          navigate("/admin/users");
+        }
         break;
       case "product":
-        navigate("/admin/products");
+        if (metadata?.productId) {
+          navigate(`/admin/products/${metadata.productId}/edit`);
+        } else {
+          navigate("/admin/products");
+        }
         break;
       case "review":
         if (metadata?.link) {
@@ -175,29 +194,37 @@ export default function AdminNotifications() {
         }
         break;
       case "payout":
-        navigate("/admin/riders-payouts");
+        navigate(isExternalRiderSystemEnabled ? "/admin" : "/admin/riders-payouts");
         break;
       default:
         break;
     }
   };
 
-  const unreadCount = useMemo(
-    () => notifications.filter((notification) => !notification.isRead).length,
-    [notifications],
+  const visibleNotifications = useMemo(
+    () =>
+      isExternalRiderSystemEnabled
+        ? notifications.filter((notification) => notification.type !== "payout")
+        : notifications,
+    [isExternalRiderSystemEnabled, notifications],
   );
 
-  const readCount = notifications.length - unreadCount;
+  const unreadCount = useMemo(
+    () => visibleNotifications.filter((notification) => !notification.isRead).length,
+    [visibleNotifications],
+  );
+
+  const readCount = visibleNotifications.length - unreadCount;
 
   const filteredNotifications = useMemo(() => {
     if (activeTab === "unread") {
-      return notifications.filter((notification) => !notification.isRead);
+      return visibleNotifications.filter((notification) => !notification.isRead);
     }
     if (activeTab === "read") {
-      return notifications.filter((notification) => notification.isRead);
+      return visibleNotifications.filter((notification) => notification.isRead);
     }
-    return notifications;
-  }, [activeTab, notifications]);
+    return visibleNotifications;
+  }, [activeTab, visibleNotifications]);
 
   const lastSyncedLabel = dataUpdatedAt
     ? formatDistanceToNow(new Date(dataUpdatedAt), { addSuffix: true })
@@ -206,13 +233,13 @@ export default function AdminNotifications() {
   return (
     <DashboardLayout role={user?.role as any}>
       <div className="p-6 space-y-6">
-        <Card className="border-emerald-500/25 bg-[linear-gradient(105deg,rgba(16,185,129,0.16)_0%,rgba(16,185,129,0.06)_38%,rgba(15,23,42,0.92)_100%)] p-6 shadow-lg shadow-emerald-900/10">
+        <Card className="border-border/70 bg-card p-6 shadow-sm dark:border-emerald-500/25 dark:bg-[linear-gradient(105deg,rgba(16,185,129,0.16)_0%,rgba(16,185,129,0.06)_38%,rgba(15,23,42,0.92)_100%)] dark:shadow-lg dark:shadow-emerald-900/10">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold" data-testid="text-page-title">Notifications</h1>
               <p className="text-muted-foreground mt-1">Live system alerts and message events synced with database updates.</p>
               <div className="flex flex-wrap items-center gap-2 mt-3">
-                <Badge className="bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">
+                <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200">
                   Live Feed
                 </Badge>
                 <Badge variant="secondary">
@@ -269,9 +296,7 @@ export default function AdminNotifications() {
         </Tabs>
 
         {isLoading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
+          <SectionLoadingState title="Loading notifications" description="Fetching your latest admin alerts and activity updates." lines={3} className="shadow-none" />
         ) : filteredNotifications.length === 0 ? (
           <Card className="p-12">
             <div className="text-center">

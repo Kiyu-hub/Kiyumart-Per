@@ -2,7 +2,7 @@ import { db } from "../db/index";
 import { 
   users, products, orders, orderItems, orderStatusHistory, deliveryZones, deliveryTracking,
   chatMessages, transactions, platformSettings, cart, wishlist, reviews, riderReviews,
-  productVariants, heroBanners, promotionalAds, promotionPricing, coupons, bannerCollections, marketplaceBanners,
+  productVariants, heroBanners, promotionalAds, promotionPricing, promotionApplications, coupons, bannerCollections, marketplaceBanners,
   stores, categoryFields, categories, notifications, mediaLibrary, footerPages,
   idempotencyKeys,
   commissions, platformEarnings, sellerPayouts, riderPayouts, roleFeatures,
@@ -24,6 +24,23 @@ import { eq, and, desc, sql, lte, gte, or, isNull, isNotNull } from "drizzle-orm
 
 const generateNumericOtp = (): string => String(Math.floor(100000 + Math.random() * 900000));
 
+async function withStorageTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+let financeBackfillComplete = false;
+let financeBackfillInFlight: Promise<number> | null = null;
+
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
@@ -36,7 +53,7 @@ export interface IStorage {
   // Product operations
   createProduct(product: InsertProduct & { sellerId: string }): Promise<Product>;
   getProduct(id: string): Promise<Product | undefined>;
-  getProducts(filters?: { sellerId?: string; category?: string; isActive?: boolean }): Promise<Product[]>;
+  getProducts(filters?: { sellerId?: string; storeId?: string; category?: string; isActive?: boolean }): Promise<Product[]>;
   updateProduct(id: string, data: Partial<Product>): Promise<Product | undefined>;
   deleteProduct(id: string): Promise<boolean>;
   
@@ -56,7 +73,7 @@ export interface IStorage {
   
   // Delivery Zone operations
   createDeliveryZone(zone: InsertDeliveryZone): Promise<DeliveryZone>;
-  getDeliveryZones(includeInactive?: boolean): Promise<DeliveryZone[]>;
+  getDeliveryZones(includeInactive?: boolean, entityKind?: "delivery_zone" | "pickup_station"): Promise<DeliveryZone[]>;
   updateDeliveryZone(id: string, data: Partial<DeliveryZone>): Promise<DeliveryZone | undefined>;
   deleteDeliveryZone(id: string): Promise<boolean>;
   
@@ -87,6 +104,8 @@ export interface IStorage {
   createCommission(data: InsertCommission): Promise<Commission>;
   createPlatformEarning(data: InsertPlatformEarning): Promise<PlatformEarning>;
   createCommissionWithEarning(orderId: string): Promise<{commission: Commission, earning: PlatformEarning}>;
+  ensureAutomaticSellerPayoutForCommission(commissionId: string): Promise<SellerPayout | undefined>;
+  backfillMissingCommissionEarnings(limit?: number): Promise<number>;
   getSellerAvailableBalance(sellerId: string): Promise<number>;
   getSellerCommissions(sellerId: string, status?: string): Promise<Commission[]>;
   
@@ -94,6 +113,7 @@ export interface IStorage {
   createSellerPayout(data: InsertSellerPayout): Promise<SellerPayout>;
   getSellerPayouts(sellerId: string): Promise<SellerPayout[]>;
   getAllPendingPayouts(): Promise<SellerPayout[]>;
+  updateSellerPayoutDetails(payoutId: string, bankDetailsPatch: Record<string, any>, notes?: string): Promise<SellerPayout | undefined>;
   updatePayoutStatus(payoutId: string, status: string, processedBy?: string): Promise<SellerPayout | undefined>;
   
   // Rider Payout operations
@@ -211,7 +231,7 @@ export interface IStorage {
   
   // Multi-vendor homepage data
   getApprovedSellers(): Promise<User[]>;
-  getFeaturedProducts(limit?: number, sellerId?: string): Promise<Product[]>;
+  getFeaturedProducts(limit?: number, sellerId?: string, storeId?: string): Promise<Product[]>;
   
   // Media Library operations
   createMediaLibraryItem(data: InsertMediaLibrary): Promise<MediaLibrary>;
@@ -303,20 +323,25 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  async getProducts(filters?: { sellerId?: string; category?: string; isActive?: boolean }): Promise<Product[]> {
-    let query = db.select().from(products);
-    
+  async getProducts(filters?: { sellerId?: string; storeId?: string; category?: string; isActive?: boolean }): Promise<Product[]> {
+    const conditions = [];
+
     if (filters?.sellerId) {
-      query = query.where(eq(products.sellerId, filters.sellerId)) as any;
+      conditions.push(eq(products.sellerId, filters.sellerId));
+    }
+    if (filters?.storeId) {
+      conditions.push(eq(products.storeId, filters.storeId));
     }
     if (filters?.category) {
-      query = query.where(eq(products.category, filters.category)) as any;
+      conditions.push(eq(products.category, filters.category));
     }
     if (filters?.isActive !== undefined) {
-      query = query.where(eq(products.isActive, filters.isActive)) as any;
+      conditions.push(eq(products.isActive, filters.isActive));
     }
-    
-    return query.orderBy(desc(products.createdAt));
+
+    const query = db.select().from(products);
+
+    return (conditions.length > 0 ? query.where(and(...conditions)) : query).orderBy(desc(products.createdAt));
   }
 
   async updateProduct(id: string, data: Partial<Product>): Promise<Product | undefined> {
@@ -488,6 +513,7 @@ export class DbStorage implements IStorage {
     // CRITICAL: Use transaction to ensure atomicity
     // Read order, validate, compute side effects, update, and audit trail must all be atomic
     try {
+      const platformSettings = await this.getPlatformSettings();
       const updatedOrder = await db.transaction(async (tx) => {
         // CRITICAL: Read order INSIDE transaction with row lock (FOR UPDATE)
         // This prevents TOCTOU race conditions
@@ -516,6 +542,7 @@ export class DbStorage implements IStorage {
           actorId: changedBy,
           actorRole: changedByRole as any,
           reason,
+          isExternalRiderSystemEnabled: platformSettings?.isExternalRiderSystemEnabled === true,
         });
 
         if (!transitionResult.valid) {
@@ -657,6 +684,7 @@ export class DbStorage implements IStorage {
     const normalizedZone = {
       ...validatedZone,
       name: validatedZone.name.trim(),
+      entityKind: validatedZone.entityKind || "delivery_zone",
       type: (validatedZone.type || "city").toLowerCase(),
       city: validatedZone.city?.trim() || null,
       region: validatedZone.region?.trim() || null,
@@ -678,11 +706,17 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  async getDeliveryZones(includeInactive: boolean = false): Promise<DeliveryZone[]> {
+  async getDeliveryZones(
+    includeInactive: boolean = false,
+    entityKind: "delivery_zone" | "pickup_station" = "delivery_zone",
+  ): Promise<DeliveryZone[]> {
     if (includeInactive) {
-      return db.select().from(deliveryZones);
+      return db.select().from(deliveryZones).where(eq(deliveryZones.entityKind, entityKind as any));
     }
-    return db.select().from(deliveryZones).where(eq(deliveryZones.isActive, true));
+    return db
+      .select()
+      .from(deliveryZones)
+      .where(and(eq(deliveryZones.isActive, true), eq(deliveryZones.entityKind, entityKind as any)));
   }
 
   async updateDeliveryZone(id: string, data: Partial<DeliveryZone>): Promise<DeliveryZone | undefined> {
@@ -742,6 +776,16 @@ export class DbStorage implements IStorage {
         throw error;
       }
       updateData.type = normalizedType as any;
+    }
+
+    if (data.entityKind !== undefined) {
+      const normalizedEntityKind = String(data.entityKind || "").toLowerCase().trim();
+      if (!["delivery_zone", "pickup_station"].includes(normalizedEntityKind)) {
+        const error = new Error("Zone kind must be either delivery_zone or pickup_station");
+        (error as any).code = "INVALID_ZONE_KIND";
+        throw error;
+      }
+      updateData.entityKind = normalizedEntityKind as any;
     }
 
     if (data.city !== undefined) {
@@ -913,8 +957,12 @@ export class DbStorage implements IStorage {
 
   // Detailed platform earnings (joins to provide store/seller and order info) with filters
   async getPlatformEarningsDetailed(options?: { limit?: number; offset?: number; sellerId?: string; storeId?: string; from?: string; to?: string; type?: string }) {
+    void this.backfillMissingCommissionEarnings(100).catch((error: any) => {
+      console.error("[FINANCE] Background platform earnings sync failed:", error?.message || error);
+    });
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
+    const conditions: any[] = [];
 
     let query: any = db.select({
       id: platformEarnings.id,
@@ -940,32 +988,143 @@ export class DbStorage implements IStorage {
 
     // Apply filters
     if (options?.sellerId) {
-      query = query.where(eq(commissions.sellerId, options.sellerId));
+      conditions.push(eq(commissions.sellerId, options.sellerId));
     }
     if (options?.storeId) {
-      query = query.where(eq(stores.id, options.storeId));
+      conditions.push(eq(stores.id, options.storeId));
     }
     if (options?.type) {
-      query = query.where(eq(platformEarnings.type, options.type));
+      conditions.push(eq(platformEarnings.type, options.type));
     }
     if (options?.from) {
-      query = query.where(sql`${platformEarnings.createdAt} >= ${new Date(options.from)}`);
+      const from = new Date(options.from);
+      if (!Number.isNaN(from.getTime())) {
+        from.setHours(0, 0, 0, 0);
+        conditions.push(sql`${platformEarnings.createdAt} >= ${from}`);
+      }
     }
     if (options?.to) {
-      query = query.where(sql`${platformEarnings.createdAt} <= ${new Date(options.to)}`);
+      const to = new Date(options.to);
+      if (!Number.isNaN(to.getTime())) {
+        to.setHours(23, 59, 59, 999);
+        conditions.push(sql`${platformEarnings.createdAt} <= ${to}`);
+      }
+    }
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
     }
 
-    const rows = await query.limit(limit).offset(offset);
-    return rows;
+    const rows = await query;
+
+    const shouldIncludePromotionRows = !options?.type || options.type === "promotion" || options.type === "promotion_fee";
+    if (!shouldIncludePromotionRows) {
+      return rows.slice(offset, offset + limit);
+    }
+
+    const promotionConditions: any[] = [
+      eq(promotionApplications.paymentConfirmed, true),
+      isNotNull(promotionApplications.approvedAt),
+    ];
+
+    if (options?.sellerId) {
+      promotionConditions.push(eq(promotionApplications.sellerId, options.sellerId));
+    }
+    if (options?.from) {
+      const from = new Date(options.from);
+      if (!Number.isNaN(from.getTime())) {
+        from.setHours(0, 0, 0, 0);
+        promotionConditions.push(sql`${promotionApplications.approvedAt} >= ${from}`);
+      }
+    }
+    if (options?.to) {
+      const to = new Date(options.to);
+      if (!Number.isNaN(to.getTime())) {
+        to.setHours(23, 59, 59, 999);
+        promotionConditions.push(sql`${promotionApplications.approvedAt} <= ${to}`);
+      }
+    }
+
+    const promotionBaseRows = await db
+      .select({
+        id: promotionApplications.id,
+        sellerId: promotionApplications.sellerId,
+        sellerName: users.name,
+        type: promotionApplications.type,
+        targetId: promotionApplications.targetId,
+        targetName: promotionApplications.targetName,
+        totalPrice: promotionApplications.totalPrice,
+        approvedAt: promotionApplications.approvedAt,
+      })
+      .from(promotionApplications)
+      .leftJoin(users, eq(promotionApplications.sellerId, users.id))
+      .where(and(...promotionConditions));
+
+    const promotionRows = [] as any[];
+    for (const promotionRow of promotionBaseRows) {
+      let resolvedStoreId: string | null = null;
+      let resolvedStoreName: string | null = null;
+
+      if (promotionRow.type === "store") {
+        const store = await this.getStore(String(promotionRow.targetId || "")).catch(() => null);
+        resolvedStoreId = store?.id || null;
+        resolvedStoreName = store?.name || promotionRow.targetName || "Store Promotion";
+      } else {
+        const product = await this.getProduct(String(promotionRow.targetId || "")).catch(() => null);
+        if (product?.storeId) {
+          const store = await this.getStore(String(product.storeId)).catch(() => null);
+          resolvedStoreId = store?.id || null;
+          resolvedStoreName = store?.name || null;
+        }
+      }
+
+      if (options?.storeId && resolvedStoreId !== options.storeId) {
+        continue;
+      }
+
+      promotionRows.push({
+        id: `promotion-${promotionRow.id}`,
+        orderId: null,
+        commissionId: null,
+        amount: promotionRow.totalPrice,
+        type: "promotion",
+        description: `${promotionRow.type === "store" ? "Store" : "Product"} promotion income for ${promotionRow.targetName}`,
+        createdAt: promotionRow.approvedAt,
+        sellerId: promotionRow.sellerId,
+        sellerName: promotionRow.sellerName,
+        storeId: resolvedStoreId,
+        storeName: resolvedStoreName || "Promotion Campaign",
+        orderNumber: null,
+        orderCreatedAt: null,
+      });
+    }
+
+    return [...rows, ...promotionRows]
+      .sort((a: any, b: any) => {
+        const aTs = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTs = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTs - aTs;
+      })
+      .slice(offset, offset + limit);
   }
 
   // Summary of platform earnings grouped by type and total
   async getPlatformEarningsSummary(): Promise<{ total: string; byType: Record<string, string> }> {
+    void this.backfillMissingCommissionEarnings(100).catch((error: any) => {
+      console.error("[FINANCE] Background finance summary sync failed:", error?.message || error);
+    });
     const totals = await db.select({ type: platformEarnings.type, sum: sql`SUM(${platformEarnings.amount})` }).from(platformEarnings).groupBy(platformEarnings.type);
     const totalAll = await db.select({ sum: sql`SUM(${platformEarnings.amount})` }).from(platformEarnings);
+    const promotionTotals = await db
+      .select({ sum: sql`SUM(${promotionApplications.totalPrice})` })
+      .from(promotionApplications)
+      .where(and(eq(promotionApplications.paymentConfirmed, true), isNotNull(promotionApplications.approvedAt)));
     const byType: Record<string, string> = {};
     totals.forEach((t: any) => { byType[String(t.type)] = (parseFloat(String(t.sum)) || 0).toFixed(2); });
-    return { total: (parseFloat(String(totalAll[0]?.sum)) || 0).toFixed(2), byType };
+    const promotionSum = parseFloat(String(promotionTotals[0]?.sum)) || 0;
+    if (promotionSum > 0) {
+      byType.promotion = promotionSum.toFixed(2);
+    }
+    return { total: ((parseFloat(String(totalAll[0]?.sum)) || 0) + promotionSum).toFixed(2), byType };
   }
 
   // Fetch recent transactions
@@ -1015,11 +1174,13 @@ export class DbStorage implements IStorage {
       const settings = await this.getPlatformSettings();
       const commissionRatePercent = parseFloat(settings.defaultCommissionRate || "1.00");
 
-      // Step 4: Calculate amounts using integer arithmetic (cents) for precision
-      // Convert to cents to avoid floating point errors
-      // Commission and seller amounts are calculated on the amount excluding processing fees
-      const orderProcessingFeeCents = Math.round((parseFloat(order.processingFee || "0") || 0) * 100);
-      const orderAmountCents = Math.round(parseFloat(order.total) * 100) - orderProcessingFeeCents;
+      // Step 4: Calculate amounts using integer arithmetic (cents) for precision.
+      // Commission applies only to the merchandise amount net of coupon discounts.
+      // Delivery fees and processing fees are excluded from seller commission.
+      const subtotalCents = Math.round((parseFloat(order.subtotal || "0") || 0) * 100);
+      const couponDiscountCents = Math.round((parseFloat(order.couponDiscount || "0") || 0) * 100);
+      const processingFeeCents = Math.round((parseFloat(order.processingFee || "0") || 0) * 100);
+      const orderAmountCents = Math.max(0, subtotalCents - couponDiscountCents);
       const commissionAmountCents = Math.round((orderAmountCents * commissionRatePercent) / 100);
       const sellerAmountCents = orderAmountCents - commissionAmountCents;
 
@@ -1058,12 +1219,318 @@ export class DbStorage implements IStorage {
         description: `Commission from order #${order.orderNumber}`,
       } as any).returning();
 
+      if (processingFeeCents > 0) {
+        await tx.insert(platformEarnings).values({
+          orderId: order.id,
+          amount: (processingFeeCents / 100).toFixed(2),
+          type: "service_fee",
+          description: `Processing fee from order #${order.orderNumber}`,
+        } as any);
+      }
+
       return { commission, earning };
     });
   }
 
+  async ensureAutomaticSellerPayoutForCommission(commissionId: string): Promise<SellerPayout | undefined> {
+    const [commission] = await db.select()
+      .from(commissions)
+      .where(eq(commissions.id, commissionId))
+      .limit(1);
+
+    if (!commission) return undefined;
+
+    const [order] = await db.select()
+      .from(orders)
+      .where(eq(orders.id, commission.orderId))
+      .limit(1);
+
+    if (!order || !commission.sellerId) return undefined;
+
+    const store = await this.getStoreByPrimarySeller(commission.sellerId);
+    const payoutMethod = store?.payoutType === "mobile_money" ? "mobile_money" : "bank_account";
+    const settlementMode = payoutMethod === "mobile_money" ? "transfer" : "split";
+    const transferFee = payoutMethod === "mobile_money" ? "1.00" : "0.00";
+    const payoutDetails = payoutMethod === "mobile_money"
+      ? {
+          mobileNumber: store?.payoutDetails?.mobileNumber,
+          provider: store?.payoutDetails?.provider,
+          transferFee,
+          settlementMode,
+        }
+      : {
+          accountName: store?.payoutDetails?.accountName || store?.payoutDetails?.fullName || store?.name,
+          accountNumber: store?.payoutDetails?.accountNumber,
+          bankCode: store?.payoutDetails?.bankCode,
+          bankName: store?.payoutDetails?.bankName,
+          transferFee,
+          settlementMode,
+        };
+
+    const settlementReference = `auto_seller_settlement_${commission.id}`;
+    const desiredStatus = payoutMethod === "mobile_money" ? "processing" : "completed";
+    const desiredCommissionStatus = desiredStatus === "completed" ? "processed" : "processing";
+    const settlementNotes =
+      payoutMethod === "mobile_money"
+        ? `Automatic seller settlement for order #${order.orderNumber} queued for Paystack mobile money transfer`
+        : `Automatic seller settlement for order #${order.orderNumber} completed through Paystack split routing`;
+
+    const [existingPayout] = await db.select()
+      .from(sellerPayouts)
+      .where(or(
+        eq(sellerPayouts.reference, settlementReference),
+        and(
+          eq(sellerPayouts.sellerId, commission.sellerId),
+          sql`${commission.id} = ANY(${sellerPayouts.commissionIds})`
+        ),
+      ))
+      .limit(1);
+
+    if (existingPayout) {
+      let payout = existingPayout;
+      if (
+        payoutMethod === "bank_account" &&
+        existingPayout.status !== "completed" &&
+        existingPayout.status !== "failed"
+      ) {
+        payout = (await this.updatePayoutStatus(existingPayout.id, "completed", undefined)) || existingPayout;
+      } else if (
+        payoutMethod === "mobile_money" &&
+        existingPayout.status === "pending"
+      ) {
+        payout = (await this.updatePayoutStatus(existingPayout.id, "processing", undefined)) || existingPayout;
+      }
+
+      if (commission.status !== desiredCommissionStatus) {
+        await db.update(commissions)
+          .set({
+            status: desiredCommissionStatus,
+            processedAt: desiredCommissionStatus === "processed" ? new Date() : null,
+          })
+          .where(eq(commissions.id, commission.id));
+      }
+
+      return payout;
+    }
+
+    try {
+      const [createdPayout] = await db.transaction(async (tx) => {
+        const [insertedPayout] = await tx.insert(sellerPayouts).values({
+          sellerId: commission.sellerId,
+          amount: commission.sellerAmount,
+          currency: order.currency || "GHS",
+          method: payoutMethod,
+          status: desiredStatus,
+          reference: settlementReference,
+          bankDetails: payoutDetails,
+          commissionIds: [commission.id],
+          notes: settlementNotes,
+          processedAt: desiredStatus === "completed" ? new Date() : null,
+        } as any).returning();
+
+        await tx.update(commissions)
+          .set({
+            status: desiredCommissionStatus,
+            processedAt: desiredCommissionStatus === "processed" ? new Date() : null,
+          })
+          .where(eq(commissions.id, commission.id));
+
+        return [insertedPayout];
+      });
+
+      return createdPayout;
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        const [retryPayout] = await db.select()
+          .from(sellerPayouts)
+          .where(or(
+            eq(sellerPayouts.reference, settlementReference),
+            and(
+              eq(sellerPayouts.sellerId, commission.sellerId),
+              sql`${commission.id} = ANY(${sellerPayouts.commissionIds})`
+            ),
+          ))
+          .limit(1);
+
+        if (retryPayout) {
+          if (
+            payoutMethod === "bank_account" &&
+            retryPayout.status !== "completed" &&
+            retryPayout.status !== "failed"
+          ) {
+            return await this.updatePayoutStatus(retryPayout.id, "completed", undefined);
+          }
+          if (payoutMethod === "mobile_money" && retryPayout.status === "pending") {
+            return await this.updatePayoutStatus(retryPayout.id, "processing", undefined);
+          }
+          return retryPayout;
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  async reconcileOrderFinanceRecords(orderId: string): Promise<number> {
+    const [order] = await db.select().from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!order) return 0;
+    const paymentStatus = String(order.paymentStatus || "").toLowerCase().trim();
+    if (!["completed", "paid", "success"].includes(paymentStatus)) return 0;
+    if (!order.sellerId) return 0;
+
+    let repairedCount = 0;
+
+    const existingCommissionRows = await db.select().from(commissions)
+      .where(eq(commissions.orderId, orderId))
+      .limit(1);
+
+    let commission = existingCommissionRows[0];
+
+    if (!commission) {
+      try {
+        const created = await this.createCommissionWithEarning(orderId);
+        commission = created.commission;
+        repairedCount += 1;
+      } catch (error: any) {
+        if (error?.code === "COMMISSION_ALREADY_EXISTS") {
+          const retryRows = await db.select().from(commissions)
+            .where(eq(commissions.orderId, orderId))
+            .limit(1);
+          commission = retryRows[0];
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    if (!commission) return repairedCount;
+
+    const commissionEarningRows = await db.select().from(platformEarnings)
+      .where(or(
+        eq(platformEarnings.commissionId, commission.id),
+        and(eq(platformEarnings.orderId, order.id), eq(platformEarnings.type, "commission")),
+      ))
+      .limit(1);
+
+    if (commissionEarningRows.length === 0) {
+      await this.createPlatformEarning({
+        orderId: order.id,
+        commissionId: commission.id,
+        amount: commission.commissionAmount,
+        type: "commission",
+        description: `Commission from order #${order.orderNumber}`,
+      } as any);
+      repairedCount += 1;
+    }
+
+    const processingFee = parseFloat(order.processingFee || "0") || 0;
+    if (processingFee > 0) {
+      const serviceFeeRows = await db.select().from(platformEarnings)
+        .where(and(
+          eq(platformEarnings.orderId, order.id),
+          eq(platformEarnings.type, "service_fee"),
+        ))
+        .limit(1);
+
+      if (serviceFeeRows.length === 0) {
+        await this.createPlatformEarning({
+          orderId: order.id,
+          amount: processingFee.toFixed(2),
+          type: "service_fee",
+          description: `Processing fee from order #${order.orderNumber}`,
+        } as any);
+        repairedCount += 1;
+      }
+    }
+
+    const payout = await this.ensureAutomaticSellerPayoutForCommission(commission.id);
+    if (payout) {
+      repairedCount += 1;
+    }
+
+    return repairedCount;
+  }
+
+  async backfillMissingCommissionEarnings(limit = 50): Promise<number> {
+    const reconcileRecentPaidOrders = async () => {
+      const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
+      const recentPaidOrders = await db
+        .select({ id: orders.id })
+        .from(orders)
+        .where(and(
+          paidStatusFilter,
+          isNotNull(orders.sellerId),
+        ))
+        .orderBy(desc(orders.updatedAt), desc(orders.createdAt))
+        .limit(limit);
+
+      let repairedCount = 0;
+      for (const row of recentPaidOrders) {
+        try {
+          repairedCount += await this.reconcileOrderFinanceRecords(row.id);
+        } catch (error: any) {
+          console.error(`[FINANCE] Failed to reconcile recent finance records for order ${row.id}:`, error?.message || error);
+        }
+      }
+      return repairedCount;
+    };
+
+    if (financeBackfillComplete) {
+      return reconcileRecentPaidOrders();
+    }
+    if (financeBackfillInFlight) return financeBackfillInFlight;
+
+    financeBackfillInFlight = (async () => {
+      try {
+        const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
+        let offset = 0;
+        let repairedCount = 0;
+
+        while (true) {
+          const paidOrders = await db
+            .select({ id: orders.id })
+            .from(orders)
+            .where(and(
+              paidStatusFilter,
+              isNotNull(orders.sellerId),
+            ))
+            .orderBy(desc(orders.updatedAt), desc(orders.createdAt))
+            .limit(limit)
+            .offset(offset);
+
+          if (paidOrders.length === 0) break;
+
+          for (const row of paidOrders) {
+            try {
+              repairedCount += await this.reconcileOrderFinanceRecords(row.id);
+            } catch (error: any) {
+              console.error(`[FINANCE] Failed to reconcile finance records for order ${row.id}:`, error?.message || error);
+            }
+          }
+
+          offset += paidOrders.length;
+          if (paidOrders.length < limit) break;
+        }
+
+        financeBackfillComplete = true;
+        return repairedCount;
+      } catch (error: any) {
+        console.error("[FINANCE] Historical commission sync failed:", error?.message || error);
+        return 0;
+      } finally {
+        financeBackfillInFlight = null;
+      }
+    })();
+
+    return financeBackfillInFlight;
+  }
+
   // Get seller's available balance (sum of pending commissions not in payouts)
   async getSellerAvailableBalance(sellerId: string): Promise<number> {
+    await this.backfillMissingCommissionEarnings(50);
     // Get all pending commissions for seller
     const pendingCommissions = await db.select()
       .from(commissions)
@@ -1084,6 +1551,7 @@ export class DbStorage implements IStorage {
 
   // Get seller commissions
   async getSellerCommissions(sellerId: string, status?: string): Promise<Commission[]> {
+    await this.backfillMissingCommissionEarnings(50);
     if (status) {
       return await db.select()
         .from(commissions)
@@ -1235,6 +1703,7 @@ export class DbStorage implements IStorage {
 
   // Get seller payouts
   async getSellerPayouts(sellerId: string): Promise<SellerPayout[]> {
+    await this.backfillMissingCommissionEarnings(50);
     return await db.select()
       .from(sellerPayouts)
       .where(eq(sellerPayouts.sellerId, sellerId))
@@ -1243,9 +1712,13 @@ export class DbStorage implements IStorage {
 
   // Get all pending payouts (for admin)
   async getAllPendingPayouts(): Promise<SellerPayout[]> {
+    await this.backfillMissingCommissionEarnings(50);
     return await db.select()
       .from(sellerPayouts)
-      .where(eq(sellerPayouts.status, 'pending'))
+      .where(or(
+        eq(sellerPayouts.status, 'pending'),
+        eq(sellerPayouts.status, 'processing'),
+      ))
       .orderBy(desc(sellerPayouts.createdAt));
   }
 
@@ -1255,6 +1728,36 @@ export class DbStorage implements IStorage {
       .from(sellerPayouts)
       .where(eq(sellerPayouts.status, status))
       .orderBy(desc(sellerPayouts.createdAt));
+  }
+
+  async updateSellerPayoutDetails(
+    payoutId: string,
+    bankDetailsPatch: Record<string, any>,
+    notes?: string,
+  ): Promise<SellerPayout | undefined> {
+    const [payout] = await db.select()
+      .from(sellerPayouts)
+      .where(eq(sellerPayouts.id, payoutId))
+      .limit(1);
+
+    if (!payout) {
+      return undefined;
+    }
+
+    const mergedBankDetails = {
+      ...((payout.bankDetails as Record<string, any> | null) || {}),
+      ...(bankDetailsPatch || {}),
+    };
+
+    const [updated] = await db.update(sellerPayouts)
+      .set({
+        bankDetails: mergedBankDetails,
+        notes: notes ?? payout.notes,
+      } as any)
+      .where(eq(sellerPayouts.id, payoutId))
+      .returning();
+
+    return updated;
   }
 
   // Mark an array of commission IDs as processed
@@ -1380,10 +1883,29 @@ export class DbStorage implements IStorage {
   async getPlatformSettings(): Promise<PlatformSettings> {
     try {
       // Return the most recently updated settings row (if multiple exist) to avoid ambiguity
-      const result = await db.select().from(platformSettings).orderBy(desc(platformSettings.updatedAt)).limit(1);
+      const result = await withStorageTimeout(
+        db.select().from(platformSettings).orderBy(desc(platformSettings.updatedAt)).limit(1),
+        3000,
+        "Platform settings lookup",
+      );
       if (result.length === 0) {
         // Ensure reasonable defaults on first creation: Single-store by default and GHS currency
-        const [settings] = await db.insert(platformSettings).values({ isMultiVendor: false, defaultCurrency: 'GHS' }).returning();
+        const [settings] = await withStorageTimeout(
+          db.insert(platformSettings).values({
+            isMultiVendor: false,
+            defaultCurrency: 'GHS',
+            adsEnabled: false,
+            heroBannerEnabled: false,
+            sidebarAdEnabled: false,
+            footerAdEnabled: false,
+            productPageAdEnabled: false,
+            isExternalRiderSystemEnabled: false,
+            showCheckoutDeliveryMap: true,
+            allowRiderRegistration: false,
+          }).returning(),
+          3000,
+          "Platform settings bootstrap",
+        );
         return settings;
       }
       // Sanitize social URLs: convert '__CLEAR__' to null
@@ -1400,7 +1922,13 @@ export class DbStorage implements IStorage {
       console.error('ERROR getPlatformSettings query failed:', msg);
       // If the settings table or expected columns are not present (e.g., migrations not applied),
       // return reasonable defaults so the frontend can continue to render without crashing.
-      if (msg.includes('does not exist') || msg.includes('column') || msg.includes('relation')) {
+      if (
+        msg.includes('does not exist') ||
+        msg.includes('column') ||
+        msg.includes('relation') ||
+        msg.includes('Connection terminated') ||
+        msg.toLowerCase().includes('timeout')
+      ) {
         console.warn('[STORAGE] platform_settings table or columns missing; returning defaults');
         // Provide a full shape that satisfies the PlatformSettings type; set optional fields to null/defaults
         const defaults: PlatformSettings = {
@@ -1456,11 +1984,11 @@ export class DbStorage implements IStorage {
           categoryDisplayStyle: null,
           bannerAutoplayEnabled: false,
           bannerAutoplayDuration: 5,
-          adsEnabled: true,
-          heroBannerEnabled: true,
-          sidebarAdEnabled: true,
-          footerAdEnabled: true,
-          productPageAdEnabled: true,
+          adsEnabled: false,
+          heroBannerEnabled: false,
+          sidebarAdEnabled: false,
+          footerAdEnabled: false,
+          productPageAdEnabled: false,
           heroBannerAdImage: null,
           heroBannerAdUrl: null,
           sidebarAdImage: null,
@@ -1470,8 +1998,12 @@ export class DbStorage implements IStorage {
           footerAdUrl: null,
           productPageAdImage: null,
           productPageAdUrl: null,
+          showAdminOperationsPanels: true,
+          isExternalRiderSystemEnabled: false,
+          showCheckoutDeliveryMap: true,
+          allowPickupAgentAdminChat: true,
           allowSellerRegistration: true,
-          allowRiderRegistration: true,
+          allowRiderRegistration: false,
           primaryStoreId: null,
           defaultCommissionRate: '1',
           frontendUrl: null,
@@ -1495,6 +2027,27 @@ export class DbStorage implements IStorage {
   // Promotional Ads management
   async createPromotionalAd(payload: { type: 'store' | 'product'; targetId: string; startAt?: Date | null; endAt?: Date | null; createdBy?: string | null; title?: string | null; description?: string | null; imageUrl?: string | null; ctaText?: string | null; ctaUrl?: string | null; themeColor?: string | null }) {
     try {
+      const now = new Date();
+      const [existingActive] = await db
+        .select()
+        .from(promotionalAds)
+        .where(
+          and(
+            eq(promotionalAds.type, payload.type),
+            eq(promotionalAds.targetId, payload.targetId),
+            eq(promotionalAds.isActive, true),
+            or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now)),
+          ),
+        )
+        .orderBy(desc(promotionalAds.createdAt))
+        .limit(1);
+
+      if (existingActive) {
+        throw new Error(
+          `An active ${payload.type} promotion already exists for this target. End the current promotion before creating another one.`,
+        );
+      }
+
       const [created] = await db.insert(promotionalAds).values({
         type: payload.type,
         targetId: payload.targetId,
@@ -1522,8 +2075,21 @@ export class DbStorage implements IStorage {
   async getActivePromotionalAds(): Promise<any[]> {
     const now = new Date();
     try {
-      const rows = await db.select().from(promotionalAds).where(and(eq(promotionalAds.isActive, true), or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now))));
-      return rows;
+      const rows = await db
+        .select()
+        .from(promotionalAds)
+        .where(and(eq(promotionalAds.isActive, true), or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now))))
+        .orderBy(desc(promotionalAds.createdAt));
+
+      const uniqueRows = new Map<string, any>();
+      for (const row of rows) {
+        const key = `${row.type}:${row.targetId}`;
+        if (!uniqueRows.has(key)) {
+          uniqueRows.set(key, row);
+        }
+      }
+
+      return Array.from(uniqueRows.values());
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
@@ -1592,16 +2158,19 @@ export class DbStorage implements IStorage {
   }
 
   // Promotion Pricing operations
-  async createPromotionPricing(data: { type: 'store' | 'product'; durationType: 'hour' | 'day'; duration: number; price: string }): Promise<any> {
+  async createPromotionPricing(data: { type: 'store' | 'product'; durationType: 'hour' | 'day' | 'week' | 'month'; duration: number; price: string }): Promise<any> {
     const result = await db.insert(promotionPricing).values(data as any).returning();
     return result[0];
   }
 
-  async getAllPromotionPricing(): Promise<any[]> {
-    return await db.select().from(promotionPricing).where(eq(promotionPricing.isActive, true));
+  async getAllPromotionPricing(options?: { includeInactive?: boolean }): Promise<any[]> {
+    if (options?.includeInactive) {
+      return await db.select().from(promotionPricing).orderBy(desc(promotionPricing.updatedAt), desc(promotionPricing.createdAt));
+    }
+    return await db.select().from(promotionPricing).where(eq(promotionPricing.isActive, true)).orderBy(desc(promotionPricing.updatedAt), desc(promotionPricing.createdAt));
   }
 
-  async getPromotionPricing(type: 'store' | 'product', durationType: 'hour' | 'day', duration: number): Promise<any | undefined> {
+  async getPromotionPricing(type: 'store' | 'product', durationType: 'hour' | 'day' | 'week' | 'month', duration: number): Promise<any | undefined> {
     const result = await db.select().from(promotionPricing)
       .where(and(
         eq(promotionPricing.type, type),
@@ -2062,6 +2631,9 @@ export class DbStorage implements IStorage {
 
   // Analytics
   async getAnalytics(userId?: string, role?: string): Promise<any> {
+    void this.backfillMissingCommissionEarnings(100).catch((error: any) => {
+      console.error("[FINANCE] Background analytics sync failed:", error?.message || error);
+    });
     // Basic analytics - can be expanded
     const result: any = {};
     const normalizedRole = (() => {
@@ -2089,6 +2661,17 @@ export class DbStorage implements IStorage {
       const totalReceivedMoney = await db.select({ sum: sql<number>`sum(${orders.total})` })
         .from(orders)
         .where(paidStatusFilter);
+      const commissionTotals = await db.select({
+        commission: sql<number>`coalesce(sum(${commissions.commissionAmount}::numeric), 0)`,
+      }).from(commissions);
+      const processingFeeTotals = await db.select({
+        serviceFee: sql<number>`coalesce(sum(${orders.processingFee}::numeric), 0)`,
+      })
+        .from(orders)
+        .where(paidStatusFilter);
+      const deliveryReserveTotals = await db.select({
+        deliveryFee: sql<number>`coalesce(sum(case when ${riderPayouts.status} in ('pending_approval', 'approved', 'processing') then ${riderPayouts.amount}::numeric else 0 end), 0)`,
+      }).from(riderPayouts);
       
       const totalUsers = await db.select({ count: sql<number>`count(*)` }).from(users);
       const totalProducts = await db.select({ count: sql<number>`count(*)` }).from(products);
@@ -2098,6 +2681,9 @@ export class DbStorage implements IStorage {
       result.completedOrders = Number(completedOrders[0]?.count ?? 0);
       result.totalRevenue = Number(totalRevenue[0]?.sum ?? 0);
       result.totalReceivedMoney = Number(totalReceivedMoney[0]?.sum ?? 0);
+      result.platformCommissionTotal = Number(commissionTotals[0]?.commission ?? 0);
+      result.processingFeesTotal = Number(processingFeeTotals[0]?.serviceFee ?? 0);
+      result.deliveryReserveTotal = Number(deliveryReserveTotals[0]?.deliveryFee ?? 0);
       result.totalUsers = Number(totalUsers[0]?.count ?? 0);
       result.totalProducts = Number(totalProducts[0]?.count ?? 0);
     } else if (normalizedRole === "seller") {
@@ -2121,18 +2707,27 @@ export class DbStorage implements IStorage {
           paidStatusFilter
         ));
 
-      const sellerReceivedMoney = await db.select({ sum: sql<number>`sum(${orders.total})` })
+      const sellerProcessingFees = await db.select({ sum: sql<number>`sum(${orders.processingFee})` })
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
           paidStatusFilter
         ));
+      const sellerCommissionTotals = await db.select({
+        commission: sql<number>`coalesce(sum(${commissions.commissionAmount}), 0)`,
+        settlement: sql<number>`coalesce(sum(${commissions.sellerAmount}), 0)`,
+      })
+        .from(commissions)
+        .where(eq(commissions.sellerId, userId));
       
       result.totalOrders = Number(totalSellerOrders[0]?.count ?? 0);
       result.paidOrders = Number(completedSellerOrders[0]?.count ?? 0);
       result.completedOrders = Number(completedSellerOrders[0]?.count ?? 0);
       result.totalRevenue = Number(sellerRevenue[0]?.sum ?? 0);
-      result.totalReceivedMoney = Number(sellerReceivedMoney[0]?.sum ?? 0);
+      result.totalReceivedMoney = Number(sellerCommissionTotals[0]?.settlement ?? 0);
+      result.sellerSettlementTotal = Number(sellerCommissionTotals[0]?.settlement ?? 0);
+      result.platformCommissionTotal = Number(sellerCommissionTotals[0]?.commission ?? 0);
+      result.processingFeesTotal = Number(sellerProcessingFees[0]?.sum ?? 0);
     }
     
     return result;
@@ -2260,10 +2855,13 @@ export class DbStorage implements IStorage {
       .orderBy(desc(users.createdAt));
   }
 
-  async getFeaturedProducts(limit: number = 12, sellerId?: string): Promise<Product[]> {
+  async getFeaturedProducts(limit: number = 12, sellerId?: string, storeId?: string): Promise<Product[]> {
     const conditions = [eq(products.isActive, true)];
     if (sellerId) {
       conditions.push(eq(products.sellerId, sellerId));
+    }
+    if (storeId) {
+      conditions.push(eq(products.storeId, storeId));
     }
     return db.select().from(products)
       .where(and(...conditions))
@@ -2434,13 +3032,22 @@ export class DbStorage implements IStorage {
   }
 
   async getCategories(filters?: { isActive?: boolean }): Promise<Category[]> {
-    let query = db.select().from(categories);
-    
-    if (filters?.isActive !== undefined) {
-      query = query.where(eq(categories.isActive, filters.isActive)) as any;
-    }
+    try {
+      let query = db.select().from(categories);
+      
+      if (filters?.isActive !== undefined) {
+        query = query.where(eq(categories.isActive, filters.isActive)) as any;
+      }
 
-    return query.orderBy(categories.displayOrder, categories.name);
+      return await withStorageTimeout(
+        query.orderBy(categories.displayOrder, categories.name),
+        3000,
+        "Categories lookup",
+      );
+    } catch (err: any) {
+      console.warn('[STORAGE] categories lookup failed, returning empty list:', err?.message || String(err));
+      return [];
+    }
   }
 
   async updateCategory(id: string, data: any): Promise<Category | undefined> {

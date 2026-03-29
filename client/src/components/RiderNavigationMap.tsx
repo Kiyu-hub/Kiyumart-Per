@@ -22,7 +22,7 @@ import MapTileLayer from "@/tracking/components/MapTileLayer";
 import MapUsageTracker from "@/tracking/components/MapUsageTracker";
 import { useVehicleTracking } from "@/tracking/hooks/useVehicleTracking";
 import { useUsageMonitorSnapshot } from "@/tracking/hooks/useUsageMonitorSnapshot";
-import { ensureMapboxRuntimeConfig, isMapboxGlPreferred } from "@/tracking/mapbox/mapboxLoader";
+import { isMapboxGlPreferred, reloadMapboxRuntimeConfig } from "@/tracking/mapbox/mapboxLoader";
 import MapboxSingleTripMap from "@/tracking/mapbox/MapboxSingleTripMap";
 
 interface DeliveryDetails {
@@ -80,8 +80,11 @@ interface RiderNavigationMapProps {
   onLocationUpdate?: (lat: number, lng: number) => void;
 }
 
+const RIDER_MAPBOX_STYLE_URL = "mapbox://styles/mapbox/navigation-day-v1";
+
 export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate }: RiderNavigationMapProps) {
   const [, bumpMapModeVersion] = useState(0);
+  const [mapboxConfigVersion, setMapboxConfigVersion] = useState(0);
   const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isWatching, setIsWatching] = useState(false);
@@ -109,9 +112,13 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
   }, []);
 
   useEffect(() => {
-    void ensureMapboxRuntimeConfig().catch(() => {
+    void reloadMapboxRuntimeConfig(false)
+      .then(() => {
+        setMapboxConfigVersion((value) => value + 1);
+      })
+      .catch(() => {
       // Keep local provider fallback when runtime map config is unavailable.
-    });
+      });
   }, []);
 
   const normalizedStatus = String(delivery.status || "").toLowerCase().trim();
@@ -318,7 +325,9 @@ export default function RiderNavigationMap({ delivery, riderId, onLocationUpdate
         <div style={{ height: mapHeight }} className="relative">
           {shouldUseMapboxGl ? (
             <MapboxSingleTripMap
+              key={`rider-navigation-mapbox-${mapboxConfigVersion}`}
               center={animatedCurrentPosition || [delivery.deliveryLatitude, delivery.deliveryLongitude]}
+              mapStyleUrl={RIDER_MAPBOX_STYLE_URL}
               riderPos={animatedCurrentPosition}
               viewerLocation={animatedCurrentPosition}
               destinationPos={[delivery.deliveryLatitude, delivery.deliveryLongitude]}

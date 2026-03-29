@@ -26,6 +26,8 @@ import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 import MessageAttachmentContent from "@/components/MessageAttachmentContent";
 import { buildChatAttachmentMessage, parseChatAttachmentMessage } from "@/lib/chatAttachments";
 import UserAvatar from "@/components/UserAvatar";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { PageLoadingState } from "@/components/ui/loading-state";
 
 interface UserData {
   id: string;
@@ -84,6 +86,8 @@ export default function AdminMessages() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const socket = useSocket();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
   
   // 1-on-1 Call state management
   const [incomingCall, setIncomingCall] = useState<{ callerId: string; callerName: string; callType: 'voice' | 'video'; offer: any } | null>(null);
@@ -525,7 +529,7 @@ export default function AdminMessages() {
     orderReference?.actionOwner === "seller"
       ? "Seller Action"
       : orderReference?.actionOwner === "rider"
-        ? "Rider Action"
+        ? (showInternalRiderFeatures ? "Rider Action" : "Delivery Action")
         : "Required Action";
 
   useEffect(() => {
@@ -896,7 +900,11 @@ export default function AdminMessages() {
   };
 
   // Filter out the current admin user from the list
-  const otherUsers = users.filter(u => u.id !== user?.id);
+  const otherUsers = users.filter((u) => {
+    if (u.id === user?.id) return false;
+    if (!showInternalRiderFeatures && u.role === "rider") return false;
+    return true;
+  });
   const roleAndSearchFilteredUsers = filterUsersBySearch(
     filterUsersByRole(otherUsers, selectedRole),
     searchQuery
@@ -914,7 +922,7 @@ export default function AdminMessages() {
     admin: otherUsers.filter(u => u.role === "admin").length,
     seller: otherUsers.filter(u => u.role === "seller").length,
     buyer: otherUsers.filter(u => u.role === "buyer").length,
-    rider: otherUsers.filter(u => u.role === "rider").length,
+    rider: showInternalRiderFeatures ? otherUsers.filter(u => u.role === "rider").length : 0,
     agent: otherUsers.filter(u => u.role === "agent").length,
   };
 
@@ -930,21 +938,32 @@ export default function AdminMessages() {
   const activeLastSyncedLabel = selectedUserId ? messagesLastSyncedLabel : usersLastSyncedLabel;
   const isSyncingNow = usersRefreshing || messagesRefreshing;
 
-  const selectedUser = users.find((u) => u.id === selectedUserId);
+  const selectedUser = otherUsers.find((u) => u.id === selectedUserId);
+
+  useEffect(() => {
+    if (!showInternalRiderFeatures && selectedRole === "rider") {
+      setSelectedRole("all");
+    }
+  }, [selectedRole, showInternalRiderFeatures]);
+
+  useEffect(() => {
+    if (!showInternalRiderFeatures && selectedUserId) {
+      const selected = users.find((u) => u.id === selectedUserId);
+      if (selected?.role === "rider") {
+        setSelectedUserId(null);
+      }
+    }
+  }, [selectedUserId, showInternalRiderFeatures, users]);
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoadingState title="Loading messages" description="Preparing conversations, recipients, and realtime messaging tools." />;
   }
 
   return (
     <DashboardLayout role={user?.role as any}>
       <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
         <div className="p-4 pb-0 md:p-6 md:pb-0 flex-shrink-0">
-          <div className="rounded-2xl border border-emerald-500/25 bg-[linear-gradient(105deg,rgba(16,185,129,0.16)_0%,rgba(16,185,129,0.06)_38%,rgba(15,23,42,0.92)_100%)] px-4 py-4 md:px-6 md:py-5">
+          <div className="rounded-2xl border border-border/70 bg-card px-4 py-4 shadow-sm dark:border-emerald-500/25 dark:bg-[linear-gradient(105deg,rgba(16,185,129,0.16)_0%,rgba(16,185,129,0.06)_38%,rgba(15,23,42,0.92)_100%)] md:px-6 md:py-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-start gap-3 flex-1 min-w-[240px]">
                 <Button
@@ -952,7 +971,7 @@ export default function AdminMessages() {
                   size="icon"
                   onClick={() => selectedUserId ? setSelectedUserId(null) : window.history.back()}
                   data-testid="button-back"
-                  className="md:hidden text-foreground/90 hover:bg-white/10"
+                    className="md:hidden text-foreground/90 hover:bg-muted dark:hover:bg-white/10"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
@@ -961,7 +980,7 @@ export default function AdminMessages() {
                   size="icon"
                   onClick={() => window.history.back()}
                   data-testid="button-back-desktop"
-                  className="hidden md:flex text-foreground/90 hover:bg-white/10"
+                  className="hidden md:flex text-foreground/90 hover:bg-muted dark:hover:bg-white/10"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
@@ -969,7 +988,7 @@ export default function AdminMessages() {
                   <h1 className="text-xl md:text-2xl font-bold text-foreground" data-testid="heading-messages">Messages Hub</h1>
                   <p className="text-sm text-muted-foreground">Real-time conversation center for super admin operations.</p>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Badge className="bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">
+                    <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200">
                       <ShieldCheck className="h-3.5 w-3.5 mr-1" />
                       Super Admin Messaging
                     </Badge>
@@ -986,7 +1005,7 @@ export default function AdminMessages() {
               <Button
                 size="sm"
                 variant="outline"
-                className="border-emerald-500/40 hover:bg-emerald-500/10"
+                className="border-border/70 text-foreground hover:bg-muted dark:border-emerald-500/40 dark:hover:bg-emerald-500/10"
                 onClick={() => {
                   void refetchUsers();
                   if (selectedUserId) {
@@ -1363,11 +1382,11 @@ export default function AdminMessages() {
                   <TabsTrigger value="seller" data-testid="tab-seller">Sellers ({rolesCounts.seller})</TabsTrigger>
                   <TabsTrigger value="buyer" data-testid="tab-buyer">Buyers ({rolesCounts.buyer})</TabsTrigger>
                 </TabsList>
-                <TabsList className="grid w-full grid-cols-3 mt-2">
-                  <TabsTrigger value="rider" data-testid="tab-rider">Riders ({rolesCounts.rider})</TabsTrigger>
+                <TabsList className={`grid w-full mt-2 ${showInternalRiderFeatures ? "grid-cols-3" : "grid-cols-2"}`}>
+                  {showInternalRiderFeatures ? <TabsTrigger value="rider" data-testid="tab-rider">Riders ({rolesCounts.rider})</TabsTrigger> : null}
                   <TabsTrigger value="admin" data-testid="tab-admin">Admins ({rolesCounts.admin})</TabsTrigger>
-                  <TabsTrigger value="agent" data-testid="tab-agent">Agents ({rolesCounts.agent})</TabsTrigger>
-              </TabsList>
+                  <TabsTrigger value="agent" data-testid="tab-agent">Customer Agents ({rolesCounts.agent})</TabsTrigger>
+                </TabsList>
             </Tabs>
 
             <ScrollArea className="flex-1 min-h-0">

@@ -126,6 +126,35 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const invalidatePlatformQueries = useCallback(() => {
+    const livePrefixes = [
+      "/api/orders",
+      "/api/analytics",
+      "/api/admin",
+      "/api/support",
+      "/api/users",
+      "/api/stores",
+      "/api/transactions",
+      "/api/notifications",
+      "/api/messages",
+      "/api/platform-settings",
+      "/api/public/platform-settings",
+      "/api/delivery-zones",
+      "/api/pickup-stations",
+      "/api/reports",
+      "/api/commissions",
+      "/api/seller-payouts",
+    ];
+
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const key = query.queryKey?.[0];
+        if (typeof key !== "string") return false;
+        return livePrefixes.some((prefix) => key.startsWith(prefix));
+      },
+    });
+  }, []);
+
   useEffect(() => {
     if (!user) {
       if (socket) {
@@ -144,6 +173,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       console.log("🔔 Notification system connected");
       setIsConnected(true);
       newSocket.emit("register", user.id);
+      invalidatePlatformQueries();
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     });
 
     newSocket.on("disconnect", () => {
@@ -161,7 +192,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       console.log("📦 Order status updated:", data);
       
       invalidateOrderQueries();
-      
+      invalidatePlatformQueries();
+
       toast({
         title: "Order Status Updated",
         description: `Order #${data.orderNumber} is now ${data.status}`,
@@ -187,7 +219,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       console.log("💳 Payment completed:", data);
       
       invalidateOrderQueries();
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      invalidatePlatformQueries();
       
       toast({
         title: "✅ Payment Successful",
@@ -204,6 +236,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }) => {
       console.log("❌ Payment failed:", data);
       
+      invalidatePlatformQueries();
       toast({
         title: "Payment Failed",
         description: `Payment for Order #${data.orderNumber} failed. ${data.reason}`,
@@ -256,8 +289,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       timestamp?: string;
     }) => {
       invalidateOrderQueries();
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/active-riders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-orders"] });
+      invalidatePlatformQueries();
       if (user.role === "admin" || user.role === "super_admin" || user.role === "agent") {
         toast({
           title: "Trip Lifecycle Update",
@@ -276,7 +308,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       console.log("📮 Order out for delivery:", data);
       
       invalidateOrderQueries();
-      
+      invalidatePlatformQueries();
+
       toast({
         title: "Order Out for Delivery",
         description: `Order #${data.orderNumber} is out for delivery`,
@@ -287,6 +320,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     newSocket.on("order_delivering", handleOrderEnRoute);
     newSocket.on("admin_bus_transport_proof_submitted", (data: { orderId: string; orderNumber: string }) => {
       invalidateOrderQueries();
+      invalidatePlatformQueries();
       if (user.role === "admin" || user.role === "super_admin") {
         toast({
           title: "BUS proof submitted",
@@ -303,6 +337,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }) => {
       console.log("📢 Product back in stock:", data);
       
+      invalidatePlatformQueries();
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
       
@@ -320,8 +355,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       type?: "default" | "success" | "error" | "warning";
     }) => {
       console.log("📬 General notification:", data);
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      invalidatePlatformQueries();
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
       
       toast({
         title: data.title,
@@ -362,6 +399,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       console.log("💬 New message received:", data);
       
       // Invalidate messages queries to refresh chat UI
+      invalidatePlatformQueries();
       queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/messages", data.senderId] });
 
@@ -392,6 +430,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         console.log("🎉 Seller application approved:", data);
         
         // Immediately refetch store to show the newly created store
+        invalidatePlatformQueries();
         queryClient.invalidateQueries({ queryKey: ["/api/stores/my-store"] });
         queryClient.refetchQueries({ queryKey: ["/api/stores/my-store"] });
         
@@ -418,7 +457,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setSocket(null);
       setIsConnected(false);
     };
-  }, [user?.id, user?.role, toast, playNotificationSound, showDeviceNotification, invalidateOrderQueries]);
+  }, [user?.id, user?.role, toast, playNotificationSound, showDeviceNotification, invalidateOrderQueries, invalidatePlatformQueries]);
 
   return (
     <NotificationContext.Provider value={{ socket, isConnected }}>

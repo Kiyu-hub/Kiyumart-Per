@@ -9,13 +9,22 @@ import RealTimeRiderMap from "@/components/RealTimeRiderMap";
 import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle, MapPin } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageLoadingState } from "@/components/ui/loading-state";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface Analytics {
   totalRevenue?: number;
   totalOrders?: number;
   totalUsers?: number;
   totalProducts?: number;
+}
+
+interface DashboardSummary {
+  totalOrders?: number;
+  totalUsers?: number;
+  totalRevenue?: number;
 }
 
 interface Order {
@@ -31,6 +40,61 @@ interface DeliveryZone {
   id: string;
 }
 
+function AdminMetricSkeletonGrid() {
+  return (
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <Card key={`admin-metric-skeleton-${index}`} className="min-w-0 overflow-hidden">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-16" />
+            </div>
+            <Skeleton className="h-10 w-10 rounded-full" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="mt-3 h-4 w-20" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function AdminRecentOrdersSkeletonGrid() {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <Card key={`admin-order-skeleton-${index}`}>
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-6 w-32" />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-2">
+                  <Skeleton className="h-3 w-10" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+                <div className="space-y-2">
+                  <Skeleton className="h-3 w-12" />
+                  <Skeleton className="h-4 w-16" />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Skeleton className="h-16 flex-1 rounded-lg" />
+                <Skeleton className="h-16 flex-1 rounded-lg" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [, navigate] = useLocation();
   const [location] = useLocation();
@@ -40,7 +104,9 @@ export default function AdminDashboard() {
     return raw === "superadmin" ? "super_admin" : raw;
   })();
   const { formatPrice } = useLanguage();
+  const { isExternalRiderSystemEnabled, hasResolvedSettings } = usePlatformSettings();
   const [activeItem, setActiveItem] = useState("dashboard");
+  const showInternalRiderFeatures = hasResolvedSettings ? !isExternalRiderSystemEnabled : false;
   const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();
   const normalizePaymentStatus = (value?: string) => {
     const s = (value || "").toLowerCase().trim();
@@ -70,7 +136,9 @@ export default function AdminDashboard() {
       setActiveItem("riders");
     } else if (path.includes("/admin/categories")) {
       setActiveItem("categories");
-    } else if (path.includes("/admin/zones")) {
+    } else if (path.includes("/admin/pickup-stations")) {
+      setActiveItem("pickup-stations");
+    } else if (path.includes("/admin/zones") || path.includes("/admin/delivery-zones")) {
       setActiveItem("zones");
     } else if (path === "/cart") {
       setActiveItem("my-cart");
@@ -108,6 +176,7 @@ export default function AdminDashboard() {
       id === "sellers" ? "/admin/sellers" :
       id === "riders" ? "/admin/riders" :
       id === "zones" ? "/admin/zones" :
+      id === "pickup-stations" ? "/admin/pickup-stations" :
       id === "my-cart" ? "/cart" :
       id === "my-purchases" ? "/orders" :
       id === "my-wishlist" ? "/wishlist" :
@@ -129,6 +198,19 @@ export default function AdminDashboard() {
     enabled: isAuthenticated && (normalizedRole === "admin" || normalizedRole === "super_admin"),
   });
 
+  const { data: dashboardSummary, isLoading: dashboardSummaryLoading } = useQuery<DashboardSummary>({
+    queryKey: ["/api/admin/dashboard-summary", "admin-dashboard"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/dashboard-summary", { credentials: "include", cache: "no-store" });
+      if (!res.ok) return {};
+      return res.json();
+    },
+    enabled: isAuthenticated && (normalizedRole === "admin" || normalizedRole === "super_admin"),
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders"],
     enabled: isAuthenticated && (normalizedRole === "admin" || normalizedRole === "super_admin"),
@@ -147,12 +229,21 @@ export default function AdminDashboard() {
     refetchInterval: 10000,
   });
 
+  const { data: pickupStations = [] } = useQuery<DeliveryZone[]>({
+    queryKey: ["/api/admin/pickup-stations"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/pickup-stations", { credentials: "include", cache: "no-store" });
+      if (!res.ok) return [];
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && (normalizedRole === "admin" || normalizedRole === "super_admin"),
+    staleTime: 0,
+    refetchInterval: 10000,
+  });
+
   if (authLoading || !isAuthenticated || (normalizedRole !== "admin" && normalizedRole !== "super_admin")) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-admin" />
-      </div>
-    );
+    return <PageLoadingState title="Loading dashboard" description="Preparing the admin workspace and latest activity." />;
   }
 
   const recentOrders = orders
@@ -187,32 +278,36 @@ export default function AdminDashboard() {
 
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-7xl mx-auto space-y-6">
-            {analyticsLoading ? (
-              <div className="flex justify-center p-8">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            {dashboardSummaryLoading && !dashboardSummary && analyticsLoading && !analytics ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span>Loading dashboard totals...</span>
+                </div>
+                <AdminMetricSkeletonGrid />
               </div>
             ) : analytics ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <MetricCard
+                    title="Total Revenue"
+                    value={formatPrice(dashboardSummary?.totalRevenue ?? analytics?.totalRevenue ?? 0)}
+                    icon={DollarSign}
+                    change={12.5}
+                  />
+                  <MetricCard
+                    title="Total Orders"
+                    value={(dashboardSummary?.totalOrders ?? analytics?.totalOrders ?? 0).toString()}
+                    icon={ShoppingBag}
+                    change={8.2}
+                  />
+                  <MetricCard
+                    title="Total Users"
+                    value={(dashboardSummary?.totalUsers ?? analytics?.totalUsers ?? 0).toString()}
+                    icon={Users}
+                    change={-3.1}
+                  />
                 <MetricCard
-                  title="Total Revenue"
-                  value={formatPrice(analytics.totalRevenue || 0)}
-                  icon={DollarSign}
-                  change={12.5}
-                />
-                <MetricCard
-                  title="Total Orders"
-                  value={(analytics.totalOrders || 0).toString()}
-                  icon={ShoppingBag}
-                  change={8.2}
-                />
-                <MetricCard
-                  title="Total Users"
-                  value={(analytics.totalUsers || 0).toString()}
-                  icon={Users}
-                  change={-3.1}
-                />
-                <MetricCard
-                  title="Deliveries"
+                  title={showInternalRiderFeatures ? "Deliveries" : "Completed Orders"}
                   value={deliveredCount.toString()}
                   icon={Truck}
                   change={15.3}
@@ -227,8 +322,9 @@ export default function AdminDashboard() {
               </Card>
             )}
 
-            {/* Real-Time Rider Tracking Map */}
-            <RealTimeRiderMap forceMapboxGl />
+            {showInternalRiderFeatures ? (
+              <RealTimeRiderMap forceMapboxGl />
+            ) : null}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
@@ -264,23 +360,36 @@ export default function AdminDashboard() {
                     <Users className="mr-2 h-4 w-4" />
                     Manage Sellers
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    className="w-full justify-start" 
-                    onClick={() => navigate("/admin/riders")}
-                    data-testid="button-manage-riders"
-                  >
-                    <Truck className="mr-2 h-4 w-4" />
-                    Manage Riders
-                  </Button>
+                  {showInternalRiderFeatures ? (
+                    <Button 
+                      variant="outline" 
+                      className="w-full justify-start" 
+                      onClick={() => navigate("/admin/riders")}
+                      data-testid="button-manage-riders"
+                    >
+                      <Truck className="mr-2 h-4 w-4" />
+                      Manage Riders
+                    </Button>
+                  ) : null}
+                  {showInternalRiderFeatures ? (
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={() => navigate("/admin/zones")}
+                      data-testid="button-manage-delivery-zones-admin"
+                    >
+                      <MapPin className="mr-2 h-4 w-4" />
+                      {`Delivery Zones (${deliveryZones.length})`}
+                    </Button>
+                  ) : null}
                   <Button
                     variant="outline"
                     className="w-full justify-start"
-                    onClick={() => navigate("/admin/zones")}
-                    data-testid="button-manage-delivery-zones-admin"
+                    onClick={() => navigate("/admin/pickup-stations")}
+                    data-testid="button-manage-pickup-stations-admin"
                   >
                     <MapPin className="mr-2 h-4 w-4" />
-                    Delivery Zones ({deliveryZones.length})
+                    {`Pickup Stations (${pickupStations.length})`}
                   </Button>
                 </CardContent>
               </Card>
@@ -297,13 +406,15 @@ export default function AdminDashboard() {
                       <p className="text-muted-foreground">{orders.length} orders</p>
                     </div>
                     <div className="text-sm">
-                      <p className="font-medium">Delivered Orders</p>
-                      <p className="text-muted-foreground">{deliveredCount} delivered</p>
+                      <p className="font-medium">{showInternalRiderFeatures ? "Delivered Orders" : "Completed Orders"}</p>
+                      <p className="text-muted-foreground">
+                        {deliveredCount} {showInternalRiderFeatures ? "delivered" : "completed"}
+                      </p>
                     </div>
                     <div className="text-sm">
-                      <p className="font-medium">Processing Orders</p>
+                      <p className="font-medium">Active Orders</p>
                       <p className="text-muted-foreground">
-                        {processingCount} processing
+                        {processingCount} active
                       </p>
                     </div>
                   </div>
@@ -323,14 +434,18 @@ export default function AdminDashboard() {
                 </Button>
               </CardHeader>
               <CardContent>
-                {ordersLoading ? (
-                  <div className="flex justify-center p-8">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                {ordersLoading && recentOrders.length === 0 ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <span>Loading recent orders...</span>
+                    </div>
+                    <AdminRecentOrdersSkeletonGrid />
                   </div>
                 ) : recentOrders.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {recentOrders.map((order) => (
-                      <Card key={order.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate(`/admin/orders?orderId=${order.id}`)}>
+                      <Card key={order.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate(`/admin/orders/${order.id}/action`)}>
                         <CardContent className="pt-6">
                           <div className="space-y-3">
                             <div>

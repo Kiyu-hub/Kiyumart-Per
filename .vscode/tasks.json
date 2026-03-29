@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "KiyuMart: Backend",
+      "type": "shell",
+      "command": "npm run dev:backend",
+      "problemMatcher": [],
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "kiyumart-backend"
+      }
+    },
+    {
+      "label": "KiyuMart: Frontend",
+      "type": "shell",
+      "command": "npm run dev:frontend",
+      "problemMatcher": [],
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "kiyumart-frontend"
+      }
+    },
+    {
+      "label": "KiyuMart: Typecheck",
+      "type": "shell",
+      "command": "npm run typecheck",
+      "problemMatcher": "$tsc",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "KiyuMart: Unit Tests",
+      "type": "shell",
+      "command": "npm run test:unit",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ]
+}

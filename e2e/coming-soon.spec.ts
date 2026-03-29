@@ -34,8 +34,8 @@ test('production single-store with no products shows Coming Soon and mandatory b
   // First assert the mandatory banners appear on the homepage (always in single-store mode)
   await page.goto('/');
   // The carousel's data-testid may not always be present in compiled UI snapshots; assert mandatory banner content exists
-  await expect(page.locator('text=Abaya').first()).toBeVisible({ timeout: 10000 });
-  await expect(page.locator('text=Hijab').first()).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('text=Abayas').first()).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('text=Hijabs').first()).toBeVisible({ timeout: 10000 });
 
   // Then go to products and assert either Coming Soon (production) or dev fallbacks
   await page.goto('/products');

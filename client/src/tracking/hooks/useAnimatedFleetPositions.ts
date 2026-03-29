@@ -19,8 +19,16 @@ export function useAnimatedFleetPositions(input: FleetInput[]) {
   const positionsRef = useRef<Record<string, { lat: number; lng: number }>>({});
   const pendingPositionsRef = useRef<Record<string, { lat: number; lng: number }>>({});
   const animationFrameRef = useRef<number | null>(null);
+  const lastUpdateMsRef = useRef<number>(0);
 
   const flushPendingPositions = () => {
+    const now = Date.now();
+    if (now - lastUpdateMsRef.current < 100) {
+      // Throttle to 10 FPS to prevent React from freezing
+      animationFrameRef.current = window.requestAnimationFrame(flushPendingPositions);
+      return;
+    }
+    lastUpdateMsRef.current = now;
     animationFrameRef.current = null;
     const queued = pendingPositionsRef.current;
     const vehicleIds = Object.keys(queued);

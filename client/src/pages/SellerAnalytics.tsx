@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { buildCsv, createSimplePdf, logReportActivity, triggerDownload } from "@/lib/reporting";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +23,14 @@ type OrderRow = {
   deliveredAt?: string | null;
 };
 
-type Analytics = { totalRevenue?: number; totalOrders?: number; totalReceivedMoney?: number };
+type Analytics = {
+  totalRevenue?: number;
+  totalOrders?: number;
+  totalReceivedMoney?: number;
+  sellerSettlementTotal?: number;
+  platformCommissionTotal?: number;
+  processingFeesTotal?: number;
+};
 type ReceiptSummary = {
   id: string;
   receiptNumber: string;
@@ -49,12 +57,17 @@ const dayKey = (v?: string | null) => {
 export default function SellerAnalytics() {
   const { user } = useAuth();
   const { formatPrice } = useLanguage();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
   const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
   const [exporting, setExporting] = useState<"none" | "csv" | "pdf">("none");
 
   const { data: stats, isLoading: statsLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
     enabled: !!user && user.role === "seller",
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<OrderRow[]>({
@@ -66,6 +79,9 @@ export default function SellerAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: !!user && user.role === "seller",
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const { data: receipts = [] } = useQuery<ReceiptSummary[]>({
@@ -116,13 +132,17 @@ export default function SellerAnalytics() {
 
   const byMethod = useMemo(() => {
     const map = new Map<string, number>();
-    paidCompleted.forEach((o) => map.set(n(o.deliveryMethod), (map.get(n(o.deliveryMethod)) || 0) + 1));
+    paidCompleted.forEach((o) => {
+      const method = n(o.deliveryMethod);
+      const normalizedMethod = !showInternalRiderFeatures && method === "rider" ? "delivery" : method;
+      map.set(normalizedMethod, (map.get(normalizedMethod) || 0) + 1);
+    });
     return [
-      { method: "Rider", count: map.get("rider") || 0 },
-      { method: "Bus", count: map.get("bus") || 0 },
+      { method: showInternalRiderFeatures ? "Rider" : "External Delivery", count: showInternalRiderFeatures ? (map.get("rider") || 0) : (map.get("delivery") || 0) },
+      { method: "VIP Bus", count: map.get("bus") || 0 },
       { method: "Pickup", count: map.get("pickup") || 0 },
     ];
-  }, [paidCompleted]);
+  }, [paidCompleted, showInternalRiderFeatures]);
 
   const peakHours = useMemo(() => {
     const map = new Map<number, number>();
@@ -197,24 +217,24 @@ export default function SellerAnalytics() {
   return (
     <DashboardLayout role="seller">
       <div className="p-4 md:p-6 space-y-4">
-        <Card className="border-emerald-500/30 bg-[linear-gradient(100deg,rgba(6,78,59,0.32)_0%,rgba(2,6,23,0.96)_50%,rgba(12,74,110,0.36)_100%)] text-white">
+        <Card className="border-border/70 bg-card text-card-foreground shadow-sm dark:border-emerald-500/30 dark:bg-[linear-gradient(100deg,rgba(6,78,59,0.32)_0%,rgba(2,6,23,0.96)_50%,rgba(12,74,110,0.36)_100%)] dark:text-white">
           <CardContent className="p-4 md:p-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-2xl font-semibold" data-testid="text-page-title">Seller Analytics</h1>
-              <p className="text-white/80 text-sm">Business-focused insights to optimize revenue, fulfillment, and delivery performance.</p>
+              <p className="text-sm text-muted-foreground dark:text-white/80">Business-focused insights to optimize revenue, fulfillment, and {showInternalRiderFeatures ? "delivery" : "manual-delivery"} performance.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge className="bg-white/20 text-white border-white/30">Live DB Data</Badge>
-              <select className="h-9 rounded-md border border-white/30 bg-white/10 px-3 text-sm text-white" value={range} onChange={(e) => setRange(e.target.value as any)}>
+               <Badge className="border-sky-200 bg-sky-50 text-sky-700 dark:border-white/30 dark:bg-white/20 dark:text-white">Live DB Data</Badge>
+               <select className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground dark:border-white/30 dark:bg-white/10 dark:text-white" value={range} onChange={(e) => setRange(e.target.value as any)}>
                 <option value="7d" className="text-black">7 days</option>
                 <option value="30d" className="text-black">30 days</option>
                 <option value="90d" className="text-black">90 days</option>
               </select>
-              <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void handleExportCsv()} disabled={exporting !== "none"}>
+               <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void handleExportCsv()} disabled={exporting !== "none"}>
                 <Download className="h-4 w-4 mr-2" />
                 {exporting === "csv" ? "Preparing..." : "CSV"}
               </Button>
-              <Button variant="outline" size="sm" className="border-white/35 text-white hover:bg-white/10" onClick={() => void handleExportPdf()} disabled={exporting !== "none"}>
+              <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void handleExportPdf()} disabled={exporting !== "none"}>
                 <Download className="h-4 w-4 mr-2" />
                 {exporting === "pdf" ? "Preparing..." : "PDF"}
               </Button>
@@ -229,11 +249,20 @@ export default function SellerAnalytics() {
           </div>
         ) : (
           <>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
               <Card><CardHeader className="pb-2"><CardDescription>Revenue Earned</CardDescription><CardTitle className="text-2xl">{formatPrice(totals.revenue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />All paid completed orders</CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardDescription>Seller Settlement</CardDescription><CardTitle className="text-2xl">{formatPrice(num(stats?.sellerSettlementTotal ?? stats?.totalReceivedMoney))}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Net amount after platform split</CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardDescription>Platform Commission</CardDescription><CardTitle className="text-2xl">{formatPrice(num(stats?.platformCommissionTotal))}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><TrendingUp className="h-4 w-4" />Deducted before seller settlement</CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardDescription>Processing Fees</CardDescription><CardTitle className="text-2xl">{formatPrice(num(stats?.processingFeesTotal))}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><ShoppingCart className="h-4 w-4" />Exact Paystack checkout fees kept outside seller payout</CardContent></Card>
               <Card><CardHeader className="pb-2"><CardDescription>Orders Completed</CardDescription><CardTitle className="text-2xl">{totals.completedCount}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><ShoppingCart className="h-4 w-4" />Vs {totals.cancelledCount} cancelled</CardContent></Card>
               <Card><CardHeader className="pb-2"><CardDescription>Average Order Value</CardDescription><CardTitle className="text-2xl">{formatPrice(totals.aov)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><Package className="h-4 w-4" />Per paid order</CardContent></Card>
               <Card><CardHeader className="pb-2"><CardDescription>Conversion Quality</CardDescription><CardTitle className="text-2xl">{totals.paidRate.toFixed(1)}%</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><TrendingUp className="h-4 w-4" />Paid completed ratio</CardContent></Card>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-3">
+              <Card><CardContent className="p-4"><p className="text-sm font-medium">Checkout Processing Fee</p><p className="mt-1 text-sm text-muted-foreground">This covers only the exact Paystack checkout fee charged to the customer. It stays outside seller settlement.</p></CardContent></Card>
+              <Card><CardContent className="p-4"><p className="text-sm font-medium">Seller Settlement</p><p className="mt-1 text-sm text-muted-foreground">Your settlement comes from merchandise subtotal minus coupon discount and minus platform commission. Delivery and checkout fees are excluded.</p></CardContent></Card>
+              <Card><CardContent className="p-4"><p className="text-sm font-medium">Payout Transfer Cost</p><p className="mt-1 text-sm text-muted-foreground">Reference Paystack payout costs are GHS 1 for mobile money and GHS 8 for bank transfer. They are tracked separately from platform commission and checkout fees.</p></CardContent></Card>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
@@ -247,7 +276,7 @@ export default function SellerAnalytics() {
               </Card>
 
               <Card>
-                <CardHeader><CardTitle>Delivery Method Performance</CardTitle><CardDescription>Completed orders by channel</CardDescription></CardHeader>
+                <CardHeader><CardTitle>Delivery Method Performance</CardTitle><CardDescription>{showInternalRiderFeatures ? "Completed orders by channel" : "Completed orders by external delivery, VIP bus, or pickup"}</CardDescription></CardHeader>
                 <CardContent>
                   <ChartContainer config={{ count: { label: "Orders", color: "#0ea5e9" } }} className="h-[260px] w-full">
                     <BarChart data={byMethod}><CartesianGrid vertical={false} /><XAxis dataKey="method" tickLine={false} axisLine={false} /><YAxis tickLine={false} axisLine={false} /><ChartTooltip content={<ChartTooltipContent />} /><Bar dataKey="count" fill="var(--color-count)" radius={[6, 6, 0, 0]} /></BarChart>

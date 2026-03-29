@@ -17,6 +17,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
 import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import UserAvatar from "@/components/UserAvatar";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { getRoleDisplayName } from "@/lib/roleLabels";
 
 interface UserData {
   id: string;
@@ -38,6 +40,8 @@ export default function AdminUsers() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
   
   const [confirmBanUser, setConfirmBanUser] = useState<{ id: string; name: string; isActive: boolean } | null>(null);
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<{ id: string; name: string } | null>(null);
@@ -147,6 +151,7 @@ export default function AdminUsers() {
     buyer: 1,
     seller: 2,
     rider: 2,
+    pickup_agent: 2,
     agent: 3,
     admin: 4,
     super_admin: 5,
@@ -154,9 +159,9 @@ export default function AdminUsers() {
 
   const getAvailableRoleOptions = () => {
     if (user?.role === "super_admin") {
-      return ["buyer", "seller", "rider", "agent", "admin", "super_admin"];
+      return showInternalRiderFeatures ? ["buyer", "seller", "rider", "pickup_agent", "agent", "admin", "super_admin"] : ["buyer", "seller", "pickup_agent", "agent", "admin", "super_admin"];
     }
-    return ["buyer", "seller", "rider", "agent", "admin"];
+    return showInternalRiderFeatures ? ["buyer", "seller", "rider", "pickup_agent", "agent", "admin"] : ["buyer", "seller", "pickup_agent", "agent", "admin"];
   };
 
   const getRoleChangeDirection = (fromRole: string, toRole: string) => {
@@ -222,11 +227,17 @@ export default function AdminUsers() {
 
   const filteredUsers = filterUsersBySearch(
     filterUsersByStatus(
-      filterUsersByRole(users, selectedRole),
+      filterUsersByRole(showInternalRiderFeatures ? users : users.filter((u) => u.role !== "rider"), selectedRole),
       selectedStatus
     ),
     searchQuery
   );
+
+  useEffect(() => {
+    if (!showInternalRiderFeatures && selectedRole === "rider") {
+      setSelectedRole("all");
+    }
+  }, [selectedRole, showInternalRiderFeatures]);
 
   const getRoleBadgeColor = (role: string) => {
     switch(role.toLowerCase()) {
@@ -234,22 +245,46 @@ export default function AdminUsers() {
       case "seller": return "bg-blue-500 text-white";
       case "buyer": return "bg-green-500 text-white";
       case "rider": return "bg-orange-500 text-white";
+      case "pickup_agent": return "bg-cyan-500 text-white";
       case "agent": return "bg-pink-500 text-white";
       default: return "bg-gray-500 text-white";
     }
   };
 
+  const getUserDetailPath = (userData: UserData) => {
+    switch (userData.role) {
+      case "buyer":
+        return `/admin/users/${userData.id}`;
+      case "seller":
+        return `/admin/sellers/${userData.id}`;
+      default:
+        return null;
+    }
+  };
+
   const rolesCounts = {
-    all: users.length,
+    all: (showInternalRiderFeatures ? users : users.filter((u) => u.role !== "rider")).length,
     admin: users.filter(u => u.role === "admin").length,
     seller: users.filter(u => u.role === "seller").length,
     buyer: users.filter(u => u.role === "buyer").length,
-    rider: users.filter(u => u.role === "rider").length,
+    rider: showInternalRiderFeatures ? users.filter(u => u.role === "rider").length : 0,
+    pickup_agent: users.filter(u => u.role === "pickup_agent").length,
     agent: users.filter(u => u.role === "agent").length,
   };
 
-  const UserCard = ({ userData }: { userData: UserData }) => (
-    <Card className="p-4" data-testid={`card-user-${userData.id}`}>
+  const UserCard = ({ userData }: { userData: UserData }) => {
+    const detailPath = getUserDetailPath(userData);
+
+    return (
+    <Card
+      className={`p-4 ${detailPath ? "cursor-pointer transition-colors hover:border-primary/50 hover:bg-muted/20" : ""}`}
+      data-testid={`card-user-${userData.id}`}
+      onClick={() => {
+        if (detailPath) {
+          navigate(detailPath);
+        }
+      }}
+    >
       <div className="flex items-center gap-4">
         <UserAvatar
           profileImage={userData.profileImage}
@@ -266,7 +301,7 @@ export default function AdminUsers() {
               {userData.email}
             </span>
             <Badge className={getRoleBadgeColor(userData.role)} data-testid={`badge-role-${userData.id}`}>
-              {userData.role}
+              {getRoleDisplayName(userData.role)}
             </Badge>
             {userData.isActive ? (
               <Badge className="bg-green-500 text-white flex items-center gap-1" data-testid={`badge-status-${userData.id}`}>
@@ -279,7 +314,7 @@ export default function AdminUsers() {
                 Inactive
               </Badge>
             )}
-            {(userData.role === "seller" || userData.role === "rider") && (
+            {(userData.role === "seller" || (showInternalRiderFeatures && userData.role === "rider")) && (
               userData.isApproved ? (
                 <Badge className="bg-emerald-500 text-white" data-testid={`badge-approval-${userData.id}`}>
                   Approved
@@ -295,7 +330,7 @@ export default function AdminUsers() {
             </span>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2" onClick={(event) => event.stopPropagation()}>
           {(user?.role === "admin" || user?.role === "super_admin") && (
             <Button 
               variant="ghost" 
@@ -374,6 +409,7 @@ export default function AdminUsers() {
       </div>
     </Card>
   );
+  };
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
@@ -397,7 +433,9 @@ export default function AdminUsers() {
             </Button>
             <div className="flex-1">
               <h1 className="text-3xl font-bold text-foreground" data-testid="heading-users">Users Management</h1>
-              <p className="text-muted-foreground mt-1">Manage platform users and roles</p>
+              <p className="text-muted-foreground mt-1">
+                {showInternalRiderFeatures ? "Manage platform users and roles" : "Manage platform users and non-rider roles"}
+              </p>
             </div>
             <div className="flex gap-2">
               <Button
@@ -437,7 +475,7 @@ export default function AdminUsers() {
           </div>
 
           <Tabs value={selectedRole} onValueChange={setSelectedRole} className="w-full">
-            <TabsList className="grid w-full grid-cols-6 mb-6" data-testid="tabs-role-filter">
+            <TabsList className={`grid w-full mb-6 ${showInternalRiderFeatures ? "grid-cols-7" : "grid-cols-6"}`} data-testid="tabs-role-filter">
               <TabsTrigger value="all" data-testid="tab-all">
                 All Users ({rolesCounts.all})
               </TabsTrigger>
@@ -450,11 +488,14 @@ export default function AdminUsers() {
               <TabsTrigger value="buyer" data-testid="tab-buyer">
                 Buyers ({rolesCounts.buyer})
               </TabsTrigger>
-              <TabsTrigger value="rider" data-testid="tab-rider">
+              {showInternalRiderFeatures ? <TabsTrigger value="rider" data-testid="tab-rider">
                 Riders ({rolesCounts.rider})
+              </TabsTrigger> : null}
+              <TabsTrigger value="pickup_agent" data-testid="tab-pickup-agent">
+                Pickup Agents ({rolesCounts.pickup_agent})
               </TabsTrigger>
               <TabsTrigger value="agent" data-testid="tab-agent">
-                Agents ({rolesCounts.agent})
+                Customer Agents ({rolesCounts.agent})
               </TabsTrigger>
             </TabsList>
 
@@ -538,7 +579,7 @@ export default function AdminUsers() {
               <SelectContent>
                 {getAvailableRoleOptions().map((role) => (
                   <SelectItem key={role} value={role}>
-                    {role.replace("_", " ")}
+                    {getRoleDisplayName(role)}
                   </SelectItem>
                 ))}
               </SelectContent>

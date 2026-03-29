@@ -1,30 +1,14 @@
-import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import DashboardLayout from "@/components/DashboardLayout";
+import UserAvatar from "@/components/UserAvatar";
 import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
-import DashboardLayout from "@/components/DashboardLayout";
-import { 
-  DollarSign, 
-  Clock, 
-  Users, 
-  TrendingUp, 
-  Eye, 
-  CreditCard,
-  Calendar,
-  Mail,
-  User,
-  ArrowLeft,
-  CheckCircle,
-  XCircle,
-  Loader2,
-  RefreshCw,
-  Search,
-  Filter,
-  Phone
-} from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -33,26 +17,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast";
-import UserAvatar from "@/components/UserAvatar";
+  ArrowLeft,
+  Banknote,
+  Calendar,
+  CheckCircle,
+  Clock,
+  CreditCard,
+  DollarSign,
+  Eye,
+  Loader2,
+  Mail,
+  Phone,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  TrendingUp,
+  Users,
+  Wallet,
+  XCircle,
+} from "lucide-react";
 
 interface Seller {
   id: string;
@@ -72,8 +57,13 @@ interface Payout {
   sellerId: string;
   amount: number | string;
   status: "pending" | "processing" | "completed" | "failed";
+  method?: string;
   paymentMethod: string;
   paymentDetails: string;
+  bankDetails?: {
+    transferFee?: string;
+    settlementMode?: string;
+  } | null;
   createdAt: string;
   processedAt: string | null;
   notes: string | null;
@@ -81,171 +71,38 @@ interface Payout {
 
 type FilterTab = "all" | "pending" | "processing" | "completed";
 
-const statusColors: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  processing: "bg-blue-100 text-blue-800 border-blue-200",
-  completed: "bg-green-100 text-green-800 border-green-200",
-  failed: "bg-red-100 text-red-800 border-red-200",
-};
-
-const statusIcons: Record<string, React.ReactNode> = {
-  pending: <Clock className="h-3 w-3" />,
-  processing: <Loader2 className="h-3 w-3 animate-spin" />,
-  completed: <CheckCircle className="h-3 w-3" />,
-  failed: <XCircle className="h-3 w-3" />,
+const statusTone: Record<Payout["status"], string> = {
+  pending: "border-amber-400/30 bg-amber-500/15 text-amber-200",
+  processing: "border-sky-400/30 bg-sky-500/15 text-sky-200",
+  completed: "border-emerald-400/30 bg-emerald-500/15 text-emerald-200",
+  failed: "border-red-400/30 bg-red-500/15 text-red-200",
 };
 
 export default function AdminSellersPayouts() {
+  const { user } = useAuth();
+
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [processDialogOpen, setProcessDialogOpen] = useState(false);
-  const [selectedPayout, setSelectedPayout] = useState<Payout | null>(null);
-  const [payoutAmount, setPayoutAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
-  const [paymentNotes, setPaymentNotes] = useState("");
-
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const toNumber = (value: unknown): number => {
     if (typeof value === "number") return Number.isFinite(value) ? value : 0;
     if (typeof value === "string") {
-      const n = Number.parseFloat(value);
-      return Number.isFinite(n) ? n : 0;
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : 0;
     }
     return 0;
   };
 
-  // Fetch sellers with real-time updates
-  const { data: sellers = [], isLoading: sellersLoading, isError: sellersError, refetch: refetchSellers } = useQuery<Seller[]>({
-    queryKey: ["/api/admin/sellers"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", "/api/admin/sellers");
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
-    },
-    refetchInterval: 15000,
-  });
-
-  // Fetch pending payouts for counts
-  const { data: pendingPayouts = [], refetch: refetchPendingPayouts } = useQuery<Payout[]>({
-    queryKey: ["/api/admin/payouts/pending"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", "/api/admin/payouts/pending");
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
-    },
-    refetchInterval: 15000,
-  });
-
-  // Fetch selected seller's payouts
-  const { data: sellerPayouts = [], isLoading: payoutsLoading, refetch: refetchSellerPayouts } = useQuery<Payout[]>({
-    queryKey: ["/api/admin/sellers", selectedSeller?.id, "payouts"],
-    queryFn: async () => {
-      if (!selectedSeller) return [];
-      const res = await apiRequest("GET", `/api/admin/sellers/${selectedSeller.id}/payouts`);
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
-    },
-    enabled: !!selectedSeller,
-    refetchInterval: 15000,
-  });
-
-  // Process payout mutation
-  const processPayoutMutation = useMutation({
-    mutationFn: async (data: { sellerId: string; amount: number; method: string; notes: string }) => {
-      const res = await apiRequest("POST", `/api/admin/sellers/${data.sellerId}/payouts`, {
-        amount: data.amount,
-        paymentMethod: data.method,
-        notes: data.notes,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Payout Initiated",
-        description: "The payout has been successfully initiated.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/sellers"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/payouts/pending"] });
-      if (selectedSeller) {
-        queryClient.invalidateQueries({ queryKey: ["/api/admin/sellers", selectedSeller.id, "payouts"] });
-      }
-      setProcessDialogOpen(false);
-      setPayoutAmount("");
-      setPaymentNotes("");
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to process payout. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Calculate stats
-  const stats = useMemo(() => {
-    const totalPaid = sellers.reduce((sum, s) => sum + toNumber(s.totalPaid), 0);
-    const totalPending = sellers.reduce((sum, s) => sum + toNumber(s.pendingAmount), 0);
-    const activeSellers = sellers.filter(s => s.isApproved).length;
-    const totalPayouts = sellers.reduce((sum, s) => sum + (s.payoutCount || 0), 0);
-    const avgPayout = totalPayouts > 0 ? totalPaid / totalPayouts : 0;
-
-    return { totalPaid, totalPending, activeSellers, avgPayout };
-  }, [sellers]);
-
-  // Filter sellers based on search and tab
-  const filteredSellers = useMemo(() => {
-    let filtered = sellers;
-
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        s =>
-          s.name?.toLowerCase().includes(query) ||
-          s.email?.toLowerCase().includes(query) ||
-          s.phone?.toLowerCase().includes(query)
-      );
-    }
-
-    // Tab filter
-    if (activeTab === "pending") {
-      filtered = filtered.filter(s => toNumber(s.pendingAmount) > 0);
-    } else if (activeTab === "completed") {
-      filtered = filtered.filter(s => toNumber(s.totalPaid) > 0);
-    }
-
-    return filtered;
-  }, [sellers, searchQuery, activeTab]);
-
-  // Tab counts
-  const tabCounts = useMemo(() => ({
-    all: sellers.length,
-    pending: sellers.filter(s => toNumber(s.pendingAmount) > 0).length,
-    processing: pendingPayouts.filter(p => p.status === "processing").length,
-    completed: sellers.filter(s => toNumber(s.totalPaid) > 0).length,
-  }), [sellers, pendingPayouts]);
-
-  // Filter payouts by status
-  const filteredPayouts = useMemo(() => {
-    if (activeTab === "all") return sellerPayouts;
-    return sellerPayouts.filter(p => p.status === activeTab);
-  }, [sellerPayouts, activeTab]);
-
-  const formatCurrency = (amount: number | string) => {
-    const normalized = toNumber(amount);
-    return `GH₵${new Intl.NumberFormat("en-GH", {
+  const formatCurrency = (amount: number | string) =>
+    `GH₵${new Intl.NumberFormat("en-GH", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(normalized)}`;
-  };
+    }).format(toNumber(amount))}`;
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "Never";
-    return new Date(dateString).toLocaleDateString("en-US", {
+  const formatDate = (value: string | null) => {
+    if (!value) return "Never";
+    return new Date(value).toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -254,39 +111,138 @@ export default function AdminSellersPayouts() {
     });
   };
 
-  const handleProcessPayout = () => {
-    if (!selectedSeller || !payoutAmount) return;
-    processPayoutMutation.mutate({
-      sellerId: selectedSeller.id,
-      amount: parseFloat(payoutAmount),
-      method: paymentMethod,
-      notes: paymentNotes,
-    });
-  };
+  const {
+    data: sellers = [],
+    isLoading: sellersLoading,
+    isError: sellersError,
+    refetch: refetchSellers,
+  } = useQuery<Seller[]>({
+    queryKey: ["/api/admin/sellers"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/sellers");
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    refetchInterval: 15000,
+  });
 
-  const { user } = useAuth();
+  const {
+    data: pendingPayouts = [],
+    refetch: refetchPendingPayouts,
+  } = useQuery<Payout[]>({
+    queryKey: ["/api/admin/payouts/pending"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/payouts/pending");
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    refetchInterval: 15000,
+  });
+
+  const {
+    data: sellerPayouts = [],
+    isLoading: payoutsLoading,
+    refetch: refetchSellerPayouts,
+  } = useQuery<Payout[]>({
+    queryKey: ["/api/admin/sellers", selectedSeller?.id, "payouts"],
+    queryFn: async () => {
+      if (!selectedSeller) return [];
+      const res = await apiRequest("GET", `/api/admin/sellers/${selectedSeller.id}/payouts`);
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: !!selectedSeller,
+    refetchInterval: 15000,
+  });
+
+  const stats = useMemo(() => {
+    const totalPaid = sellers.reduce((sum, seller) => sum + toNumber(seller.totalPaid), 0);
+    const totalPending = sellers.reduce((sum, seller) => sum + toNumber(seller.pendingAmount), 0);
+    const activeSellers = sellers.filter((seller) => seller.isApproved).length;
+    const totalPayouts = sellers.reduce((sum, seller) => sum + (seller.payoutCount || 0), 0);
+    const avgPayout = totalPayouts > 0 ? totalPaid / totalPayouts : 0;
+
+    const mostExposedSeller = [...sellers]
+      .sort((a, b) => toNumber(b.pendingAmount) - toNumber(a.pendingAmount))[0];
+
+    return {
+      totalPaid,
+      totalPending,
+      activeSellers,
+      totalPayouts,
+      avgPayout,
+      mostExposedSellerName: mostExposedSeller?.name || "No seller data",
+      mostExposedSellerAmount: toNumber(mostExposedSeller?.pendingAmount),
+    };
+  }, [sellers]);
+
+  const filteredSellers = useMemo(() => {
+    let rows = sellers;
+    const processingSellerIds = new Set(
+      pendingPayouts
+        .filter((payout) => payout.status === "processing")
+        .map((payout) => payout.sellerId)
+        .filter(Boolean)
+    );
+
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      rows = rows.filter((seller) =>
+        seller.name?.toLowerCase().includes(query) ||
+        seller.email?.toLowerCase().includes(query) ||
+        seller.phone?.toLowerCase().includes(query)
+      );
+    }
+
+    if (activeTab === "pending") {
+      rows = rows.filter((seller) => toNumber(seller.pendingAmount) > 0);
+    } else if (activeTab === "processing") {
+      rows = rows.filter((seller) => processingSellerIds.has(seller.id));
+    } else if (activeTab === "completed") {
+      rows = rows.filter((seller) => toNumber(seller.totalPaid) > 0);
+    }
+
+    return rows;
+  }, [activeTab, pendingPayouts, searchQuery, sellers]);
+
+  const tabCounts = useMemo(() => ({
+    all: sellers.length,
+    pending: sellers.filter((seller) => toNumber(seller.pendingAmount) > 0).length,
+    processing: pendingPayouts.filter((payout) => payout.status === "processing").length,
+    completed: sellers.filter((seller) => toNumber(seller.totalPaid) > 0).length,
+  }), [pendingPayouts, sellers]);
+
+  const filteredPayouts = useMemo(() => {
+    if (activeTab === "all") return sellerPayouts;
+    return sellerPayouts.filter((payout) => payout.status === activeTab);
+  }, [activeTab, sellerPayouts]);
+
+  const refreshAll = async () => {
+    await Promise.all([
+      refetchSellers(),
+      refetchPendingPayouts(),
+      selectedSeller ? refetchSellerPayouts() : Promise.resolve(),
+    ]);
+  };
 
   if (selectedSeller) {
     return (
       <DashboardLayout role={user?.role as any} showBackButton>
-        <div className="p-6 lg:p-8 space-y-6">
-          {/* Back Button & Seller Header */}
-          <div className="flex items-center gap-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSelectedSeller(null)}
-              className="gap-2"
-            >
-              <ArrowLeft className="h-4 w-4" />
+        <div className="space-y-6 p-4 md:p-6 pb-8">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={() => setSelectedSeller(null)}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Sellers
+            </Button>
+            <Button variant="outline" size="sm" onClick={refreshAll}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh History
             </Button>
           </div>
 
-          {/* Seller Info Card */}
-          <Card className="border shadow-sm">
-            <CardHeader>
-              <div className="flex items-center justify-between">
+        <Card className="border-border/70 bg-card text-foreground shadow-sm dark:border-emerald-500/30 dark:bg-[linear-gradient(102deg,rgba(6,78,59,0.42)_0%,rgba(2,6,23,0.96)_48%,rgba(8,47,73,0.56)_100%)] dark:text-white">
+          <CardContent className="space-y-5 p-5 md:p-6">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="flex items-center gap-4">
                   <UserAvatar
                     profileImage={selectedSeller.profileImage}
@@ -296,121 +252,48 @@ export default function AdminSellersPayouts() {
                     className="h-16 w-16"
                   />
                   <div>
-                    <CardTitle className="text-2xl">{selectedSeller.name}</CardTitle>
-                    <CardDescription className="flex items-center gap-2 mt-1">
-                      <Mail className="h-4 w-4" />
-                      {selectedSeller.email}
-                    </CardDescription>
-                    <CardDescription className="flex items-center gap-2 mt-1">
-                      <Phone className="h-4 w-4" />
-                      {selectedSeller.phone || "No phone number"}
-                    </CardDescription>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-300/40 dark:bg-emerald-500/15 dark:text-emerald-50">
+                        <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                        Seller Finance Profile
+                      </Badge>
+                      <Badge className={selectedSeller.isApproved ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-300/40 dark:bg-emerald-500/15 dark:text-emerald-50" : "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-300/40 dark:bg-slate-500/20 dark:text-slate-50"}>
+                        {selectedSeller.isApproved ? "Approved Seller" : "Pending Approval"}
+                      </Badge>
+                    </div>
+                    <h1 className="mt-3 text-2xl font-semibold md:text-3xl">{selectedSeller.name}</h1>
+                    <div className="mt-2 space-y-1 text-sm text-muted-foreground dark:text-white/80">
+                      <p className="flex items-center gap-2"><Mail className="h-4 w-4" />{selectedSeller.email}</p>
+                      <p className="flex items-center gap-2"><Phone className="h-4 w-4" />{selectedSeller.phone || "No phone number"}</p>
+                    </div>
                   </div>
                 </div>
-                <Dialog open={processDialogOpen} onOpenChange={setProcessDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button 
-                      className="gap-2"
-                      disabled={toNumber(selectedSeller.pendingAmount) <= 0}
-                    >
-                      <CreditCard className="h-4 w-4" />
-                      Process Payout
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Process Payout for {selectedSeller.name}</DialogTitle>
-                      <DialogDescription>
-                        Available balance: {formatCurrency(selectedSeller.pendingAmount)}
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Amount</label>
-                        <Input
-                          type="number"
-                          placeholder="Enter amount"
-                          value={payoutAmount}
-                          onChange={(e) => setPayoutAmount(e.target.value)}
-                          max={toNumber(selectedSeller.pendingAmount)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Payment Method</label>
-                        <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                            <SelectItem value="paypal">PayPal</SelectItem>
-                            <SelectItem value="crypto">Cryptocurrency</SelectItem>
-                            <SelectItem value="check">Check</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Notes (Optional)</label>
-                        <Input
-                          placeholder="Add payment notes..."
-                          value={paymentNotes}
-                          onChange={(e) => setPaymentNotes(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setProcessDialogOpen(false)}>
-                        Cancel
-                      </Button>
-                      <Button 
-                        onClick={handleProcessPayout}
-                        disabled={!payoutAmount || parseFloat(payoutAmount) <= 0 || processPayoutMutation.isPending}
-                        className="gap-2"
-                      >
-                        {processPayoutMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                        Process Payout
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+
+                <div className="flex flex-wrap gap-2">
+                  <Badge className="border-sky-200 bg-sky-50 px-3 py-1.5 text-sky-700 dark:border-sky-300/40 dark:bg-sky-500/15 dark:text-sky-50">
+                    <CreditCard className="mr-1.5 h-3.5 w-3.5" />
+                    Seller settlement is automatic after payment confirmation
+                  </Badge>
+                </div>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-muted/50 rounded-lg p-4 border">
-                  <p className="text-muted-foreground text-sm">Total Paid</p>
-                  <p className="text-2xl font-bold text-green-600">{formatCurrency(selectedSeller.totalPaid)}</p>
-                </div>
-                <div className="bg-muted/50 rounded-lg p-4 border">
-                  <p className="text-muted-foreground text-sm">Pending Amount</p>
-                  <p className="text-2xl font-bold text-amber-600">{formatCurrency(selectedSeller.pendingAmount)}</p>
-                </div>
-                <div className="bg-muted/50 rounded-lg p-4 border">
-                  <p className="text-muted-foreground text-sm">Total Payouts</p>
-                  <p className="text-2xl font-bold">{selectedSeller.payoutCount}</p>
-                </div>
-                <div className="bg-muted/50 rounded-lg p-4 border">
-                  <p className="text-muted-foreground text-sm">Last Payout</p>
-                  <p className="text-lg font-bold">{formatDate(selectedSeller.lastPayoutAt)}</p>
-                </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <Card className="border-border/70 bg-background dark:border-white/20 dark:bg-white/5"><CardContent className="p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Total Paid</p><p className="mt-3 text-2xl font-semibold">{formatCurrency(selectedSeller.totalPaid)}</p></CardContent></Card>
+                <Card className="border-border/70 bg-background dark:border-white/20 dark:bg-white/5"><CardContent className="p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Pending Balance</p><p className="mt-3 text-2xl font-semibold">{formatCurrency(selectedSeller.pendingAmount)}</p></CardContent></Card>
+                <Card className="border-border/70 bg-background dark:border-white/20 dark:bg-white/5"><CardContent className="p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Total Payouts</p><p className="mt-3 text-2xl font-semibold">{selectedSeller.payoutCount}</p></CardContent></Card>
+                <Card className="border-border/70 bg-background dark:border-white/20 dark:bg-white/5"><CardContent className="p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Last Payout</p><p className="mt-3 text-lg font-semibold">{formatDate(selectedSeller.lastPayoutAt)}</p></CardContent></Card>
               </div>
             </CardContent>
           </Card>
 
-          {/* Payout History */}
-          <Card className="border shadow-sm">
+          <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-primary" />
-                    Payout History
-                  </CardTitle>
-                  <CardDescription>
-                    Complete transaction history for this seller
-                  </CardDescription>
+                  <CardTitle>Payout History</CardTitle>
+                  <CardDescription>Live payout records for this seller account.</CardDescription>
                 </div>
-                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as FilterTab)}>
+                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as FilterTab)}>
                   <TabsList>
                     <TabsTrigger value="all">All</TabsTrigger>
                     <TabsTrigger value="pending">Pending</TabsTrigger>
@@ -422,57 +305,65 @@ export default function AdminSellersPayouts() {
             </CardHeader>
             <CardContent>
               {payoutsLoading ? (
-                <div className="flex items-center justify-center py-12">
+                <div className="flex items-center justify-center py-16">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : filteredPayouts.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <CreditCard className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No payout history found</p>
+                <div className="py-16 text-center text-muted-foreground">
+                  <CreditCard className="mx-auto mb-4 h-12 w-12 opacity-50" />
+                  <p>No payout history found for the current filter.</p>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Method</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Processed At</TableHead>
-                      <TableHead>Notes</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredPayouts.map((payout) => (
-                      <TableRow key={payout.id} className="hover:bg-slate-50">
-                        <TableCell className="font-medium">
-                          {formatDate(payout.createdAt)}
-                        </TableCell>
-                        <TableCell className="font-semibold text-green-600">
-                          {formatCurrency(payout.amount)}
-                        </TableCell>
-                        <TableCell className="capitalize">
-                          {payout.paymentMethod?.replace("_", " ") || "N/A"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge 
-                            variant="outline" 
-                            className={`${statusColors[payout.status]} gap-1`}
-                          >
-                            {statusIcons[payout.status]}
-                            <span className="capitalize">{payout.status}</span>
+                <div className="grid gap-4 xl:grid-cols-2">
+                  {filteredPayouts.map((payout) => (
+                    <Card key={payout.id} className="border-border/60 bg-muted/20">
+                      <CardContent className="space-y-4 p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Payout ID</p>
+                            <p className="font-medium">{payout.id}</p>
+                          </div>
+                          <Badge className={statusTone[payout.status]}>
+                            {payout.status === "processing" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : payout.status === "completed" ? <CheckCircle className="mr-1 h-3.5 w-3.5" /> : payout.status === "failed" ? <XCircle className="mr-1 h-3.5 w-3.5" /> : <Clock className="mr-1 h-3.5 w-3.5" />}
+                            {payout.status}
                           </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {payout.processedAt ? formatDate(payout.processedAt) : "-"}
-                        </TableCell>
-                        <TableCell className="max-w-[200px] truncate">
-                          {payout.notes || "-"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-xl border p-3">
+                            <p className="text-xs text-muted-foreground">Amount</p>
+                            <p className="mt-2 text-lg font-semibold text-emerald-500">{formatCurrency(payout.amount)}</p>
+                          </div>
+                          <div className="rounded-xl border p-3">
+                            <p className="text-xs text-muted-foreground">Method</p>
+                            <p className="mt-2 text-sm font-medium capitalize">{(payout.method || payout.paymentMethod)?.replace(/_/g, " ") || "N/A"}</p>
+                          </div>
+                          <div className="rounded-xl border p-3">
+                            <p className="text-xs text-muted-foreground">Created</p>
+                            <p className="mt-2 text-sm font-medium">{formatDate(payout.createdAt)}</p>
+                          </div>
+                          <div className="rounded-xl border p-3">
+                            <p className="text-xs text-muted-foreground">Processed</p>
+                            <p className="mt-2 text-sm font-medium">{formatDate(payout.processedAt)}</p>
+                          </div>
+                          <div className="rounded-xl border p-3">
+                            <p className="text-xs text-muted-foreground">Transfer Cost</p>
+                            <p className="mt-2 text-sm font-medium">{formatCurrency(payout.bankDetails?.transferFee || 0)}</p>
+                          </div>
+                          <div className="rounded-xl border p-3">
+                            <p className="text-xs text-muted-foreground">Settlement Path</p>
+                            <p className="mt-2 text-sm font-medium capitalize">{payout.bankDetails?.settlementMode || "standard"}</p>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border p-3">
+                          <p className="text-xs text-muted-foreground">Notes</p>
+                          <p className="mt-2 text-sm">{payout.notes || "No notes attached to this payout."}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -483,134 +374,111 @@ export default function AdminSellersPayouts() {
 
   return (
     <DashboardLayout role={user?.role as any} showBackButton>
-      <div className="p-6 lg:p-8 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">
-              Seller Payouts
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Manage and process seller payouts across the platform
-            </p>
-          </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => {
-              refetchSellers();
-              refetchPendingPayouts();
-              if (selectedSeller) {
-                refetchSellerPayouts();
-              }
-            }}
-            className="gap-2"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="border shadow-sm">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardDescription>Total Paid Out</CardDescription>
-              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                <DollarSign className="h-5 w-5 text-green-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold text-green-600">{formatCurrency(stats.totalPaid)}</span>
-            </CardContent>
-          </Card>
-
-          <Card className="border shadow-sm">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardDescription>Pending Payouts</CardDescription>
-              <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-amber-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold text-amber-600">{formatCurrency(stats.totalPending)}</span>
-            </CardContent>
-          </Card>
-
-          <Card className="border shadow-sm">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardDescription>Active Sellers</CardDescription>
-              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                <Users className="h-5 w-5 text-blue-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold">{stats.activeSellers}</span>
-            </CardContent>
-          </Card>
-
-          <Card className="border shadow-sm">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardDescription>Average Payout</CardDescription>
-              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
-                <TrendingUp className="h-5 w-5 text-purple-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold">{formatCurrency(stats.avgPayout)}</span>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters & Search */}
-        <Card className="border shadow-sm">
-          <CardHeader>
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="space-y-6 p-4 md:p-6 pb-8">
+        <Card className="border-border/70 bg-card text-foreground shadow-sm dark:border-emerald-500/30 dark:bg-[linear-gradient(102deg,rgba(6,78,59,0.46)_0%,rgba(2,6,23,0.97)_48%,rgba(8,47,73,0.56)_100%)] dark:text-white">
+          <CardContent className="space-y-5 p-5 md:p-6">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5 text-primary" />
-                  Sellers Overview
-                </CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-300/40 dark:bg-emerald-500/15 dark:text-emerald-50">
+                    <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                    Seller Payout Operations
+                  </Badge>
+                  <Badge className="border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-300/40 dark:bg-sky-500/15 dark:text-sky-50">
+                    <Sparkles className="mr-1 h-3.5 w-3.5" />
+                    Live updates every 15s
+                  </Badge>
+                </div>
+                <h1 className="mt-3 text-2xl font-semibold md:text-3xl">Seller Payouts</h1>
+                <p className="mt-2 max-w-3xl text-sm text-muted-foreground dark:text-white/80">
+                  Review automatic seller settlements, pending balances, and payout records from one finance workspace.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" className="border-border/70 text-foreground hover:bg-muted dark:border-white/30 dark:text-white dark:hover:bg-white/10" onClick={refreshAll}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Refresh
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <Card className="border-border/70 bg-background dark:border-white/20 dark:bg-white/5"><CardContent className="p-4"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground dark:text-white/70">Total Paid Out</p><DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-200" /></div><p className="mt-3 text-2xl font-semibold">{formatCurrency(stats.totalPaid)}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background dark:border-white/20 dark:bg-white/5"><CardContent className="p-4"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground dark:text-white/70">Pending Balance</p><Wallet className="h-4 w-4 text-amber-600 dark:text-amber-200" /></div><p className="mt-3 text-2xl font-semibold">{formatCurrency(stats.totalPending)}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background dark:border-white/20 dark:bg-white/5"><CardContent className="p-4"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground dark:text-white/70">Active Sellers</p><Users className="h-4 w-4 text-sky-600 dark:text-sky-200" /></div><p className="mt-3 text-2xl font-semibold">{stats.activeSellers}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background dark:border-white/20 dark:bg-white/5"><CardContent className="p-4"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground dark:text-white/70">Average Payout</p><TrendingUp className="h-4 w-4 text-fuchsia-600 dark:text-fuchsia-200" /></div><p className="mt-3 text-2xl font-semibold">{formatCurrency(stats.avgPayout)}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background dark:border-white/20 dark:bg-white/5"><CardContent className="p-4"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground dark:text-white/70">Highest Pending Seller</p><Banknote className="h-4 w-4 text-violet-600 dark:text-violet-200" /></div><p className="mt-3 text-base font-semibold">{stats.mostExposedSellerName}</p><p className="mt-1 text-xs text-muted-foreground dark:text-white/70">{formatCurrency(stats.mostExposedSellerAmount)}</p></CardContent></Card>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/70 bg-card shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">How Seller Settlement Works</CardTitle>
+            <CardDescription>
+              This page is for visibility, not manual seller approval. Seller settlement is automatic after the split succeeds, while payout transfer costs stay separate from checkout processing fees.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+              <p className="text-sm font-medium">Seller Share</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Seller settlement comes from merchandise subtotal minus coupon discount and minus platform commission.
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+              <p className="text-sm font-medium">Delivery Fees</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Delivery charges are not added to seller settlement. They are tracked separately on the platform side.
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+              <p className="text-sm font-medium">Processing Fees</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Processor fees represent the exact Paystack checkout fee paid by the customer and do not reduce or increase seller settlement amount.
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+              <p className="text-sm font-medium">Payout Transfer Costs</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Paystack payout costs are tracked separately from checkout fees and commission. Reference payout costs are GHS 1 for mobile money and GHS 8 for bank transfer.
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+              <p className="text-sm font-medium">Pending Balance</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Pending balance reflects automatic settlement records that are still awaiting final payout completion or transfer confirmation.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <div>
+                <CardTitle>Seller Settlement Queue</CardTitle>
                 <CardDescription>
-                  View and manage payouts for all sellers
+                  Search sellers, review pending balances, and open each payout profile for detailed history.
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="Search sellers..."
+                    placeholder="Search sellers by name, email, or phone"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 w-[250px]"
+                    className="w-[280px] pl-10"
                   />
                 </div>
-                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as FilterTab)}>
+                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as FilterTab)}>
                   <TabsList>
-                    <TabsTrigger value="all" className="gap-1">
-                      All
-                      <Badge variant="secondary" className="ml-1 h-5 px-1.5">
-                        {tabCounts.all}
-                      </Badge>
-                    </TabsTrigger>
-                    <TabsTrigger value="pending" className="gap-1">
-                      Pending
-                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 bg-yellow-100 text-yellow-800">
-                        {tabCounts.pending}
-                      </Badge>
-                    </TabsTrigger>
-                    <TabsTrigger value="processing" className="gap-1">
-                      Processing
-                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 bg-blue-100 text-blue-800">
-                        {tabCounts.processing}
-                      </Badge>
-                    </TabsTrigger>
-                    <TabsTrigger value="completed" className="gap-1">
-                      Completed
-                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 bg-green-100 text-green-800">
-                        {tabCounts.completed}
-                      </Badge>
-                    </TabsTrigger>
+                    <TabsTrigger value="all">All ({tabCounts.all})</TabsTrigger>
+                    <TabsTrigger value="pending">Pending ({tabCounts.pending})</TabsTrigger>
+                    <TabsTrigger value="processing">Processing ({tabCounts.processing})</TabsTrigger>
+                    <TabsTrigger value="completed">Completed ({tabCounts.completed})</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
@@ -618,123 +486,88 @@ export default function AdminSellersPayouts() {
           </CardHeader>
           <CardContent>
             {sellersLoading ? (
-              <div className="flex items-center justify-center py-12">
+              <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-            ) : filteredSellers.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No sellers found</p>
-              </div>
             ) : sellersError ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <XCircle className="h-12 w-12 mx-auto mb-4 text-destructive" />
-                <p className="mb-3">Failed to load seller payouts data</p>
-                <Button onClick={() => refetchSellers()} variant="outline" size="sm">
+              <div className="py-16 text-center text-muted-foreground">
+                <XCircle className="mx-auto mb-4 h-12 w-12 text-destructive" />
+                <p className="mb-4">Failed to load seller payout data.</p>
+                <Button variant="outline" onClick={refreshAll}>
                   Retry
                 </Button>
               </div>
+            ) : filteredSellers.length === 0 ? (
+              <div className="py-16 text-center text-muted-foreground">
+                <Users className="mx-auto mb-4 h-12 w-12 opacity-50" />
+                <p>No sellers match the current filters.</p>
+              </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50">
-                    <TableHead>Seller</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Total Paid</TableHead>
-                    <TableHead className="text-right">Pending</TableHead>
-                    <TableHead className="text-center">Payouts</TableHead>
-                    <TableHead>Last Payout</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredSellers.map((seller) => (
-                    <TableRow key={seller.id} className="hover:bg-muted/50 transition-colors">
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <UserAvatar
-                            profileImage={seller.profileImage}
-                            name={seller.name}
-                            email={seller.email}
-                            size="md"
-                            className="h-10 w-10"
-                          />
-                          <div>
-                            <p className="font-medium">{seller.name}</p>
-                            <p className="text-sm text-muted-foreground">{seller.email}</p>
-                            <p className="text-sm text-muted-foreground">{seller.phone || "No phone number"}</p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant="outline"
-                          className={seller.isApproved 
-                            ? "bg-green-50 text-green-700 border-green-200" 
-                            : "bg-gray-50 text-gray-700 border-gray-200"
-                          }
-                        >
-                          {seller.isApproved ? "Approved" : "Pending"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-green-600">
-                        {formatCurrency(seller.totalPaid)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {toNumber(seller.pendingAmount) > 0 ? (
-                          <span className="font-semibold text-amber-600">
-                            {formatCurrency(seller.pendingAmount)}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="secondary" className="font-mono">
-                          {seller.payoutCount}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatDate(seller.lastPayoutAt)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSelectedSeller(seller)}
-                            className="gap-1"
-                          >
-                            <Eye className="h-4 w-4" />
-                            View Payouts
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              setSelectedSeller(seller);
-                              setProcessDialogOpen(true);
-                            }}
-                            disabled={toNumber(seller.pendingAmount) <= 0}
-                            className="gap-1"
-                          >
-                            <CreditCard className="h-4 w-4" />
-                            Process
-                          </Button>
-                        </div>
-                      </TableCell>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead>Seller</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Total Paid</TableHead>
+                      <TableHead className="text-right">Pending</TableHead>
+                      <TableHead className="text-center">Payouts</TableHead>
+                      <TableHead>Last Payout</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredSellers.map((seller) => (
+                      <TableRow key={seller.id} className="hover:bg-muted/20">
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <UserAvatar
+                              profileImage={seller.profileImage}
+                              name={seller.name}
+                              email={seller.email}
+                              size="md"
+                              className="h-10 w-10"
+                            />
+                            <div>
+                              <p className="font-medium">{seller.name}</p>
+                              <p className="text-sm text-muted-foreground">{seller.email}</p>
+                              <p className="text-sm text-muted-foreground">{seller.phone || "No phone number"}</p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={seller.isApproved ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200" : "border-slate-300/30 bg-slate-500/10 text-slate-600 dark:text-slate-200"}>
+                            {seller.isApproved ? "Approved" : "Pending"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-emerald-500">{formatCurrency(seller.totalPaid)}</TableCell>
+                        <TableCell className="text-right">
+                          {toNumber(seller.pendingAmount) > 0 ? (
+                            <span className="font-semibold text-amber-500">{formatCurrency(seller.pendingAmount)}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="secondary">{seller.payoutCount}</Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{formatDate(seller.lastPayoutAt)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={() => setSelectedSeller(seller)}>
+                              <Eye className="mr-1 h-4 w-4" />
+                              View Settlement
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
-
-        {/* Live Update Indicator */}
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-          <span>Live updates every 15 seconds</span>
-        </div>
       </div>
     </DashboardLayout>
   );

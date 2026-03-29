@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
+import { fetchApiJson } from "@/lib/queryClient";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import HeroCarousel from "@/components/HeroCarousel";
@@ -17,8 +18,14 @@ import LocationPrompt from "@/components/LocationPrompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 import { ShoppingBag, Tag, ChevronRight } from "lucide-react";
 import type { Product, PlatformSettings } from "@shared/schema";
+
+type ProductWithCategoryMeta = Product & {
+  categoryName?: string | null;
+  categoryId?: string | null;
+};
 
 interface Category {
   id: string;
@@ -28,6 +35,7 @@ interface Category {
   description?: string;
   displayOrder: number;
   isActive: boolean;
+  requestedBySeller?: boolean;
 }
 
 export default function MultiVendorHome() {
@@ -53,19 +61,25 @@ export default function MultiVendorHome() {
     },
   });
 
-  const { data: featuredProducts = [], isLoading: productsLoading } = useQuery<Product[]>({
+  const { data: featuredProducts = [], isLoading: productsLoading } = useQuery<ProductWithCategoryMeta[]>({
     queryKey: ["/api/homepage/featured-products"],
   });
 
-  const { data: allProducts = [] } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+  const { data: newArrivalProducts = [], isLoading: newArrivalsLoading } = useQuery<ProductWithCategoryMeta[]>({
+    queryKey: ["/api/homepage/new-arrivals"],
+  });
+
+  const { data: allProducts = [] } = useQuery<ProductWithCategoryMeta[]>({
+    queryKey: ["/api/products", "active", "multi-vendor-home"],
+    queryFn: async () => {
+      return fetchApiJson<ProductWithCategoryMeta[]>("/api/products?isActive=true");
+    },
   });
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories", "active"],
     queryFn: async () => {
-      const res = await fetch("/api/categories?isActive=true");
-      return res.json();
+      return fetchApiJson<Category[]>("/api/categories?isActive=true");
     },
   });
 
@@ -73,31 +87,31 @@ export default function MultiVendorHome() {
   const { data: promos = [] } = useQuery<any[]>({
     queryKey: ['/api/homepage/promotional'],
     queryFn: async () => {
-      const res = await fetch('/api/homepage/promotional');
-      return res.json();
+      return fetchApiJson<any[]>("/api/homepage/promotional");
     },
     refetchInterval: 5000,
   });
 
-  const getCategoryProductCount = (categorySlug: string) => {
-    return allProducts.filter((p) => p.category === categorySlug).length;
-  };
+  const getCategoryProductCount = (category: Category) =>
+    allProducts.filter((product) => productMatchesCategory(product, category)).length;
+  const categoriesWithProducts = categories.filter(
+    (category) => getCategoryProductCount(category) > 0 || Boolean(category.requestedBySeller),
+  );
   
   const isAdmin = user?.role === "admin";
   const shopDisplayMode = (settings as any)?.shopDisplayMode || "by-store";
   const adsEnabled = (settings as any)?.adsEnabled ?? false;
-  const heroBannerEnabled = (settings as any)?.heroBannerEnabled ?? true;
-  const sidebarAdEnabled = (settings as any)?.sidebarAdEnabled ?? true;
-  const footerAdEnabled = (settings as any)?.footerAdEnabled ?? true;
+  const heroBannerEnabled = (settings as any)?.heroBannerEnabled ?? false;
+  const sidebarAdEnabled = (settings as any)?.sidebarAdEnabled ?? false;
+  const footerAdEnabled = (settings as any)?.footerAdEnabled ?? false;
 
   const hasMultiplePromotions = promos && promos.length > 1;
   const hasExactlyOnePromotion = promos && promos.length === 1;
-  const hasPromotion = promos && promos.length >= 1;
-  const singlePromotion = hasPromotion ? promos[0] : null;
+  const singlePromotion = hasExactlyOnePromotion ? promos[0] : null;
 
   // Sidebar content stacking: both promo + ad can coexist
   const hasSidebarAd = adsEnabled && sidebarAdEnabled;
-  const sidebarItemCount = (hasPromotion ? 1 : 0) + (hasSidebarAd ? 1 : 0);
+  const sidebarItemCount = (hasExactlyOnePromotion ? 1 : 0) + (hasSidebarAd ? 1 : 0);
 
   // Products to auto-fill empty promo/ad areas - show most popular (highest rated) products as trending
   const sidebarProducts = allProducts
@@ -124,13 +138,26 @@ export default function MultiVendorHome() {
     };
   }, []);
 
+  const matchesProductSearch = (product: ProductWithCategoryMeta) => {
+    const categoryLabel = getProductCategoryLabel(product).toLowerCase();
+    return (product.name || "").toLowerCase().includes(searchQuery) || categoryLabel.includes(searchQuery);
+  };
+
   // Filtered product lists for live-search parity with single-store
-  const filteredFeaturedProducts = searchQuery
-    ? (featuredProducts || []).filter(p => (p.name || "").toLowerCase().includes(searchQuery) || ((p.category || "") as string).toLowerCase().includes(searchQuery))
-    : (featuredProducts || []);
+  const filteredFeaturedProducts = (
+    searchQuery
+      ? (featuredProducts || []).filter(matchesProductSearch)
+      : (featuredProducts || [])
+  ).slice(0, 5);
+
+  const filteredNewArrivalProducts = (
+    searchQuery
+      ? (newArrivalProducts || []).filter(matchesProductSearch)
+      : (newArrivalProducts || [])
+  ).slice(0, 5);
 
   const filteredAllProducts = searchQuery
-    ? (allProducts || []).filter(p => (p.name || "").toLowerCase().includes(searchQuery) || ((p.category || "") as string).toLowerCase().includes(searchQuery))
+    ? (allProducts || []).filter(matchesProductSearch)
     : (allProducts || []);
 
   const [showAllCategories, setShowAllCategories] = useState(false);
@@ -214,11 +241,11 @@ export default function MultiVendorHome() {
                   <Badge className="mv-badge text-sm" data-testid="badge-store-count">
                     {shopDisplayMode === "by-store" 
                       ? `${stores.length} ${stores.length === 1 ? "Store" : "Stores"}`
-                      : `${categories.length} ${categories.length === 1 ? "Category" : "Categories"}`
+                      : `${categoriesWithProducts.length} ${categoriesWithProducts.length === 1 ? "Category" : "Categories"}`
                     }
                   </Badge>
                 )}
-                {(shopDisplayMode === "by-category" ? categories.length > CATEGORY_VISIBLE_THRESHOLD : true) && (
+                {(shopDisplayMode === "by-category" ? categoriesWithProducts.length > CATEGORY_VISIBLE_THRESHOLD : true) && (
                   <Button 
                     variant="ghost" 
                     className="gap-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-blue-200 dark:hover:text-white dark:hover:bg-white/10"
@@ -245,16 +272,16 @@ export default function MultiVendorHome() {
                     <Skeleton key={i} className="aspect-[4/3] rounded-xl bg-gray-200 dark:bg-white/10" data-testid={`skeleton-category-${i}`} />
                   ))}
                 </div>
-              ) : categories.length > 0 ? (
+              ) : categoriesWithProducts.length > 0 ? (
                 <div className={showAllCategories ? "category-grid-expanded" : "category-grid"} data-testid="grid-categories">
-                  {categories.map((category) => (
+                  {categoriesWithProducts.map((category) => (
                     <CategoryCard
                       key={category.id}
                       category={category}
                       name={category.name}
                       image={category.image}
                       slug={category.slug}
-                      productCount={getCategoryProductCount(category.slug)}
+                      productCount={getCategoryProductCount(category)}
                     />
                   ))}
                 </div>
@@ -310,7 +337,7 @@ export default function MultiVendorHome() {
                   {sidebarItemCount > 0 ? (
                     <>
                     {/* Promotion — fills available height, splits evenly when stacked */}
-                    {hasPromotion && (
+                    {hasExactlyOnePromotion && singlePromotion && (
                       <div
                         className="overflow-hidden rounded-xl"
                         style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
@@ -336,6 +363,7 @@ export default function MultiVendorHome() {
             {/* Products column — expand to full width when no sidebar */}
             <div className={hasSidebarContent ? 'lg:col-span-8' : 'lg:col-span-12'}>
               {/* Featured Products */}
+              {(productsLoading || filteredFeaturedProducts.length > 0 || Boolean(searchQuery)) && (
               <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6 mb-8">
                 <div className="flex items-center gap-3">
                   <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-featured">
@@ -374,6 +402,42 @@ export default function MultiVendorHome() {
                   </div>
                 )}
               </section>
+              )}
+
+              {filteredNewArrivalProducts.length > 0 && (
+                <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6 mb-8">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
+                      New Arrivals
+                    </h2>
+                  </div>
+
+                  {newArrivalsLoading ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 gap-y-6">
+                      {[...Array(5)].map((_, i) => (
+                        <Skeleton key={i} className="aspect-square rounded-xl bg-gray-200 dark:bg-white/10" />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
+                      {filteredNewArrivalProducts.map((product) => (
+                        <ProductCard
+                          key={product.id}
+                          id={product.id}
+                          name={product.name}
+                          price={product.price}
+                          costPrice={product.costPrice || undefined}
+                          image={product.images[0] || ""}
+                          discount={product.discount || 0}
+                          rating={product.ratings || "0"}
+                          reviewCount={product.totalRatings || 0}
+                          inStock={(product.stock || 0) > 0}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
 
               {/* All Products */}
               {filteredAllProducts.length > 0 && (
@@ -388,7 +452,7 @@ export default function MultiVendorHome() {
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6" data-testid="grid-all-products">
-                  {allProducts.map((product) => (
+                  {filteredAllProducts.map((product) => (
                     <ProductCard
                       key={product.id}
                       id={product.id}

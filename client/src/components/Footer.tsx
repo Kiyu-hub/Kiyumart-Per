@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useRoute, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import Logo from "@/components/Logo";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface PlatformSettings {
   platformName: string;
@@ -61,6 +62,7 @@ export default function Footer() {
   const [match, params] = useRoute("/sellers/:id");
   const [, navigate] = useLocation();
   const sellerId = match ? params?.id : null;
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
   
   const { data: settings } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
@@ -336,7 +338,9 @@ export default function Footer() {
                     <>
                       <li><Link href="/stores" onClick={scrollToTop} className="hover:text-primary transition-colors">Browse Stores</Link></li>
                       <li><Link href="/become-seller" onClick={scrollToTop} className="hover:text-primary transition-colors">Become a Seller</Link></li>
-                      <li><Link href="/become-rider" onClick={scrollToTop} className="hover:text-primary transition-colors">Become a Rider</Link></li>
+                      {settings?.allowRiderRegistration && !isExternalRiderSystemEnabled && (
+                        <li><Link href="/become-rider" onClick={scrollToTop} className="hover:text-primary transition-colors">Become a Rider</Link></li>
+                      )}
                     </>
                   )}
                 </>

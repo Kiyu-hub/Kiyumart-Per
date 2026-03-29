@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle } from "lucide-react";
+import { PageLoadingState } from "@/components/ui/loading-state";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -94,11 +95,7 @@ export default function PaymentPage() {
   };
 
   if (authLoading || orderLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-payment" />
-      </div>
-    );
+    return <PageLoadingState title="Loading payment page" description="Checking the order and preparing secure payment details." />;
   }
 
   if (error || !order) {

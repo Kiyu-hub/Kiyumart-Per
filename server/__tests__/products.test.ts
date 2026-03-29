@@ -13,23 +13,41 @@ async function run() {
     id: 'prod-1',
     name: 'Test Product',
     description: 'A product for testing',
+    categoryId: 'cat-1',
+    category: 'legacy-category',
     price: '10.00',
     costPrice: '15.00',
     images: [],
     discount: 0,
     stock: 5,
     sellerId: 'seller-1',
+    storeId: 'store-1',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   } as any;
 
-  storageModule.storage.getProducts = async (filters?: any) => [product];
+  let capturedFilters: any = null;
+
+  storageModule.storage.getProducts = async (filters?: any) => {
+    capturedFilters = filters;
+    return [product];
+  };
   storageModule.storage.getProduct = async (id: string) => id === product.id ? product : undefined;
+  storageModule.storage.getCategories = async () => ([
+    {
+      id: 'cat-1',
+      name: 'Electronics',
+      slug: 'electronics',
+      isActive: true,
+    },
+  ] as any);
   storageModule.storage.getPlatformSettings = async () => ({
-    isMultiVendor: true,
-    primaryStoreId: null,
+    isMultiVendor: false,
+    primaryStoreId: 'store-1',
   } as any);
-  storageModule.storage.getStore = async () => undefined as any;
+  storageModule.storage.getStore = async (id?: string) => id === 'store-1'
+    ? ({ id: 'store-1', primarySellerId: 'seller-1' } as any)
+    : undefined as any;
 
   const app = express();
   app.use(express.json({ verify: (req: any, _res: any, buf: any) => { req.rawBody = buf; } }));
@@ -52,6 +70,12 @@ async function run() {
   if (listJson[0].costPrice !== product.costPrice) {
     throw new Error('GET /api/products costPrice value mismatch');
   }
+  if (listJson[0].category !== 'electronics' || listJson[0].categoryName !== 'Electronics') {
+    throw new Error('GET /api/products did not hydrate category slug/name');
+  }
+  if (!capturedFilters || capturedFilters.storeId !== 'store-1') {
+    throw new Error('GET /api/products did not enforce primary store scope');
+  }
 
   // Fetch single endpoint
   const singleResp = await fetch(`http://localhost:${port}/api/products/${product.id}`);
@@ -61,6 +85,17 @@ async function run() {
   }
   if (singleJson.costPrice !== product.costPrice) {
     throw new Error('GET /api/products/:id costPrice value mismatch');
+  }
+  if (singleJson.category !== 'electronics' || singleJson.categoryName !== 'Electronics') {
+    throw new Error('GET /api/products/:id did not hydrate category slug/name');
+  }
+
+  storageModule.storage.getProduct = async (id: string) => id === 'wrong-store'
+    ? ({ ...product, id: 'wrong-store', storeId: 'store-2' } as any)
+    : undefined;
+  const wrongStoreResp = await fetch(`http://localhost:${port}/api/products/wrong-store`);
+  if (wrongStoreResp.status !== 404) {
+    throw new Error('GET /api/products/:id allowed a product outside the selected single store');
   }
 
   console.log('✅ products.test passed');

@@ -11,7 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Filter, ShoppingBag, Loader2 } from "lucide-react";
 import MarketplaceBannerCarousel from "@/components/MarketplaceBannerCarousel";
 import { useDebounce } from "@/hooks/useDebounce";
+import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 import type { Product } from "@shared/schema";
+
+type ProductWithCategoryMeta = Product & {
+  categoryName?: string | null;
+  categoryId?: string | null;
+};
 
 export default function AllProducts() {
   const [location] = useLocation();
@@ -33,8 +39,12 @@ export default function AllProducts() {
   // Show loading state while debouncing
   const isSearching = searchQuery !== debouncedSearchQuery;
 
-  const { data: products = [], isLoading } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+  const { data: products = [], isLoading } = useQuery<ProductWithCategoryMeta[]>({
+    queryKey: ["/api/products", "active", "all-products"],
+    queryFn: async () => {
+      const res = await fetch("/api/products?isActive=true");
+      return res.json();
+    },
   });
 
   // Platform settings to detect single-store mode and primary store behavior
@@ -72,13 +82,22 @@ export default function AllProducts() {
   // Use debounced search query for filtering
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
+      const categoryLabel = getProductCategoryLabel(product).toLowerCase();
       const matchesSearch =
         product.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        (product.category?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ?? false);
-      const matchesCategory = !selectedCategory || product.category === selectedCategory;
+        categoryLabel.includes(debouncedSearchQuery.toLowerCase());
+      const matchesCategory =
+        !selectedCategory ||
+        productMatchesCategory(product, { slug: selectedCategory });
       return matchesSearch && matchesCategory;
     });
   }, [products, debouncedSearchQuery, selectedCategory]);
+
+  const availableCategories = useMemo(() => {
+    return categories.filter((category: any) =>
+      products.some((product) => productMatchesCategory(product, category)),
+    );
+  }, [categories, products]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900">
@@ -128,7 +147,7 @@ export default function AllProducts() {
                 >
                   All
                 </Button>
-                {categories.map((category: any) => (
+                {availableCategories.map((category: any) => (
                   <Button
                     key={category.id}
                     variant={selectedCategory === category.slug ? "default" : "outline"}

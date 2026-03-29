@@ -67,6 +67,9 @@ const settingsSchema = z.object({
   isMultiVendor: z.boolean(),
   allowSellerRegistration: z.boolean(),
   allowRiderRegistration: z.boolean(),
+  isExternalRiderSystemEnabled: z.boolean(),
+  showCheckoutDeliveryMap: z.boolean(),
+  allowPickupAgentAdminChat: z.boolean(),
   shopDisplayMode: z.enum(["by-store", "by-category"]).optional(),
   showShopBySection: z.boolean().optional(),
   primaryStoreId: z.string().optional().nullable(),
@@ -522,6 +525,9 @@ export default function AdminSettings() {
       isMultiVendor: false,
       allowSellerRegistration: false,
       allowRiderRegistration: false,
+      isExternalRiderSystemEnabled: false,
+      showCheckoutDeliveryMap: true,
+      allowPickupAgentAdminChat: true,
       shopDisplayMode: "by-store",
       showShopBySection: true,
       primaryStoreId: null,
@@ -560,10 +566,10 @@ export default function AdminSettings() {
       showSocialLinks: true,
       footerDescription: "",
       adsEnabled: false,
-      heroBannerEnabled: true,
-      sidebarAdEnabled: true,
-      footerAdEnabled: true,
-      productPageAdEnabled: true,
+      heroBannerEnabled: false,
+      sidebarAdEnabled: false,
+      footerAdEnabled: false,
+      productPageAdEnabled: false,
       heroBannerAdImage: "",
       heroBannerAdUrl: "",
       sidebarAdImage: "",
@@ -606,12 +612,21 @@ export default function AdminSettings() {
       toast({ title: "Update failed", description: err.message || "Failed to update settings", variant: "destructive" });
     },
     onSuccess: async (data) => {
+      const mergedData = {
+        ...form.getValues(),
+        ...data,
+        isExternalRiderSystemEnabled: (data as any).isExternalRiderSystemEnabled === true,
+        showCheckoutDeliveryMap: (data as any).showCheckoutDeliveryMap !== false,
+        allowPickupAgentAdminChat: (data as any).allowPickupAgentAdminChat !== false,
+      };
       // Replace cache with authoritative server response and refetch other keys
-      queryClient.setQueryData(["/api/settings"], data);
+      queryClient.setQueryData(["/api/settings"], mergedData);
       await queryClient.invalidateQueries({ queryKey: ["/api/settings", user?.id] });
       await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
       await queryClient.refetchQueries({ queryKey: ["/api/settings", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/platform-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/public/platform-settings"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/public/platform-settings"] });
       
       // Invalidate hero banners so they refetch with new store mode
       queryClient.invalidateQueries({ queryKey: ["/api/hero-banners"] });
@@ -621,60 +636,63 @@ export default function AdminSettings() {
 
       // Reset form with server response
       form.reset({
-        platformName: data.platformName,
-        isMultiVendor: data.isMultiVendor,
-        allowSellerRegistration: data.allowSellerRegistration || false,
-        allowRiderRegistration: data.allowRiderRegistration || false,
-        shopDisplayMode: data.shopDisplayMode || "by-store",
-        showShopBySection: data.showShopBySection ?? true,
-        primaryStoreId: data.primaryStoreId || null,
-        primaryColor: data.primaryColor,
-        defaultCurrency: data.defaultCurrency,
-        frontendUrl: data.frontendUrl || "",
-        paystackPublicKey: data.paystackPublicKey || "",
-        paystackSecretKey: data.paystackSecretKey || "",
-        processingFeePercent: data.processingFeePercent,
-        defaultCommissionRate: data.defaultCommissionRate || "1",
-        cloudinaryCloudName: data.cloudinaryCloudName || "",
-        cloudinaryApiKey: data.cloudinaryApiKey || "",
-        cloudinaryApiSecret: data.cloudinaryApiSecret || "",
-        mapboxPublicToken: (data as any).mapboxPublicToken || "",
-        mapboxStyleUrl: (data as any).mapboxStyleUrl || "mapbox://styles/mapbox/navigation-night-v1",
-        mapboxGlVersion: (data as any).mapboxGlVersion || "v3.4.0",
-        contactPhone: data.contactPhone,
-        contactEmail: data.contactEmail,
-        contactAddress: data.contactAddress,
-        facebookUrl: data.facebookUrl || "",
-        instagramUrl: data.instagramUrl || "",
-        twitterUrl: data.twitterUrl || "",
-        showFacebook: data.showFacebook ?? true,
-        showInstagram: data.showInstagram ?? true,
-        showTwitter: data.showTwitter ?? true,
-        showLinkedin: data.showLinkedin ?? true,
-        showYoutube: data.showYoutube ?? true,
-        showTiktok: data.showTiktok ?? true,
-        showPinterest: data.showPinterest ?? true,
-        showWhatsapp: data.showWhatsapp ?? true,
-        linkedinUrl: data.linkedinUrl || "",
-        youtubeUrl: data.youtubeUrl || "",
-        tiktokUrl: data.tiktokUrl || "",
-        pinterestUrl: data.pinterestUrl || "",
-        whatsappPage: data.whatsappPage || "",
-        showSocialLinks: data.showSocialLinks ?? true,
-        footerDescription: data.footerDescription,
-        adsEnabled: data.adsEnabled || false,
-        heroBannerEnabled: (data as any).heroBannerEnabled ?? true,
-        sidebarAdEnabled: (data as any).sidebarAdEnabled ?? true,
-        footerAdEnabled: (data as any).footerAdEnabled ?? true,
-        productPageAdEnabled: (data as any).productPageAdEnabled ?? true,
-        heroBannerAdImage: data.heroBannerAdImage || "",
-        heroBannerAdUrl: data.heroBannerAdUrl || "",
-        sidebarAdImage: data.sidebarAdImage || "",
-        sidebarAdUrl: data.sidebarAdUrl || "",
-        footerAdImage: data.footerAdImage || "",
-        footerAdUrl: data.footerAdUrl || "",
-        productPageAdImage: data.productPageAdImage || "",
-        productPageAdUrl: data.productPageAdUrl || "",
+        platformName: mergedData.platformName,
+        isMultiVendor: mergedData.isMultiVendor,
+        allowSellerRegistration: mergedData.allowSellerRegistration || false,
+        allowRiderRegistration: mergedData.allowRiderRegistration || false,
+        isExternalRiderSystemEnabled: mergedData.isExternalRiderSystemEnabled || false,
+        showCheckoutDeliveryMap: mergedData.showCheckoutDeliveryMap !== false,
+        allowPickupAgentAdminChat: mergedData.allowPickupAgentAdminChat !== false,
+        shopDisplayMode: mergedData.shopDisplayMode || "by-store",
+        showShopBySection: mergedData.showShopBySection ?? true,
+        primaryStoreId: mergedData.primaryStoreId || null,
+        primaryColor: mergedData.primaryColor,
+        defaultCurrency: mergedData.defaultCurrency,
+        frontendUrl: mergedData.frontendUrl || "",
+        paystackPublicKey: mergedData.paystackPublicKey || "",
+        paystackSecretKey: mergedData.paystackSecretKey || "",
+        processingFeePercent: mergedData.processingFeePercent,
+        defaultCommissionRate: mergedData.defaultCommissionRate || "1",
+        cloudinaryCloudName: mergedData.cloudinaryCloudName || "",
+        cloudinaryApiKey: mergedData.cloudinaryApiKey || "",
+        cloudinaryApiSecret: mergedData.cloudinaryApiSecret || "",
+        mapboxPublicToken: (mergedData as any).mapboxPublicToken || "",
+        mapboxStyleUrl: (mergedData as any).mapboxStyleUrl || "mapbox://styles/mapbox/navigation-night-v1",
+        mapboxGlVersion: (mergedData as any).mapboxGlVersion || "v3.4.0",
+        contactPhone: mergedData.contactPhone,
+        contactEmail: mergedData.contactEmail,
+        contactAddress: mergedData.contactAddress,
+        facebookUrl: mergedData.facebookUrl || "",
+        instagramUrl: mergedData.instagramUrl || "",
+        twitterUrl: mergedData.twitterUrl || "",
+        showFacebook: mergedData.showFacebook ?? true,
+        showInstagram: mergedData.showInstagram ?? true,
+        showTwitter: mergedData.showTwitter ?? true,
+        showLinkedin: mergedData.showLinkedin ?? true,
+        showYoutube: mergedData.showYoutube ?? true,
+        showTiktok: mergedData.showTiktok ?? true,
+        showPinterest: mergedData.showPinterest ?? true,
+        showWhatsapp: mergedData.showWhatsapp ?? true,
+        linkedinUrl: mergedData.linkedinUrl || "",
+        youtubeUrl: mergedData.youtubeUrl || "",
+        tiktokUrl: mergedData.tiktokUrl || "",
+        pinterestUrl: mergedData.pinterestUrl || "",
+        whatsappPage: mergedData.whatsappPage || "",
+        showSocialLinks: mergedData.showSocialLinks ?? true,
+        footerDescription: mergedData.footerDescription,
+        adsEnabled: mergedData.adsEnabled || false,
+        heroBannerEnabled: (mergedData as any).heroBannerEnabled ?? false,
+        sidebarAdEnabled: (mergedData as any).sidebarAdEnabled ?? false,
+        footerAdEnabled: (mergedData as any).footerAdEnabled ?? false,
+        productPageAdEnabled: (mergedData as any).productPageAdEnabled ?? false,
+        heroBannerAdImage: mergedData.heroBannerAdImage || "",
+        heroBannerAdUrl: mergedData.heroBannerAdUrl || "",
+        sidebarAdImage: mergedData.sidebarAdImage || "",
+        sidebarAdUrl: mergedData.sidebarAdUrl || "",
+        footerAdImage: mergedData.footerAdImage || "",
+        footerAdUrl: mergedData.footerAdUrl || "",
+        productPageAdImage: mergedData.productPageAdImage || "",
+        productPageAdUrl: mergedData.productPageAdUrl || "",
       });
 
       // Keep in-browser runtime map config in sync so map pages in the same session pick up updates immediately.
@@ -746,6 +764,9 @@ export default function AdminSettings() {
         isMultiVendor: settings.isMultiVendor,
         allowSellerRegistration: (settings as any).allowSellerRegistration || false,
         allowRiderRegistration: (settings as any).allowRiderRegistration || false,
+        isExternalRiderSystemEnabled: (settings as any).isExternalRiderSystemEnabled || false,
+        showCheckoutDeliveryMap: (settings as any).showCheckoutDeliveryMap !== false,
+        allowPickupAgentAdminChat: (settings as any).allowPickupAgentAdminChat !== false,
         shopDisplayMode: (settings as any).shopDisplayMode || "by-store",
         showShopBySection: (settings as any).showShopBySection ?? true,
         primaryStoreId: (settings as any).primaryStoreId || null,
@@ -784,10 +805,10 @@ export default function AdminSettings() {
           showSocialLinks: (settings as any).showSocialLinks ?? true,
         footerDescription: settings.footerDescription,
         adsEnabled: settings.adsEnabled || false,
-        heroBannerEnabled: (settings as any).heroBannerEnabled ?? true,
-        sidebarAdEnabled: (settings as any).sidebarAdEnabled ?? true,
-        footerAdEnabled: (settings as any).footerAdEnabled ?? true,
-        productPageAdEnabled: (settings as any).productPageAdEnabled ?? true,
+        heroBannerEnabled: (settings as any).heroBannerEnabled ?? false,
+        sidebarAdEnabled: (settings as any).sidebarAdEnabled ?? false,
+        footerAdEnabled: (settings as any).footerAdEnabled ?? false,
+        productPageAdEnabled: (settings as any).productPageAdEnabled ?? false,
         heroBannerAdImage: settings.heroBannerAdImage || "",
         heroBannerAdUrl: settings.heroBannerAdUrl || "",
         sidebarAdImage: settings.sidebarAdImage || "",
@@ -802,16 +823,68 @@ export default function AdminSettings() {
 
   if (authLoading || isLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <div className="space-y-1">
+            <p className="text-lg font-semibold text-foreground">Loading settings</p>
+            <p className="text-sm text-muted-foreground">
+              Preparing platform controls, payments, ads, and advanced configuration.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <DashboardLayout role={user?.role as any} showBackButton>
-      <div className="p-8">
-          <div className="flex items-center gap-4 mb-6">
+      <div className="mx-auto w-full max-w-[1680px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="overflow-hidden rounded-[28px] border border-border/70 bg-card shadow-sm dark:border-primary/20 dark:bg-gradient-to-br dark:from-primary/10 dark:via-background dark:to-background dark:shadow-[0_20px_70px_-45px_rgba(16,185,129,0.65)]">
+            <div className="flex flex-col gap-6 p-5 sm:p-6 xl:grid xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,1fr)] xl:items-start">
+              <div className="flex items-start gap-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-inner shadow-primary/10 dark:bg-primary/15">
+                  <Settings2 className="h-7 w-7" />
+                </div>
+                <div className="min-w-0 space-y-3">
+                  <div>
+                    <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Platform Settings</h1>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
+                      Superadmin control center for commerce mode, operations, payments, storefront visibility, and infrastructure.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge className="border-primary/20 bg-primary/10 text-primary">Super Admin Control</Badge>
+                    <Badge variant="outline">{form.watch("isMultiVendor") ? "Multi-Vendor" : "Single Store"}</Badge>
+                    <Badge variant="outline">
+                      {form.watch("isExternalRiderSystemEnabled") ? "External Delivery Mode" : "Internal Rider Mode"}
+                    </Badge>
+                    <Badge variant="outline">{activeTab.replace(/-/g, " ")}</Badge>
+                  </div>
+                </div>
+              </div>
+              <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-2">
+                <div className="min-h-[132px] rounded-2xl border border-border/70 bg-background p-4 shadow-sm dark:bg-background/80 dark:backdrop-blur">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Commerce Mode</p>
+                  <p className="mt-2 text-base font-semibold">{form.watch("isMultiVendor") ? "Marketplace" : "Primary Store"}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {form.watch("isMultiVendor") ? "Multiple sellers and multi-store layout." : "Single-store storefront experience."}
+                  </p>
+                </div>
+                <div className="min-h-[132px] rounded-2xl border border-border/70 bg-background p-4 shadow-sm dark:bg-background/80 dark:backdrop-blur">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Delivery Flow</p>
+                  <p className="mt-2 text-base font-semibold">
+                    {form.watch("isExternalRiderSystemEnabled") ? "Manual / External" : "Internal Rider"}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {form.watch("showCheckoutDeliveryMap") ? "Checkout map visible." : "Checkout map hidden."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
             <Button
               variant="ghost"
               size="icon"
@@ -821,64 +894,72 @@ export default function AdminSettings() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="flex-1">
-              <h1 className="text-3xl font-bold flex items-center gap-2">
-                <Settings2 className="h-8 w-8" />
-                Platform Settings
-              </h1>
-              <p className="text-muted-foreground mt-1">Configure your platform's core settings and preferences</p>
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+                Configuration Workspace
+              </h2>
+              <p className="text-muted-foreground mt-1">All platform controls remain available here. The layout has been tightened, not reduced.</p>
             </div>
           </div>
 
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="flex flex-wrap w-full gap-1 mb-6 h-auto">
-              <TabsTrigger value="general" data-testid="tab-general">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+            <div className="overflow-hidden rounded-[26px] border border-border/70 bg-card/60 shadow-sm">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-none bg-transparent p-3 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9">
+              <TabsTrigger value="general" data-testid="tab-general" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Settings2 className="h-4 w-4 mr-2" />
                 General
               </TabsTrigger>
-              <TabsTrigger value="payments" data-testid="tab-payments">
+              <TabsTrigger value="payments" data-testid="tab-payments" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <CreditCard className="h-4 w-4 mr-2" />
                 Payments
               </TabsTrigger>
-              <TabsTrigger value="storage" data-testid="tab-storage">
+              <TabsTrigger value="storage" data-testid="tab-storage" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Cloud className="h-4 w-4 mr-2" />
                 Storage
               </TabsTrigger>
-              <TabsTrigger value="map" data-testid="tab-map">
+              <TabsTrigger value="map" data-testid="tab-map" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Globe className="h-4 w-4 mr-2" />
                 Map
               </TabsTrigger>
-              <TabsTrigger value="contact" data-testid="tab-contact">
+              <TabsTrigger value="contact" data-testid="tab-contact" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Mail className="h-4 w-4 mr-2" />
                 Contact
               </TabsTrigger>
+              {user?.role === "super_admin" && (
+                <TabsTrigger value="advanced-features" data-testid="tab-advanced-features" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                  <Rocket className="h-4 w-4 mr-2" />
+                  Advanced Features
+                </TabsTrigger>
+              )}
               {user?.role !== "super_admin" && (
                 <>
-                  <TabsTrigger value="branding" data-testid="tab-branding">
+                  <TabsTrigger value="branding" data-testid="tab-branding" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                     <Palette className="h-4 w-4 mr-2" />
                     Branding
                   </TabsTrigger>
-                  <TabsTrigger value="currency" data-testid="tab-currency">
+                  <TabsTrigger value="currency" data-testid="tab-currency" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                     <DollarSign className="h-4 w-4 mr-2" />
                     Currency
                   </TabsTrigger>
                 </>
               )}
-              <TabsTrigger value="ads" data-testid="tab-ads">
+              <TabsTrigger value="ads" data-testid="tab-ads" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <ImageIcon className="h-4 w-4 mr-2" />
                 Ads
               </TabsTrigger>
-              <TabsTrigger value="footer" data-testid="tab-footer">
+              <TabsTrigger value="footer" data-testid="tab-footer" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Layers className="h-4 w-4 mr-2" />
                 Footer
               </TabsTrigger>
-              <TabsTrigger value="diagnostics" data-testid="tab-diagnostics">
+              <TabsTrigger value="diagnostics" data-testid="tab-diagnostics" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Activity className="h-4 w-4 mr-2" />
                 Diagnostics
               </TabsTrigger>
             </TabsList>
+            </div>
 
-            <TabsContent value="general" className="space-y-4">
+            <TabsContent value="general" className="space-y-5">
               {user?.role === "super_admin" && (
                 <Card className="border-primary/50 bg-primary/5">
                   <CardHeader>
@@ -978,20 +1059,22 @@ export default function AdminSettings() {
                     />
                   </div>
 
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="allowRiderRegistration">Allow Delivery Partner Registration</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Show "Become a Delivery Partner" button on toolbar to allow new delivery partner applications
-                      </p>
+                  {!form.watch("isExternalRiderSystemEnabled") ? (
+                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="allowRiderRegistration">Allow Delivery Partner Registration</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Show "Become a Delivery Partner" button on toolbar to allow new delivery partner applications
+                        </p>
+                      </div>
+                      <Switch
+                        id="allowRiderRegistration"
+                        checked={form.watch("allowRiderRegistration")}
+                        onCheckedChange={(checked) => form.setValue("allowRiderRegistration", checked)}
+                        data-testid="switch-allow-rider-registration"
+                      />
                     </div>
-                    <Switch
-                      id="allowRiderRegistration"
-                      checked={form.watch("allowRiderRegistration")}
-                      onCheckedChange={(checked) => form.setValue("allowRiderRegistration", checked)}
-                      data-testid="switch-allow-rider-registration"
-                    />
-                  </div>
+                  ) : null}
 
                   {form.watch("isMultiVendor") && (
                     <div className="p-4 border rounded-lg bg-muted/50 space-y-4">
@@ -1271,6 +1354,35 @@ export default function AdminSettings() {
                       </div>
                     </div>
 
+                    <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <Wallet className="h-5 w-5 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                        <div className="space-y-2 text-sm">
+                          <h4 className="font-medium text-emerald-900 dark:text-emerald-100">How payments are handled</h4>
+                          <p className="text-emerald-800 dark:text-emerald-200">
+                            Customers pay the order subtotal, any delivery fee, and the Paystack processing fee at checkout.
+                            The processing fee is collected from the customer as the exact Paystack checkout charge and is recorded separately from platform commission.
+                          </p>
+                          <p className="text-emerald-800 dark:text-emerald-200">
+                            Seller commission is charged only on the merchandise amount after coupon discount. It is deducted from
+                            the seller&apos;s share during the split before the seller receives funds.
+                          </p>
+                          <p className="text-emerald-800 dark:text-emerald-200">
+                            Delivery fees are handled separately from seller payout. They do not increase the seller&apos;s payable
+                            amount. When the internal rider flow is active and a zone delivery fee is charged, that amount is held
+                            separately and remains subject to super admin payout approval.
+                          </p>
+                          <p className="text-emerald-800 dark:text-emerald-200">
+                            When the External Rider System is enabled, delivery is arranged manually or through third-party services,
+                            and any delivery fee remains separate from seller commission and seller settlement.
+                          </p>
+                          <p className="text-emerald-800 dark:text-emerald-200">
+                            Seller payout transfer costs are tracked separately from checkout fees and commission. Reference Paystack payout costs are GHS 1 for mobile money and GHS 8 for bank transfer.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="flex items-start justify-between mb-2">
                       <div>
                         <Label htmlFor="paystackPublicKey">Paystack Public Key</Label>
@@ -1482,6 +1594,63 @@ export default function AdminSettings() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {user?.role === "super_admin" && (
+              <TabsContent value="advanced-features" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Advanced Features</CardTitle>
+                    <CardDescription>
+                      Super-admin feature flags that change platform behavior without removing the original implementation.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="isExternalRiderSystemEnabled">Enable External Rider System</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Use manual external delivery workflows instead of the built-in rider dispatch system.
+                        </p>
+                      </div>
+                      <Switch
+                        id="isExternalRiderSystemEnabled"
+                        checked={form.watch("isExternalRiderSystemEnabled")}
+                        onCheckedChange={(checked) => form.setValue("isExternalRiderSystemEnabled", checked)}
+                        data-testid="switch-external-rider-system"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="showCheckoutDeliveryMap">Show Checkout Delivery Map</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Control whether the live delivery map appears on checkout for customers entering a delivery address.
+                        </p>
+                      </div>
+                      <Switch
+                        id="showCheckoutDeliveryMap"
+                        checked={form.watch("showCheckoutDeliveryMap")}
+                        onCheckedChange={(checked) => form.setValue("showCheckoutDeliveryMap", checked)}
+                        data-testid="switch-checkout-delivery-map"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="allowPickupAgentAdminChat">Allow Admin Access To Pickup Agent Support</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Control whether regular admins can join pickup-agent live support conversations. Super admin access is always preserved.
+                        </p>
+                      </div>
+                      <Switch
+                        id="allowPickupAgentAdminChat"
+                        checked={form.watch("allowPickupAgentAdminChat")}
+                        onCheckedChange={(checked) => form.setValue("allowPickupAgentAdminChat", checked)}
+                        data-testid="switch-allow-pickup-agent-admin-chat"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
 
             <TabsContent value="map" className="space-y-4">
               <Card>

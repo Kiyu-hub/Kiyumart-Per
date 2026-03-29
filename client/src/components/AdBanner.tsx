@@ -37,9 +37,14 @@ export default function AdBanner({ position, className = "", fullBleed = false, 
   const { data: settings } = useQuery<PlatformSettings>({
     // Use the public platform view so children and parents fetch the same data source
     queryKey: ["/api/platform-settings"],
-    // Be resilient during tests and slow networks: assume ads are enabled by default
-    // so ad placeholders render immediately while the real settings are fetched.
-    initialData: { adsEnabled: true },
+    // Fail closed on boot so ad placements only appear after explicit settings are loaded.
+    initialData: {
+      adsEnabled: false,
+      heroBannerEnabled: false,
+      sidebarAdEnabled: false,
+      footerAdEnabled: false,
+      productPageAdEnabled: false,
+    },
     retry: 2,
     refetchOnWindowFocus: true,
     refetchOnMount: true,
@@ -52,9 +57,8 @@ export default function AdBanner({ position, className = "", fullBleed = false, 
   // Declare other hooks early so component doesn't change hook order between renders
   const [imgError, setImgError] = useState(false);
 
-  // If settings are present and ads are explicitly disabled, don't render.
-  // If settings are still loading/undefined, assume enabled (see initialData above).
-  if (settings && settings.adsEnabled === false) {
+  // Fail closed until real platform settings explicitly enable ads.
+  if (!settings || settings.adsEnabled === false) {
     return null;
   }
 
@@ -62,15 +66,15 @@ export default function AdBanner({ position, className = "", fullBleed = false, 
   const positionEnabled = (() => {
     switch (position) {
       case "hero":
-        return settings?.heroBannerEnabled ?? true;
+        return settings?.heroBannerEnabled ?? false;
       case "sidebar":
-        return settings?.sidebarAdEnabled ?? true;
+        return settings?.sidebarAdEnabled ?? false;
       case "footer":
-        return settings?.footerAdEnabled ?? true;
+        return settings?.footerAdEnabled ?? false;
       case "product-page":
-        return settings?.productPageAdEnabled ?? true;
+        return settings?.productPageAdEnabled ?? false;
       default:
-        return true;
+        return false;
     }
   })();
 

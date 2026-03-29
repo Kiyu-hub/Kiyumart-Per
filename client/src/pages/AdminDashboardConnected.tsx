@@ -5,7 +5,6 @@ import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
-import OrderCard from "@/components/OrderCard";
 import TrackingMetricsPanel from "@/components/TrackingMetricsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
 import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin } from "lucide-react";
@@ -13,15 +12,36 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageLoadingState } from "@/components/ui/loading-state";
 import { useToast } from "@/hooks/use-toast";
 import { useSocket } from "@/contexts/NotificationContext";
+import { apiRequest, fetchApiJson } from "@/lib/queryClient";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface Analytics {
   totalOrders: number;
   totalRevenue: number;
   totalReceivedMoney?: number;
+  platformCommissionTotal?: number;
+  processingFeesTotal?: number;
+  deliveryReserveTotal?: number;
   totalUsers: number;
+}
+
+interface FinanceSummary {
+  total?: string;
+  byType?: Record<string, string>;
+}
+
+interface DashboardSummary {
+  totalOrders?: number;
+  totalUsers?: number;
+  totalRevenue?: number;
+  totalReceivedMoney?: number;
+  deliveries?: number;
+  successfulPickups?: number;
 }
 
 interface Order {
@@ -32,7 +52,14 @@ interface Order {
   deliveryMethod: string;
   total: string;
   status: string;
+  paymentStatus?: string;
   createdAt: string;
+  externalDeliveryByBus?: boolean;
+  externalDeliveryType?: string | null;
+  customerInfo?: { name?: string; email?: string; phone?: string; address?: string | null } | null;
+  buyer?: { id?: string; name?: string; email?: string; phone?: string } | null;
+  seller?: { id?: string; name?: string; storeName?: string | null } | null;
+  sellerInfo?: { name?: string; email?: string; phone?: string; storeName?: string | null } | null;
 }
 
 interface User {
@@ -70,15 +97,79 @@ interface RiderRiskScore {
   signals: Array<{ signal: string; weight: number; at: number }>;
 }
 
+interface PlatformSettingsVisibility {
+  showAdminOperationsPanels?: boolean | null;
+}
+
 const ETA_CONTROL_ROLE_KEYS = ["customer", "rider", "agent", "admin"] as const;
+
+function DashboardMetricSkeletonGrid({ count = 6 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
+      {Array.from({ length: count }).map((_, index) => (
+        <Card key={`metric-skeleton-${index}`} className="min-w-0 overflow-hidden">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-16" />
+            </div>
+            <Skeleton className="h-10 w-10 rounded-full" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-9 w-28" />
+            <Skeleton className="mt-3 h-4 w-24" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function RecentOrdersSkeletonGrid({ count = 3 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: count }).map((_, index) => (
+        <Card key={`recent-order-skeleton-${index}`} className="border-border/70 bg-card/95">
+          <CardContent className="p-6 space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-6 w-40" />
+                <Skeleton className="h-4 w-28" />
+              </div>
+              <Skeleton className="h-6 w-24 rounded-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Card className="border-dashed">
+                <CardContent className="p-4 space-y-2">
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-6 w-20" />
+                </CardContent>
+              </Card>
+              <Card className="border-dashed">
+                <CardContent className="p-4 space-y-2">
+                  <Skeleton className="h-3 w-12" />
+                  <Skeleton className="h-6 w-24" />
+                </CardContent>
+              </Card>
+            </div>
+            <div className="space-y-3 rounded-xl border p-4">
+              <Skeleton className="h-3 w-36" />
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-4 w-48" />
+            </div>
+            <div className="space-y-3 border-t pt-4">
+              <Skeleton className="h-3 w-14" />
+              <Skeleton className="h-9 w-full rounded-md" />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
 
 export default function AdminDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
-  const [panelVisibility, setPanelVisibility] = useState({
-    fleetControl: true,
-    aiEta: true,
-    riderRisk: true,
-  });
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const normalizedRole = (() => {
@@ -89,6 +180,7 @@ export default function AdminDashboardConnected() {
   const isSuperAdmin = normalizedRole === "super_admin";
   const { formatPrice } = useLanguage();
   const socket = useSocket();
+  const { isExternalRiderSystemEnabled, hasResolvedSettings } = usePlatformSettings();
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || !isAdminViewer)) {
@@ -125,6 +217,8 @@ export default function AdminDashboardConnected() {
       setActiveItem("riders");
     } else if (path.includes("/admin/applications")) {
       setActiveItem("applications");
+    } else if (path.includes("/admin/pickup-stations")) {
+      setActiveItem("pickup-stations");
     } else if (path.includes("/admin/zones") || path.includes("/admin/delivery-zones")) {
       setActiveItem("zones");
     } else if (path === "/cart") {
@@ -175,6 +269,7 @@ export default function AdminDashboardConnected() {
       id === "manual-rider-assignment" ? "/admin/manual-rider-assignment" :
       id === "applications" ? "/admin/applications" :
       id === "zones" ? "/admin/zones" :
+      id === "pickup-stations" ? "/admin/pickup-stations" :
       id === "my-cart" ? "/cart" :
       id === "my-purchases" ? "/orders" :
       id === "my-wishlist" ? "/wishlist" :
@@ -191,14 +286,61 @@ export default function AdminDashboardConnected() {
     );
   };
 
+  const fetchDashboardAnalytics = async (): Promise<Analytics> => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 4500);
+    try {
+      return await fetchApiJson<Analytics>("/api/analytics", {
+        credentials: "include",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+
   const { data: analytics, isLoading: analyticsLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
+    queryFn: fetchDashboardAnalytics,
     enabled: isAuthenticated && isAdminViewer,
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+
+  const { data: financeSummary } = useQuery<FinanceSummary>({
+    queryKey: ["/api/admin/finance-summary", "dashboard"],
+    queryFn: async () =>
+      fetchApiJson<FinanceSummary>("/api/admin/finance-summary", {
+        credentials: "include",
+        cache: "no-store",
+      }),
+    enabled: isAuthenticated && isAdminViewer,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+
+  const { data: dashboardSummary, isLoading: dashboardSummaryLoading } = useQuery<DashboardSummary>({
+    queryKey: ["/api/admin/dashboard-summary"],
+    queryFn: async () =>
+      fetchApiJson<DashboardSummary>("/api/admin/dashboard-summary", {
+        credentials: "include",
+        cache: "no-store",
+      }),
+    enabled: isAuthenticated && isAdminViewer,
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders", user?.id],
     enabled: isAuthenticated && isAdminViewer,
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const { data: buyers = [] } = useQuery<User[]>({
@@ -215,13 +357,16 @@ export default function AdminDashboardConnected() {
   const { data: pendingApplicationsBadgeData } = useQuery<{ count: number; sellers: number; riders: number }>({
     queryKey: ["/api/dashboard/pending-applications-count"],
     queryFn: async () => {
-      const [sellerRes, riderRes] = await Promise.all([
-        fetch("/api/users?role=seller&applicationStatus=pending", { credentials: "include" }),
-        fetch("/api/users?role=rider&applicationStatus=pending", { credentials: "include" }),
-      ]);
-      if (!sellerRes.ok || !riderRes.ok) return { count: 0, sellers: 0, riders: 0 };
-      const [sellers, riders] = await Promise.all([sellerRes.json(), riderRes.json()]);
+      const sellerRes = await fetch("/api/users?role=seller&applicationStatus=pending", { credentials: "include" });
+      if (!sellerRes.ok) return { count: 0, sellers: 0, riders: 0 };
+      const sellers = await sellerRes.json();
       const sellerCount = Array.isArray(sellers) ? sellers.length : 0;
+      if (isExternalRiderSystemEnabled) {
+        return { count: sellerCount, sellers: sellerCount, riders: 0 };
+      }
+      const riderRes = await fetch("/api/users?role=rider&applicationStatus=pending", { credentials: "include" });
+      if (!riderRes.ok) return { count: sellerCount, sellers: sellerCount, riders: 0 };
+      const riders = await riderRes.json();
       const riderCount = Array.isArray(riders) ? riders.length : 0;
       return { count: sellerCount + riderCount, sellers: sellerCount, riders: riderCount };
     },
@@ -257,8 +402,27 @@ export default function AdminDashboardConnected() {
     staleTime: 0,
   });
 
+  const { data: pickupStations = [] } = useQuery<DeliveryZone[]>({
+    queryKey: ["/api/admin/pickup-stations"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/pickup-stations", { credentials: "include", cache: "no-store" });
+      if (!res.ok) return [];
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && isAdminViewer,
+    refetchInterval: 10000,
+    staleTime: 0,
+  });
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { data: platformSettings } = useQuery<PlatformSettingsVisibility>({
+    queryKey: ["/api/platform-settings"],
+    queryFn: () => fetchApiJson<PlatformSettingsVisibility>("/api/platform-settings"),
+    enabled: isAuthenticated && isAdminViewer,
+    refetchInterval: 30000,
+  });
   const { data: riderRiskScores = [] } = useQuery<RiderRiskScore[]>({
     queryKey: ["/api/admin/rider-risk-scores"],
     queryFn: async () => {
@@ -298,6 +462,28 @@ export default function AdminDashboardConnected() {
     },
     onError: () => {
       toast({ title: "Update Failed", description: "Could not update ETA controls.", variant: "destructive" });
+    },
+  });
+
+  const updateAdminOperationsPanelsMutation = useMutation({
+    mutationFn: async (showAdminOperationsPanels: boolean) => {
+      const res = await apiRequest("PATCH", "/api/settings", { showAdminOperationsPanels });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/platform-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "Dashboard Panels Updated",
+        description: "Admin operations panels visibility was saved.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update Failed",
+        description: error?.message || "Could not save dashboard panel visibility.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -379,6 +565,7 @@ export default function AdminDashboardConnected() {
   });
 
   const riderMap = new Map(Array.isArray(riders) ? riders.map(r => [r.id, r]) : []);
+  const normalizeOrderStatus = (value?: string) => String(value || "").toLowerCase().trim();
   const normalizePaymentStatus = (value?: string) => {
     const s = (value || "").toLowerCase().trim();
     if (s === "payment_pending") return "pending";
@@ -389,11 +576,7 @@ export default function AdminDashboardConnected() {
   const isPaidPaymentStatus = (value?: string) => normalizePaymentStatus(value) === "paid";
 
   if (authLoading || !isAuthenticated || !isAdminViewer) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-admin" />
-      </div>
-    );
+    return <PageLoadingState title="Loading dashboard" description="Preparing the admin workspace and latest platform totals." />;
   }
 
   const recentOrders = orders
@@ -403,16 +586,211 @@ export default function AdminDashboardConnected() {
 
   const buyerMap = new Map(Array.isArray(buyers) ? buyers.map(b => [b.id, b]) : []);
 
-  const deliveredCount = orders.filter(o => normalizeOrderStatus(o.status) === "delivered").length;
+  const showAdminOperationsPanels = platformSettings?.showAdminOperationsPanels !== false;
+  const showInternalRiderFeatures = hasResolvedSettings ? !isExternalRiderSystemEnabled : false;
+  const sanitizeOrderStatusForExternalMode = (value?: string) => {
+    const status = String(value || "").toLowerCase().trim();
+    if (!showInternalRiderFeatures && ["searching_rider", "assigned"].includes(status)) {
+      return "external_dispatch_arranged";
+    }
+    if (!showInternalRiderFeatures && ["picked_up", "in_transit", "en_route", "arrived"].includes(status)) {
+      return "en_route";
+    }
+    if (!showInternalRiderFeatures && ["rider_arrived", "delivered"].includes(status)) {
+      return "completed";
+    }
+    return value || "";
+  };
+
+  const isPickupMethod = (value?: string) => {
+    const method = String(value || "").toLowerCase().trim();
+    return method === "pickup" || method === "store_pickup";
+  };
+
+  const deliveredCount = orders.filter((o) => {
+    const normalized = sanitizeOrderStatusForExternalMode(o.status);
+    return !isPickupMethod(o.deliveryMethod) && (normalized === "delivered" || normalized === "completed");
+  }).length;
+  const successfulPickupCount = orders.filter((o) => {
+    const normalized = sanitizeOrderStatusForExternalMode(o.status);
+    return isPickupMethod(o.deliveryMethod) && (normalized === "delivered" || normalized === "completed");
+  }).length;
   const pendingApplicationsCount = pendingApplicationsBadgeData?.count || 0;
   const pendingAssignmentsCount = pendingAssignmentsBadgeData?.count || 0;
   const activeZoneCount = deliveryZones.filter((zone) => zone.isActive !== false).length;
+  const hasOrdersData = !ordersLoading;
+  const shouldBlockMetrics = dashboardSummaryLoading && !dashboardSummary && !hasOrdersData;
+  const totalOrdersValue = dashboardSummary?.totalOrders ?? analytics?.totalOrders ?? orders.length;
+  const totalUsersValue = dashboardSummary?.totalUsers ?? analytics?.totalUsers;
+  const totalRevenueValue =
+    dashboardSummary?.totalRevenue ??
+    analytics?.platformCommissionTotal ??
+    (financeSummary?.byType?.commission ? Number(financeSummary.byType.commission) : undefined) ??
+    analytics?.totalRevenue;
   const paidMoneyFromOrders = orders
     .filter((o) => isPaidPaymentStatus((o as any).paymentStatus))
     .reduce((sum, o) => sum + Number.parseFloat((o as any).total || "0"), 0);
   const totalReceivedMoney = typeof analytics?.totalReceivedMoney === "number"
     ? analytics.totalReceivedMoney
+    : typeof dashboardSummary?.totalReceivedMoney === "number"
+      ? dashboardSummary.totalReceivedMoney
     : paidMoneyFromOrders;
+  const getExternalDeliveryTypeLabel = (orderLike?: { externalDeliveryType?: string | null; externalDeliveryByBus?: boolean | null }) => {
+    const normalizedType = String(orderLike?.externalDeliveryType || "").toLowerCase().trim();
+    if (normalizedType === "bus" || orderLike?.externalDeliveryByBus) return "VIP Bus Delivery";
+    return "Third-Party Delivery";
+  };
+  const getDeliveryLabel = (order: Order) => {
+    if (isPickupMethod(order.deliveryMethod)) return "Pickup";
+    if (!showInternalRiderFeatures) return getExternalDeliveryTypeLabel(order);
+    const method = String(order.deliveryMethod || "").toLowerCase().trim();
+    if (method === "bus") return "Bus Delivery";
+    if (method === "rider") return "Rider Delivery";
+    return order.deliveryMethod || "Delivery";
+  };
+  const getSellerActionState = (order: Order) => {
+    const status = String(order.status || "").toLowerCase().trim();
+    const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+    const pickupFlow = isPickupMethod(order.deliveryMethod);
+    const externalDeliveryFlow = !showInternalRiderFeatures && !pickupFlow;
+
+    if (externalDeliveryFlow && ["rider_arrived", "delivered", "completed"].includes(status)) {
+      return {
+        label: "Completed",
+        hint: "No further seller action required",
+        className: "bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/20",
+      };
+    }
+
+    if (paymentStatus !== "paid" && ["pending", "created", "unpaid"].includes(status)) {
+      return {
+        label: "Awaiting Payment",
+        hint: "Seller action not started",
+        className: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border-yellow-500/20",
+      };
+    }
+
+    if (["paid", "processing", "preparing", "confirmed"].includes(status)) {
+      return {
+        label: "Seller Action Required",
+        hint: pickupFlow
+          ? "Seller must prepare for pickup"
+          : externalDeliveryFlow
+            ? "Seller must prepare for external delivery handoff"
+            : "Seller must prepare for dispatch",
+        className: "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/20",
+      };
+    }
+
+    if (pickupFlow && status === "packaged") {
+      return {
+        label: "Packaged",
+        hint: "Super admin must assign a pickup station",
+        className: "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20",
+      };
+    }
+
+    if (["ready", "searching_rider", "assigned", "rider_arrived"].includes(status)) {
+      return {
+        label: pickupFlow ? "Ready for Pickup" : externalDeliveryFlow ? "Awaiting External Dispatch" : "Ready for Dispatch",
+        hint: pickupFlow
+          ? "Awaiting buyer collection"
+          : externalDeliveryFlow
+            ? "Admin must arrange the external delivery service"
+            : "Awaiting rider assignment or dispatch progression",
+        className: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20",
+      };
+    }
+
+    if (status === "external_dispatch_arranged") {
+      return {
+        label: "External Delivery Arranged",
+        hint: "Manual delivery handoff is being coordinated",
+        className: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/20",
+      };
+    }
+
+    if (["picked_up", "in_transit", "en_route", "arrived"].includes(status)) {
+      return {
+        label: externalDeliveryFlow ? "Delivery In Progress" : "Seller Handoff Complete",
+        hint: externalDeliveryFlow ? "Operations is managing the final delivery flow" : "No further seller action required",
+        className: "bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/20",
+      };
+    }
+
+    if (["delivered", "completed"].includes(status)) {
+      return {
+        label: "Completed",
+        hint: "No further action required",
+        className: "bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/20",
+      };
+    }
+
+    if (status === "cancelled") {
+      return {
+        label: "Order Cancelled",
+        hint: "No seller action required",
+        className: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20",
+      };
+    }
+
+    return {
+      label: "Seller Status Pending",
+      hint: "Review order details",
+      className: "bg-muted text-muted-foreground border-border",
+    };
+  };
+  const getAwaitingActionOwner = (order: Order): "seller" | "admin" | "rider" | "done" | "none" => {
+    const status = String(order.status || "").toLowerCase().trim();
+    const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+    const pickupFlow = isPickupMethod(order.deliveryMethod);
+    const externalDeliveryFlow = !showInternalRiderFeatures && !pickupFlow;
+
+    if (paymentStatus !== "paid" && ["pending", "created", "unpaid"].includes(status)) return "none";
+    if (["paid", "processing", "preparing", "confirmed"].includes(status)) return "seller";
+    if (pickupFlow && status === "packaged") return "admin";
+    if (["ready", "searching_rider", "external_dispatch_arranged"].includes(status) && !pickupFlow) return "admin";
+    if (externalDeliveryFlow && ["rider_arrived", "delivered", "completed"].includes(status)) return "done";
+    if (["assigned", "rider_arrived", "picked_up", "in_transit", "en_route", "arrived"].includes(status)) {
+      return externalDeliveryFlow ? "admin" : "rider";
+    }
+    if (["delivered", "completed"].includes(status)) return "done";
+    return "none";
+  };
+  const getActionPill = (order: Order) => {
+    const owner = getAwaitingActionOwner(order);
+    if (owner === "seller") {
+      return {
+        label: "Seller Action Required",
+        className: "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/20",
+      };
+    }
+    if (owner === "admin") {
+      return {
+        label: "Admin Action Required",
+        className: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20",
+      };
+    }
+    if (owner === "rider") {
+      return {
+        label: "Rider Action Required",
+        className: "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20",
+      };
+    }
+    if (owner === "done") {
+      return {
+        label: "Completed",
+        className: "bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/20",
+      };
+    }
+    return null;
+  };
+  const getPaymentPillClass = (value?: string) => {
+    const payment = normalizePaymentStatus(value);
+    if (payment === "paid") return "bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/20";
+    if (payment === "pending") return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border-yellow-500/20";
+    return "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20";
+  };
 
   return (
     <div className="flex h-screen bg-background">
@@ -439,15 +817,26 @@ export default function AdminDashboardConnected() {
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-7xl mx-auto space-y-6">
             {isSuperAdmin && (
-              analyticsLoading ? (
-                <div className="flex justify-center p-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              shouldBlockMetrics ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span>Loading live dashboard totals...</span>
+                  </div>
+                  <DashboardMetricSkeletonGrid />
                 </div>
-              ) : analytics ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-6">
+              ) : (
+                <div className="space-y-3">
+                  {dashboardSummaryLoading && !dashboardSummary ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <span>Live analytics are still syncing. Showing dashboard totals now.</span>
+                    </div>
+                  ) : null}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7 gap-6">
                   <MetricCard
                     title="Total Revenue"
-                    value={formatPrice(analytics.totalRevenue || 0)}
+                    value={typeof totalRevenueValue === "number" ? formatPrice(totalRevenueValue) : "..." }
                     icon={DollarSign}
                     change={12.5}
                   />
@@ -459,13 +848,13 @@ export default function AdminDashboardConnected() {
                   />
                   <MetricCard
                     title="Total Orders"
-                    value={(analytics.totalOrders || 0).toString()}
+                    value={totalOrdersValue.toString()}
                     icon={ShoppingBag}
                     change={8.2}
                   />
                   <MetricCard
                     title="Total Users"
-                    value={(analytics.totalUsers || 0).toString()}
+                    value={typeof totalUsersValue === "number" ? totalUsersValue.toString() : "..."}
                     icon={Users}
                     change={-3.1}
                   />
@@ -475,72 +864,48 @@ export default function AdminDashboardConnected() {
                     icon={Truck}
                     change={15.3}
                   />
+                  <MetricCard
+                    title="Successful Pickups"
+                    value={successfulPickupCount.toString()}
+                    icon={CheckCircle}
+                    change={11.2}
+                  />
                 </div>
-              ) : (
-                <Card>
-                  <CardContent className="p-6 flex items-center gap-3 text-destructive">
-                    <AlertCircle className="h-5 w-5" />
-                    <span>Failed to load analytics</span>
-                  </CardContent>
-                </Card>
+                </div>
               )
             )}
 
-            {isSuperAdmin && (
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Select
-                  value={panelVisibility.fleetControl ? "show" : "hide"}
-                  onValueChange={(value: "show" | "hide") =>
-                    setPanelVisibility((prev) => ({ ...prev, fleetControl: value === "show" }))
-                  }
-                >
-                  <SelectTrigger className="h-8 w-[190px]" data-testid="select-panel-fleet-control">
-                    <SelectValue placeholder="Fleet panel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="show">Show Fleet Control</SelectItem>
-                    <SelectItem value="hide">Hide Fleet Control</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={panelVisibility.aiEta ? "show" : "hide"}
-                  onValueChange={(value: "show" | "hide") =>
-                    setPanelVisibility((prev) => ({ ...prev, aiEta: value === "show" }))
-                  }
-                >
-                  <SelectTrigger className="h-8 w-[180px]" data-testid="select-panel-ai-eta">
-                    <SelectValue placeholder="AI ETA panel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="show">Show AI ETA</SelectItem>
-                    <SelectItem value="hide">Hide AI ETA</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={panelVisibility.riderRisk ? "show" : "hide"}
-                  onValueChange={(value: "show" | "hide") =>
-                    setPanelVisibility((prev) => ({ ...prev, riderRisk: value === "show" }))
-                  }
-                >
-                  <SelectTrigger className="h-8 w-[190px]" data-testid="select-panel-rider-risk">
-                    <SelectValue placeholder="Risk panel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="show">Show Rider Risk</SelectItem>
-                    <SelectItem value="hide">Hide Rider Risk</SelectItem>
-                  </SelectContent>
-                </Select>
+            {isSuperAdmin && showInternalRiderFeatures && (
+              <div className="flex flex-wrap items-center justify-end gap-3 rounded-lg border bg-card p-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Admin Operations Panels</p>
+                  <p className="text-xs text-muted-foreground">
+                    Toggle fleet control, AI ETA, and rider risk together. This stays saved until you change it.
+                  </p>
+                </div>
+                <div className="ml-auto flex items-center gap-3">
+                  <Badge variant={showAdminOperationsPanels ? "default" : "outline"}>
+                    {showAdminOperationsPanels ? "Visible" : "Hidden"}
+                  </Badge>
+                  <Switch
+                    checked={showAdminOperationsPanels}
+                    disabled={updateAdminOperationsPanelsMutation.isPending}
+                    onCheckedChange={(checked) => updateAdminOperationsPanelsMutation.mutate(checked)}
+                    data-testid="switch-admin-operations-panels"
+                    aria-label="Toggle admin operations panels"
+                  />
+                </div>
               </div>
             )}
 
-            {panelVisibility.fleetControl && (
+            {showAdminOperationsPanels && showInternalRiderFeatures && (
               <TrackingMetricsPanel
                 role={isSuperAdmin ? "super_admin" : "admin"}
                 title={isSuperAdmin ? "Fleet Control Intelligence" : "Zone Dispatch Intelligence"}
               />
             )}
 
-            {isSuperAdmin && panelVisibility.aiEta && (
+            {isSuperAdmin && showAdminOperationsPanels && showInternalRiderFeatures && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">AI ETA Control Center</CardTitle>
@@ -595,7 +960,7 @@ export default function AdminDashboardConnected() {
               </Card>
             )}
 
-            {isSuperAdmin && panelVisibility.riderRisk && (
+            {isSuperAdmin && showAdminOperationsPanels && showInternalRiderFeatures && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Rider Risk Overlay</CardTitle>
@@ -624,7 +989,7 @@ export default function AdminDashboardConnected() {
             )}
 
             {/* Pending Payouts Widget - Super Admin Only, only show when there are pending payouts */}
-            {isSuperAdmin && pendingPayouts.length > 0 && (
+            {isSuperAdmin && showInternalRiderFeatures && pendingPayouts.length > 0 && (
               <Card className="border-orange-200 dark:border-orange-800">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <div className="flex items-center gap-2">
@@ -757,19 +1122,36 @@ export default function AdminDashboardConnected() {
                         <p className="text-sm text-muted-foreground">
                           Manage payment settings, contact info, and branding
                         </p>
+                        {showInternalRiderFeatures ? (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Delivery zones: {deliveryZones.length} total ({activeZoneCount} active)
+                          </p>
+                        ) : null}
                         <p className="text-xs text-muted-foreground mt-1">
-                          Delivery zones: {deliveryZones.length} total ({activeZoneCount} active)
+                          Pickup stations: {pickupStations.length} total ({pickupStations.filter((station) => station.isActive).length} active)
                         </p>
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      onClick={() => navigate("/admin/zones")}
-                      data-testid="button-manage-delivery-zones"
-                    >
-                      <MapPin className="h-4 w-4 mr-2" />
-                      Manage Delivery Zones
-                    </Button>
+                    <div className="flex flex-wrap gap-3">
+                      {showInternalRiderFeatures ? (
+                        <Button
+                          variant="outline"
+                          onClick={() => navigate("/admin/zones")}
+                          data-testid="button-manage-delivery-zones"
+                        >
+                          <MapPin className="h-4 w-4 mr-2" />
+                          Manage Delivery Zones
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate("/admin/pickup-stations")}
+                        data-testid="button-manage-pickup-stations"
+                      >
+                        <MapPin className="h-4 w-4 mr-2" />
+                        Manage Pickup Stations
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -827,10 +1209,12 @@ export default function AdminDashboardConnected() {
                       <div>
                         <p className="font-semibold">Pending Applications</p>
                         <p className="text-sm text-muted-foreground">
-                          Review and approve seller and rider applications
+                          Review and approve pending marketplace applications
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Sellers: {pendingApplicationsBadgeData?.sellers || 0} | Riders: {pendingApplicationsBadgeData?.riders || 0}
+                          {showInternalRiderFeatures
+                            ? `Sellers: ${pendingApplicationsBadgeData?.sellers || 0} | Riders: ${pendingApplicationsBadgeData?.riders || 0}`
+                            : `Sellers: ${pendingApplicationsBadgeData?.sellers || 0}`}
                         </p>
                       </div>
                       <Badge variant={pendingApplicationsCount > 0 ? "destructive" : "secondary"}>
@@ -841,6 +1225,7 @@ export default function AdminDashboardConnected() {
                 </CardContent>
               </Card>
 
+              {showInternalRiderFeatures ? (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
@@ -877,17 +1262,22 @@ export default function AdminDashboardConnected() {
                   </div>
                 </CardContent>
               </Card>
+              ) : null}
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold">Recent Orders</h2>
-                <Button variant="outline" onClick={() => navigate("/orders")} data-testid="button-view-all">View All</Button>
+                <Button variant="outline" onClick={() => navigate("/admin/orders")} data-testid="button-view-all">View All</Button>
               </div>
 
-              {ordersLoading ? (
-                <div className="flex justify-center p-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              {ordersLoading && recentOrders.length === 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span>Loading recent orders...</span>
+                  </div>
+                  <RecentOrdersSkeletonGrid />
                 </div>
               ) : recentOrders.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -901,17 +1291,96 @@ export default function AdminDashboardConnected() {
                     });
 
                     return (
-                      <OrderCard
-                        key={order.id}
-                        orderId={order.orderNumber}
-                        customerName={buyer?.name || "Unknown Customer"}
-                        items={1}
-                        total={parseFloat(order.total)}
-                        status={order.status as any}
-                        deliveryMethod={order.deliveryMethod as any}
-                        date={formattedDate}
-                        onViewDetails={() => navigate(`/admin/orders?orderId=${order.id}`)}
-                      />
+                      (() => {
+                        const sellerState = getSellerActionState(order);
+                        const actionPill = getActionPill(order);
+                        const customerName =
+                          String(order.buyer?.name || "").trim() ||
+                          String(order.customerInfo?.name || "").trim() ||
+                          String(buyer?.name || "").trim() ||
+                          String(order.buyer?.email || "").trim() ||
+                          "Unknown Customer";
+                        const sellerDisplayName =
+                          String(order.seller?.storeName || "").trim() ||
+                          String(order.sellerInfo?.storeName || "").trim() ||
+                          String(order.seller?.name || "").trim() ||
+                          String(order.sellerInfo?.name || "").trim() ||
+                          "Unknown Seller Store";
+
+                        return (
+                          <Card
+                            key={order.id}
+                            className="group min-w-0 border-border/70 bg-card/95 transition-all hover:border-primary/30 hover:shadow-lg"
+                            data-testid={`card-recent-order-${order.id}`}
+                          >
+                            <CardContent className="p-6 space-y-5">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="space-y-1 min-w-0">
+                                  <p className="text-lg font-semibold leading-tight truncate">
+                                    Order #{order.orderNumber || order.id.slice(0, 8)}
+                                  </p>
+                                  <p className="text-sm text-muted-foreground truncate">{customerName}</p>
+                                </div>
+                                <Badge className="border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300">
+                                  {(() => {
+                                    const normalizedStatus = String(sanitizeOrderStatusForExternalMode(order.status) || "processing").toLowerCase().trim();
+                                    if (isPickupMethod(order.deliveryMethod) && normalizedStatus === "packaged") return "Packaged";
+                                    if (isPickupMethod(order.deliveryMethod) && normalizedStatus === "ready") return "Ready for Pickup";
+                                    return normalizedStatus
+                                      .replace(/_/g, " ")
+                                      .replace(/\b\w/g, (char) => char.toUpperCase());
+                                  })()}
+                                </Badge>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Delivery</p>
+                                  <p className="mt-1 font-medium">{getDeliveryLabel(order)}</p>
+                                </div>
+                                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Date</p>
+                                  <p className="mt-1 font-medium">{formattedDate}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Badge className={`border ${getPaymentPillClass(order.paymentStatus)}`}>
+                                  {normalizePaymentStatus(order.paymentStatus).replace(/\b\w/g, (char) => char.toUpperCase())}
+                                </Badge>
+                                {actionPill ? (
+                                  <Badge className={`border ${actionPill.className}`}>
+                                    {actionPill.label}
+                                  </Badge>
+                                ) : null}
+                              </div>
+
+                              <div className="rounded-2xl border border-border/70 bg-background/60 p-4 space-y-2">
+                                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Order Responsibility</p>
+                                <p className="text-sm font-medium text-foreground">{sellerState.hint}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Responsible seller store: <span className="font-medium text-foreground">{sellerDisplayName}</span>
+                                </p>
+                              </div>
+
+                              <div className="grid grid-cols-1 gap-3 border-t border-border/70 pt-4">
+                                <div className="min-w-0">
+                                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Total</p>
+                                  <p className="text-2xl font-semibold">{formatPrice(parseFloat(order.total || "0"))}</p>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  className="h-auto w-full max-w-full min-w-0 whitespace-normal break-words px-4 py-2 text-sm"
+                                  onClick={() => navigate(`/admin/orders/${order.id}/action`)}
+                                  data-testid={`button-open-recent-order-${order.id}`}
+                                >
+                                  Open Action Center
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })()
                     );
                   })}
                 </div>
@@ -929,5 +1398,4 @@ export default function AdminDashboardConnected() {
     </div>
   );
 }
-  const normalizeOrderStatus = (value?: string) => (value || "").toLowerCase().trim();
 

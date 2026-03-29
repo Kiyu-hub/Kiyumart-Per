@@ -20,7 +20,6 @@ import {
   ImagePlus,
   ShoppingCart,
   Shield,
-  Home,
   DollarSign,
   UserCheck,
   CreditCard,
@@ -30,6 +29,8 @@ import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import UserAvatar from "@/components/UserAvatar";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { getDashboardRoleLabel } from "@/lib/roleLabels";
 
 interface MenuItem {
   icon: React.ElementType;
@@ -40,7 +41,7 @@ interface MenuItem {
 }
 
 interface DashboardSidebarProps {
-  role: "admin" | "seller" | "buyer" | "rider" | "agent" | "super_admin";
+  role: "admin" | "seller" | "buyer" | "rider" | "pickup_agent" | "agent" | "super_admin";
   activeItem?: string;
   onItemClick?: (id: string) => void;
   userName?: string;
@@ -50,7 +51,9 @@ interface DashboardSidebarProps {
 interface CurrentUserPayload {
   id?: string;
   name?: string;
+  role?: string;
   profileImage?: string;
+  isActive?: boolean;
   roleFeatures?: Record<string, boolean>;
 }
 
@@ -69,6 +72,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic" },
     { icon: Shield, label: "Permissions", id: "permissions" },
     { icon: MapPin, label: "Delivery Zones", id: "zones" },
+    { icon: MapPin, label: "Pickup Stations", id: "pickup-stations" },
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart", separator: true },
     { icon: ShoppingBag, label: "My Purchases", id: "my-purchases" },
     { icon: Heart, label: "My Wishlist", id: "my-wishlist" },
@@ -92,6 +96,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment", badge: "assignments_dynamic" },
     { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic" },
     { icon: MapPin, label: "Delivery Zones", id: "zones" },
+    { icon: MapPin, label: "Pickup Stations", id: "pickup-stations" },
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart", separator: true },
     { icon: ShoppingBag, label: "My Purchases", id: "my-purchases" },
     { icon: Heart, label: "My Wishlist", id: "my-wishlist" },
@@ -108,6 +113,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: ImagePlus, label: "Media Library", id: "media-library" },
     { icon: Package, label: "My Products", id: "products" },
+    { icon: Grid3x3, label: "Categories", id: "categories" },
     { icon: ShoppingBag, label: "Orders", id: "orders" },
     { icon: Tag, label: "Coupons", id: "coupons" },
     { icon: Tag, label: "Promotions", id: "promotions" },
@@ -125,7 +131,6 @@ const menuItems: Record<string, MenuItem[]> = {
   ],
   rider: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
-    { icon: Home, label: "Shop Mode", id: "shop-mode" },
     { icon: ShoppingBag, label: "Deliveries", id: "deliveries" },
     { icon: MapPin, label: "Active Route", id: "route" },
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart", separator: true },
@@ -135,6 +140,12 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: Headphones, label: "Support", id: "support" },
     { icon: BarChart3, label: "Earnings", id: "earnings" },
+    { icon: Settings, label: "Settings", id: "settings" },
+  ],
+  pickup_agent: [
+    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
+    { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic" },
+    { icon: Headphones, label: "Support", id: "support" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
   buyer: [
@@ -147,7 +158,6 @@ const menuItems: Record<string, MenuItem[]> = {
   ],
   agent: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
-    { icon: Home, label: "Shop Mode", id: "shop-mode" },
     { icon: Ticket, label: "My Tickets", id: "tickets" },
     { icon: Users, label: "Customers", id: "customers" },
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart", separator: true },
@@ -169,19 +179,24 @@ export default function DashboardSidebar({
   // Normalize incoming role variants (some tokens may be "superadmin")
   const normalizedRole = (role as string) === "superadmin" ? "super_admin" : role;
   const items = menuItems[normalizedRole];
+  const { isExternalRiderSystemEnabled, hasResolvedSettings } = usePlatformSettings();
+  const showInternalRiderFeatures = hasResolvedSettings ? !isExternalRiderSystemEnabled : false;
 
   // Ensure we have the current user available for the avatar and user-scoped caches.
   const { data: currentUser } = useQuery<CurrentUserPayload>({
     queryKey: ["/api/auth/me"],
     queryFn: async () => {
-      const res = await fetch("/api/auth/me", { credentials: "include" });
+      const res = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
       if (!res.ok) return null;
       return res.json();
     },
     // Use cached value if present
     initialData: () => queryClient.getQueryData(["/api/auth/me"]),
-    staleTime: 30 * 1000,
-    refetchInterval: 30 * 1000,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 15000,
+    refetchIntervalInBackground: true,
   });
 
   const { data: notificationCount = 0 } = useQuery<number>({
@@ -208,13 +223,16 @@ export default function DashboardSidebar({
     queryKey: ["/api/sidebar/pending-applications-count"],
     queryFn: async () => {
       if (normalizedRole !== "admin" && normalizedRole !== "super_admin") return { count: 0 };
-      const [sellerRes, riderRes] = await Promise.all([
-        fetch("/api/users?role=seller&applicationStatus=pending", { credentials: "include" }),
-        fetch("/api/users?role=rider&applicationStatus=pending", { credentials: "include" }),
-      ]);
-      if (!sellerRes.ok || !riderRes.ok) return { count: 0 };
-      const [sellers, riders] = await Promise.all([sellerRes.json(), riderRes.json()]);
+      const sellerRes = await fetch("/api/users?role=seller&applicationStatus=pending", { credentials: "include" });
+      if (!sellerRes.ok) return { count: 0 };
+      const sellers = await sellerRes.json();
       const sellerCount = Array.isArray(sellers) ? sellers.length : 0;
+      if (!showInternalRiderFeatures) {
+        return { count: sellerCount };
+      }
+      const riderRes = await fetch("/api/users?role=rider&applicationStatus=pending", { credentials: "include" });
+      if (!riderRes.ok) return { count: sellerCount };
+      const riders = await riderRes.json();
       const riderCount = Array.isArray(riders) ? riders.length : 0;
       return { count: sellerCount + riderCount };
     },
@@ -235,7 +253,7 @@ export default function DashboardSidebar({
       const queue = await queueRes.json();
       return { count: Array.isArray(queue) ? queue.length : 0 };
     },
-    enabled: normalizedRole === "admin" || normalizedRole === "super_admin",
+    enabled: (normalizedRole === "admin" || normalizedRole === "super_admin") && showInternalRiderFeatures,
     refetchInterval: 30000,
     staleTime: 15000,
   });
@@ -243,11 +261,36 @@ export default function DashboardSidebar({
   const pendingAssignmentsCount = assignmentBadgeData?.count || 0;
 
   const visibleItems = (() => {
+    const isRestrictedInactiveAccount =
+      (normalizedRole === "seller" || normalizedRole === "rider") &&
+      currentUser?.role === normalizedRole &&
+      currentUser?.isActive === false;
+
+    if (isRestrictedInactiveAccount) {
+      return [
+        { icon: Headphones, label: "Support", id: "support" },
+      ] as MenuItem[];
+    }
+
     const roleFeatures = currentUser?.roleFeatures || {};
     const canViewMaps = normalizedRole === "rider" ? true : roleFeatures["maps.view"] !== false;
     const canViewMessages = roleFeatures["messages.view"] === true;
     const canManagePromotions = roleFeatures["promotions.manage"] !== false;
-    return items.filter((item) => {
+    return items
+      .filter((item) => {
+      if (
+        !showInternalRiderFeatures &&
+        (normalizedRole === "admin" || normalizedRole === "super_admin") &&
+        (
+          item.id === "riders" ||
+          item.id === "delivery-tracking" ||
+          item.id === "manual-rider-assignment" ||
+          item.id === "riders-payouts" ||
+          item.id === "zones"
+        )
+      ) {
+        return false;
+      }
       if (!canViewMaps) {
         if (item.id === "delivery-tracking") return false;
         if (item.id === "deliveries" && normalizedRole === "seller") return false;
@@ -269,8 +312,8 @@ export default function DashboardSidebar({
             <h2 className="text-xl font-bold text-primary" data-testid="text-dashboard-logo">
               KiyuMart
             </h2>
-            <p className="text-xs text-muted-foreground capitalize">
-              {normalizedRole} Dashboard
+            <p className="text-xs text-muted-foreground">
+              {getDashboardRoleLabel(normalizedRole)}
             </p>
           </div>
         </div>

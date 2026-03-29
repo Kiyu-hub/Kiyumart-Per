@@ -15,6 +15,12 @@ interface PlatformSettings {
   processingFeePercent?: string;
 }
 
+function computeExactProcessingFee(chargeableBase: number, feeRate: number) {
+  const normalizedBase = Math.max(0, chargeableBase);
+  if (normalizedBase <= 0 || feeRate <= 0 || feeRate >= 1) return 0;
+  return normalizedBase * feeRate / (1 - feeRate);
+}
+
 export default function Checkout() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -36,7 +42,7 @@ export default function Checkout() {
   const deliveryFee = deliveryMethod === "pickup" ? 0 : 0;
   const processingFeePercent = Number(settings?.processingFeePercent ?? "1.95");
   const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
-  const processingFee = (subtotal + deliveryFee) * processingFeeRate;
+  const processingFee = computeExactProcessingFee(subtotal + deliveryFee, processingFeeRate);
   const total = subtotal + deliveryFee + processingFee;
 
   const handlePlaceOrder = async () => {
@@ -122,7 +128,7 @@ export default function Checkout() {
                     <Label htmlFor="bus" className="flex-1 cursor-pointer flex items-center gap-3">
                       <Building2 className="h-5 w-5 text-muted-foreground" />
                       <div>
-                        <div className="font-medium">Bus Delivery</div>
+                        <div className="font-medium">VIP Bus Delivery</div>
                         <div className="text-sm text-muted-foreground">Delivered via bus</div>
                       </div>
                     </Label>
@@ -218,7 +224,7 @@ export default function Checkout() {
                     <span data-testid="text-checkout-delivery">{formatPrice(deliveryFee)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Processing Fee ({processingFeePercent.toFixed(2)}%)</span>
+                    <span className="text-muted-foreground">Processing Fee (Paystack {processingFeePercent.toFixed(2)}%)</span>
                     <span data-testid="text-checkout-processing">{formatPrice(processingFee)}</span>
                   </div>
                   <Separator />

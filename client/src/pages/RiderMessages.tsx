@@ -383,13 +383,9 @@ export default function RiderMessages() {
           <div className="flex-1">
             <h1 className="text-xl md:text-2xl font-bold">Messages</h1>
             <p className="text-muted-foreground text-sm">
-              Always-open rider messaging with support. For tracked issues, create a support ticket.
+              Use this chat for operational support conversations. Account appeals must be submitted through Support tickets.
             </p>
           </div>
-          <Button variant="outline" onClick={() => navigate("/support")} data-testid="button-open-support-tickets">
-            <Headphones className="h-4 w-4 mr-2" />
-            Open Support Tickets
-          </Button>
         </div>
 
         <div className="hidden md:flex md:flex-col flex-1 min-h-0 p-6 pt-0">

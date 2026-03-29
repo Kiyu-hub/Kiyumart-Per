@@ -26,7 +26,7 @@ export function useSellerProfileGuard(currentLocation?: string) {
     }
 
     // Guard logic: redirect incomplete sellers to settings
-    if (!authLoading && isAuthenticated && user?.role === "seller" && !(user as any)?.storeType) {
+    if (!authLoading && isAuthenticated && user?.role === "seller" && user?.isActive !== false && !(user as any)?.storeType) {
       toast({
         title: "Complete Your Store Profile",
         description: "Please set up your store type to access seller features.",

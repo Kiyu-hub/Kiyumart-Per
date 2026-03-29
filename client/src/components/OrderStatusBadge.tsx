@@ -11,22 +11,32 @@ interface OrderStatusBadgeProps {
 const normalizeStatus = (status?: string) => {
   const s = (status || "").toLowerCase().trim();
   if (s === "created") return "pending";
+  if (s === "packaged") return "packaged";
   if (s === "ready" || s === "confirmed") return "processing";
+  if (s === "external_dispatch_arranged") return "processing";
   if (s === "searching_rider" || s === "assigned" || s === "rider_arrived") return "processing";
   if (s === "picked_up" || s === "in_transit" || s === "en_route") return "en_route";
   if (s === "completed") return "completed";
   return s || "pending";
 };
 
+const isPickupMethod = (value?: string) => {
+  const method = (value || "").toLowerCase().trim();
+  return method === "pickup" || method === "store_pickup" || method === "store pickup";
+};
+
 const normalizeForPickup = (status?: string) => {
-  const s = normalizeStatus(status);
-  if (["pending"].includes(s)) return "pending";
-  if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) {
-    return s === "ready" ? "ready_for_pickup" : "processing";
+  const raw = (status || "").toLowerCase().trim();
+  if (raw === "created") return "pending";
+  if (raw === "packaged") return "packaged";
+  if (raw === "ready" || raw === "ready_for_pickup") return "ready_for_pickup";
+  if (["pending"].includes(raw)) return "pending";
+  if (["searching_rider", "confirmed", "processing", "assigned", "rider_arrived"].includes(raw)) {
+    return "processing";
   }
-  if (["picked_up", "in_transit", "en_route"].includes(s)) return "ready_for_pickup";
-  if (s === "completed") return "delivered";
-  return s;
+  if (["picked_up", "in_transit", "en_route"].includes(raw)) return "ready_for_pickup";
+  if (raw === "completed" || raw === "delivered") return "completed";
+  return normalizeStatus(raw);
 };
 
 const statusConfig = {
@@ -41,6 +51,12 @@ const statusConfig = {
     icon: Package,
     variant: "secondary" as const,
     className: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+  },
+  packaged: {
+    label: "Packaged",
+    icon: Package,
+    variant: "secondary" as const,
+    className: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
   },
   en_route: {
     label: "On the Way",
@@ -81,7 +97,7 @@ const statusConfig = {
 };
 
 export default function OrderStatusBadge({ status, deliveryMethod, className }: OrderStatusBadgeProps) {
-  const isPickup = (deliveryMethod || "").toLowerCase().trim() === "pickup";
+  const isPickup = isPickupMethod(deliveryMethod);
   const normalizedStatus = isPickup ? normalizeForPickup(status) : normalizeStatus(status);
   const config = statusConfig[normalizedStatus as keyof typeof statusConfig] || statusConfig.pending;
   const Icon = config.icon;
@@ -89,6 +105,10 @@ export default function OrderStatusBadge({ status, deliveryMethod, className }: 
   const label =
     isPickup && normalizedStatus === "processing"
       ? "Preparing Order"
+      : isPickup && normalizedStatus === "packaged"
+        ? "Packaged"
+      : isPickup && normalizedStatus === "completed"
+        ? "Completed"
       : config.label;
 
   return (

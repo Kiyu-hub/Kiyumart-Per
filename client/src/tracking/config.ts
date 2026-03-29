@@ -13,10 +13,10 @@ export const TRACKING_BUDGETS = {
 export const TRACKING_THRESHOLDS = [60, 80, 90] as const;
 
 export const MOTION_CONFIG = {
-  maxCorrectionMetersPerSecond: 24,
-  predictionBlend: 0.18,
-  hardSnapDistanceMeters: 160,
-  routeDeviationThresholdMeters: 65,
+  maxCorrectionMetersPerSecond: 18,
+  predictionBlend: 0.12,
+  hardSnapDistanceMeters: 120,
+  routeDeviationThresholdMeters: 50,
   rerouteThrottleMs: 45_000,
   etaMinRefreshMs: 15_000,
 };

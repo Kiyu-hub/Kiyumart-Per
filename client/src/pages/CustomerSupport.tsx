@@ -25,6 +25,8 @@ interface SupportConversation {
   customerId: string;
   customerName: string;
   customerEmail: string;
+  customerRole?: string | null;
+  customerIsActive?: boolean | null;
   customerProfileImage?: string | null;
   agentId: string | null;
   agentName: string | null;
@@ -73,6 +75,17 @@ interface SupportAttachment {
   size: number;
 }
 
+function normalizeSupportStatus(status?: string | null): "open" | "assigned" | "resolved" {
+  const normalized = String(status || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, "_");
+
+  if (normalized === "resolved" || normalized === "closed") return "resolved";
+  if (normalized === "assigned") return "assigned";
+  return "open";
+}
+
 const SUPPORT_ATTACHMENT_PREFIX = "__SUPPORT_ATTACHMENT__:";
 const MAX_ATTACHMENT_MB = Number((import.meta.env as any).VITE_SUPPORT_ATTACHMENT_MAX_MB || 5);
 const MAX_ATTACHMENT_SIZE = MAX_ATTACHMENT_MB * 1024 * 1024;
@@ -114,6 +127,7 @@ export default function CustomerSupport() {
   const [newSupportSubject, setNewSupportSubject] = useState("");
   const [newSupportMessage, setNewSupportMessage] = useState("");
   const [showNewTicketForm, setShowNewTicketForm] = useState(false);
+  const [appealDecisionMessage, setAppealDecisionMessage] = useState("");
   const [staffTicketFilter, setStaffTicketFilter] = useState<"open" | "assigned" | "resolved" | "all">("all");
   const [routingMode, setRoutingMode] = useState<"all_support" | "all_agents" | "all_admins" | "specific_staff">("all_support");
   const [routingUserIds, setRoutingUserIds] = useState<string[]>([]);
@@ -130,6 +144,9 @@ export default function CustomerSupport() {
   }, [user?.role]);
   const isSupportStaff = normalizedRole === "agent" || normalizedRole === "admin" || normalizedRole === "super_admin";
   const isSuperAdmin = normalizedRole === "super_admin";
+  const isRestrictedOperationalUser =
+    (normalizedRole === "seller" || normalizedRole === "rider") && user?.isActive === false;
+  const restrictedRoleLabel = normalizedRole === "rider" ? "rider" : "seller";
 
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
@@ -178,6 +195,7 @@ export default function CustomerSupport() {
 
     const handleSupportUpdate = () => {
       queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       if (selectedConversation) {
         queryClient.invalidateQueries({
           queryKey: ["/api/support/conversations", selectedConversation, "/messages"],
@@ -192,10 +210,21 @@ export default function CustomerSupport() {
   }, [socket, selectedConversation]);
 
   useEffect(() => {
-    if (!selectedConversation && conversations.length > 0) {
-      setSelectedConversation(conversations[0].id);
+    if (selectedConversation) return;
+    const autoSelectableConversations = isSupportStaff
+      ? conversations.filter((conversation) => conversation.status !== "resolved")
+      : conversations;
+    if (autoSelectableConversations.length > 0) {
+      setSelectedConversation(autoSelectableConversations[0].id);
     }
-  }, [conversations, selectedConversation]);
+  }, [conversations, isSupportStaff, selectedConversation]);
+
+  useEffect(() => {
+    if (isRestrictedOperationalUser) {
+      setShowNewTicketForm(true);
+      setNewSupportSubject((current) => current || "Account Reactivation Appeal");
+    }
+  }, [isRestrictedOperationalUser]);
 
   useEffect(() => {
     if (conversations.length === 0) return;
@@ -228,7 +257,9 @@ export default function CustomerSupport() {
     onSuccess: (conversation: SupportConversation) => {
       toast({
         title: "Support Ticket Created",
-        description: "We'll respond to your request soon.",
+        description: isRestrictedOperationalUser
+          ? "Your appeal ticket has been submitted to admin support."
+          : "We'll respond to your request soon.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
       setSelectedConversation(conversation.id);
@@ -294,6 +325,76 @@ export default function CustomerSupport() {
       toast({
         title: "Resolve failed",
         description: error.message || "Unable to resolve this conversation",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const appealDecisionMutation = useMutation({
+    mutationFn: async (payload: {
+      conversationId: string;
+      decision: "activate" | "reject";
+      message: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/support/conversations/${payload.conversationId}/appeal-decision`, payload);
+      return res.json();
+    },
+    onSuccess: (updatedConversation: SupportConversation, variables) => {
+      const resolvedAt = updatedConversation.resolvedAt ?? new Date().toISOString();
+      const updatedAt = updatedConversation.updatedAt ?? new Date().toISOString();
+      let nextOpenConversationId: string | null = null;
+
+      queryClient.setQueryData<SupportConversation[]>(["/api/support/conversations"], (current = []) => {
+        const nextConversations = current.map((conversation) => {
+          if (conversation.id !== updatedConversation.id) {
+            return conversation;
+          }
+
+          return {
+            ...conversation,
+            ...updatedConversation,
+            status: "resolved" as const,
+            resolvedAt,
+            updatedAt,
+            customerIsActive: variables.decision === "activate",
+            lastMessage: updatedConversation.lastMessage || conversation.lastMessage,
+            firstResponseAt: updatedConversation.firstResponseAt || conversation.firstResponseAt || resolvedAt,
+            lastSupportResponderId: updatedConversation.lastSupportResponderId || conversation.lastSupportResponderId || user?.id || null,
+          };
+        });
+
+        const nextConversation = nextConversations.find(
+          (conversation) =>
+            conversation.id !== updatedConversation.id &&
+            conversation.status !== "resolved",
+        );
+        nextOpenConversationId = nextConversation?.id || null;
+        return nextConversations;
+      });
+
+      if (selectedConversation === updatedConversation.id) {
+        setSelectedConversation(nextOpenConversationId);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
+      if (selectedConversation) {
+        queryClient.invalidateQueries({ queryKey: ["/api/support/conversations", selectedConversation, "/messages"] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      setAppealDecisionMessage("");
+      setMessage("");
+      toast({
+        title: variables.decision === "activate" ? "Appeal Activated" : "Appeal Rejected",
+        description:
+          variables.decision === "activate"
+            ? "The account has been reactivated and the reply was sent."
+            : "The account remains restricted and the reply was sent.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Appeal action failed",
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -542,6 +643,23 @@ export default function CustomerSupport() {
   };
 
   const selectedConv = conversations.find(c => c.id === selectedConversation);
+  const appealConversation = isRestrictedOperationalUser
+    ? conversations
+        .filter((conversation) => conversation.subject === "Account Reactivation Appeal")
+        .sort((a, b) => new Date(String(b.updatedAt || b.createdAt)).getTime() - new Date(String(a.updatedAt || a.createdAt)).getTime())[0] || null
+    : null;
+  const hasSubmittedAppeal = Boolean(appealConversation);
+  const hasAppealReply = Boolean(
+    appealConversation &&
+      (appealConversation.firstResponseAt || appealConversation.lastSupportResponderId),
+  );
+  const latestAppealReply = messages
+    .filter((msg) => msg.senderId !== user?.id)
+    .slice()
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] || null;
+  const isSelectedAppealConversation = Boolean(
+    selectedConv && selectedConv.subject === "Account Reactivation Appeal",
+  );
   const supportStaffById = useMemo(
     () => new Map(supportStaff.map((staff) => [String(staff.id), staff])),
     [supportStaff],
@@ -562,6 +680,17 @@ export default function CustomerSupport() {
     [selectableSupportStaff],
   );
   const getAssignedStaffNames = (conversation: SupportConversation): string[] => {
+    const routingMode = conversation.routingMode || "all_support";
+    if (routingMode === "all_support") {
+      return ["All Support"];
+    }
+    if (routingMode === "all_agents") {
+      return ["All Customer Agents"];
+    }
+    if (routingMode === "all_admins") {
+      return ["All Admins"];
+    }
+
     const assignedNames: string[] = [];
     const routingIds = Array.isArray(conversation.routingUserIds) ? conversation.routingUserIds.map(String) : [];
     for (const id of routingIds) {
@@ -581,18 +710,21 @@ export default function CustomerSupport() {
     }
     return Array.from(new Set(assignedNames));
   };
-  const activeTicketCount = conversations.filter((c) => c.status === "open" || c.status === "assigned").length;
-  const resolvedTicketCount = conversations.filter((c) => c.status === "resolved").length;
+  const activeTicketCount = conversations.filter((c) => {
+    const status = normalizeSupportStatus(c.status);
+    return status === "open" || status === "assigned";
+  }).length;
+  const resolvedTicketCount = conversations.filter((c) => normalizeSupportStatus(c.status) === "resolved").length;
   const visibleConversations =
     isSupportStaff && staffTicketFilter !== "all"
-      ? conversations.filter((conv) => conv.status === staffTicketFilter)
+      ? conversations.filter((conv) => normalizeSupportStatus(conv.status) === staffTicketFilter)
       : conversations;
   const peerUserId = selectedConv
     ? (isSupportStaff ? selectedConv.customerId : selectedConv.agentId)
     : null;
   const canCurrentUserResolve = useMemo(() => {
     if (!selectedConv || !isSupportStaff) return false;
-    if (selectedConv.status === "resolved") return false;
+    if (normalizeSupportStatus(selectedConv.status) === "resolved") return false;
     if (isSuperAdmin) return true;
     if (selectedConv.agentId) return String(selectedConv.agentId) === String(user?.id || "");
 
@@ -603,6 +735,14 @@ export default function CustomerSupport() {
     const ids = Array.isArray(selectedConv.routingUserIds) ? selectedConv.routingUserIds.map(String) : [];
     return ids.includes(String(user?.id || ""));
   }, [selectedConv, isSupportStaff, isSuperAdmin, user?.id, normalizedRole]);
+  const canDecideAppeal = Boolean(
+    isSupportStaff &&
+      selectedConv &&
+      selectedConv.subject === "Account Reactivation Appeal" &&
+      (selectedConv.customerRole === "seller" || selectedConv.customerRole === "rider") &&
+      selectedConv.customerIsActive === false &&
+      normalizeSupportStatus(selectedConv.status) !== "resolved",
+  );
 
   useEffect(() => {
     if (!selectedConv) return;
@@ -611,6 +751,10 @@ export default function CustomerSupport() {
     const validIds = rawIds.filter((id) => selectableStaffIdSet.has(String(id)));
     setRoutingUserIds(validIds);
   }, [selectedConv?.id, selectedConv?.routingMode, selectedConv?.routingUserIds, selectableStaffIdSet]);
+
+  useEffect(() => {
+    setAppealDecisionMessage("");
+  }, [selectedConv?.id]);
 
   const presenceUserIds = useMemo(
     () =>
@@ -710,6 +854,19 @@ export default function CustomerSupport() {
     }
   };
 
+  const getStatusBadgeClass = (status: string) => {
+    switch (status) {
+      case "open":
+        return "inline-flex min-w-[96px] justify-center rounded-full border border-yellow-500/30 bg-yellow-500 px-3 py-1 text-xs font-semibold text-white shadow-sm";
+      case "assigned":
+        return "inline-flex min-w-[96px] justify-center rounded-full border border-blue-500/30 bg-blue-600 px-3 py-1 text-xs font-semibold text-white shadow-sm";
+      case "resolved":
+        return "inline-flex min-w-[96px] justify-center rounded-full border border-emerald-500/30 bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow-sm";
+      default:
+        return "inline-flex min-w-[96px] justify-center rounded-full border border-gray-500/30 bg-gray-500 px-3 py-1 text-xs font-semibold text-white shadow-sm";
+    }
+  };
+
   const getStatusLabel = (status: string) => {
     switch (status) {
       case "open":
@@ -751,32 +908,172 @@ export default function CustomerSupport() {
     });
   };
 
+  const handleAppealDecision = (decision: "activate" | "reject") => {
+    if (!selectedConv) return;
+    if (!appealDecisionMessage.trim()) {
+      toast({
+        title: "Response required",
+        description: "Write a response before deciding the appeal.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    appealDecisionMutation.mutate({
+      conversationId: selectedConv.id,
+      decision,
+      message: appealDecisionMessage.trim(),
+    });
+  };
+
   const syncLabel = conversationsUpdatedAt
     ? formatDistanceToNow(new Date(conversationsUpdatedAt), { addSuffix: true })
     : "just now";
 
+  useEffect(() => {
+    if (!isRestrictedOperationalUser || !appealConversation) return;
+    if (selectedConversation !== appealConversation.id) {
+      setSelectedConversation(appealConversation.id);
+    }
+  }, [appealConversation, isRestrictedOperationalUser, selectedConversation]);
+
   if (authLoading || !isAuthenticated) {
     return null;
+  }
+
+  if (isRestrictedOperationalUser) {
+    return (
+      <DashboardLayout role={normalizedRole as any} showBackButton={false}>
+        <div className="p-4 md:p-6">
+          <div className="mx-auto max-w-3xl">
+            {hasSubmittedAppeal ? (
+              !hasAppealReply ? (
+                <Card className="border-emerald-500/20 bg-card/95">
+                  <div className="p-6 md:p-8 space-y-5">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className="bg-emerald-600 text-white">Appeal Submitted</Badge>
+                        <Badge className={`${getStatusColor(appealConversation?.status || "open")} text-white`}>
+                          {getStatusLabel(appealConversation?.status || "open")}
+                        </Badge>
+                      </div>
+                      <h2 className="text-2xl font-semibold">Appeal submitted</h2>
+                      <p className="text-sm text-muted-foreground">
+                        Customer support will get in touch within 72 hours. Please wait for an update on your appeal.
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-border/70 bg-muted/30 p-4 text-sm text-muted-foreground">
+                      No admin reply yet. You will be notified here once support responds.
+                    </div>
+                  </div>
+                </Card>
+              ) : (
+                <Card className="border-emerald-500/20 bg-card/95">
+                  <div className="p-6 md:p-8 space-y-5">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className="bg-green-600 text-white">Appeal Response</Badge>
+                        <Badge className={`${getStatusColor(appealConversation?.status || "resolved")} text-white`}>
+                          {getStatusLabel(appealConversation?.status || "resolved")}
+                        </Badge>
+                      </div>
+                      <h2 className="text-2xl font-semibold">Appeal decision received</h2>
+                      <p className="text-sm text-muted-foreground">
+                        Support has responded to your appeal request.
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-border/70 bg-muted/30 p-5">
+                      {messagesLoading ? (
+                        <div className="py-6 text-center text-sm text-muted-foreground">
+                          <Loader2 className="h-5 w-5 mx-auto mb-2 animate-spin" />
+                          Loading support response...
+                        </div>
+                      ) : latestAppealReply ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-medium">
+                              {latestAppealReply.senderDisplayName || latestAppealReply.senderName || "Support"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatDistanceToNow(new Date(latestAppealReply.createdAt), { addSuffix: true })}
+                            </p>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap text-foreground/90">
+                            {parseAttachmentMessage(latestAppealReply.message)
+                              ? "Support sent an attachment update."
+                              : latestAppealReply.message}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Support has responded and the ticket is resolved.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              )
+            ) : (
+              <Card className="border-amber-500/25 bg-card/95">
+                <div className="p-6 md:p-8 space-y-5">
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                    Your {restrictedRoleLabel} account is currently restricted. Submit one appeal ticket here to request reactivation.
+                  </div>
+
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-semibold">Account Reactivation Appeal</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Explain clearly why your account should be reactivated. Support will review your appeal within 72 hours.
+                    </p>
+                  </div>
+
+                  <Textarea
+                    placeholder="Explain why your account should be reactivated..."
+                    value={newSupportMessage}
+                    onChange={(e) => setNewSupportMessage(e.target.value)}
+                    rows={6}
+                    data-testid="textarea-appeal-message"
+                  />
+
+                  <Button
+                    onClick={handleCreateTicket}
+                    disabled={createTicketMutation.isPending}
+                    className="w-full"
+                    data-testid="button-submit-appeal-ticket"
+                  >
+                    {createTicketMutation.isPending ? "Submitting..." : "Submit Appeal Ticket"}
+                  </Button>
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
+      </DashboardLayout>
+    );
   }
 
   return (
     <DashboardLayout role={normalizedRole as any} showBackButton={false}>
       <div className="flex flex-col h-[calc(100vh-14px)] overflow-hidden">
         <div className="p-4 pb-0 md:p-6 md:pb-0 flex-shrink-0">
-          <Card className="border-emerald-500/25 bg-[linear-gradient(105deg,rgba(16,185,129,0.16)_0%,rgba(16,185,129,0.06)_38%,rgba(15,23,42,0.92)_100%)] p-4 md:p-5 shadow-lg shadow-emerald-900/10">
+          <Card className="border-border/70 bg-card p-4 shadow-sm dark:border-emerald-500/25 dark:bg-[linear-gradient(105deg,rgba(16,185,129,0.16)_0%,rgba(16,185,129,0.06)_38%,rgba(15,23,42,0.92)_100%)] dark:shadow-lg dark:shadow-emerald-900/10 md:p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold" data-testid="text-page-title">
-                  {isSupportStaff ? "Support Dashboard" : "Customer Support"}
+                  {isSupportStaff ? "Support Dashboard" : isRestrictedOperationalUser ? "Account Appeal Support" : "Customer Support"}
                 </h1>
                 <p className="text-muted-foreground text-sm mt-1">
                   {isSupportStaff
                     ? "Manage and respond to customer requests"
-                    : "Get help from our support team"}
+                    : isRestrictedOperationalUser
+                      ? "Create a support ticket to appeal your account restriction. Admin will review your request here."
+                      : "Get help from our support team"}
                 </p>
                 {isSupportStaff && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Badge className="bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">
+                    <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200">
                       <ShieldCheck className="h-3.5 w-3.5 mr-1" />
                       Support Operations
                     </Badge>
@@ -789,7 +1086,7 @@ export default function CustomerSupport() {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="border-emerald-500/40 hover:bg-emerald-500/10"
+                    className="border-border/70 text-foreground hover:bg-muted dark:border-emerald-500/40 dark:hover:bg-emerald-500/10"
                     onClick={() => void refetchConversations()}
                     disabled={conversationsRefreshing}
                     data-testid="button-refresh-support-conversations"
@@ -802,9 +1099,10 @@ export default function CustomerSupport() {
                   <Button
                     size="sm"
                     onClick={() => setShowNewTicketForm((prev) => !prev)}
+                    disabled={isRestrictedOperationalUser}
                     data-testid="button-new-ticket"
                   >
-                    {showNewTicketForm ? "Close" : "New Ticket"}
+                    {isRestrictedOperationalUser ? "Appeal Ticket Required" : showNewTicketForm ? "Close" : "New Ticket"}
                   </Button>
                 )}
               </div>
@@ -817,6 +1115,11 @@ export default function CustomerSupport() {
             <Card className="md:col-span-1 p-0 flex flex-col overflow-hidden border-emerald-500/20 bg-card/95 backdrop-blur-sm" data-testid="card-conversations">
               {!isSupportStaff && showNewTicketForm && (
                 <div className="p-4 border-b space-y-3">
+                  {isRestrictedOperationalUser && (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                      Your {restrictedRoleLabel} account is currently restricted. Submit an appeal ticket here to request reactivation.
+                    </div>
+                  )}
                   <Input
                     placeholder="Subject"
                     value={newSupportSubject}
@@ -824,7 +1127,7 @@ export default function CustomerSupport() {
                     data-testid="input-ticket-subject"
                   />
                   <Textarea
-                    placeholder="Describe your issue..."
+                    placeholder={isRestrictedOperationalUser ? "Explain why your account should be reactivated..." : "Describe your issue..."}
                     value={newSupportMessage}
                     onChange={(e) => setNewSupportMessage(e.target.value)}
                     rows={4}
@@ -838,20 +1141,22 @@ export default function CustomerSupport() {
                       className="flex-1"
                       data-testid="button-create-ticket"
                     >
-                      {createTicketMutation.isPending ? "Creating..." : "Create Ticket"}
+                      {createTicketMutation.isPending ? "Submitting..." : isRestrictedOperationalUser ? "Submit Appeal Ticket" : "Create Ticket"}
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setShowNewTicketForm(false);
-                        setNewSupportSubject("");
-                        setNewSupportMessage("");
-                      }}
-                      data-testid="button-cancel-ticket"
-                    >
-                      Cancel
-                    </Button>
+                    {!isRestrictedOperationalUser && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setShowNewTicketForm(false);
+                          setNewSupportSubject("");
+                          setNewSupportMessage("");
+                        }}
+                        data-testid="button-cancel-ticket"
+                      >
+                        Cancel
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
@@ -864,6 +1169,9 @@ export default function CustomerSupport() {
                   <div className="flex items-center gap-2">
                     <Badge variant="default" className="bg-blue-600 hover:bg-blue-600">
                       {activeTicketCount} active
+                    </Badge>
+                    <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-600">
+                      {resolvedTicketCount} resolved
                     </Badge>
                     <Badge variant="secondary">{conversations.length} total</Badge>
                   </div>
@@ -927,6 +1235,7 @@ export default function CustomerSupport() {
                   visibleConversations.map((conv) => (
                     (() => {
                       const presence = getConversationPresence(conv);
+                      const normalizedConversationStatus = normalizeSupportStatus(conv.status);
                       const assignedStaffNames = getAssignedStaffNames(conv);
                       const lastAttendedBy = conv.lastSupportResponderName
                         ? sanitizeSupportDisplayName(conv.lastSupportResponderName, "Support Team")
@@ -983,9 +1292,9 @@ export default function CustomerSupport() {
                                   {conv.unreadCount}
                                 </Badge>
                               )}
-                              <Badge className={`${getStatusColor(conv.status)} text-white whitespace-nowrap`}>
-                                {getStatusLabel(conv.status)}
-                              </Badge>
+                              <span className={`${getStatusBadgeClass(normalizedConversationStatus)} whitespace-nowrap`}>
+                                {getStatusLabel(normalizedConversationStatus)}
+                              </span>
                             </div>
                           </div>
                           {isSupportStaff && (
@@ -1052,9 +1361,9 @@ export default function CustomerSupport() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h2 className="font-semibold truncate">{selectedConv.subject}</h2>
-                          <Badge className={`${getStatusColor(selectedConv.status)} text-white whitespace-nowrap`}>
-                            {getStatusLabel(selectedConv.status)}
-                          </Badge>
+                          <span className={`${getStatusBadgeClass(normalizeSupportStatus(selectedConv.status))} whitespace-nowrap`}>
+                            {getStatusLabel(normalizeSupportStatus(selectedConv.status))}
+                          </span>
                         </div>
                         <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {isPeerTyping ? (
@@ -1070,7 +1379,7 @@ export default function CustomerSupport() {
                             </>
                           ) : selectedConv.agentName ? (
                             <>
-                              <span>{`Agent: ${peerDisplayName}`}</span>
+                              <span>{`Customer Agent: ${peerDisplayName}`}</span>
                               {peerStatusText === "Online" ? (
                                 <span className="ml-2 text-[#25D366] font-medium">Online</span>
                               ) : (
@@ -1078,7 +1387,7 @@ export default function CustomerSupport() {
                               )}
                             </>
                           ) : (
-                            <span>Waiting for agent assignment</span>
+                            <span>Waiting for customer agent assignment</span>
                           )}
                         </p>
                         {isSupportStaff && (
@@ -1095,71 +1404,107 @@ export default function CustomerSupport() {
                     </div>
                     {isSupportStaff && (
                       <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {isSuperAdmin && (
-                              <>
-                                <select
-                                  value={routingMode}
-                                  onChange={(e) => setRoutingMode(e.target.value as any)}
-                                  className="h-9 min-w-[160px] rounded-md border bg-background px-2.5 text-sm"
-                                  data-testid="select-support-routing-mode"
-                                >
-                                  <option value="all_support">All Support</option>
-                                  <option value="all_agents">All Agents</option>
-                                  <option value="all_admins">All Admins</option>
-                                  <option value="specific_staff">Specific Staff</option>
-                                </select>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={handleApplyRouting}
-                                  disabled={updateRoutingMutation.isPending}
-                                  data-testid="button-apply-support-routing"
-                                  className="h-9 px-4 whitespace-nowrap"
-                                >
-                                  {updateRoutingMutation.isPending ? "Applying..." : "Apply"}
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStartSupportCall("voice")}
-                              disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
-                              data-testid="button-support-voice-call"
-                              title="Start voice call"
-                              className="h-9 w-10 px-0"
-                            >
-                              <Phone className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStartSupportCall("video")}
-                              disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
-                              data-testid="button-support-video-call"
-                              title="Start video call"
-                              className="h-9 w-10 px-0"
-                            >
-                              <Video className="h-4 w-4" />
-                            </Button>
-                            {canCurrentUserResolve && (
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {isSuperAdmin && (
+                                <>
+                                  <select
+                                    value={routingMode}
+                                    onChange={(e) => setRoutingMode(e.target.value as any)}
+                                    className="h-9 min-w-[160px] rounded-md border bg-background px-2.5 text-sm"
+                                    data-testid="select-support-routing-mode"
+                                  >
+                                    <option value="all_support">All Support</option>
+                                    <option value="all_agents">All Customer Agents</option>
+                                    <option value="all_admins">All Admins</option>
+                                    <option value="specific_staff">Specific Staff</option>
+                                  </select>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleApplyRouting}
+                                    disabled={updateRoutingMutation.isPending}
+                                    data-testid="button-apply-support-routing"
+                                    className="h-9 px-4 whitespace-nowrap"
+                                  >
+                                    {updateRoutingMutation.isPending ? "Applying..." : "Apply"}
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => resolveConversationMutation.mutate(selectedConv.id)}
-                                disabled={resolveConversationMutation.isPending}
-                                data-testid="button-resolve"
-                                className="h-9 px-4 whitespace-nowrap"
+                                onClick={() => handleStartSupportCall("voice")}
+                                disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
+                                data-testid="button-support-voice-call"
+                                title="Start voice call"
+                                className="h-9 w-10 px-0"
                               >
-                                <CheckCircle2 className="h-4 w-4 mr-1" />
-                                Resolve
+                                <Phone className="h-4 w-4" />
                               </Button>
-                            )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleStartSupportCall("video")}
+                                disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
+                                data-testid="button-support-video-call"
+                                title="Start video call"
+                                className="h-9 w-10 px-0"
+                              >
+                                <Video className="h-4 w-4" />
+                              </Button>
+                              {canCurrentUserResolve && !isSelectedAppealConversation && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => resolveConversationMutation.mutate(selectedConv.id)}
+                                  disabled={resolveConversationMutation.isPending}
+                                  data-testid="button-resolve"
+                                  className="h-9 px-4 whitespace-nowrap"
+                                >
+                                  <CheckCircle2 className="h-4 w-4 mr-1" />
+                                  Resolve
+                                </Button>
+                              )}
+                            </div>
                           </div>
+                          {canDecideAppeal && (
+                            <div className="space-y-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                              <div>
+                                <p className="text-sm font-medium">Appeal Decision</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Send your response and choose whether to activate or reject this appeal.
+                                </p>
+                              </div>
+                              <Textarea
+                                value={appealDecisionMessage}
+                                onChange={(e) => setAppealDecisionMessage(e.target.value)}
+                                placeholder="Write your decision message to the seller or rider..."
+                                rows={3}
+                                data-testid="textarea-appeal-decision"
+                              />
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  onClick={() => handleAppealDecision("activate")}
+                                  disabled={appealDecisionMutation.isPending}
+                                  data-testid="button-activate-appeal"
+                                >
+                                  Activate Appeal
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  onClick={() => handleAppealDecision("reject")}
+                                  disabled={appealDecisionMutation.isPending}
+                                  data-testid="button-reject-appeal"
+                                >
+                                  Reject Appeal
+                                </Button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1294,7 +1639,7 @@ export default function CustomerSupport() {
                       </div>
                     )}
                   </ScrollArea>
-                  {selectedConv.status !== "resolved" && (
+                  {selectedConv.status !== "resolved" && !isSelectedAppealConversation && (
                     <div className="p-4 border-t flex gap-2 flex-shrink-0 items-center">
                       <input
                         ref={attachmentInputRef}

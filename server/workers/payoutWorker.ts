@@ -1,9 +1,12 @@
 import { storage } from '../storage';
 import { paystackService } from '../paystack';
+import { notifySellerSettlementSuccess } from '../payments';
 
 const POLL_INTERVAL = parseInt(process.env.PAYOUT_WORKER_INTERVAL_MS || '15000', 10); // 15s
 
 let running = false;
+let batchRunning = false;
+let intervalHandle: NodeJS.Timeout | null = null;
 
 export async function runPayoutWorker(io?: any) {
   if (running) return;
@@ -11,12 +14,39 @@ export async function runPayoutWorker(io?: any) {
   console.log('[PAYOUT-WORKER] Starting payout worker, interval', POLL_INTERVAL);
 
   async function processBatch() {
+    if (batchRunning) {
+      console.warn('[PAYOUT-WORKER] Previous batch is still running; skipping overlap tick');
+      return;
+    }
+
+    batchRunning = true;
     try {
       const payouts = await storage.getPayoutsByStatus('processing');
       if (!payouts || payouts.length === 0) return;
 
       for (const payout of payouts) {
         try {
+          const payoutBankDetails = ((payout as any).bankDetails || {}) as Record<string, any>;
+          const settlementMode = String(payoutBankDetails.settlementMode || '').toLowerCase().trim();
+
+          if (settlementMode === 'split') {
+            const completedPayout = await storage.updatePayoutStatus(payout.id, 'completed', 'system');
+            if (completedPayout) {
+              const splitStore = await storage.getStoreByPrimarySeller(payout.sellerId);
+              const destinationLabel = splitStore?.payoutDetails?.accountNumber
+                ? `bank account ${splitStore.payoutDetails.accountNumber}`
+                : 'configured payout account';
+              await notifySellerSettlementSuccess(storage, io, {
+                sellerId: payout.sellerId,
+                payoutId: payout.id,
+                sellerAmount: String(payout.amount),
+                orderId: 'seller-payout',
+                destinationLabel,
+              });
+            }
+            continue;
+          }
+
           // Fetch store for payout details
           const store = await storage.getStoreByPrimarySeller(payout.sellerId);
           if (!store) {
@@ -28,6 +58,53 @@ export async function runPayoutWorker(io?: any) {
           if (!secret) {
             console.warn('[PAYOUT-WORKER] PAYSTACK secret missing; cannot process payouts');
             continue;
+          }
+
+          const transferReference = String(payoutBankDetails.transferReference || payout.reference || '').trim();
+          if (transferReference) {
+            try {
+              const verification = await paystackService.verifyTransfer(transferReference, secret);
+              const verifiedStatus = String(verification?.data?.status || '').toLowerCase().trim();
+
+              if (verifiedStatus) {
+                await storage.updateSellerPayoutDetails(payout.id, {
+                  transferReference,
+                  transferCode: verification?.data?.transfer_code || payoutBankDetails.transferCode,
+                  transferStatus: verifiedStatus,
+                  recipientCode: verification?.data?.recipient || payoutBankDetails.recipientCode,
+                });
+
+                if (['success', 'successful', 'completed'].includes(verifiedStatus)) {
+                  await storage.updatePayoutStatus(payout.id, 'completed', 'system');
+
+                  const destinationLabel = store.payoutType === 'mobile_money'
+                    ? `mobile money ${store.payoutDetails?.mobileNumber || ''}`.trim()
+                    : store.payoutDetails?.accountNumber
+                      ? `bank account ${store.payoutDetails.accountNumber}`
+                      : 'configured payout account';
+                  await notifySellerSettlementSuccess(storage, io, {
+                    sellerId: payout.sellerId,
+                    payoutId: payout.id,
+                    sellerAmount: String(payout.amount),
+                    orderId: 'seller-payout',
+                    destinationLabel,
+                  });
+                  continue;
+                }
+
+                if (['failed', 'reversed', 'abandoned', 'rejected', 'cancelled'].includes(verifiedStatus)) {
+                  await storage.updatePayoutStatus(payout.id, 'failed', 'system');
+                  continue;
+                }
+
+                // The transfer already exists and is still processing. Do not initiate another one.
+                continue;
+              }
+            } catch (verifyErr: any) {
+              if (verifyErr?.code !== 'TRANSFER_NOT_FOUND') {
+                throw verifyErr;
+              }
+            }
           }
 
           // Build recipient
@@ -60,25 +137,37 @@ export async function runPayoutWorker(io?: any) {
 
           // Initiate transfer
           const amountKobo = Math.round(parseFloat(payout.amount) * 100);
-          const transferRes = await paystackService.initiateTransfer({ amountKobo, recipient: recipientCode, reason: payout.notes || 'Seller payout' }, secret);
-          const transferStatus = transferRes.status;
+          const transferRes = await paystackService.initiateTransfer({
+            amountKobo,
+            recipient: recipientCode,
+            reason: payout.notes || 'Seller payout',
+            reference: transferReference || payout.reference,
+          }, secret);
+          const transferStatus = String(transferRes?.data?.status || '').toLowerCase().trim();
 
-          if (transferStatus) {
-            // Consider success
+          await storage.updateSellerPayoutDetails(payout.id, {
+            transferReference: transferReference || payout.reference,
+            transferCode: transferRes?.data?.transfer_code,
+            transferStatus: transferStatus || 'requested',
+            recipientCode,
+          });
+
+          if (['success', 'successful', 'completed'].includes(transferStatus)) {
             await storage.updatePayoutStatus(payout.id, 'completed', 'system');
 
-            // Notify seller
-            await storage.createNotification({
-              userId: payout.sellerId,
-              type: 'payout',
-              title: 'Payout Completed',
-              message: `A payout of ${payout.amount} has been transferred to your ${store.payoutType === 'mobile_money' ? 'mobile money' : 'bank account'}.`,
+            const destinationLabel = store.payoutType === 'mobile_money'
+              ? `mobile money ${store.payoutDetails?.mobileNumber || ''}`.trim()
+              : store.payoutDetails?.accountNumber
+                ? `bank account ${store.payoutDetails.accountNumber}`
+                : 'configured payout account';
+            await notifySellerSettlementSuccess(storage, io, {
+              sellerId: payout.sellerId,
+              payoutId: payout.id,
+              sellerAmount: String(payout.amount),
+              orderId: 'seller-payout',
+              destinationLabel,
             });
-
-            if (io) {
-              io.to(payout.sellerId).emit('payout_completed', { payoutId: payout.id, amount: payout.amount });
-            }
-          } else {
+          } else if (['failed', 'reversed', 'abandoned', 'rejected', 'cancelled'].includes(transferStatus)) {
             await storage.updatePayoutStatus(payout.id, 'failed', 'system');
           }
         } catch (err: any) {
@@ -88,11 +177,15 @@ export async function runPayoutWorker(io?: any) {
       }
     } catch (e: any) {
       console.error('[PAYOUT-WORKER] Batch error', e?.message || e);
+    } finally {
+      batchRunning = false;
     }
   }
 
   // Polling loop
-  setInterval(async () => {
+  if (intervalHandle) return;
+
+  intervalHandle = setInterval(async () => {
     await processBatch();
   }, POLL_INTERVAL);
 }

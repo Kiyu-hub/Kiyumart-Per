@@ -14,6 +14,16 @@ const URL_CACHE = {
   cacheDuration: 60000, // 1 minute cache
 };
 
+function isBackendLikeUrl(url: string): boolean {
+  const normalized = String(url || "").trim().replace(/\/$/, "");
+  return (
+    normalized === "http://localhost:5000" ||
+    normalized === "http://127.0.0.1:5000" ||
+    normalized === "http://localhost:5001" ||
+    normalized === "http://127.0.0.1:5001"
+  );
+}
+
 async function checkUrlAccessibility(url: string): Promise<boolean> {
   if (!url) return false;
 
@@ -51,6 +61,9 @@ export async function getValidFrontendUrl(): Promise<string> {
     const dbUrl = (settings as any).frontendUrl || '';
     if (dbUrl) {
       const normalized = dbUrl.replace(/\/$/, '');
+      if (isBackendLikeUrl(normalized)) {
+        console.warn(`[FRONTEND_URL] Ignoring DB-configured frontendUrl because it points to the backend: ${normalized}`);
+      } else {
       const ok = await checkUrlAccessibility(normalized);
       if (ok) {
         URL_CACHE.url = normalized;
@@ -60,6 +73,7 @@ export async function getValidFrontendUrl(): Promise<string> {
         return normalized;
       }
       console.warn(`[FRONTEND_URL] DB-configured URL (${dbUrl}) is not accessible, falling back to other sources`);
+      }
     }
   } catch (err) {
     // If storage is unavailable, continue to env fallback

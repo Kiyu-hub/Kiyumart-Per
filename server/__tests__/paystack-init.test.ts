@@ -17,7 +17,19 @@ async function run() {
   // Mock store and order
   storageModule.storage.getStore = async (id: string) => ({ id: 'store1', primarySellerId: 'seller1', name: 'Primary Store', paystackSubaccountId: 'sub_123', isPayoutVerified: true, payoutType: 'bank_account', payoutDetails: {} } as any);
 
-  const order = { id: 'order1', buyerId: 'u1', orderNumber: 'ORD-1', total: '105.00', processingFee: '5.00', currency: 'GHS', storeId: 'store1', sellerId: 'seller1', paymentStatus: 'pending' } as any;
+  const order = {
+    id: 'order1',
+    buyerId: 'u1',
+    orderNumber: 'ORD-1',
+    subtotal: '100.00',
+    couponDiscount: '0.00',
+    total: '105.00',
+    processingFee: '5.00',
+    currency: 'GHS',
+    storeId: 'store1',
+    sellerId: 'seller1',
+    paymentStatus: 'pending'
+  } as any;
   storageModule.storage.getOrder = async (id: string) => id === 'order1' ? order : undefined;
 
   storageModule.storage.updateOrder = async (id: string, data: any) => { calls.push(`updateOrder:${id}`); Object.assign(order, data); return order; };
@@ -77,8 +89,9 @@ async function run() {
     console.log('calls:', calls);
 
     if (!calls.some(c => c.startsWith('updateOrder:'))) throw new Error('Order not updated');
-    // Processing fee 5.00 -> 500
-    if (!calls.includes('initialize:transaction_charge=500')) throw new Error('Processing fee not passed correctly to Paystack (expected 500)');
+    // With bank-account split routing, Paystack retains platform-side amounts:
+    // commission (10% of subtotal 100.00 = 10.00) + processing fee (5.00) = 15.00 -> 1500
+    if (!calls.includes('initialize:transaction_charge=1500')) throw new Error('Platform-retained amount was not passed correctly to Paystack (expected 1500)');
     if (!calls.includes('initialize:subaccount=sub_123') && !calls.includes('initialize:subaccount_share=9000')) throw new Error('Subaccount/subaccount share missing from initialize payload');
 
     console.log('✅ paystack-init.test passed');

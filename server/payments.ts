@@ -1,3 +1,58 @@
+export async function notifySellerSettlementSuccess(
+  storage: any,
+  io: any,
+  {
+    sellerId,
+    payoutId,
+    sellerAmount,
+    orderId,
+    orderNumber,
+    destinationLabel,
+  }: {
+    sellerId: string;
+    payoutId: string;
+    sellerAmount: string;
+    orderId: string;
+    orderNumber?: string;
+    destinationLabel: string;
+  },
+) {
+  await storage.createNotification({
+    userId: sellerId,
+    type: "payout",
+    title: "Seller Settlement Sent",
+    message: `A settlement of ${sellerAmount} has been sent to your ${destinationLabel} for order #${orderNumber || orderId}.`,
+    metadata: {
+      payoutId,
+      orderId,
+      orderNumber,
+    },
+  });
+
+  const admins = await storage.getUsersByRole("admin");
+  const superAdmins = await storage.getUsersByRole("super_admin");
+  await Promise.all(
+    [...admins, ...superAdmins].map((admin: any) =>
+      storage.createNotification({
+        userId: admin.id,
+        type: "payout",
+        title: "Seller Settlement Sent",
+        message: `Seller settlement of ${sellerAmount} was sent for order #${orderNumber || orderId}.`,
+        metadata: {
+          payoutId,
+          orderId,
+          orderNumber,
+          sellerId,
+        },
+      })
+    )
+  );
+
+  if (io) {
+    io.to(sellerId).emit("payout_completed", { payoutId, amount: sellerAmount, orderId, orderNumber });
+  }
+}
+
 export async function processPaystackChargeSuccess(eventData: any, storage: any, io: any) {
   // eventData is expected to be Paystack `data` payload (data.data in webhook)
   try {
@@ -79,9 +134,7 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
         }
       });
 
-      // Leave commissions in pending state so payout workflow can consume them deterministically.
-
-      // Auto-create payouts for mobile money sellers so they can receive funds
+      // Record automatic seller settlement after the split for every successful seller order.
       for (let i = 0; i < commissionResults.length; i++) {
         const res = commissionResults[i] as PromiseSettledResult<any>;
         if (res.status !== 'fulfilled') continue;
@@ -89,36 +142,27 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
           const commission = res.value.commission;
           const sellerId = commission.sellerId;
           const sellerAmount = commission.sellerAmount; // string like "12.34"
+          const order = orders[i];
 
-          // Find seller's store to get payout type/details
+          const payout = await storage.ensureAutomaticSellerPayoutForCommission(commission.id);
           const store = await storage.getStoreByPrimarySeller(sellerId);
-          if (!store) continue;
+          if (!payout) continue;
 
-          if (store.payoutType === 'mobile_money') {
-            // Create a seller payout record for this commission amount
-            try {
-              const payout = await storage.createSellerPayout({
-                sellerId,
-                amount: sellerAmount,
-                currency: primaryOrder.currency || 'GHS',
-                method: 'mobile_money',
-                bankDetails: { mobileNumber: store.payoutDetails?.mobileNumber, provider: store.payoutDetails?.provider },
-                notes: `Auto payout for order ${commission.orderId}`,
-              } as any);
+          const destinationLabel = store?.payoutType === 'mobile_money'
+            ? `mobile money ${store?.payoutDetails?.mobileNumber || ''}`.trim()
+            : store?.payoutDetails?.accountNumber
+              ? `bank account ${store.payoutDetails.accountNumber}`
+              : 'configured payout account';
 
-              // Mark payout as processing so admins can track it (actual transfer may be manual or via worker)
-              await storage.updatePayoutStatus(payout.id, 'processing', 'system');
-
-              // Notify seller about pending payout
-              await storage.createNotification({
-                userId: sellerId,
-                type: 'payout',
-                title: 'Payout Initiated',
-                message: `A payout of ${sellerAmount} has been initiated to your mobile money ${store.payoutDetails?.mobileNumber}. It will be processed shortly.`
-              });
-            } catch (pErr: any) {
-              console.error('[PAYOUT] Failed to create auto payout for mobile money seller', pErr?.message || pErr);
-            }
+          if (String(payout.status || "").toLowerCase() === "completed") {
+            await notifySellerSettlementSuccess(storage, io, {
+              sellerId,
+              payoutId: payout.id,
+              sellerAmount,
+              orderId: order?.id || commission.orderId,
+              orderNumber: order?.orderNumber,
+              destinationLabel,
+            });
           }
         } catch (e) {
           console.error('[PAYOUT] Error handling commission payout:', (e as any)?.message || e);
@@ -131,6 +175,49 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
       const totalPaid = (eventData.amount / 100).toFixed(2);
 
       await storage.createNotification({ userId: primaryOrder.buyerId, type: 'order', title: 'Payment Confirmed', message: `Your payment for ${orders.length} order(s) (${orderNumbers}) was successful. Total: ${eventData.currency} ${totalPaid}` });
+
+      await Promise.all(
+        orders
+          .filter((order: any) => Boolean(order?.sellerId))
+          .map(async (order: any) => {
+            const deliveryMethod = String(order.deliveryMethod || "").toLowerCase().trim();
+            const isPickup = deliveryMethod === "pickup" || deliveryMethod === "store_pickup";
+            const sellerMessage = isPickup
+              ? `Order #${order.orderNumber} has been paid. Pack it and mark it ready for pickup when it is prepared.`
+              : `Order #${order.orderNumber} has been paid. Start packaging and mark it ready when dispatch preparation is complete.`;
+            await storage.createNotification({
+              userId: order.sellerId,
+              type: "order",
+              title: "New Paid Order",
+              message: sellerMessage,
+              metadata: {
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                link: "/seller/orders",
+                paymentStatus: "completed",
+              },
+            });
+          })
+      );
+
+      const admins = await storage.getUsersByRole("admin");
+      const superAdmins = await storage.getUsersByRole("super_admin");
+      await Promise.all(
+        [...admins, ...superAdmins].map((admin: any) =>
+          storage.createNotification({
+            userId: admin.id,
+            type: "order",
+            title: "New Paid Order",
+            message: `Payment confirmed for ${orders.length} order(s): ${orderNumbers}. Total: ${eventData.currency} ${totalPaid}.`,
+            metadata: {
+              reference,
+              orderIds: orders.map((o: any) => o.id),
+              orderNumbers,
+              link: "/admin/orders",
+            },
+          })
+        )
+      );
 
       // Emit events
       io.to(primaryOrder.buyerId).emit('payment_completed', {

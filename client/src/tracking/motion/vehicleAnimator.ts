@@ -14,12 +14,24 @@ function normalizeSpeed(speedMps?: number | null): number {
   return value;
 }
 
+/**
+ * Interpolates an angle in degrees along the shortest arc.
+ * Used for smooth bearing rotation (avoids 359° -> 1° spinning).
+ */
+function lerpBearingDeg(from: number, to: number, alpha: number): number {
+  let delta = ((to - from + 540) % 360) - 180;
+  return (from + delta * alpha + 360) % 360;
+}
+
 class RouteSnappedVehicleAnimator implements VehicleAnimator {
   private listeners = new Set<(state: VehicleAnimatorState) => void>();
   private isRunning = false;
   private route?: RouteResult;
   private state: VehicleAnimatorState = { speedMps: 0, bearingDeg: 0 };
   private latestReality?: RealityGpsUpdate;
+  private smoothedBearingDeg = 0;
+  private smoothedSpeedMps = 0;
+  private lastEmitMs = 0;
 
   start() {
     if (this.isRunning) return;
@@ -45,8 +57,10 @@ class RouteSnappedVehicleAnimator implements VehicleAnimator {
     this.latestReality = update;
     if (!this.state.position) {
       this.state.position = { ...update.position };
-      this.state.speedMps = normalizeSpeed(update.speedMps);
-      this.state.bearingDeg = Number(update.bearingDeg ?? 0);
+      this.smoothedSpeedMps = normalizeSpeed(update.speedMps);
+      this.smoothedBearingDeg = Number(update.bearingDeg ?? 0);
+      this.state.speedMps = this.smoothedSpeedMps;
+      this.state.bearingDeg = this.smoothedBearingDeg;
       if (this.route?.geometry?.length) {
         this.state.position = closestPointOnRoute(this.state.position, this.route.geometry).point;
       }
@@ -81,7 +95,8 @@ class RouteSnappedVehicleAnimator implements VehicleAnimator {
     if (distance <= 0.25) return target;
     const maxMove = Math.max(1, MOTION_CONFIG.maxCorrectionMetersPerSecond * dtSeconds);
     if (distance > MOTION_CONFIG.hardSnapDistanceMeters) {
-      return lerpCoordinates(current, target, Math.min(1, maxMove / distance));
+      // Hard snap but animate to the snap target smoothly 
+      return lerpCoordinates(current, target, Math.min(0.95, maxMove / distance));
     }
     return lerpCoordinates(current, target, MOTION_CONFIG.predictionBlend);
   }
@@ -96,31 +111,45 @@ class RouteSnappedVehicleAnimator implements VehicleAnimator {
         : latestReality.position;
 
       const realitySpeed = normalizeSpeed(latestReality.speedMps);
-      const blendedSpeed = this.state.speedMps * 0.75 + realitySpeed * 0.25;
-      const speedMps = Number.isFinite(blendedSpeed) ? blendedSpeed : 0;
+      
+      // Exponential smoothing on speed (tau=0.6s for responsiveness)
+      const speedAlpha = Math.min(1, dtSeconds / 0.6);
+      this.smoothedSpeedMps = this.smoothedSpeedMps * (1 - speedAlpha) + realitySpeed * speedAlpha;
+      const speedMps = Number.isFinite(this.smoothedSpeedMps) ? this.smoothedSpeedMps : 0;
+      
       let next = current;
-
       if (routeGeometry.length >= 2 && speedMps > 0.2) {
         next = advanceAlongRoute(routeGeometry, current, speedMps * dtSeconds);
       }
       next = this.moveTowardTarget(next, targetPosition, dtSeconds);
 
       const distanceMoved = haversineMeters(current, next);
-      const movementBearing = distanceMoved > 0.8 ? bearingDegrees(current, next) : this.state.bearingDeg;
+      const movementBearing = distanceMoved > 0.5 ? bearingDegrees(current, next) : this.smoothedBearingDeg;
+
+      // Smooth bearing with exponential decay — avoids sharp rotations (tau=0.25s)
+      const bearingAlpha = Math.min(1, dtSeconds / 0.25);
+      this.smoothedBearingDeg = lerpBearingDeg(this.smoothedBearingDeg, movementBearing, bearingAlpha);
 
       this.state = {
         position: next,
         speedMps,
-        bearingDeg: Number.isFinite(movementBearing) ? movementBearing : 0,
+        bearingDeg: Number.isFinite(this.smoothedBearingDeg) ? this.smoothedBearingDeg : 0,
       };
-      this.emit();
+
+      const now = Date.now();
+      if (!this.lastEmitMs || now - this.lastEmitMs >= 100) {
+        this.emit();
+        this.lastEmitMs = now;
+      }
     }
   }
 }
 
 const registry = new Map<string, RouteSnappedVehicleAnimator>();
 const activeAnimators = new Set<RouteSnappedVehicleAnimator>();
-const SHARED_FRAME_INTERVAL_MS = 1000 / 30;
+
+// Run at 60fps for Uber-grade smoothness
+const SHARED_FRAME_INTERVAL_MS = 1000 / 60;
 let sharedRafId: number | null = null;
 let sharedLastTickMs = 0;
 
@@ -140,7 +169,8 @@ function runSharedAnimationFrame(nowMs: number) {
     return;
   }
 
-  const dtSeconds = Math.max(0.016, Math.min(0.25, elapsedMs / 1000));
+  // Cap dt to prevent large jumps on tab resume
+  const dtSeconds = Math.max(0.008, Math.min(0.1, elapsedMs / 1000));
   sharedLastTickMs = nowMs;
 
   activeAnimators.forEach((animator) => animator.tickFrame(dtSeconds));

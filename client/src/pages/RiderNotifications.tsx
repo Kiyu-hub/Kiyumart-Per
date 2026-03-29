@@ -125,7 +125,11 @@ export default function RiderNotifications() {
       case "delivery":
       case "order":
       case "pickup":
-        navigate("/rider/deliveries");
+        if (metadata?.orderId) {
+          navigate(`/rider/deliveries?orderId=${encodeURIComponent(String(metadata.orderId))}`);
+        } else {
+          navigate("/rider/deliveries");
+        }
         break;
       case "message":
         // Support-staff senders are masked to a generic support entry for riders.

@@ -1,0 +1,92 @@
+[
+  {
+    "file": "admin-create-on-behalf.spec.ts",
+    "title": "Admin can create product on behalf of a seller via /api/admin/products",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED ::1:5000\nCall log:\n\u001b[2m  - → POST http://localhost:5000/api/seed/test-users\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/22"
+  },
+  {
+    "file": "admin-create-product.spec.ts",
+    "title": "Admin cannot create product via API",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED ::1:5000\nCall log:\n\u001b[2m  - → POST http://localhost:5000/api/seed/test-users\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/22"
+  },
+  {
+    "file": "admin-promotions-nav.spec.ts",
+    "title": "admin and super-admin see Promotions nav item and can open page",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED 127.0.0.1:5000\nCall log:\n\u001b[2m  - → POST http://127.0.0.1:5000/api/test/token\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/2"
+  },
+  {
+    "file": "admin-promotions.spec.ts",
+    "title": "super-admin: create multi-product promotions, list, end, and sidebar placeholder when none exist",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED 127.0.0.1:5000\nCall log:\n\u001b[2m  - → POST http://127.0.0.1:5000/api/test/token\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/2"
+  },
+  {
+    "file": "admin-settings.spec.ts",
+    "title": "multi-vendor toggle via Admin Settings persists after save",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED ::1:5000\nCall log:\n\u001b[2m  - → POST http://localhost:5000/api/seed/test-users\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/22"
+  },
+  {
+    "file": "ads-display.spec.ts",
+    "title": "ads display on home (hero + sidebar + footer) and product page",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED 127.0.0.1:5000\nCall log:\n\u001b[2m  - → POST http://127.0.0.1:5000/api/test/token\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/2"
+  },
+  {
+    "file": "agent-support.spec.ts",
+    "title": "agent support flow: create -> message -> assign -> resolve",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED ::1:5000\nCall log:\n\u001b[2m  - → POST http://localhost:5000/api/seed/test-users\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/22"
+  },
+  {
+    "file": "coming-soon.spec.ts",
+    "title": "production single-store with no products shows Coming Soon and mandatory banners",
+    "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('text=Abaya').first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall l"
+  },
+  {
+    "file": "featured-fallback.spec.ts",
+    "title": "shows featured products when main products list is empty",
+    "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"grid-featured-products\"]')\nExpected: visible\nTimeout: 5000ms\nError: element(s"
+  },
+  {
+    "file": "payment-verify-public.spec.ts",
+    "title": "Guest verify redirects to success page when verified",
+    "error": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation to \"**/payment/success?orderId=order-guest-1\" until \"load\"\n"
+  },
+  {
+    "file": "payment-verify-public.spec.ts",
+    "title": "Guest verify redirects to failure page when verification fails",
+    "error": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation to \"**/payment/failure?reason=*\" until \"load\"\n============="
+  },
+  {
+    "file": "primary-store.spec.ts",
+    "title": "primary store shows seller products and maintains Islamic header banners in single-store mode",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED ::1:5000\nCall log:\n\u001b[2m  - → POST http://localhost:5000/api/seed/test-users\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/22"
+  },
+  {
+    "file": "product-creation.spec.ts",
+    "title": "Seller creates product with costPrice; UI shows strike-through and discount",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED ::1:5000\nCall log:\n\u001b[2m  - → POST http://localhost:5000/api/seed/test-users\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/22"
+  },
+  {
+    "file": "product-discount.spec.ts",
+    "title": "shows cost price strike-through and computed percent when costPrice present",
+    "error": "TimeoutError: page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid^=\"badge-discount-\"]') to be visible\u001b[22m\n"
+  },
+  {
+    "file": "product-discount.spec.ts",
+    "title": "infers original price when only discount is provided and displays badge",
+    "error": "TimeoutError: page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid^=\"badge-discount-\"]') to be visible\u001b[22m\n"
+  },
+  {
+    "file": "promotions.spec.ts",
+    "title": "promotional ad lifecycle: create -> visible with countdown -> expire -> removed",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED 127.0.0.1:5000\nCall log:\n\u001b[2m  - → POST http://127.0.0.1:5000/api/test/token\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/2"
+  },
+  {
+    "file": "support-ui.spec.ts",
+    "title": "Customer can create support ticket via UI",
+    "error": "Error: apiRequestContext.post: connect ECONNREFUSED ::1:5000\nCall log:\n\u001b[2m  - → POST http://localhost:5000/api/seed/test-users\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.57.0 (x64; windows 10.0) node/22"
+  },
+  {
+    "file": "verify-superadmin-avatar.spec.ts",
+    "title": "avatar remains visible when clicking Dashboard nav item",
+    "error": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5000/api/test/auth-cookie?email=superadmin@kiyumart.com\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5000/api/test/auth-cookie?em"
+  }
+]

@@ -18,6 +18,7 @@ import AdminDashboard from "@/pages/AdminDashboardRouter";
 import SellerDashboard from "@/pages/SellerDashboardConnected";
 import RiderDashboard from "@/pages/RiderDashboard";
 import BuyerDashboard from "@/pages/BuyerDashboard";
+import PickupAgentDashboard from "@/pages/PickupAgentDashboard";
 import AgentDashboard from "@/pages/AgentDashboard";
 import AgentCustomers from "@/pages/AgentCustomers";
 import AgentNotifications from "@/pages/AgentNotifications";
@@ -38,6 +39,7 @@ import AdminStoreManager from "@/pages/AdminStoreManager";
 import AdminBranding from "@/pages/AdminBranding";
 import AdminDeliveryTracking from "@/pages/AdminDeliveryTracking";
 import AdminDeliveryZones from "@/pages/AdminDeliveryZones";
+import AdminPickupStations from "@/pages/AdminPickupStations";
 import AdminBannerManager from "@/pages/AdminBannerManager";
 import AdminHeroBanners from "@/pages/AdminHeroBanners";
 import AdminPromotions from "@/pages/AdminPromotions";
@@ -48,6 +50,7 @@ import AdminSellersPayouts from "@/pages/AdminSellersPayouts";
 import AdminRiderPayouts from "@/pages/AdminRiderPayouts";
 import AdminProducts from "@/pages/AdminProducts";
 import AdminOrders from "@/pages/AdminOrders";
+import AdminOrderActionPage from "@/pages/AdminOrderActionPage";
 import AdminUsers from "@/pages/AdminUsers";
 import AdminSellers from "@/pages/AdminSellers";
 import AdminRiders from "@/pages/AdminRiders";
@@ -59,6 +62,7 @@ import AdminMediaLibrary from "@/pages/AdminMediaLibrary";
 import AdminNotifications from "@/pages/AdminNotifications";
 import SellerMediaLibrary from "@/pages/SellerMediaLibrary";
 import SellerProducts from "@/pages/SellerProducts";
+import SellerCategories from "@/pages/SellerCategories";
 import SellerOrders from "@/pages/SellerOrders";
 import SellerCoupons from "@/pages/SellerCoupons";
 import SellerPromotions from "@/pages/SellerPromotions";
@@ -90,6 +94,8 @@ import AdminUserCreate from "@/pages/AdminUserCreate";
 import RiderEdit from "@/pages/RiderEdit";
 import RiderDetailsPage from "@/pages/RiderDetailsPage";
 import SellerDetailsPage from "@/pages/SellerDetailsPage";
+import BuyerDetailsPage from "@/pages/BuyerDetailsPage";
+import StoreDetailsPage from "@/pages/StoreDetailsPage";
 import AdminApplications from "@/pages/AdminApplications";
 import AdminProductEdit from "@/pages/AdminProductEdit";
 import AdminProductCreate from "@/pages/AdminProductCreate";
@@ -97,6 +103,70 @@ import SuperAdminPermissions from "@/pages/SuperAdminPermissions";
 import DynamicPage from "@/pages/DynamicPage";
 import TrackOrder from "@/pages/TrackOrder";
 import EReceipt from "@/pages/EReceipt";
+import { Loader2 } from "lucide-react";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+
+function RouteGateLoader() {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+}
+
+function withExternalRiderRouteGuard(Component: React.ComponentType) {
+  return function GuardedExternalRiderRoute() {
+    const [, navigate] = useLocation();
+    const { isExternalRiderSystemEnabled, hasResolvedSettings } = usePlatformSettings();
+
+    React.useEffect(() => {
+      if (hasResolvedSettings && isExternalRiderSystemEnabled) {
+        navigate("/");
+      }
+    }, [hasResolvedSettings, isExternalRiderSystemEnabled, navigate]);
+
+    if (!hasResolvedSettings || isExternalRiderSystemEnabled) {
+      return <RouteGateLoader />;
+    }
+
+    return <Component />;
+  };
+}
+
+function withAdminExternalRiderFeatureGuard(Component: React.ComponentType) {
+  return function GuardedAdminExternalRiderFeatureRoute() {
+    const [, navigate] = useLocation();
+    const { isExternalRiderSystemEnabled, hasResolvedSettings } = usePlatformSettings();
+
+    React.useEffect(() => {
+      if (hasResolvedSettings && isExternalRiderSystemEnabled) {
+        navigate("/admin");
+      }
+    }, [hasResolvedSettings, isExternalRiderSystemEnabled, navigate]);
+
+    if (!hasResolvedSettings || isExternalRiderSystemEnabled) {
+      return <RouteGateLoader />;
+    }
+
+    return <Component />;
+  };
+}
+
+const GuardedRiderDashboard = withExternalRiderRouteGuard(RiderDashboard);
+const GuardedRiderDeliveries = withExternalRiderRouteGuard(RiderDeliveries);
+const GuardedRiderActiveRoute = withExternalRiderRouteGuard(RiderActiveRoute);
+const GuardedRiderNotifications = withExternalRiderRouteGuard(RiderNotifications);
+const GuardedRiderMessages = withExternalRiderRouteGuard(RiderMessages);
+const GuardedRiderEarnings = withExternalRiderRouteGuard(RiderEarnings);
+const GuardedRiderSettings = withExternalRiderRouteGuard(RiderSettings);
+const GuardedBecomeRiderPage = withExternalRiderRouteGuard(BecomeRiderPage);
+const GuardedAdminRiderPayouts = withAdminExternalRiderFeatureGuard(AdminRiderPayouts);
+const GuardedAdminRiders = withAdminExternalRiderFeatureGuard(AdminRiders);
+const GuardedRiderEdit = withAdminExternalRiderFeatureGuard(RiderEdit);
+const GuardedRiderDetailsPage = withAdminExternalRiderFeatureGuard(RiderDetailsPage);
+const GuardedAdminManualRiderAssignment = withAdminExternalRiderFeatureGuard(AdminManualRiderAssignment);
+const GuardedAdminDeliveryTracking = withAdminExternalRiderFeatureGuard(AdminDeliveryTracking);
+const GuardedAdminDeliveryZones = withAdminExternalRiderFeatureGuard(AdminDeliveryZones);
 
 function RouteScrollManager() {
   const [location] = useLocation();
@@ -159,17 +229,19 @@ function Router() {
       <Route path="/orders" component={Orders} />
       <Route path="/support" component={CustomerSupport} />
       <Route path="/become-seller" component={BecomeSellerPage} />
-      <Route path="/become-rider" component={BecomeRiderPage} />
+      <Route path="/become-rider" component={GuardedBecomeRiderPage} />
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/admin/stores" component={AdminStoresList} />
+      <Route path="/admin/stores/:id" component={StoreDetailsPage} />
       <Route path="/admin/store" component={AdminStoreManager} />
       <Route path="/admin/settings" component={AdminSettings} />
       <Route path="/admin/sellers-payouts" component={AdminSellersPayouts} />
-      <Route path="/admin/riders-payouts" component={AdminRiderPayouts} />
+      <Route path="/admin/riders-payouts" component={GuardedAdminRiderPayouts} />
       <Route path="/admin/branding" component={AdminBranding} />
-      <Route path="/admin/delivery-tracking" component={AdminDeliveryTracking} />
-      <Route path="/admin/zones" component={AdminDeliveryZones} />
-      <Route path="/admin/delivery-zones" component={AdminDeliveryZones} />
+      <Route path="/admin/delivery-tracking" component={GuardedAdminDeliveryTracking} />
+      <Route path="/admin/zones" component={GuardedAdminDeliveryZones} />
+      <Route path="/admin/delivery-zones" component={GuardedAdminDeliveryZones} />
+      <Route path="/admin/pickup-stations" component={AdminPickupStations} />
       <Route path="/admin/banners" component={AdminBannerManager} />
       <Route path="/admin/hero-banners" component={AdminHeroBanners} />
       <Route path="/admin/promotions" component={AdminPromotions} />
@@ -180,16 +252,18 @@ function Router() {
       <Route path="/admin/products/create" component={AdminProductCreate} />
       <Route path="/admin/products/:id/edit" component={AdminProductEdit} />
       <Route path="/admin/products" component={AdminProducts} />
+      <Route path="/admin/orders/:id/action" component={AdminOrderActionPage} />
       <Route path="/admin/orders" component={AdminOrders} />
       <Route path="/admin/users/create" component={AdminUserCreate} />
       <Route path="/admin/users/:id/edit" component={AdminUserEdit} />
+      <Route path="/admin/users/:id" component={BuyerDetailsPage} />
       <Route path="/admin/users" component={AdminUsers} />
       <Route path="/admin/sellers" component={AdminSellers} />
-      <Route path="/admin/riders/:id/edit" component={RiderEdit} />
-      <Route path="/admin/riders/:id" component={RiderDetailsPage} />
-      <Route path="/admin/riders" component={AdminRiders} />
+      <Route path="/admin/riders/:id/edit" component={GuardedRiderEdit} />
+      <Route path="/admin/riders/:id" component={GuardedRiderDetailsPage} />
+      <Route path="/admin/riders" component={GuardedAdminRiders} />
       <Route path="/admin/sellers/:id" component={SellerDetailsPage} />
-      <Route path="/admin/manual-rider-assignment" component={AdminManualRiderAssignment} />
+      <Route path="/admin/manual-rider-assignment" component={GuardedAdminManualRiderAssignment} />
       <Route path="/admin/agents" component={AdminAgents} />
       <Route path="/admin/applications" component={AdminApplications} />
       <Route path="/admin/permissions" component={SuperAdminPermissions} />
@@ -198,6 +272,7 @@ function Router() {
       <Route path="/admin/analytics" component={AdminAnalytics} />
       <Route path="/admin/notifications" component={AdminNotifications} />
       <Route path="/seller/products" component={SellerProducts} />
+      <Route path="/seller/categories" component={SellerCategories} />
       <Route path="/seller/media-library" component={SellerMediaLibrary} />
       <Route path="/seller/orders" component={SellerOrders} />
       <Route path="/seller/coupons" component={SellerCoupons} />
@@ -212,14 +287,18 @@ function Router() {
       <Route path="/seller/settings" component={SellerSettings} />
       <Route path="/seller/payment-setup" component={SellerPaymentSetup} />
       <Route path="/seller" component={SellerDashboard} />
-      <Route path="/rider" component={RiderDashboard} />
-      <Route path="/rider/deliveries" component={RiderDeliveries} />
-      <Route path="/rider/route" component={RiderActiveRoute} />
-      <Route path="/rider/notifications" component={RiderNotifications} />
-      <Route path="/rider/messages" component={RiderMessages} />
-      <Route path="/rider/earnings" component={RiderEarnings} />
-      <Route path="/rider/settings" component={RiderSettings} />
+      <Route path="/rider" component={GuardedRiderDashboard} />
+      <Route path="/rider/deliveries" component={GuardedRiderDeliveries} />
+      <Route path="/rider/route" component={GuardedRiderActiveRoute} />
+      <Route path="/rider/notifications" component={GuardedRiderNotifications} />
+      <Route path="/rider/messages" component={GuardedRiderMessages} />
+      <Route path="/rider/earnings" component={GuardedRiderEarnings} />
+      <Route path="/rider/settings" component={GuardedRiderSettings} />
       <Route path="/buyer" component={BuyerDashboard} />
+      <Route path="/pickup-agent" component={PickupAgentDashboard} />
+      <Route path="/pickup-agent/support" component={CustomerSupport} />
+      <Route path="/pickup-agent/notifications" component={Notifications} />
+      <Route path="/pickup-agent/settings" component={Settings} />
       <Route path="/agent" component={AgentDashboard} />
       <Route path="/agent/tickets" component={CustomerSupport} />
       <Route path="/agent/messages" component={CustomerSupport} />
@@ -238,7 +317,6 @@ function Router() {
 
 function App() {
   const [isAppReady, setIsAppReady] = React.useState(false);
-  const [appInitError, setAppInitError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     // Initialize app - preload critical resources and detect backend availability
@@ -249,9 +327,12 @@ function App() {
 
     const initializeApp = async () => {
       try {
-        // Use prefetch to warm the cache and detect errors early, but don't hang forever
-        await withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] }), 5000);
-        await withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/categories"] }), 5000);
+        // Warm the cache without blocking the whole application if a request is slow.
+        await Promise.allSettled([
+          withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] }), 5000),
+          withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/public/platform-settings"] }), 5000),
+          withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/categories"] }), 5000),
+        ]);
       } catch (error: any) {
         console.warn("Preload completed with errors:", error?.message || error);
         // Fire a lightweight client log to the server (development-only). Don't block the UI on this.
@@ -274,9 +355,6 @@ function App() {
             console.debug('Client log failed to send:', (e as any)?.message || (e as any));
           }
         })();
-
-        // Surface a helpful message if the API returned HTML, timed out, or was unreachable
-        setAppInitError(error?.message || String(error));
       } finally {
         setIsAppReady(true);
       }
@@ -284,24 +362,6 @@ function App() {
 
     initializeApp();
   }, []);
-
-  // If we detected an initialization error (e.g., backend not reachable), show a helpful full-screen message
-  if (appInitError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background px-4">
-        <div className="max-w-2xl text-center">
-          <h1 className="text-2xl font-bold mb-4">Application failed to initialize</h1>
-          <p className="text-muted-foreground mb-4">{appInitError}</p>
-          <p className="mb-4">Common fixes:</p>
-          <ul className="text-left list-disc list-inside text-sm text-muted-foreground">
-            <li>Ensure the backend is running locally: <code>SESSION_SECRET=testsecret npx tsx server/index.ts</code> (http://localhost:5000)</li>
-            <li>If your frontend is served from another origin (preview), set <code>VITE_API_URL</code> to your backend: <code>VITE_API_URL=http://localhost:5000 npm run dev:frontend</code></li>
-            <li>Check the browser devtools console for the full response details.</li>
-          </ul>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <QueryClientProvider client={queryClient}>

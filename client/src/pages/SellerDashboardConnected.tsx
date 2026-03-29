@@ -10,7 +10,7 @@ import ProductCard from "@/components/ProductCard";
 import ThemeToggle from "@/components/ThemeToggle";
 import { DollarSign, Package, ShoppingBag, TrendingUp, Loader2, AlertCircle, Plus, Pencil, Trash2, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { PageLoadingState, SectionLoadingState } from "@/components/ui/loading-state";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -91,6 +92,7 @@ type CouponFormData = z.infer<typeof couponFormSchema>;
 const SELLER_NAV_ROUTES: Record<string, string> = {
   "media-library": "/seller/media-library",
   products: "/seller/products",
+  categories: "/seller/categories",
   orders: "/seller/orders",
   promotions: "/seller/promotions",
   deliveries: "/seller/deliveries",
@@ -127,12 +129,20 @@ export default function SellerDashboardConnected() {
   }, [isAuthenticated, authLoading, user, navigate]);
 
   useEffect(() => {
+    if (!authLoading && isAuthenticated && user?.role === "seller" && user?.isActive === false) {
+      navigate("/seller/messages");
+    }
+  }, [authLoading, isAuthenticated, navigate, user]);
+
+  useEffect(() => {
     // Update activeItem based on current route
     const path = location;
     if (path === "/seller" || path === "/seller/") {
       setActiveItem("dashboard");
     } else if (path.includes("/seller/products")) {
       setActiveItem("products");
+    } else if (path.includes("/seller/categories")) {
+      setActiveItem("categories");
     } else if (path.includes("/seller/orders")) {
       setActiveItem("orders");
     } else if (path.includes("/seller/promotions")) {
@@ -173,6 +183,9 @@ export default function SellerDashboardConnected() {
         break;
       case "products":
         navigate("/seller/products");
+        break;
+      case "categories":
+        navigate("/seller/categories");
         break;
       case "orders":
         navigate("/seller/orders");
@@ -449,11 +462,11 @@ export default function SellerDashboardConnected() {
   };
 
   if (authLoading || !isAuthenticated || user?.role !== "seller") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-seller" />
-      </div>
-    );
+    return <PageLoadingState title="Loading seller dashboard" description="Preparing your store performance, orders, and tools." />;
+  }
+
+  if (user?.isActive === false) {
+    return <PageLoadingState title="Checking seller access" description="Confirming your store status and dashboard availability." />;
   }
 
   const safeProducts = Array.isArray(products) ? products : [];
@@ -504,7 +517,7 @@ export default function SellerDashboardConnected() {
                       Payment Setup Required
                     </h3>
                     <p className="text-sm text-amber-800 dark:text-amber-200 mb-3">
-                      Set up your bank account to receive payments from your sales. This is required to start receiving earnings.
+                      Set up your payout method to receive payments from your sales. You can use either bank account or mobile money.
                     </p>
                     <Button 
                       size="sm"
@@ -581,6 +594,35 @@ export default function SellerDashboardConnected() {
                     />
                   </div>
                 )}
+
+                <Card className="border-border/70 bg-card shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">How Payment and Settlement Charges Work</CardTitle>
+                    <CardDescription>
+                      Checkout processing, platform commission, and seller payout costs are tracked separately.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+                      <p className="text-sm font-medium">Processing Fee</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        The checkout processing fee only covers the exact Paystack checkout charge passed to the customer. It is not seller commission.
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+                      <p className="text-sm font-medium">Platform Commission</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Platform commission is deducted only from merchandise subtotal after coupon discount and before seller settlement.
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+                      <p className="text-sm font-medium">Payout Transfer Cost</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Paystack payout costs are tracked separately from checkout fees. Reference payout costs are GHS 1 for mobile money and GHS 8 for bank transfers.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
 
                 <div>
                   <div className="flex items-center justify-between mb-4">
@@ -824,9 +866,7 @@ export default function SellerDashboardConnected() {
                 </CardHeader>
                 <CardContent>
                   {couponsLoading ? (
-                    <div className="flex justify-center p-8">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    </div>
+                    <SectionLoadingState title="Loading coupons" description="Fetching your latest coupon campaigns." lines={3} className="border-0 shadow-none" />
                   ) : safeCoupons.length > 0 ? (
                     <div className="rounded-md border">
                       <Table>

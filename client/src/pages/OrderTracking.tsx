@@ -17,6 +17,8 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { io, Socket } from "socket.io-client";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { PageLoadingState } from "@/components/ui/loading-state";
 
 interface Order {
   id: string;
@@ -29,12 +31,23 @@ interface Order {
   deliveryPhone: string;
   deliveryLatitude?: string;
   deliveryLongitude?: string;
+  externalDeliveryType?: string | null;
+  externalDeliveryByBus?: boolean;
   qrCode: string;
   deliveryOtp?: string | null;
   pickupOtp?: string | null;
   busDeliveryWorkflow?: {
     stage?: string;
     proofSubmitted?: boolean;
+  } | null;
+  pickupStationInfo?: {
+    id?: string | null;
+    name?: string | null;
+    city?: string | null;
+    region?: string | null;
+    locationLabel?: string | null;
+    pickupAgentName?: string | null;
+    pickupAgentPhone?: string | null;
   } | null;
   createdAt: string;
   deliveredAt?: string;
@@ -53,6 +66,7 @@ export default function OrderTracking() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const { formatPrice } = useLanguage();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const searchParams = new URLSearchParams(location.split("?")[1] || "");
   const requestedOrderId = searchParams.get("orderId");
   const [searchQuery, setSearchQuery] = useState("");
@@ -65,13 +79,32 @@ export default function OrderTracking() {
     if (s === "ready_for_pickup") return "ready";
     if (s === "assigned_to_rider") return "assigned";
     if (s === "out_for_delivery" || s === "delivering") return "en_route";
+    if (s === "external_dispatch_arranged") return "processing";
+    if (isExternalRiderSystemEnabled && (s === "rider_arrived" || s === "delivered")) return "completed";
     return s || "pending";
   };
   const normalizeDeliveryMethod = (value?: string) => (value || "").toLowerCase().trim();
+  const isPickupMethod = (value?: string) => {
+    const method = normalizeDeliveryMethod(value);
+    return method === "pickup" || method === "store_pickup" || method === "store pickup";
+  };
   const getBusStage = (order?: Order | null) => String(order?.busDeliveryWorkflow?.stage || "").toUpperCase();
+  const getFulfillmentLabel = (order: Order) => {
+    const method = normalizeDeliveryMethod(order.deliveryMethod);
+    if (isPickupMethod(order.deliveryMethod)) return "Pickup";
+    if (!isExternalRiderSystemEnabled) {
+      if (method === "bus") return "Bus Delivery";
+      if (method === "rider") return "Rider Delivery";
+      return order.deliveryMethod || "Delivery";
+    }
+    if (String(order.externalDeliveryType || "").toLowerCase().trim() === "bus" || order.externalDeliveryByBus || method === "bus") {
+      return "VIP Bus Delivery";
+    }
+    return "Third-Party Delivery";
+  };
   const toCustomerStatus = (value?: string, deliveryMethod?: string) => {
     const s = normalizeStatus(value);
-    const isPickup = normalizeDeliveryMethod(deliveryMethod) === "pickup";
+    const isPickup = isPickupMethod(deliveryMethod);
     const isBus = normalizeDeliveryMethod(deliveryMethod) === "bus";
     if (["pending"].includes(s)) return "pending";
     if (isBus) {
@@ -86,9 +119,11 @@ export default function OrderTracking() {
       return "pending";
     }
     if (isPickup) {
-      if (["searching_rider", "confirmed", "ready", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
+      if (s === "packaged") return "packaged";
+      if (["searching_rider", "confirmed", "processing", "assigned", "rider_arrived"].includes(s)) return "processing";
+      if (s === "ready") return "en_route";
       if (["picked_up", "in_transit", "en_route"].includes(s)) return "processing";
-      if (["delivered", "completed"].includes(s)) return "delivered";
+      if (["delivered", "completed"].includes(s)) return "completed";
       if (["cancelled", "disputed"].includes(s)) return s;
       return "pending";
     }
@@ -100,17 +135,21 @@ export default function OrderTracking() {
   };
   const toCustomerStatusLabel = (value?: string, deliveryMethod?: string) => {
     const s = toCustomerStatus(value, deliveryMethod);
-    const isPickup = normalizeDeliveryMethod(deliveryMethod) === "pickup";
+    const isPickup = isPickupMethod(deliveryMethod);
     const isBus = normalizeDeliveryMethod(deliveryMethod) === "bus";
     switch (s) {
       case "pending":
         return "Pending";
       case "processing":
         return isPickup ? "Preparing Order" : isBus ? "Preparing BUS Handoff" : "Preparing Delivery";
+      case "packaged":
+        return "Packaged";
       case "en_route":
         return isPickup ? "Ready for Pickup" : isBus ? "In Transit (Bus)" : "On the Way";
+      case "completed":
+        return "Completed";
       case "delivered":
-        return "Delivered";
+        return isPickup ? "Completed" : !isPickup && isExternalRiderSystemEnabled ? "Completed" : "Delivered";
       case "cancelled":
         return "Cancelled";
       case "disputed":
@@ -154,39 +193,39 @@ export default function OrderTracking() {
     });
 
     // Listen for real-time rider location updates
-    socket.on("rider_location_updated", (data: { orderId: string; orderNumber: string; latitude: string; longitude: string; timestamp: string }) => {
-      console.log("Rider location updated:", data);
-      
-      const lat = parseFloat(data.latitude);
-      const lng = parseFloat(data.longitude);
-      
-      // Only update if coordinates are valid
-      if (!isNaN(lat) && !isNaN(lng)) {
-        setRiderLocations(prev => {
-          const updated = new Map(prev);
-          updated.set(data.orderId, {
-            orderId: data.orderId,
-            latitude: lat,
-            longitude: lng,
-            timestamp: data.timestamp,
-          });
-          return updated;
-        });
+    if (!isExternalRiderSystemEnabled) {
+      socket.on("rider_location_updated", (data: { orderId: string; orderNumber: string; latitude: string; longitude: string; timestamp: string }) => {
+        console.log("Rider location updated:", data);
         
-        // Show toast notification
-        toast({
-          title: "Rider Location Updated",
-          description: `Delivery rider for Order #${data.orderNumber} is on the move`,
-        });
-      }
-    });
+        const lat = parseFloat(data.latitude);
+        const lng = parseFloat(data.longitude);
+        
+        if (!isNaN(lat) && !isNaN(lng)) {
+          setRiderLocations(prev => {
+            const updated = new Map(prev);
+            updated.set(data.orderId, {
+              orderId: data.orderId,
+              latitude: lat,
+              longitude: lng,
+              timestamp: data.timestamp,
+            });
+            return updated;
+          });
+          
+          toast({
+            title: "Delivery Location Updated",
+            description: `Order #${data.orderNumber} delivery progress has been updated`,
+          });
+        }
+      });
+    }
 
     socketRef.current = socket;
 
     return () => {
       socket.disconnect();
     };
-  }, [user?.id, toast]);
+  }, [isExternalRiderSystemEnabled, user?.id, toast]);
 
   const { data: orders = [], isLoading, error } = useQuery<Order[]>({
     queryKey: ["/api/orders"],
@@ -195,7 +234,7 @@ export default function OrderTracking() {
 
   // Fetch initial rider locations for orders out for delivery
   useEffect(() => {
-    if (!orders || orders.length === 0) return;
+    if (isExternalRiderSystemEnabled || !orders || orders.length === 0) return;
 
     const fetchRiderLocations = async () => {
       const liveTrackingStatuses = new Set(["in_transit", "en_route"]);
@@ -236,7 +275,7 @@ export default function OrderTracking() {
     };
 
     fetchRiderLocations();
-  }, [orders]);
+  }, [isExternalRiderSystemEnabled, orders]);
 
   // Filter orders based on search and status
   const filteredOrders = orders.filter((order) => {
@@ -260,11 +299,7 @@ export default function OrderTracking() {
   const hasOrders = orders.length > 0;
 
   if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-auth" />
-      </div>
-    );
+    return <PageLoadingState title="Loading order tracking" description="Preparing your account and recent order activity." />;
   }
 
   if (!user) {
@@ -272,11 +307,7 @@ export default function OrderTracking() {
   }
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" data-testid="loader-orders" />
-      </div>
-    );
+    return <PageLoadingState title="Loading orders" description="Fetching the latest tracking updates for your orders." />;
   }
 
   if (error) {
@@ -336,7 +367,7 @@ export default function OrderTracking() {
                           <SelectItem value="pending">Pending</SelectItem>
                           <SelectItem value="processing">Preparing Delivery</SelectItem>
                           <SelectItem value="en_route">On the Way</SelectItem>
-                          <SelectItem value="delivered">Delivered</SelectItem>
+                          <SelectItem value="delivered">Delivered / Completed</SelectItem>
                           <SelectItem value="cancelled">Cancelled</SelectItem>
                         <SelectItem value="disputed">Disputed</SelectItem>
                       </SelectContent>
@@ -380,8 +411,17 @@ export default function OrderTracking() {
                 <div className="space-y-6">
                   {filteredOrders.map((order) => (
                     (() => {
-                      const isPickup = normalizeDeliveryMethod(order.deliveryMethod) === "pickup";
-                      const isBus = normalizeDeliveryMethod(order.deliveryMethod) === "bus";
+                      const isPickup = isPickupMethod(order.deliveryMethod);
+                      const isBus =
+                        normalizeDeliveryMethod(order.deliveryMethod) === "bus" ||
+                        (isExternalRiderSystemEnabled &&
+                          (String(order.externalDeliveryType || "").toLowerCase().trim() === "bus" || order.externalDeliveryByBus));
+                      const isManualExternalDelivery =
+                        isExternalRiderSystemEnabled &&
+                        !isPickup &&
+                        (String(order.externalDeliveryType || "").toLowerCase().trim() === "third_party" ||
+                          String(order.externalDeliveryType || "").toLowerCase().trim() === "bus" ||
+                          order.externalDeliveryByBus);
                       const busStage = getBusStage(order);
                       const statusForDisplay = isBus ? toCustomerStatus(order.status, order.deliveryMethod) : order.status;
                       const resolvedOtp = isPickup
@@ -421,20 +461,31 @@ export default function OrderTracking() {
                           <div>
                             <p className="text-sm text-muted-foreground">Fulfillment Method</p>
                             <p className="font-medium capitalize" data-testid={`text-fulfillment-${order.id}`}>
-                              {order.deliveryMethod || "pickup"}
+                              {getFulfillmentLabel(order)}
                             </p>
                             {isBus && (
                               <p className="text-xs text-muted-foreground mt-1">
                                 BUS Stage: <span className="font-medium text-foreground">{busStage || "READY"}</span>
                               </p>
                             )}
-                            {normalizeDeliveryMethod(order.deliveryMethod) !== "pickup" && (
+                            {!isPickupMethod(order.deliveryMethod) && (
                               <>
                                 <p className="text-sm text-muted-foreground mt-2">Delivery Address</p>
                                 <p className="font-medium" data-testid={`text-address-${order.id}`}>
                                   {order.deliveryAddress}
                                 </p>
                                 <p className="text-sm">{order.deliveryCity}</p>
+                              </>
+                            )}
+                            {isPickupMethod(order.deliveryMethod) && order.pickupStationInfo?.locationLabel && (
+                              <>
+                                <p className="text-sm text-muted-foreground mt-2">Pickup Station</p>
+                                <p className="font-medium">{order.pickupStationInfo.locationLabel}</p>
+                                {order.pickupStationInfo.pickupAgentPhone && (
+                                  <p className="text-sm text-muted-foreground">
+                                    Contact {order.pickupStationInfo.pickupAgentName || "Pickup Agent"}: {order.pickupStationInfo.pickupAgentPhone}
+                                  </p>
+                                )}
                               </>
                             )}
                           </div>
@@ -459,7 +510,8 @@ export default function OrderTracking() {
                         </div>
 
                         {/* Live Delivery Map for in-transit deliveries */}
-                        {normalizeDeliveryMethod(order.deliveryMethod) === "rider" &&
+                        {!isExternalRiderSystemEnabled &&
+                         normalizeDeliveryMethod(order.deliveryMethod) === "rider" &&
                          ["in_transit", "en_route"].includes(normalizeStatus(order.status)) && order.deliveryLatitude != null && order.deliveryLongitude != null && 
                          !isNaN(parseFloat(order.deliveryLatitude)) && !isNaN(parseFloat(order.deliveryLongitude)) && (
                           <div className="pt-4 border-t space-y-4">
@@ -489,10 +541,10 @@ export default function OrderTracking() {
                         )}
 
                         {/* Verification Codes */}
-                        {!isBus && order.status !== "cancelled" && (order.qrCode || resolvedOtp) && (
+                        {!isBus && !isManualExternalDelivery && order.status !== "cancelled" && (order.qrCode || resolvedOtp) && (
                           <div className="pt-4 border-t">
                             <p className="text-sm font-medium mb-3">
-                              {normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
+                              {isPickupMethod(order.deliveryMethod)
                                 ? "Pickup Verification QR Code"
                                 : "Delivery Confirmation QR Code"}
                             </p>
@@ -503,11 +555,13 @@ export default function OrderTracking() {
                                     <QRCodeDisplay
                                       value={order.qrCode}
                                       title=""
-                                      description={
-                                        normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
-                                          ? "Show this QR code to the pickup station agent when collecting your order"
-                                          : "Show this QR code to the delivery rider to confirm receipt"
-                                      }
+                                        description={
+                                          isPickupMethod(order.deliveryMethod)
+                                            ? "Show this QR code to the pickup station agent when collecting your order"
+                                            : isExternalRiderSystemEnabled
+                                              ? "Show this QR code to the delivery contact handling your order confirmation"
+                                              : "Show this QR code to the delivery rider to confirm receipt"
+                                        }
                                     />
                                     <p className="text-xs text-muted-foreground mt-2" data-testid={`text-qr-value-${order.id}`}>
                                       {order.qrCode}
@@ -522,9 +576,11 @@ export default function OrderTracking() {
                                   </p>
                                 )}
                                 <p className="text-xs text-muted-foreground mt-3 max-w-md">
-                                  {normalizeDeliveryMethod(order.deliveryMethod) === "pickup"
+                                  {isPickupMethod(order.deliveryMethod)
                                     ? "At store pickup, present either this QR code or your Pickup OTP to the pickup station agent for confirmation."
-                                    : "At delivery, show either this QR code or your Delivery OTP to the rider to confirm receipt."}
+                                    : isExternalRiderSystemEnabled
+                                      ? "At delivery, present either this QR code or your Delivery OTP to the delivery contact handling the handoff."
+                                      : "At delivery, show either this QR code or your Delivery OTP to the rider to confirm receipt."}
                                 </p>
                               </div>
                             </div>

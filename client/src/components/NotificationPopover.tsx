@@ -179,6 +179,8 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
         ? "/seller"
         : user?.role === "rider"
           ? "/rider"
+          : user?.role === "pickup_agent"
+            ? "/pickup-agent"
           : "";
 
     if (metadata?.link) {
@@ -186,16 +188,41 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
       return;
     }
 
+    if (metadata?.promotionApplicationId) {
+      if (isAdmin) {
+        navigate(`/admin/applications?tab=promotions&promotionId=${metadata.promotionApplicationId}`);
+        return;
+      }
+      if (user?.role === "seller") {
+        navigate(`/seller/promotions?applicationId=${metadata.promotionApplicationId}`);
+        return;
+      }
+    }
+
     switch (notification.type) {
       case "order":
         if (isBuyer) {
           navigate(metadata?.orderId ? `/track?orderId=${metadata.orderId}` : "/orders");
+        } else if ((user?.role === "admin" || user?.role === "super_admin") && metadata?.orderId) {
+          navigate(`/admin/orders/${metadata.orderId}/action`);
+        } else if (user?.role === "seller" && metadata?.orderId) {
+          navigate(`/seller/orders?orderId=${metadata.orderId}`);
+        } else if (user?.role === "rider" && metadata?.orderId) {
+          navigate(`/rider/deliveries?orderId=${metadata.orderId}`);
+        } else if (user?.role === "pickup_agent" && metadata?.orderId) {
+          navigate(`/pickup-agent?orderId=${metadata.orderId}`);
         } else {
           navigate(`${rolePrefix}/orders`);
         }
         break;
       case "product":
-        if (isBuyer && metadata?.productId) {
+        if ((user?.role === "admin" || user?.role === "super_admin") && metadata?.productId) {
+          navigate(`/admin/products/${metadata.productId}/edit`);
+        } else if (user?.role === "seller" && metadata?.productId) {
+          navigate(`/seller/products?productId=${metadata.productId}`);
+        } else if (metadata?.promotionApplicationId && (user?.role === "admin" || user?.role === "super_admin")) {
+          navigate(`/admin/applications?tab=promotions&promotionId=${metadata.promotionApplicationId}`);
+        } else if (isBuyer && metadata?.productId) {
           navigate(`/product/${metadata.productId}`);
         } else if (isBuyer) {
           navigate("/products");
@@ -204,9 +231,11 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
         }
         break;
       case "user":
-        if (isAdmin) {
+        if (metadata?.promotionApplicationId && isAdmin) {
+          navigate(`/admin/applications?tab=promotions&promotionId=${metadata.promotionApplicationId}`);
+        } else if (isAdmin) {
           const role = String(metadata?.role || "").toLowerCase();
-          if ((role === "seller" || role === "rider") && metadata?.userId) {
+          if ((role === "seller" || role === "rider" || role === "pickup_agent") && metadata?.userId) {
             navigate(`/admin/applications?userId=${metadata.userId}&role=${role}`);
           } else {
             navigate("/admin/users");

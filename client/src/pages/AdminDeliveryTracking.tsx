@@ -4,10 +4,13 @@ import { useAuth } from "@/lib/auth";
 import DashboardLayout from "@/components/DashboardLayout";
 import RealTimeRiderMap from "@/components/RealTimeRiderMap";
 import { Loader2 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 export default function AdminDeliveryTracking() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isExternalRiderSystemEnabled, isLoading: settingsLoading } = usePlatformSettings();
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== "super_admin")) {
@@ -15,7 +18,7 @@ export default function AdminDeliveryTracking() {
     }
   }, [isAuthenticated, authLoading, user, navigate]);
 
-  if (authLoading || !isAuthenticated || user?.role !== "super_admin") {
+  if (authLoading || settingsLoading || !isAuthenticated || user?.role !== "super_admin") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -31,11 +34,25 @@ export default function AdminDeliveryTracking() {
             Live Delivery Tracking
           </h1>
           <p className="text-muted-foreground mt-1">
-            Monitor all active deliveries in real-time
+            {isExternalRiderSystemEnabled
+              ? "This map is disabled because the External Rider System is active"
+              : "Monitor all active deliveries in real-time"}
           </p>
         </div>
 
-        <RealTimeRiderMap forceMapboxGl />
+        {isExternalRiderSystemEnabled ? (
+          <Card className="border-dashed border-border/70 bg-card/80">
+            <CardContent className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-center">
+              <h2 className="text-2xl font-semibold">Live Map Disabled</h2>
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                The External Rider System is enabled, so the built-in rider live map is unavailable on this page.
+                Turn the feature off in Platform Settings to restore internal delivery tracking.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <RealTimeRiderMap forceMapboxGl />
+        )}
       </div>
     </DashboardLayout>
   );

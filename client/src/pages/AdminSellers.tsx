@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Search, Store, Edit, Ban, ArrowLeft, Plus, CheckCircle, XCircle, ShieldCheck, Clock, ExternalLink, Eye, CreditCard, User, MapPin, Tag, ZoomIn, ZoomOut, RotateCw } from "lucide-react";
+import { Loader2, Search, Store, Edit, Ban, ArrowLeft, Plus, CheckCircle, XCircle, ShieldCheck, Clock, ExternalLink, Eye, CreditCard, User, MapPin, Tag, ZoomIn, ZoomOut, RotateCw, Package, ShoppingBag } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
@@ -1273,11 +1273,15 @@ function ApproveRejectDialog({ sellerData }: { sellerData: SellerData }) {
 
 function BanActivateDialog({ sellerData }: { sellerData: SellerData }) {
   const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
   const { toast } = useToast();
 
   const toggleStatusMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("PATCH", `/api/users/${sellerData.id}/status`, { isActive: !sellerData.isActive });
+    mutationFn: async (reasonText: string) => {
+      return apiRequest("PATCH", `/api/users/${sellerData.id}/status`, {
+        isActive: !sellerData.isActive,
+        reason: sellerData.isActive ? reasonText : undefined,
+      });
     },
     onSuccess: () => {
       toast({
@@ -1285,6 +1289,7 @@ function BanActivateDialog({ sellerData }: { sellerData: SellerData }) {
         description: `Seller ${sellerData.isActive ? 'deactivated' : 'activated'} successfully`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setReason("");
       setOpen(false);
     },
     onError: (error: any) => {
@@ -1297,7 +1302,15 @@ function BanActivateDialog({ sellerData }: { sellerData: SellerData }) {
   });
 
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setReason("");
+        }
+      }}
+    >
       <AlertDialogTrigger asChild>
         <Button 
           variant="ghost" 
@@ -1312,23 +1325,36 @@ function BanActivateDialog({ sellerData }: { sellerData: SellerData }) {
           <AlertDialogTitle>
             {sellerData.isActive ? 'Deactivate' : 'Activate'} Seller?
           </AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to {sellerData.isActive ? 'deactivate' : 'activate'} {sellerData.name}? 
-            {sellerData.isActive && ' This will prevent them from accessing their account and managing their store.'}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
+        <AlertDialogDescription>
+          Are you sure you want to {sellerData.isActive ? 'deactivate' : 'activate'} {sellerData.name}? 
+          {sellerData.isActive && ' This will prevent them from accessing their account and managing their store.'}
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      {sellerData.isActive ? (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Reason for deactivation</label>
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Explain why this seller account is being deactivated..."
+            rows={4}
+          />
+        </div>
+      ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel data-testid="button-cancel-ban">Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => toggleStatusMutation.mutate()}
-            disabled={toggleStatusMutation.isPending}
-            data-testid="button-confirm-ban"
-          >
+        <Button
+          type="button"
+          onClick={() => toggleStatusMutation.mutate(reason.trim())}
+          disabled={toggleStatusMutation.isPending || (sellerData.isActive && !reason.trim())}
+          data-testid="button-confirm-ban"
+          variant="default"
+        >
             {toggleStatusMutation.isPending && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
             {sellerData.isActive ? 'Deactivate' : 'Activate'}
-          </AlertDialogAction>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -1378,6 +1404,34 @@ export default function AdminSellers() {
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
+  const { data: sellerProducts = [] } = useQuery<Array<{ id: string; sellerId?: string | null }>>({
+    queryKey: ["/api/products", "admin-seller-stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/products", { credentials: "include" });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load products");
+      }
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+  });
+
+  const { data: sellerOrders = [] } = useQuery<Array<{ id: string; sellerId?: string | null }>>({
+    queryKey: ["/api/orders", "admin-seller-stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/orders", { credentials: "include" });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load orders");
+      }
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+  });
+
   // All sellers (exclude rejected application records from management lists)
   const allSellers = (Array.isArray(users) ? users : []).filter((u) => {
     if (u.role !== "seller") return false;
@@ -1404,6 +1458,18 @@ export default function AdminSellers() {
   // Create quick-lookup maps by sellerId
   const sellerToStoreMap = new Map(stores.map(store => [store.primarySellerId, store.id]));
   const sellerStoreDetailsMap = new Map(stores.map((store) => [store.primarySellerId, store]));
+  const sellerProductCountMap = new Map<string, number>();
+  for (const product of sellerProducts) {
+    const sellerId = product?.sellerId;
+    if (!sellerId) continue;
+    sellerProductCountMap.set(sellerId, (sellerProductCountMap.get(sellerId) || 0) + 1);
+  }
+  const sellerOrderCountMap = new Map<string, number>();
+  for (const order of sellerOrders) {
+    const sellerId = order?.sellerId;
+    if (!sellerId) continue;
+    sellerOrderCountMap.set(sellerId, (sellerOrderCountMap.get(sellerId) || 0) + 1);
+  }
   
   const filteredSellers = sellers.filter(s => 
     (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
@@ -1469,47 +1535,96 @@ export default function AdminSellers() {
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             ) : (
-              <div className="grid gap-4">
-                {filteredSellers.map((seller) => (
-                <Card key={seller.id} className="p-4" data-testid={`card-seller-${seller.id}`}>
-                  <div className="flex items-start gap-4">
-                    <div className="bg-primary/10 p-0 rounded-full w-12 h-12 overflow-hidden flex items-center justify-center">
-                      {(() => {
-                        const linkedStore = sellerStoreDetailsMap.get(seller.id);
-                        const linkedStoreLogo =
-                          linkedStore?.logo && linkedStore.logo !== linkedStore?.banner
-                            ? linkedStore.logo
-                            : null;
-                        const sellerImage =
-                          seller.profileImage ||
-                          linkedStoreLogo ||
-                          null;
-                        if (sellerImage) {
-                          return (
-                            <img
-                              src={sellerImage}
-                              alt={`${seller.name} profile`}
-                              className="h-full w-full object-cover"
-                              onError={(event) => {
-                                event.currentTarget.style.display = "none";
-                              }}
-                            />
-                          );
-                        }
-                        return <Store className="h-6 w-6 text-primary" />;
-                      })()}
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                {filteredSellers.map((seller) => {
+                  const linkedStore = sellerStoreDetailsMap.get(seller.id);
+                  const linkedStoreLogo =
+                    linkedStore?.logo && linkedStore.logo !== linkedStore?.banner
+                      ? linkedStore.logo
+                      : null;
+                  const sellerImage = seller.profileImage || linkedStoreLogo || null;
+                  const sellerBanner = seller.storeBanner || linkedStore?.banner || null;
+                  const sellerProductCount = sellerProductCountMap.get(seller.id) || 0;
+                  const sellerOrderCount = sellerOrderCountMap.get(seller.id) || 0;
+
+                  return (
+                <Card
+                  key={seller.id}
+                  className="group relative min-h-[340px] cursor-pointer overflow-hidden border-border/60 bg-card/95 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:shadow-2xl"
+                  data-testid={`card-seller-${seller.id}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/admin/sellers/${seller.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/admin/sellers/${seller.id}`);
+                    }
+                  }}
+                >
+                  <div className="absolute inset-x-0 top-0 h-28 overflow-hidden">
+                    {sellerBanner ? (
+                      <img
+                        src={sellerBanner}
+                        alt={`${seller.storeName || seller.name} banner`}
+                        className="h-full w-full object-cover"
+                        onError={(event) => {
+                          event.currentTarget.style.display = "none";
+                        }}
+                      />
+                    ) : null}
+                    <div className="absolute inset-0 hidden dark:block dark:bg-gradient-to-r dark:from-primary/25 dark:via-background/10 dark:to-transparent" />
+                    <div className="absolute inset-0 hidden dark:block dark:bg-gradient-to-b dark:from-transparent dark:via-transparent dark:to-card" />
+                  </div>
+                  <div className="relative flex h-full flex-col p-5">
+                    <div className="absolute right-5 top-5 z-10 flex gap-1.5">
+                      <div className="min-w-[78px] rounded-[18px] border border-primary/20 bg-card/95 px-2.5 py-2 text-right shadow-sm backdrop-blur-sm">
+                        <p className="text-[8px] uppercase tracking-[0.22em] text-muted-foreground">Products</p>
+                        <div className="mt-1.5 flex items-center justify-between">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Package className="h-3.5 w-3.5" />
+                          </div>
+                          <p className="text-lg font-semibold leading-none text-foreground">{sellerProductCount}</p>
+                        </div>
+                      </div>
+                      <div className="min-w-[78px] rounded-[18px] border border-border/70 bg-card/95 px-2.5 py-2 text-right shadow-sm backdrop-blur-sm">
+                        <p className="text-[8px] uppercase tracking-[0.22em] text-muted-foreground">Orders</p>
+                        <div className="mt-1.5 flex items-center justify-between">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <ShoppingBag className="h-3.5 w-3.5" />
+                          </div>
+                          <p className="text-lg font-semibold leading-none text-foreground">{sellerOrderCount}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-1 flex-col gap-4">
+                    <div className="relative h-24">
+                      <div className="absolute bottom-0 left-0 h-20 w-20 overflow-hidden rounded-3xl border border-primary/20 bg-primary/10 shadow-sm flex items-center justify-center">
+                      {sellerImage ? (
+                        <img
+                          src={sellerImage}
+                          alt={`${seller.name} profile`}
+                          className="h-full w-full object-cover"
+                          onError={(event) => {
+                            event.currentTarget.style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <Store className="h-6 w-6 text-primary" />
+                      )}
+                      </div>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-4">
+                      <div className="flex flex-col gap-4">
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-lg truncate" data-testid={`text-name-${seller.id}`}>
+                          <h3 className="truncate text-xl font-semibold" data-testid={`text-name-${seller.id}`}>
                             {seller.name}
                           </h3>
-                          <p className="text-sm text-primary font-medium truncate" data-testid={`text-store-${seller.id}`}>
+                          <p className="mt-1 truncate text-sm font-medium text-primary" data-testid={`text-store-${seller.id}`}>
                             {seller.storeName || "No store name"}
                           </p>
                         </div>
-                        <div className="flex flex-wrap items-center justify-end gap-2 flex-shrink-0">
+                        <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-background/70 p-1.5 shadow-sm" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                           <ViewApplicationDialog sellerData={seller} />
                           <EditSellerDialog sellerData={seller} />
                           <BanActivateDialog sellerData={seller} />
@@ -1552,7 +1667,7 @@ export default function AdminSellers() {
                         </div>
                       )}
 
-                      <div className="flex items-center gap-2 mt-3">
+                      <div className="mt-auto flex items-center gap-2 pt-4">
                         {seller.isActive ? (
                           <Badge className="bg-green-500" data-testid={`badge-status-${seller.id}`}>
                             <CheckCircle className="h-3 w-3 mr-1" />
@@ -1583,8 +1698,10 @@ export default function AdminSellers() {
                       </div>
                     </div>
                   </div>
+                  </div>
                 </Card>
-              ))}
+                  );
+                })}
               
               {filteredSellers.length === 0 && (
                 <div className="text-center py-12">

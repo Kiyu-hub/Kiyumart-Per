@@ -15,8 +15,10 @@ import { Loader2, Search, Eye, Package, ArrowLeft, TrendingUp, Clock, CheckCircl
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { PageLoadingState, SectionLoadingState } from "@/components/ui/loading-state";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDistanceToNow } from "date-fns";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface Order {
   id: string;
@@ -34,6 +36,10 @@ interface Order {
   updatedAt?: string;
   deliveredAt?: string;
   deliveryMethod: string;
+  externalDeliveryByBus?: boolean;
+  externalDeliveryType?: string | null;
+  qrCode?: string | null;
+  pickupOtp?: string | null;
   deliveryAddress?: string;
   deliveryPhone?: string;
   buyer?: { id: string; name: string; email?: string; phone?: string };
@@ -64,6 +70,7 @@ interface OrderStats {
   processing: number;
   enRoute: number;
   delivered: number;
+  pickups: number;
   cancelled: number;
   totalRevenue: number;
   todayOrders: number;
@@ -86,6 +93,188 @@ const normalizePaymentStatus = (value?: string) => {
   return s || "pending";
 };
 
+const normalizeExternalOrderStatus = (value?: string) => {
+  const status = String(value || "").toLowerCase().trim();
+  if (status === "searching_rider" || status === "assigned") {
+    return "external_dispatch_arranged";
+  }
+  if (status === "rider_arrived" || status === "delivered") {
+    return "completed";
+  }
+  if (status === "external_dispatch_arranged") {
+    return "external_dispatch_arranged";
+  }
+  if (["picked_up", "in_transit", "en_route", "arrived"].includes(status)) {
+    return "en_route";
+  }
+  return status;
+};
+
+const getExternalDeliveryMethodLabel = (value?: string) => {
+  const method = String(value || "").toLowerCase().trim();
+  return method === "rider" ? "delivery" : value || "delivery";
+};
+
+const getExternalDeliveryTypeLabel = (orderLike?: { externalDeliveryType?: string | null; externalDeliveryByBus?: boolean | null }) => {
+  const normalizedType = String(orderLike?.externalDeliveryType || "").toLowerCase().trim();
+  if (normalizedType === "bus" || orderLike?.externalDeliveryByBus) {
+    return "VIP Bus Delivery";
+  }
+  if (normalizedType === "third_party") {
+    return "Third-Party Delivery (Yango, Uber, Bolt)";
+  }
+  return "Third-Party Delivery (Yango, Uber, Bolt)";
+};
+
+const normalizeOrderStatusValue = (value?: string) => (value || "").toLowerCase().trim();
+
+const isPickupOrderMethod = (value?: string) => {
+  const method = normalizeOrderStatusValue(value);
+  return method === "pickup" || method === "store_pickup" || method === "store pickup";
+};
+
+const getEffectiveOrderStatus = (order: Order, showInternalRiderFeatures: boolean) => {
+  const baseStatus = showInternalRiderFeatures
+    ? normalizeOrderStatusValue(order.status)
+    : normalizeExternalOrderStatus(order.status);
+  const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+  if (
+    paymentStatus !== "paid" &&
+    !["completed", "delivered", "cancelled", "refunded"].includes(baseStatus)
+  ) {
+    return "pending";
+  }
+  return baseStatus;
+};
+
+const getAllowedAdminStatusOptions = ({
+  currentStatus,
+  role,
+  isExternalRiderSystemEnabled,
+  isPickupOrder,
+}: {
+  currentStatus?: string;
+  role?: string;
+  isExternalRiderSystemEnabled: boolean;
+  isPickupOrder: boolean;
+}) => {
+  const current = String(currentStatus || "").toLowerCase().trim();
+  const actorRole = String(role || "").toLowerCase().trim();
+  if (!["admin", "super_admin"].includes(actorRole)) return [];
+  if (isPickupOrder) return [];
+
+  const options = new Set<string>();
+  const add = (value?: string) => {
+    const normalized = String(value || "").toLowerCase().trim();
+    if (normalized) options.add(normalized);
+  };
+
+  add(current);
+
+  switch (current) {
+    case "created":
+    case "pending":
+      add("confirmed");
+      add("processing");
+      add("cancelled");
+      break;
+    case "confirmed":
+      add("ready");
+      add("processing");
+      add("cancelled");
+      break;
+    case "processing":
+      add("ready");
+      if (!isExternalRiderSystemEnabled) {
+        add("assigned");
+        add("en_route");
+      }
+      add("cancelled");
+      break;
+    case "ready":
+      if (isExternalRiderSystemEnabled) {
+        add("external_dispatch_arranged");
+      } else {
+        add("processing");
+        add("searching_rider");
+      }
+      add("cancelled");
+      break;
+    case "external_dispatch_arranged":
+      if (actorRole === "super_admin") add("completed");
+      add("cancelled");
+      break;
+    case "en_route":
+      if (isExternalRiderSystemEnabled && actorRole === "super_admin") add("completed");
+      add("cancelled");
+      break;
+    case "assigned":
+      add("rider_arrived");
+      add("cancelled");
+      break;
+    case "rider_arrived":
+      add("cancelled");
+      break;
+    case "picked_up":
+      add("in_transit");
+      add("en_route");
+      break;
+    case "in_transit":
+      add("en_route");
+      break;
+    case "delivered":
+      if (actorRole === "super_admin") add("completed");
+      break;
+    case "disputed":
+      add("delivered");
+      add("cancelled");
+      break;
+    default:
+      break;
+  }
+
+  return Array.from(options);
+};
+
+const getStatusOptionLabel = (status?: string) => {
+  const value = String(status || "").toLowerCase().trim();
+  switch (value) {
+    case "created":
+    case "pending":
+      return "Pending";
+    case "confirmed":
+      return "Confirmed";
+    case "processing":
+      return "Processing";
+    case "ready":
+      return "Ready";
+    case "searching_rider":
+      return "Searching Rider";
+    case "assigned":
+      return "Assigned";
+    case "rider_arrived":
+      return "Completed";
+    case "picked_up":
+      return "Picked Up";
+    case "in_transit":
+      return "In Transit";
+    case "en_route":
+      return "Out for Delivery";
+    case "external_dispatch_arranged":
+      return "External Dispatch Arranged";
+    case "delivered":
+      return "Delivered";
+    case "completed":
+      return "Completed";
+    case "cancelled":
+      return "Cancelled";
+    case "disputed":
+      return "Disputed";
+    default:
+      return status || "Status";
+  }
+};
+
 function ViewOrderDialog({ 
   orderId, 
   open, 
@@ -98,6 +287,9 @@ function ViewOrderDialog({
   const { user } = useAuth();
   const { toast } = useToast();
   const { formatPrice } = useLanguage();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const [pickupVerificationQr, setPickupVerificationQr] = useState("");
+  const [pickupVerificationOtp, setPickupVerificationOtp] = useState("");
 
   const { data: orderDetails, isLoading } = useQuery({
     queryKey: ["/api/orders", orderId],
@@ -116,7 +308,7 @@ function ViewOrderDialog({
       if (!res.ok) throw new Error("Failed to fetch available riders");
       return res.json();
     },
-    enabled: open,
+    enabled: open && !isExternalRiderSystemEnabled,
   });
 
   const updateStatusMutation = useMutation({
@@ -161,13 +353,54 @@ function ViewOrderDialog({
       });
     },
   });
+
+  const arrangeExternalDeliveryMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/admin/orders/${orderId}/arrange-external-delivery`, {});
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "External delivery arranged successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to arrange external delivery",
+        variant: "destructive",
+      });
+    },
+  });
+  const markExternalDeliveredMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/admin/orders/${orderId}/mark-external-delivered`, {});
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "External delivery marked as completed",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to mark external delivery as completed",
+        variant: "destructive",
+      });
+    },
+  });
   const completeBusOrderMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("POST", `/api/orders/${orderId}/bus-complete`, {});
     },
     onSuccess: () => {
       toast({
-        title: "BUS order completed",
+        title: "VIP Bus order completed",
         description: "Super admin verification completed successfully.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
@@ -176,7 +409,29 @@ function ViewOrderDialog({
     onError: (error: any) => {
       toast({
         title: "Completion failed",
-        description: error.message || "Failed to complete BUS order",
+        description: error.message || "Failed to complete VIP Bus order",
+        variant: "destructive",
+      });
+    },
+  });
+  const verifyCustomerPickupMutation = useMutation({
+    mutationFn: async ({ qrCode, otp }: { qrCode?: string; otp?: string }) => {
+      return apiRequest("POST", `/api/orders/${orderId}/verify-customer-pickup`, { qrCode, otp });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Pickup verified",
+        description: "Pickup completed successfully using the provided verification method.",
+      });
+      setPickupVerificationQr("");
+      setPickupVerificationOtp("");
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Verification failed",
+        description: error.message || "Failed to verify pickup",
         variant: "destructive",
       });
     },
@@ -185,16 +440,48 @@ function ViewOrderDialog({
   const normalize = (value?: string) => (value || "").toLowerCase().trim();
   const isPickupMethod = (value?: string) => {
     const method = normalize(value);
-    return method === "pickup" || method === "store_pickup";
+    return method === "pickup" || method === "store_pickup" || method === "store pickup";
   };
   const status = normalize(orderDetails?.status);
+  const isPickupOrder = isPickupMethod(orderDetails?.deliveryMethod);
   const isBusDelivery = normalize(orderDetails?.deliveryMethod) === "bus";
+  const isAgentViewer = user?.role === "agent";
+  const canVerifyPickup =
+    isPickupOrder &&
+    ["pickup_agent", "admin", "super_admin"].includes(String(user?.role || "")) &&
+    status === "ready";
+  const canArrangeExternalDelivery = user?.role === "admin" || user?.role === "super_admin";
+  const canManuallyCompleteExternalDelivery = user?.role === "super_admin";
+  const showArrangeExternalDelivery =
+    isExternalRiderSystemEnabled &&
+    !isPickupOrder &&
+    status === "ready" &&
+    (user?.role === "admin" || user?.role === "super_admin" || user?.role === "agent");
+  const showManualExternalDeliveredButton =
+    isExternalRiderSystemEnabled &&
+    !isPickupMethod(orderDetails?.deliveryMethod) &&
+    ["external_dispatch_arranged", "en_route", "delivered", "rider_arrived"].includes(status) &&
+    canManuallyCompleteExternalDelivery;
   const busStage = String(orderDetails?.busDeliveryWorkflow?.stage || "").toUpperCase();
   const paymentStatus = normalizePaymentStatus(orderDetails?.paymentStatus);
   const sellerActionRequired =
     !isPickupMethod(orderDetails?.deliveryMethod) &&
     ((paymentStatus !== "paid" && ["pending", "created", "unpaid"].includes(status)) ||
       ["paid", "processing", "preparing", "confirmed"].includes(status));
+  const allowedStatusOptions = getAllowedAdminStatusOptions({
+    currentStatus: orderDetails?.status,
+    role: user?.role,
+    isExternalRiderSystemEnabled,
+    isPickupOrder,
+  });
+
+  useEffect(() => {
+    if (!open) {
+      setPickupVerificationQr("");
+      setPickupVerificationOtp("");
+    }
+  }, [open, orderId]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -205,9 +492,7 @@ function ViewOrderDialog({
           </DialogDescription>
         </DialogHeader>
         {isLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
+          <SectionLoadingState title="Loading order details" description="Preparing the latest order summary, payment state, and action controls." lines={2} className="border-0 shadow-none" />
         ) : orderDetails ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -220,21 +505,32 @@ function ViewOrderDialog({
                 <Select
                   defaultValue={orderDetails.status}
                   onValueChange={(value) => updateStatusMutation.mutate(value)}
-                  disabled={updateStatusMutation.isPending || isBusDelivery}
+                  disabled={updateStatusMutation.isPending || isBusDelivery || isAgentViewer || allowedStatusOptions.length <= 1}
                 >
                   <SelectTrigger data-testid="select-order-status">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="processing">Processing</SelectItem>
-                    <SelectItem value="en_route">Out for Delivery</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                    {allowedStatusOptions.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {getStatusOptionLabel(option)}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {isBusDelivery && (
                   <p className="text-[11px] text-muted-foreground mt-1">
                     BUS lifecycle is controlled by proof submission and super admin completion.
+                  </p>
+                )}
+                {isAgentViewer && (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Customer agents can review order progress here, but status updates are restricted to admin roles.
+                  </p>
+                )}
+                {!isAgentViewer && !isBusDelivery && allowedStatusOptions.length <= 1 && (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    No direct status change is available here for the current order state.
                   </p>
                 )}
               </div>
@@ -251,7 +547,16 @@ function ViewOrderDialog({
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Delivery Method</p>
-                <p className="font-semibold">{orderDetails.deliveryMethod}</p>
+                <p className="font-semibold">
+                  {isExternalRiderSystemEnabled
+                    ? getExternalDeliveryMethodLabel(orderDetails.deliveryMethod)
+                    : orderDetails.deliveryMethod}
+                </p>
+                {isExternalRiderSystemEnabled && orderDetails.deliveryMethod !== "pickup" && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    External type: {getExternalDeliveryTypeLabel(orderDetails)}
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Date</p>
@@ -263,7 +568,7 @@ function ViewOrderDialog({
               </div>
             </div>
 
-            {["rider", "bus"].includes(normalize(orderDetails.deliveryMethod)) && (
+            {!isExternalRiderSystemEnabled && ["rider", "bus"].includes(normalize(orderDetails.deliveryMethod)) && (
               <div className="border-t pt-4">
                 <p className="text-sm font-medium text-muted-foreground mb-2">Assign Rider</p>
                 <div className={sellerActionRequired ? "opacity-60 blur-[1px] pointer-events-none select-none" : ""}>
@@ -296,6 +601,38 @@ function ViewOrderDialog({
                     </p>
                   </div>
                 )}
+              </div>
+            )}
+
+            {showArrangeExternalDelivery && (
+              <div className="border-t pt-4">
+                <Button
+                  onClick={() => arrangeExternalDeliveryMutation.mutate()}
+                  disabled={arrangeExternalDeliveryMutation.isPending || !canArrangeExternalDelivery}
+                  data-testid="button-arrange-external-delivery"
+                >
+                  {arrangeExternalDeliveryMutation.isPending ? "Arranging..." : "Arrange External Delivery"}
+                </Button>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  {canArrangeExternalDelivery
+                    ? "This marks the order as manually arranged with a third-party delivery service."
+                    : "Visible for review here. Only admin or super admin can send the external delivery arrangement."}
+                </p>
+              </div>
+            )}
+
+            {showManualExternalDeliveredButton && (
+              <div className="border-t pt-4">
+                <Button
+                  onClick={() => markExternalDeliveredMutation.mutate()}
+                  disabled={markExternalDeliveredMutation.isPending || !canManuallyCompleteExternalDelivery}
+                  data-testid="button-mark-external-delivered"
+                >
+                  {markExternalDeliveredMutation.isPending ? "Marking..." : "Mark Delivered (Manual External Delivery)"}
+                </Button>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  Super admin manually confirms final delivery here for the external/manual delivery flow.
+                </p>
               </div>
             )}
 
@@ -368,6 +705,11 @@ function ViewOrderDialog({
                 {(orderDetails.customerInfo?.phone || orderDetails.deliveryPhone) && (
                   <p className="text-sm text-muted-foreground">Phone: {orderDetails.customerInfo?.phone || orderDetails.deliveryPhone}</p>
                 )}
+                {isExternalRiderSystemEnabled && orderDetails.deliveryMethod !== "pickup" && (
+                  <p className="text-sm text-muted-foreground">
+                    External dispatch preference: {getExternalDeliveryTypeLabel(orderDetails)}
+                  </p>
+                )}
               </div>
             )}
             <div className="space-y-1 border-t pt-4">
@@ -381,6 +723,59 @@ function ViewOrderDialog({
               <p className="text-sm text-muted-foreground">Email: {orderDetails.sellerInfo?.email || "Not available"}</p>
               <p className="text-sm text-muted-foreground">Phone: {orderDetails.sellerInfo?.phone || "Not available"}</p>
             </div>
+
+            {canVerifyPickup && (
+              <div className="border-t pt-4 space-y-3">
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+                  <p className="font-medium text-emerald-100">Pickup Verification</p>
+                  <p className="mt-1 text-sm text-emerald-50/90">
+                    Use either the buyer QR code or the Pickup OTP. One valid method is enough to complete this pickup order.
+                  </p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Buyer QR Code</label>
+                    <Input
+                      value={pickupVerificationQr}
+                      onChange={(e) => setPickupVerificationQr(e.target.value)}
+                      placeholder="Enter or paste buyer QR code"
+                      data-testid="input-pickup-verification-qr"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Pickup OTP</label>
+                    <Input
+                      value={pickupVerificationOtp}
+                      onChange={(e) => setPickupVerificationOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="Enter 6-digit pickup OTP"
+                      data-testid="input-pickup-verification-otp"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    onClick={() =>
+                      verifyCustomerPickupMutation.mutate({
+                        qrCode: pickupVerificationQr.trim() || undefined,
+                        otp: pickupVerificationOtp.trim() || undefined,
+                      })
+                    }
+                    disabled={
+                      verifyCustomerPickupMutation.isPending ||
+                      (!pickupVerificationQr.trim() && !pickupVerificationOtp.trim())
+                    }
+                    data-testid="button-verify-customer-pickup"
+                  >
+                    {verifyCustomerPickupMutation.isPending ? "Verifying..." : "Verify Pickup"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Available for pickup agent, admin, and super admin only after the seller marks the order ready.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="border-t pt-4">
               <p className="font-medium mb-2">Order Summary</p>
@@ -422,6 +817,8 @@ export default function AdminOrders() {
   const { formatPrice } = useLanguage();
   const { toast } = useToast();
   const socket = useSocket();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
   
   // Parse URL params to get orderId for dialog
   const urlParams = new URLSearchParams(location.split('?')[1] || '');
@@ -429,7 +826,7 @@ export default function AdminOrders() {
   const [openOrderId, setOpenOrderId] = useState<string | null>(orderIdFromUrl);
 
   useEffect(() => {
-    if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
+    if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin" && user?.role !== "agent"))) {
       navigate("/auth");
     }
   }, [isAuthenticated, authLoading, user, navigate]);
@@ -442,7 +839,7 @@ export default function AdminOrders() {
       if (!res.ok) throw new Error("Failed to fetch orders");
       return res.json();
     },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin" || user?.role === "agent"),
     refetchInterval: 30000, // Refetch every 30 seconds as fallback
   });
 
@@ -471,6 +868,7 @@ export default function AdminOrders() {
     };
 
     const handleRiderAssigned = (data: any) => {
+      if (!showInternalRiderFeatures) return;
       console.log("[orders] rider assigned:", data);
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       toast({
@@ -497,38 +895,43 @@ export default function AdminOrders() {
     };
 
     socket.on("order_status_updated", handleOrderUpdate);
-    socket.on("order_rider_assigned", handleRiderAssigned);
+    if (showInternalRiderFeatures) {
+      socket.on("order_rider_assigned", handleRiderAssigned);
+    }
     socket.on("admin_delivery_completed", handleDeliveryCompleted);
     socket.on("admin_bus_transport_proof_submitted", handleBusProofSubmitted);
     socket.on("new_order", handleOrderUpdate);
 
     return () => {
       socket.off("order_status_updated", handleOrderUpdate);
-      socket.off("order_rider_assigned", handleRiderAssigned);
+      if (showInternalRiderFeatures) {
+        socket.off("order_rider_assigned", handleRiderAssigned);
+      }
       socket.off("admin_delivery_completed", handleDeliveryCompleted);
       socket.off("admin_bus_transport_proof_submitted", handleBusProofSubmitted);
       socket.off("new_order", handleOrderUpdate);
     };
-  }, [socket, toast]);
+  }, [showInternalRiderFeatures, socket, toast]);
 
   // Calculate order statistics
   const stats = useMemo<OrderStats>(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const normalize = (s?: string) => (s || "").toLowerCase().trim();
-
     return {
       total: allOrders.length,
-      pending: allOrders.filter(o => normalize(o.status) === "pending").length,
-      processing: allOrders.filter(o => normalize(o.status) === "processing").length,
-      enRoute: allOrders.filter(o => ["in_transit", "en_route", "picked_up"].includes(normalize(o.status))).length,
-      delivered: allOrders.filter(o => ["delivered", "completed"].includes(normalize(o.status))).length,
-      cancelled: allOrders.filter(o => normalize(o.status) === "cancelled").length,
-      totalRevenue: Number(analytics?.totalRevenue || 0),
+      pending: allOrders.filter(o => getEffectiveOrderStatus(o, showInternalRiderFeatures) === "pending").length,
+      processing: allOrders.filter(o => ["processing", "confirmed", "ready", "external_dispatch_arranged"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
+      enRoute: allOrders.filter(o => ["in_transit", "en_route", "picked_up"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
+      delivered: allOrders.filter(o => !isPickupOrderMethod(o.deliveryMethod) && ["delivered", "completed"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
+      pickups: allOrders.filter(o => isPickupOrderMethod(o.deliveryMethod) && ["delivered", "completed"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
+      cancelled: allOrders.filter(o => getEffectiveOrderStatus(o, showInternalRiderFeatures) === "cancelled").length,
+      totalRevenue: allOrders
+        .filter(o => normalizePaymentStatus(o.paymentStatus) === "paid")
+        .reduce((sum, o) => sum + Number(o.total || 0), 0),
       todayOrders: allOrders.filter(o => new Date(o.createdAt) >= today).length,
     };
-  }, [allOrders, analytics?.totalRevenue]);
+  }, [allOrders, showInternalRiderFeatures]);
 
   // Separate admin's personal orders (where admin is the buyer)
   const myOrders = useMemo(() => 
@@ -545,15 +948,15 @@ export default function AdminOrders() {
 
   // Filter orders based on search and status
   const filteredOrders = useMemo(() => {
-    const normalize = (s?: string) => (s || "").toLowerCase().trim();
     const isPickupMethod = (method?: string) => {
-      const m = normalize(method);
-      return m === "pickup" || m === "store_pickup";
+      const m = normalizeOrderStatusValue(method);
+      return m === "pickup" || m === "store_pickup" || m === "store pickup";
     };
     const getAwaitingActionOwner = (order: Order): "seller" | "admin" | "rider" | "delivered" | "none" => {
-      const status = normalize(order.status);
+      const status = normalizeOrderStatusValue(order.status);
       const paymentStatus = normalizePaymentStatus(order.paymentStatus);
       const isPickup = isPickupMethod(order.deliveryMethod);
+      const externalDeliveryFlow = !showInternalRiderFeatures && !isPickup;
 
       if (paymentStatus !== "paid" && ["pending", "created", "unpaid"].includes(status)) {
         return "none";
@@ -563,11 +966,16 @@ export default function AdminOrders() {
         return "seller";
       }
 
-      if (["ready", "searching_rider"].includes(status) && !isPickup) {
+      if (isPickup && status === "packaged") {
+        return "admin";
+      }
+
+      if (["ready", "searching_rider", "external_dispatch_arranged"].includes(status) && !isPickup) {
         return "admin";
       }
 
       if (["assigned", "rider_arrived", "picked_up", "in_transit", "en_route", "arrived"].includes(status)) {
+        if (externalDeliveryFlow) return "admin";
         return "rider";
       }
 
@@ -581,12 +989,15 @@ export default function AdminOrders() {
     let orders = activeTab === "my-orders" ? myOrders : allOrders;
 
     if (statusFilter !== "all") {
-      const target = normalize(statusFilter);
+      const target = normalizeOrderStatusValue(statusFilter);
       orders = orders.filter((o) => {
-        const current = normalize(o.status);
+        const current = normalizeOrderStatusValue(o.status);
+        const effective = getEffectiveOrderStatus(o, showInternalRiderFeatures);
         if (target === "delivered") return ["delivered", "completed"].includes(current);
         if (target === "in_transit") return ["in_transit", "en_route"].includes(current);
-        return current === target;
+        if (target === "external_dispatch_arranged") return current === "external_dispatch_arranged";
+        if (target === "pending") return effective === "pending";
+        return current === target || effective === target;
       });
     }
 
@@ -611,7 +1022,7 @@ export default function AdminOrders() {
     return orders.sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-  }, [allOrders, myOrders, activeTab, statusFilter, actionFilter, searchQuery]);
+  }, [allOrders, myOrders, activeTab, statusFilter, actionFilter, searchQuery, showInternalRiderFeatures]);
   
   // Sync openOrderId with URL params
   useEffect(() => {
@@ -640,12 +1051,31 @@ export default function AdminOrders() {
     setOpenOrderId(null);
   };
 
+  const handleRefresh = async () => {
+    await Promise.all([
+      refetch(),
+      queryClient.refetchQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          if (typeof key !== "string") return false;
+          return [
+            "/api/orders",
+            "/api/riders/available",
+            "/api/admin/pending-orders",
+          ].some((prefix) => key.startsWith(prefix));
+        },
+      }),
+    ]);
+  };
+
   const getStatusColor = (status: string) => {
     switch(status.toLowerCase()) {
       case "pending": return "bg-yellow-500";
       case "confirmed": return "bg-blue-400";
       case "processing": return "bg-blue-500";
+      case "packaged": return "bg-indigo-500";
       case "ready": return "bg-indigo-500";
+      case "external_dispatch_arranged": return "bg-cyan-600";
       case "assigned": return "bg-violet-500";
       case "picked_up": return "bg-purple-500";
       case "in_transit": return "bg-amber-500";
@@ -662,6 +1092,8 @@ export default function AdminOrders() {
     switch(status.toLowerCase()) {
       case "pending": return <Clock className="h-4 w-4" />;
       case "processing": return <Package className="h-4 w-4" />;
+      case "packaged": return <Package className="h-4 w-4" />;
+      case "external_dispatch_arranged": return <Truck className="h-4 w-4" />;
       case "in_transit": return <Truck className="h-4 w-4" />;
       case "en_route": return <Truck className="h-4 w-4" />;
       case "delivered": return <CheckCircle className="h-4 w-4" />;
@@ -671,12 +1103,8 @@ export default function AdminOrders() {
     }
   };
 
-  if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+  if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin" && user?.role !== "agent")) {
+    return <PageLoadingState title="Loading orders" description="Preparing order management, status queues, and action controls." />;
   }
 
   return (
@@ -705,7 +1133,7 @@ export default function AdminOrders() {
           <Button 
             variant="outline" 
             size="sm" 
-            onClick={() => refetch()}
+            onClick={handleRefresh}
             className="flex items-center gap-2"
           >
             <RefreshCw className="h-4 w-4" />
@@ -746,8 +1174,17 @@ export default function AdminOrders() {
             <div className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-green-500" />
               <div>
-                <p className="text-xs text-muted-foreground">Delivered</p>
+                <p className="text-xs text-muted-foreground">Deliveries</p>
                 <p className="text-xl font-bold">{stats.delivered}</p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-indigo-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Successful Pickups</p>
+                <p className="text-xl font-bold">{stats.pickups}</p>
               </div>
             </div>
           </Card>
@@ -806,7 +1243,10 @@ export default function AdminOrders() {
                   <SelectItem value="all">All Statuses</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="processing">Processing</SelectItem>
-                  <SelectItem value="assigned">Assigned</SelectItem>
+                  {isExternalRiderSystemEnabled ? (
+                    <SelectItem value="external_dispatch_arranged">External Dispatch Arranged</SelectItem>
+                  ) : null}
+                  {showInternalRiderFeatures ? <SelectItem value="assigned">Assigned</SelectItem> : null}
                   <SelectItem value="in_transit">In Transit</SelectItem>
                   <SelectItem value="en_route">Out for Delivery</SelectItem>
                   <SelectItem value="delivered">Delivered</SelectItem>
@@ -823,7 +1263,7 @@ export default function AdminOrders() {
                   <SelectItem value="all">All Action Owners</SelectItem>
                   <SelectItem value="seller">Awaiting Seller Action</SelectItem>
                   <SelectItem value="admin">Awaiting Admin Action</SelectItem>
-                  <SelectItem value="rider">Awaiting Rider Action</SelectItem>
+                  {showInternalRiderFeatures ? <SelectItem value="rider">Awaiting Rider Action</SelectItem> : null}
                   <SelectItem value="delivered">Delivered Actions</SelectItem>
                 </SelectContent>
               </Select>
@@ -918,17 +1358,44 @@ function OrdersList({
   emptyMessage?: string;
 }) {
   const [, navigate] = useLocation();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
   const getPaymentLabel = (value?: string) => normalizePaymentStatus(value);
   const normalize = (value?: string) => (value || "").toLowerCase().trim();
+  const getDisplayMethodLabel = (order: Order) => {
+    if (isPickupMethod(order.deliveryMethod)) return "Pickup";
+    if (!showInternalRiderFeatures) return getExternalDeliveryTypeLabel(order);
+    if (normalize(order.deliveryMethod) === "bus") return "Bus Delivery";
+    if (normalize(order.deliveryMethod) === "rider") return "Rider Delivery";
+    return order.deliveryMethod || "Delivery";
+  };
+  const displayStatusLabel = (value?: string, deliveryMethod?: string) => {
+    const normalized = showInternalRiderFeatures ? normalize(value) : normalizeExternalOrderStatus(value);
+    if (isPickupMethod(deliveryMethod)) {
+      if (normalized === "packaged") return "Packaged";
+      if (normalized === "ready") return "Ready for Pickup";
+      if (["delivered", "completed"].includes(normalized)) return "Completed";
+    }
+    return normalized.replace(/_/g, " ");
+  };
   const isPickupMethod = (value?: string) => {
     const method = normalize(value);
-    return method === "pickup" || method === "store_pickup";
+    return method === "pickup" || method === "store_pickup" || method === "store pickup";
   };
 
   const getSellerActionState = (order: Order) => {
     const status = normalize(order.status);
     const paymentStatus = getPaymentLabel(order.paymentStatus);
     const pickupFlow = isPickupMethod(order.deliveryMethod);
+    const externalDeliveryFlow = !showInternalRiderFeatures && !pickupFlow;
+
+    if (externalDeliveryFlow && ["rider_arrived", "delivered", "completed"].includes(status)) {
+      return {
+        label: "Completed",
+        hint: "No further seller action required",
+        className: "bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-200",
+      };
+    }
 
     if (paymentStatus !== "paid" && ["pending", "created", "unpaid"].includes(status)) {
       return {
@@ -941,22 +1408,54 @@ function OrdersList({
     if (["paid", "processing", "preparing", "confirmed"].includes(status)) {
       return {
         label: "Seller Action Required",
-        hint: pickupFlow ? "Seller must prepare for pickup" : "Seller must prepare for dispatch",
+        hint: pickupFlow
+          ? "Seller must prepare for pickup"
+          : externalDeliveryFlow
+            ? "Seller must prepare for external delivery handoff"
+            : "Seller must prepare for dispatch",
         className: "bg-orange-100 text-orange-900 dark:bg-orange-900/30 dark:text-orange-200",
+      };
+    }
+
+    if (pickupFlow && status === "packaged") {
+      return {
+        label: "Packaged",
+        hint: "Super admin must assign a pickup station",
+        className: "bg-indigo-100 text-indigo-900 dark:bg-indigo-900/30 dark:text-indigo-200",
       };
     }
 
     if (["ready", "searching_rider", "assigned", "rider_arrived"].includes(status)) {
       return {
-        label: pickupFlow ? "Ready for Pickup" : "Ready for Dispatch",
-        hint: pickupFlow ? "Awaiting buyer collection" : "Awaiting rider/dispatch progression",
+        label: pickupFlow ? "Ready for Pickup" : externalDeliveryFlow ? "Awaiting External Dispatch" : "Ready for Dispatch",
+        hint: pickupFlow
+          ? "Awaiting buyer collection"
+          : externalDeliveryFlow
+            ? "Admin must arrange the external delivery service"
+            : "Awaiting rider/dispatch progression",
         className: "bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200",
       };
     }
 
-    if (["picked_up", "in_transit", "en_route", "arrived", "delivered", "completed"].includes(status)) {
+    if (status === "external_dispatch_arranged") {
       return {
-        label: "Seller Handoff Complete",
+        label: "External Delivery Arranged",
+        hint: "Customer support or admin is coordinating the delivery handoff",
+        className: "bg-cyan-100 text-cyan-900 dark:bg-cyan-900/30 dark:text-cyan-200",
+      };
+    }
+
+    if (["picked_up", "in_transit", "en_route", "arrived"].includes(status)) {
+      return {
+        label: externalDeliveryFlow ? "Delivery In Progress" : "Seller Handoff Complete",
+        hint: externalDeliveryFlow ? "Delivery is being coordinated externally" : "No further seller action required",
+        className: "bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-200",
+      };
+    }
+
+    if (["delivered", "completed"].includes(status)) {
+      return {
+        label: "Completed",
         hint: "No further seller action required",
         className: "bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-200",
       };
@@ -986,6 +1485,43 @@ function OrdersList({
     if (status === "arrived") return "Complete delivery verification with buyer";
     return "Continue delivery workflow for this order";
   };
+  const getAwaitingActionOwner = (order: Order): "seller" | "admin" | "rider" | "delivered" | "none" => {
+    const status = normalize(order.status);
+    const paymentStatus = getPaymentLabel(order.paymentStatus);
+    const isPickup = isPickupMethod(order.deliveryMethod);
+    const externalDeliveryFlow = !showInternalRiderFeatures && !isPickup;
+
+    if (paymentStatus !== "paid" && ["pending", "created", "unpaid"].includes(status)) {
+      return "none";
+    }
+
+    if (["paid", "processing", "preparing", "confirmed"].includes(status)) {
+      return "seller";
+    }
+
+    if (isPickup && status === "packaged") {
+      return "admin";
+    }
+
+    if (["ready", "searching_rider", "external_dispatch_arranged"].includes(status) && !isPickup) {
+      return "admin";
+    }
+
+    if (externalDeliveryFlow && ["rider_arrived", "delivered", "completed"].includes(status)) {
+      return "delivered";
+    }
+
+    if (["assigned", "rider_arrived", "picked_up", "in_transit", "en_route", "arrived"].includes(status)) {
+      if (externalDeliveryFlow) return "admin";
+      return "rider";
+    }
+
+    if (["delivered", "completed"].includes(status)) {
+      return "delivered";
+    }
+
+    return "none";
+  };
 
   if (isLoading) {
     return (
@@ -1011,6 +1547,9 @@ function OrdersList({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {orders.map((order) => (
+        (() => {
+          const cardStatus = getEffectiveOrderStatus(order, showInternalRiderFeatures);
+          return (
         <Card 
           key={order.id} 
           className="p-4 hover:shadow-md transition-shadow cursor-pointer flex flex-col"
@@ -1018,8 +1557,8 @@ function OrdersList({
           data-testid={`card-order-${order.id}`}
         >
           <div className="flex items-start gap-3 mb-3">
-            <div className={`p-2.5 rounded-lg ${getStatusColor(order.status)} text-white shrink-0`}>
-              {getStatusIcon(order.status)}
+            <div className={`p-2.5 rounded-lg ${getStatusColor(cardStatus)} text-white shrink-0`}>
+              {getStatusIcon(cardStatus)}
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-sm" data-testid={`text-order-number-${order.id}`}>
@@ -1055,9 +1594,9 @@ function OrdersList({
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge className={getStatusColor(order.status)} data-testid={`badge-status-${order.id}`} variant="secondary">
-                {order.status.replace(/_/g, " ")}
-              </Badge>
+                <Badge className={getStatusColor(cardStatus)} data-testid={`badge-status-${order.id}`} variant="secondary">
+                 {displayStatusLabel(cardStatus, order.deliveryMethod)}
+                </Badge>
               {(() => {
                 const paymentStatusLabel = getPaymentLabel(order.paymentStatus);
                 return (
@@ -1076,7 +1615,8 @@ function OrdersList({
               const busStage = String(order.busDeliveryWorkflow?.stage || "").toUpperCase();
               const verification = order.verificationSummary;
               const hasAnyVerification = Boolean(
-                verification?.sellerToRider || verification?.riderToBuyer || verification?.sellerToBuyer
+                verification?.sellerToBuyer ||
+                (showInternalRiderFeatures && (verification?.sellerToRider || verification?.riderToBuyer))
               );
               const status = String(order.status || "").toLowerCase().trim();
               const shouldShowVerification =
@@ -1091,9 +1631,11 @@ function OrdersList({
                     </p>
                   ) : isBus ? (
                     <>
-                      <p className="text-muted-foreground">
-                        Seller to Rider: <span className="font-medium text-foreground">{verification?.sellerToRider ? `Verified (${verification.sellerToRider})` : "Pending"}</span>
-                      </p>
+                      {showInternalRiderFeatures ? (
+                        <p className="text-muted-foreground">
+                          Seller to Rider: <span className="font-medium text-foreground">{verification?.sellerToRider ? `Verified (${verification.sellerToRider})` : "Pending"}</span>
+                        </p>
+                      ) : null}
                       <p className="text-muted-foreground">
                         BUS Transport Proof: <span className="font-medium text-foreground">{order.busDeliveryWorkflow?.proofSubmitted ? "Submitted" : "Pending"}</span>
                       </p>
@@ -1101,7 +1643,7 @@ function OrdersList({
                         BUS Stage: <span className="font-medium text-foreground">{busStage || "READY"}</span>
                       </p>
                     </>
-                  ) : (
+                  ) : showInternalRiderFeatures ? (
                     <>
                       <p className="text-muted-foreground">
                         Seller to Rider: <span className="font-medium text-foreground">{verification?.sellerToRider ? `Verified (${verification.sellerToRider})` : "Pending"}</span>
@@ -1110,14 +1652,14 @@ function OrdersList({
                         Rider to Buyer: <span className="font-medium text-foreground">{verification?.riderToBuyer ? `Verified (${verification.riderToBuyer})` : "Pending"}</span>
                       </p>
                     </>
-                  )}
+                  ) : null}
                 </div>
               );
             })()}
             {(() => {
               const sellerState = getSellerActionState(order);
               const sellerActionPending = sellerState.label === "Seller Action Required";
-              const riderActionPending = [
+              const riderActionPending = showInternalRiderFeatures && [
                 "assigned",
                 "rider_arrived",
                 "picked_up",
@@ -1212,7 +1754,7 @@ function OrdersList({
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Method</span>
-              <span className="font-medium capitalize">{order.deliveryMethod}</span>
+              <span className="font-medium">{getDisplayMethodLabel(order)}</span>
             </div>
           </div>
           
@@ -1221,9 +1763,11 @@ function OrdersList({
             const paymentStatus = getPaymentLabel(order.paymentStatus);
             const isUnpaid = paymentStatus === "pending" || paymentStatus === "failed";
             const isProcessingPayment = paymentStatus === "processing";
+            const awaitingActionOwner = getAwaitingActionOwner(order);
             const trackStatuses = new Set([
               "processing",
               "ready",
+              "external_dispatch_arranged",
               "searching_rider",
               "assigned",
               "rider_arrived",
@@ -1248,6 +1792,40 @@ function OrdersList({
                   data-testid={`button-continue-payment-${order.id}`}
                 >
                   Continue Payment
+                </Button>
+              );
+            }
+            if (!isMyOrders && awaitingActionOwner === "admin") {
+              return (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="w-full mt-3 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/orders/${order.id}/action`);
+                  }}
+                  data-testid={`button-admin-action-${order.id}`}
+                >
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Take Admin Action
+                </Button>
+              );
+            }
+            if (!isMyOrders && awaitingActionOwner === "seller") {
+              return (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="w-full mt-3 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/orders/${order.id}/action`);
+                  }}
+                  data-testid={`button-review-seller-action-${order.id}`}
+                >
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Review Seller Action
                 </Button>
               );
             }
@@ -1287,6 +1865,8 @@ function OrdersList({
             );
           })()}
         </Card>
+          );
+        })()
       ))}
     </div>
   );

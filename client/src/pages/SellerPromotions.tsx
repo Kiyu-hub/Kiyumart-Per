@@ -11,12 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { PageLoadingState } from "@/components/ui/loading-state";
 import { Loader2, Tag, Store, Package } from "lucide-react";
 
 interface PromotionPricing {
   id: number;
   type: "store" | "product";
-  durationType: "hour" | "day";
+  durationType: "hour" | "day" | "week" | "month";
   duration: number;
   price: string;
   isActive: boolean;
@@ -27,10 +28,21 @@ interface SellerPromotionApplication {
   type: "store" | "product";
   targetId: string;
   targetName: string;
+  durationType: "hour" | "day" | "week" | "month";
+  duration: number;
+  unitPrice: string;
+  totalPrice: string;
+  sellerNote?: string | null;
+  customerServiceNote?: string | null;
+  paymentConfirmed: boolean;
+  paymentConfirmedAt?: string | null;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  rejectionReason?: string | null;
   startAt?: string | null;
   endAt?: string | null;
   durationHours?: number | null;
-  status: "active" | "expired" | "ended";
+  status: "pending_payment" | "payment_confirmed" | "approved" | "active" | "expired" | "rejected";
   createdAt: string;
 }
 
@@ -49,21 +61,45 @@ const formatMoney = (value: number) => {
   return value.toFixed(2);
 };
 
+const formatDurationUnit = (unit: PromotionPricing["durationType"]) => {
+  switch (unit) {
+    case "hour":
+      return "hour";
+    case "day":
+      return "day";
+    case "week":
+      return "week";
+    case "month":
+      return "month";
+    default:
+      return unit;
+  }
+};
+
 export default function SellerPromotions() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
 
   const [type, setType] = useState<"store" | "product">("store");
   const [selectedDurationId, setSelectedDurationId] = useState<string>("");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
-  const [paymentReference, setPaymentReference] = useState("");
+  const [sellerNote, setSellerNote] = useState("");
+  const applicationIdFromUrl = useMemo(() => new URLSearchParams(location.split("?")[1] || "").get("applicationId") || "", [location]);
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== "seller")) {
       navigate("/auth");
     }
   }, [authLoading, isAuthenticated, navigate, user?.role]);
+
+  useEffect(() => {
+    if (!applicationIdFromUrl) return;
+    const target = document.querySelector(`[data-testid="card-seller-promotion-${applicationIdFromUrl}"]`);
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [applicationIdFromUrl]);
 
   const { data: promotionPricing = [], isLoading: pricingLoading, error: pricingError } = useQuery<PromotionPricing[]>({
     queryKey: ["/api/seller/promotion-pricing"],
@@ -155,10 +191,6 @@ export default function SellerPromotions() {
   }, [type, myProducts, selectedProductId]);
 
   const selectedDuration = durationOptions.find((item) => String(item.id) === selectedDurationId) || null;
-  const estimatedTotal = selectedDuration
-    ? Number.parseFloat(selectedDuration.price || "0") * Number(selectedDuration.duration || 0)
-    : 0;
-
   const submitPromotionMutation = useMutation({
     mutationFn: async () => {
       if (!selectedDuration) {
@@ -168,26 +200,21 @@ export default function SellerPromotions() {
       if (!targetId) {
         throw new Error(type === "store" ? "Store target is missing." : "Select a product to promote.");
       }
-      const reference = paymentReference.trim();
-      if (!reference) {
-        throw new Error("Payment reference is required.");
-      }
-
       const res = await apiRequest("POST", "/api/seller/apply-promotion", {
         type,
         targetId,
         durationType: selectedDuration.durationType,
         duration: Number(selectedDuration.duration),
-        paymentReference: reference,
+        sellerNote,
       });
       return res.json();
     },
     onSuccess: async () => {
       toast({
-        title: "Promotion request submitted",
-        description: "Your promotion application was submitted and shared with super admin.",
+        title: "Promotion application submitted",
+        description: "Customer service will call you to facilitate payment for this promotion request.",
       });
-      setPaymentReference("");
+      setSellerNote("");
       await queryClient.invalidateQueries({ queryKey: ["/api/seller/promotion-applications"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/admin/promotion-applications"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/homepage/promotional"] });
@@ -202,11 +229,7 @@ export default function SellerPromotions() {
   });
 
   if (authLoading || !isAuthenticated || user?.role !== "seller") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoadingState title="Loading seller promotions" description="Preparing promotion pricing, requests, and campaign status." />;
   }
 
   return (
@@ -215,11 +238,23 @@ export default function SellerPromotions() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Promotions</h1>
           <p className="text-muted-foreground mt-1">
-            Apply to promote your store or products. Submitted requests are visible to super admin in Applications.
+            Apply to promote your store or products. Package pricing is based on the selected duration, customer service will call you to facilitate payment, and the promotion will be activated after payment is confirmed and the request is reviewed.
           </p>
         </div>
 
         <Card className="p-5 space-y-5">
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">Promotion application flow</p>
+            <p className="mt-1">
+              Select the store or product you want to promote, choose the duration package, and review the quoted cost before you apply.
+              After submission, customer service will call you to explain the procedure, facilitate payment offline, and confirm the final promotion arrangement.
+              Once payment is confirmed, the request will be reviewed and the promotion will be created automatically for the selected duration.
+            </p>
+            <p className="mt-2">
+              You can promote your store and multiple different products, but you cannot submit another request for the same target while an active promotion or open request already exists for it.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Promotion Type</Label>
@@ -264,36 +299,26 @@ export default function SellerPromotions() {
                 <SelectTrigger data-testid="select-promotion-duration">
                   <SelectValue placeholder={pricingLoading ? "Loading pricing..." : "Select duration"} />
                 </SelectTrigger>
-                <SelectContent>
-                  {durationOptions.map((item) => (
-                    <SelectItem key={item.id} value={String(item.id)}>
-                      {item.duration} {item.durationType}(s) - GHS {item.price}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+                    <SelectContent>
+                      {durationOptions.map((item) => (
+                        <SelectItem key={item.id} value={String(item.id)}>
+                          {item.duration} {formatDurationUnit(item.durationType)}{item.duration === 1 ? "" : "s"} - GHS {item.price}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="payment-reference">Payment Reference</Label>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="seller-note">Note for customer service</Label>
               <Input
-                id="payment-reference"
-                placeholder="e.g. PSTK_123456789"
-                value={paymentReference}
-                onChange={(e) => setPaymentReference(e.target.value)}
-                data-testid="input-payment-reference"
+                id="seller-note"
+                placeholder="Add a contact note or preferred time for the payment call"
+                value={sellerNote}
+                onChange={(e) => setSellerNote(e.target.value)}
+                data-testid="input-promotion-seller-note"
               />
             </div>
-          </div>
-
-          <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
-            <p>
-              <span className="font-medium text-foreground">Estimated total:</span>{" "}
-              GHS {formatMoney(estimatedTotal)}
-            </p>
-            <p className="mt-1">
-              Use the exact successful Paystack reference for promotion payment. Invalid or reused references are rejected.
-            </p>
           </div>
 
           {pricingError && (
@@ -318,7 +343,7 @@ export default function SellerPromotions() {
               ) : (
                 <Tag className="h-4 w-4" />
               )}
-              Submit Promotion Request
+              Apply for Promotion
             </Button>
           </div>
         </Card>
@@ -331,11 +356,15 @@ export default function SellerPromotions() {
 
           <div className="space-y-3">
             {applications.map((application) => (
-              <div
-                key={application.id}
-                className="rounded-lg border p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
-                data-testid={`card-seller-promotion-${application.id}`}
-              >
+                <div
+                  key={application.id}
+                  className={`rounded-lg border p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 ${
+                    applicationIdFromUrl && String(application.id) === String(applicationIdFromUrl)
+                      ? "border-primary ring-2 ring-primary/20"
+                      : ""
+                  }`}
+                  data-testid={`card-seller-promotion-${application.id}`}
+                >
                 <div className="space-y-1">
                   <p className="font-medium text-foreground flex items-center gap-2">
                     {application.type === "store" ? <Store className="h-4 w-4" /> : <Package className="h-4 w-4" />}
@@ -345,15 +374,27 @@ export default function SellerPromotions() {
                     Submitted: {application.createdAt ? new Date(application.createdAt).toLocaleString() : "N/A"}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Window: {application.startAt ? new Date(application.startAt).toLocaleString() : "N/A"}{" -> "}
-                    {application.endAt ? new Date(application.endAt).toLocaleString() : "N/A"}
+                    Package: {application.duration} {formatDurationUnit(application.durationType)}{application.duration === 1 ? "" : "s"} at GHS {application.unitPrice} each
                   </p>
+                  <p className="text-xs text-muted-foreground">Quoted total: GHS {application.totalPrice}</p>
+                  {application.customerServiceNote ? (
+                    <p className="text-xs text-muted-foreground">Service note: {application.customerServiceNote}</p>
+                  ) : null}
+                  {application.rejectionReason ? (
+                    <p className="text-xs text-destructive">Reason: {application.rejectionReason}</p>
+                  ) : null}
+                  {application.startAt && application.endAt ? (
+                    <p className="text-xs text-muted-foreground">
+                      Active window: {new Date(application.startAt).toLocaleString()}{" -> "}
+                      {new Date(application.endAt).toLocaleString()}
+                    </p>
+                  ) : null}
                 </div>
                 <Badge
                   variant={application.status === "active" ? "default" : "secondary"}
                   data-testid={`badge-promotion-status-${application.id}`}
                 >
-                  {application.status}
+                  {application.status.replace(/_/g, " ")}
                 </Badge>
               </div>
             ))}

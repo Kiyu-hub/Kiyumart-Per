@@ -33,6 +33,60 @@ export default function Notifications() {
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
+  const resolveNotificationTarget = (notification: Notification): string | null => {
+    const metadata = notification.metadata || {};
+    const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+    const isBuyer = user?.role === "buyer";
+    const isSeller = user?.role === "seller";
+    const isRider = user?.role === "rider";
+    const isPickupAgent = user?.role === "pickup_agent";
+    const isAgent = user?.role === "agent";
+    const rolePrefix = isAdmin ? "/admin" : `/${user?.role}`;
+
+    if (metadata.link) return metadata.link;
+    if (metadata.promotionApplicationId && isAdmin) {
+      return `/admin/applications?tab=promotions&promotionId=${encodeURIComponent(String(metadata.promotionApplicationId))}`;
+    }
+
+    switch (notification.type) {
+      case "product":
+        if (metadata.productId && isAdmin) return `${rolePrefix}/products/${metadata.productId}/edit`;
+        if (metadata.productId && isSeller) return `/seller/products?productId=${encodeURIComponent(String(metadata.productId))}`;
+        if (metadata.productId) return `/product/${metadata.productId}`;
+        return isBuyer ? "/products" : `${rolePrefix}/products`;
+      case "order":
+        if (metadata.orderId && isBuyer) return `/track?orderId=${encodeURIComponent(String(metadata.orderId))}`;
+        if (metadata.orderId && isAdmin) return `/admin/orders/${metadata.orderId}/action`;
+        if (metadata.orderId && isSeller) return `/seller/orders?orderId=${encodeURIComponent(String(metadata.orderId))}`;
+        if (metadata.orderId && isRider) return `/rider/deliveries?orderId=${encodeURIComponent(String(metadata.orderId))}`;
+        if (metadata.orderId && isPickupAgent) return `/pickup-agent?orderId=${encodeURIComponent(String(metadata.orderId))}`;
+        return isBuyer ? "/orders" : `${rolePrefix}/orders`;
+      case "user":
+        if (metadata.userId && isAdmin) {
+          const role = String(metadata.role || "").toLowerCase().trim();
+          if (role === "seller" || role === "rider" || role === "pickup_agent") {
+            return `/admin/applications?userId=${encodeURIComponent(String(metadata.userId))}&role=${encodeURIComponent(role)}`;
+          }
+          return `${rolePrefix}/users/${metadata.userId}/edit`;
+        }
+        return isAdmin ? "/admin/users" : null;
+      case "message":
+        if (metadata.conversationId) {
+          if (isAdmin) return `/admin/live-support?conversationId=${encodeURIComponent(String(metadata.conversationId))}`;
+          if (isAgent) return `/agent/tickets?conversationId=${encodeURIComponent(String(metadata.conversationId))}`;
+          if (isPickupAgent) return `/pickup-agent/support?conversationId=${encodeURIComponent(String(metadata.conversationId))}`;
+          return `/support?conversationId=${encodeURIComponent(String(metadata.conversationId))}`;
+        }
+        if (!isBuyer && metadata.senderId) {
+          if (isPickupAgent) return `/pickup-agent/support?userId=${encodeURIComponent(String(metadata.senderId))}`;
+          return `${rolePrefix}/messages?userId=${encodeURIComponent(String(metadata.senderId))}`;
+        }
+        return isBuyer ? null : `${rolePrefix}/messages`;
+      default:
+        return null;
+    }
+  };
+
   const { data: notifications = [], isLoading } = useQuery<Notification[]>({
     queryKey: ["/api/notifications", user?.id],
     queryFn: async () => {
@@ -94,6 +148,10 @@ export default function Notifications() {
     // Buyers don't have dedicated dashboard sub-pages for messages/products/orders,
     // so we route them to the public-facing pages or open preview dialogs instead.
     if (metadata) {
+      if (metadata.link) {
+        navigate(metadata.link);
+        return;
+      }
       switch (notification.type) {
         case "product":
           if (metadata.productId && isAdmin) {
@@ -165,6 +223,21 @@ export default function Notifications() {
     if (!notification.isRead) {
       markAsReadMutation.mutate(notification.id);
     }
+  };
+
+  const handleDirectNavigation = (notification: Notification) => {
+    if (!notification.isRead) {
+      markAsReadMutation.mutate(notification.id);
+    }
+
+    const target = resolveNotificationTarget(notification);
+    if (target) {
+      navigate(target);
+      return;
+    }
+
+    setSelectedNotification(notification);
+    setPreviewOpen(true);
   };
 
   const handleDelete = (notificationId: string, e?: React.MouseEvent) => {
@@ -274,7 +347,7 @@ export default function Notifications() {
                   className={`hover:shadow-md transition-all cursor-pointer ${
                     !notification.isRead ? "border-emerald-500 bg-emerald-500/5" : "border-border hover:bg-emerald-500/10"
                   }`}
-                  onClick={() => handleNotificationClick(notification)}
+                  onClick={() => handleDirectNavigation(notification)}
                   data-testid={`card-notification-${notification.id}`}
                 >
                   <CardContent className="p-4">

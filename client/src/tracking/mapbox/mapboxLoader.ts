@@ -5,6 +5,7 @@ let mapboxConfigPromise: Promise<void> | null = null;
 const MAP_PROVIDER_MODE_KEY = "map_provider_mode";
 type MapProviderMode = "mapbox" | "open_source";
 const DEFAULT_MAPBOX_GL_VERSION = "v3.17.0";
+const SCRIPT_LOAD_TIMEOUT_MS = 15_000;
 
 function normalizeMapboxGlVersion(raw: unknown): string {
   const fallback = DEFAULT_MAPBOX_GL_VERSION;
@@ -110,29 +111,85 @@ export function setMapProviderMode(mode: MapProviderMode): void {
 
 function appendScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null;
-    if (existing) {
-      if ((existing as any).dataset.loaded === "true") {
+    const markState = (script: HTMLScriptElement, state: "loading" | "loaded" | "failed") => {
+      script.dataset.state = state;
+      if (state === "loaded") {
+        script.dataset.loaded = "true";
+        delete script.dataset.failed;
+        return;
+      }
+      delete script.dataset.loaded;
+      if (state === "failed") {
+        script.dataset.failed = "true";
+        return;
+      }
+      delete script.dataset.failed;
+    };
+
+    const waitForScript = (script: HTMLScriptElement, removeOnFailure: boolean) => {
+      let timeoutId: number | null = null;
+      const cleanup = () => {
+        script.removeEventListener("load", handleLoad);
+        script.removeEventListener("error", handleError);
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      };
+      const fail = (message: string) => {
+        cleanup();
+        markState(script, "failed");
+        if (removeOnFailure) {
+          script.remove();
+        }
+        reject(new Error(message));
+      };
+      const handleLoad = () => {
+        cleanup();
+        markState(script, "loaded");
+        resolve();
+      };
+      const handleError = () => fail(`Failed loading script: ${src}`);
+
+      if ((window as any).mapboxgl) {
+        markState(script, "loaded");
         resolve();
         return;
       }
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error(`Failed loading script: ${src}`)), { once: true });
-      return;
+
+      script.addEventListener("load", handleLoad, { once: true });
+      script.addEventListener("error", handleError, { once: true });
+      timeoutId = window.setTimeout(() => {
+        fail(`Timed out loading script: ${src}`);
+      }, SCRIPT_LOAD_TIMEOUT_MS);
+    };
+
+    const existing = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null;
+    if (existing) {
+      const existingState = String(existing.dataset.state || "").trim();
+      const hasRuntime = Boolean((window as any).mapboxgl);
+      const isLoaded = existing.dataset.loaded === "true" || existingState === "loaded";
+      const isFailed = existing.dataset.failed === "true" || existingState === "failed";
+
+      if (isLoaded && hasRuntime) {
+        resolve();
+        return;
+      }
+
+      if (isFailed || isLoaded) {
+        existing.remove();
+      } else {
+        waitForScript(existing, true);
+        return;
+      }
     }
+
     const script = document.createElement("script");
     script.src = src;
     script.async = true;
-    script.addEventListener(
-      "load",
-      () => {
-        (script as any).dataset.loaded = "true";
-        resolve();
-      },
-      { once: true },
-    );
-    script.addEventListener("error", () => reject(new Error(`Failed loading script: ${src}`)), { once: true });
+    markState(script, "loading");
     document.head.appendChild(script);
+    waitForScript(script, true);
   });
 }
 

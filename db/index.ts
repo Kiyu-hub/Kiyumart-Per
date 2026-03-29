@@ -12,6 +12,15 @@ if (!connectionString) {
 
 const useNeon = process.env.DB_DRIVER === "neon" || /neon/i.test(connectionString);
 
+const attachPoolErrorHandler = (
+  pool: { on: (event: string, handler: (error: any) => void) => void },
+  label: string,
+) => {
+  pool.on("error", (error: any) => {
+    console.error(`[DB] ${label} pool connection error:`, error?.message || error);
+  });
+};
+
 const db = (() => {
   if (useNeon) {
     // Configure WebSocket for Neon serverless in Node.js environment
@@ -22,6 +31,7 @@ const db = (() => {
       idleTimeoutMillis: 30000, // How long a connection can be idle before being closed
       connectionTimeoutMillis: 10000, // How long to wait when connecting a new client
     });
+    attachPoolErrorHandler(pool, "Neon");
     return drizzleNeon(pool, { schema });
   }
 
@@ -35,6 +45,7 @@ const db = (() => {
     idleTimeoutMillis: 30000, // How long a connection can be idle before being closed
     connectionTimeoutMillis: 10000, // How long to wait when connecting a new client
   });
+  attachPoolErrorHandler(pool, "Postgres");
   return drizzlePg(pool, { schema });
 })();
 

@@ -10,20 +10,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, Edit, Eye, ArrowLeft, Package, EyeOff, MessageCircle } from "lucide-react";
+import { PageLoadingState } from "@/components/ui/loading-state";
+import { Loader2, Search, Edit, Eye, ArrowLeft, Package, EyeOff, MessageCircle, Store, Layers3, Boxes, Tag as TagIcon } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
 
 interface Product {
   id: string;
   name: string;
   price: string;
   category: string;
+  categoryName?: string | null;
   stock: number;
   images: string[];
   isActive: boolean;
   sellerId: string;
-  storeName?: string;
+  storeName?: string | null;
 }
 
 function HideProductDialog({ product }: { product: Product }) {
@@ -39,6 +41,7 @@ function HideProductDialog({ product }: { product: Product }) {
         description: product.isActive ? "Product hidden successfully" : "Product restored successfully",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "admin-products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/homepage/featured-products"] });
     },
     onError: (error: any) => {
@@ -104,24 +107,27 @@ export default function AdminProducts() {
   }, [isAuthenticated, authLoading, user, navigate]);
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+    queryKey: ["/api/products", "admin-products"],
+    queryFn: () => fetchApiJson<Product[]>("/api/products"),
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchOnMount: "always",
   });
 
   // Use debounced search query for filtering
   const filteredProducts = useMemo(() => {
     return products.filter(p => 
       p.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-      p.category.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
+      String(p.category || "").toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+      String(p.storeName || "").toLowerCase().includes(debouncedSearchQuery.toLowerCase())
     );
   }, [products, debouncedSearchQuery]);
 
+  const activeProductsCount = useMemo(() => products.filter((product) => product.isActive).length, [products]);
+  const lowStockCount = useMemo(() => products.filter((product) => Number(product.stock || 0) <= 5).length, [products]);
+  const hiddenProductsCount = useMemo(() => products.filter((product) => !product.isActive).length, [products]);
+
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoadingState title="Loading products" description="Preparing product inventory, visibility, and seller context." />;
   }
 
   return (
@@ -142,7 +148,7 @@ export default function AdminProducts() {
             </div>
           </div>
 
-          <div className="mb-6">
+          <div className="mb-6 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
             <div className="relative">
               {isSearching ? (
                 <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground animate-spin" />
@@ -162,6 +168,23 @@ export default function AdminProducts() {
                 </span>
               )}
             </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Card className="rounded-[24px] border border-border/70 bg-card/95 p-4 shadow-sm">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Visible</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">{activeProductsCount}</p>
+                <p className="text-sm text-muted-foreground">Active storefront products</p>
+              </Card>
+              <Card className="rounded-[24px] border border-border/70 bg-card/95 p-4 shadow-sm">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Low Stock</p>
+                <p className="mt-2 text-2xl font-semibold text-amber-600 dark:text-amber-300">{lowStockCount}</p>
+                <p className="text-sm text-muted-foreground">Five units or fewer left</p>
+              </Card>
+              <Card className="rounded-[24px] border border-border/70 bg-card/95 p-4 shadow-sm">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Hidden</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">{hiddenProductsCount}</p>
+                <p className="text-sm text-muted-foreground">Super-admin hidden items</p>
+              </Card>
+            </div>
           </div>
 
           {isLoading ? (
@@ -173,102 +196,154 @@ export default function AdminProducts() {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-3">
               {filteredProducts.map((product) => (
                 <Card
                   key={product.id}
-                  className="overflow-hidden border-border/70 shadow-sm hover:shadow-md hover:border-primary/30 transition-all"
+                  className="group overflow-hidden rounded-[28px] border border-border/70 bg-card/95 shadow-[0_18px_36px_-30px_rgba(0,0,0,0.55)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 hover:shadow-[0_24px_44px_-30px_rgba(16,185,129,0.18)]"
                   data-testid={`card-product-${product.id}`}
                 >
-                  <div className="relative aspect-[4/3] bg-muted/20">
+                  <div className="relative aspect-[16/11] overflow-hidden bg-muted/30">
                     <img
                       src={product.images[0] || "/placeholder.jpg"}
                       alt={product.name}
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
                       data-testid={`img-product-${product.id}`}
                     />
-                    <div className="absolute top-2 left-2 flex items-center gap-2">
+                    <div className="absolute inset-0 bg-gradient-to-t from-background/95 via-background/20 to-transparent" />
+                    <div className="absolute left-4 top-4 flex items-center gap-2">
                       <Badge
-                        className={product.isActive ? "bg-emerald-600 hover:bg-emerald-600" : ""}
-                        variant={product.isActive ? "default" : "secondary"}
+                        className={product.isActive ? "border-0 bg-emerald-600 px-2 py-0.5 text-[10px] text-white shadow-sm hover:bg-emerald-600" : "border-0 bg-zinc-700 px-2 py-0.5 text-[10px] text-zinc-100 hover:bg-zinc-700"}
+                        variant="secondary"
                         data-testid={`badge-status-${product.id}`}
                       >
                         {product.isActive ? "Active" : "Deactivated"}
                       </Badge>
                     </div>
+                    <div className="absolute right-4 top-4 max-w-[72%]">
+                      <Badge
+                        variant="secondary"
+                        className="max-w-full truncate border border-white/15 bg-background/80 px-2 py-0.5 text-[10px] font-medium text-foreground/90 backdrop-blur"
+                        data-testid={`badge-store-${product.id}`}
+                        title={product.storeName || "Unassigned store"}
+                      >
+                        <Store className="mr-1 h-3 w-3 shrink-0" />
+                        {product.storeName || "Unassigned store"}
+                      </Badge>
+                    </div>
+                    <div className="absolute inset-x-0 bottom-0 p-4">
+                      <div className="rounded-[18px] border border-white/10 bg-background/78 p-3 backdrop-blur-md">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-foreground/55">Product Overview</p>
+                        <h3
+                          className="mt-1 line-clamp-2 min-h-[2rem] text-lg font-semibold leading-tight text-foreground"
+                          data-testid={`text-product-name-${product.id}`}
+                        >
+                          {product.name}
+                        </h3>
+                        <p className="mt-1 text-xs text-foreground/65">
+                          {product.categoryName || product.category || "Uncategorized"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="p-4 space-y-3">
-                    <div>
-                      <h3
-                        className="font-semibold text-base leading-snug line-clamp-2 min-h-[2.5rem]"
-                        data-testid={`text-product-name-${product.id}`}
-                      >
-                        {product.name}
-                      </h3>
-                      <p className="text-primary font-bold mt-1" data-testid={`text-price-${product.id}`}>
-                        {formatPrice(parseFloat(product.price))}
-                      </p>
+                  <div className="space-y-4 p-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-[20px] border border-border/70 bg-background/50 p-4">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Current Price</p>
+                        <p className="mt-2 text-2xl font-bold tracking-tight text-primary" data-testid={`text-price-${product.id}`}>
+                          {formatPrice(parseFloat(product.price))}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">Marketplace selling price</p>
+                      </div>
+                      <div className="rounded-[20px] border border-border/70 bg-background/50 p-4">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Inventory</p>
+                        <p className="mt-2 text-2xl font-semibold text-foreground" data-testid={`text-stock-${product.id}`}>
+                          {product.stock}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {product.stock <= 0 ? "Out of stock" : product.stock <= 5 ? "Running low" : "Healthy stock"}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline" data-testid={`badge-category-${product.id}`}>
-                        {product.category}
-                      </Badge>
-                      {product.storeName && (
-                        <Badge variant="secondary" data-testid={`badge-seller-${product.id}`}>
-                          {product.storeName}
-                        </Badge>
-                      )}
+                    <div className="rounded-[22px] border border-border/70 bg-muted/10 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Seller Context</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-[16px] border border-border/60 bg-background/40 p-3">
+                          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                            <Store className="h-3 w-3" />
+                            Store
+                          </div>
+                          <p className="mt-1.5 line-clamp-2 text-sm font-medium text-foreground">
+                            {product.storeName || "Unassigned store"}
+                          </p>
+                        </div>
+                        <div className="rounded-[16px] border border-border/60 bg-background/40 p-3">
+                          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                            <TagIcon className="h-3 w-3" />
+                            Category
+                          </div>
+                          <p className="mt-1.5 line-clamp-2 text-sm font-medium text-foreground" data-testid={`badge-category-${product.id}`}>
+                            {product.categoryName || product.category || "Uncategorized"}
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-sm text-muted-foreground border-t pt-2">
-                      <span data-testid={`text-stock-${product.id}`}>Stock: {product.stock}</span>
-                      {!product.isActive && (
-                        <span className="text-amber-500 font-medium" data-testid={`text-hidden-label-${product.id}`}>
-                          Hidden by Super Admin
-                        </span>
-                      )}
+                    <div className="flex items-center justify-between rounded-[18px] border border-border/70 bg-muted/15 px-3 py-3 text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Boxes className="h-3.5 w-3.5" />
+                        Visibility
+                      </div>
+                      <span className="font-semibold text-foreground">
+                        {product.isActive ? "Visible on storefront" : "Hidden by Super Admin"}
+                      </span>
                     </div>
 
-                    <div className="flex items-center justify-end gap-1 border-t pt-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => navigate(`/product/${product.id}`)}
-                        data-testid={`button-view-${product.id}`}
-                        title="View product"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => navigate(`/admin/products/${product.id}/edit`)}
-                        data-testid={`button-edit-${product.id}`}
-                        title="Edit product"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          const params = new URLSearchParams({
-                            userId: product.sellerId,
-                            productId: product.id,
-                            productName: product.name,
-                            productImage: product.images?.[0] || "",
-                            productLink: `/product/${product.id}`,
-                          });
-                          navigate(`/admin/messages?${params.toString()}`);
-                        }}
-                        data-testid={`button-message-seller-${product.id}`}
-                        title="Message seller about this product"
-                      >
-                        <MessageCircle className="h-4 w-4" />
-                      </Button>
-                      <HideProductDialog product={product} />
+                    <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                      <div className="text-xs text-muted-foreground">
+                        Product ID: <span className="font-medium text-foreground/80">{product.id.slice(0, 8)}</span>
+                      </div>
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => navigate(`/product/${product.id}`)}
+                          data-testid={`button-view-${product.id}`}
+                          title="View product"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => navigate(`/admin/products/${product.id}/edit`)}
+                          data-testid={`button-edit-${product.id}`}
+                          title="Edit product"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const params = new URLSearchParams({
+                              userId: product.sellerId,
+                              productId: product.id,
+                              productName: product.name,
+                              productImage: product.images?.[0] || "",
+                              productLink: `/product/${product.id}`,
+                            });
+                            navigate(`/admin/messages?${params.toString()}`);
+                          }}
+                          data-testid={`button-message-seller-${product.id}`}
+                          title="Message seller about this product"
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                        </Button>
+                        <HideProductDialog product={product} />
+                      </div>
                     </div>
                   </div>
                 </Card>

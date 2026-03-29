@@ -119,11 +119,11 @@ export default function ProductCard({
       data-testid={`card-product-${id}`}
     >
       {/* Product Image Container - DO NOT MODIFY ASPECT RATIO */}
-      <div className="relative aspect-[16/10] overflow-hidden bg-muted">
+      <div className="relative aspect-[16/10] overflow-hidden bg-gradient-to-br from-muted/20 via-background to-muted/35">
         <img
           src={image}
           alt={name}
-          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+          className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-[1.04]"
           data-testid={`img-product-${id}`}
         />
         {actualDiscount > 0 && (

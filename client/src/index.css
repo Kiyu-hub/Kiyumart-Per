@@ -251,3 +251,65 @@
     box-shadow: 0 0 0 2px #93c5fd !important;
   }
 }
+
+/* ─── Uber-Grade Rider Map Animations ─── */
+
+/* Pulsing green ring for ONLINE riders */
+@keyframes rider-pulse {
+  0%   { opacity: 0.9; transform: scale(1); }
+  70%  { opacity: 0;   transform: scale(2.4); }
+  100% { opacity: 0;   transform: scale(2.4); }
+}
+
+.rider-vehicle-marker .rider-online-pulse {
+  position: absolute;
+  bottom: -4px;
+  left: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: #10b981;
+  animation: rider-pulse 2s ease-out infinite;
+  pointer-events: none;
+}
+
+/* Ghost trail fade for riders recently gone offline */
+.rider-vehicle-marker.rider-offline {
+  opacity: 0.45;
+  filter: grayscale(0.7);
+  transition: opacity 0.6s ease, filter 0.6s ease;
+}
+
+/* Hover elevation on map control panels */
+.mapboxgl-ctrl-group button:hover,
+.mapboxgl-map button:hover {
+  transform: translateY(-1px);
+  transition: transform 0.12s ease;
+}
+
+/* Smooth Leaflet marker position transitions */
+.leaflet-marker-icon {
+  transition: transform 200ms linear !important;
+}
+
+/* Leaflet polyline styling upgrade */
+.leaflet-interactive {
+  transition: stroke-dashoffset 0.2s linear;
+}
+
+/* Map container GPU acceleration */
+.leaflet-container,
+.mapboxgl-canvas {
+  will-change: transform;
+}
+
+/* Hover-elevate utility used in sidebar and buttons */
+.hover-elevate {
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+.hover-elevate:hover {
+  transform: translateX(2px);
+}
+.active-elevate-2:active {
+  transform: translateX(3px) scale(0.98);
+}

@@ -16,22 +16,23 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
 import MediaUploadInput from "@/components/MediaUploadInput";
 import ProductGallery from "@/components/ProductGallery";
 import { CategorySelect } from "@/components/CategorySelect";
-import { DynamicFieldRenderer } from "@/components/DynamicFieldRenderer";
-import { getStoreTypeFields, getStoreTypeSchema, StoreType } from "@shared/storeTypes";
+import { PageLoadingState } from "@/components/ui/loading-state";
+import { StoreType } from "@shared/storeTypes";
 
 interface Product {
   id: string;
   name: string;
   description: string;
   price: string;
-  compareAtPrice: string | null;
+  costPrice: string | null;
   images: string[];
   video: string | null;
   category: string | null;
@@ -51,6 +52,40 @@ interface Store {
   storeType: StoreType;
 }
 
+interface SellerCategoryRequest {
+  categoryId: string;
+  name: string;
+  slug: string;
+  image: string | null;
+  storeType: string | null;
+  requestedAt: string;
+  status: "pending" | "approved" | "rejected";
+  message: string;
+}
+
+const DELIVERY_DURATION_PRESETS = [
+  "Same day",
+  "Next day",
+  "1-2 days",
+  "2-3 days",
+  "3-5 business days",
+  "5-7 business days",
+  "1-2 weeks",
+] as const;
+
+const getDeliveryDurationPreset = (value?: string | null) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  return DELIVERY_DURATION_PRESETS.includes(normalized as any) ? normalized : "custom";
+};
+
+const requestCategorySchema = z.object({
+  name: z.string().min(2, "Category name must be at least 2 characters"),
+  slug: z.string().min(2, "Slug is required"),
+  description: z.string().optional(),
+  image: z.string().optional().or(z.literal("")),
+});
+
 // Base product schema (media rules: 3-8 images required, video optional)
 const baseProductSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -64,6 +99,8 @@ const baseProductSchema = z.object({
   videoUrl: z.string().url("Invalid video URL").optional().or(z.literal("")),
   deliveryDuration: z.string().optional(),
   inStock: z.boolean().default(true),
+  homepageFeatured: z.boolean().default(false),
+  homepageNewArrival: z.boolean().default(false),
   dynamicFields: z.record(z.any()).optional(),
 });
 
@@ -78,39 +115,42 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
     enabled: !!user?.id,
   });
 
-  // Merge base schema with dynamic storeType schema
-  const productSchema = useMemo(() => {
-    if (!store?.storeType) return baseProductSchema;
-    
-    const dynamicSchema = getStoreTypeSchema(store.storeType);
-    return baseProductSchema.extend({
-      dynamicFields: dynamicSchema,
-    });
-  }, [store?.storeType]);
+  const { data: freshProduct } = useQuery<Product | null>({
+    queryKey: ["/api/products", product?.id, "seller-edit"],
+    queryFn: async () => {
+      if (!product?.id) return null;
+      try {
+        return await fetchApiJson<Product>(`/api/products/${product.id}`);
+      } catch {
+        return null;
+      }
+    },
+    enabled: mode === "edit" && open && !!product?.id,
+    refetchOnMount: "always",
+  });
 
+  const effectiveProduct = freshProduct || product;
+
+  const productSchema = baseProductSchema;
   type ProductFormData = z.infer<typeof productSchema>;
-
-  // Get dynamic fields for rendering
-  const dynamicFields = useMemo(() => {
-    if (!store?.storeType) return [];
-    return getStoreTypeFields(store.storeType);
-  }, [store?.storeType]);
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
-    defaultValues: product ? {
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      compareAtPrice: product.compareAtPrice || "",
-      categoryId: product.categoryId || undefined,
-      stockQuantity: product.stock.toString(),
-      tags: product.tags?.join(", ") || "",
-      images: product.images || [],
-      videoUrl: product.video || "",
-      deliveryDuration: (product as any).deliveryDuration || "",
+    defaultValues: effectiveProduct ? {
+      name: effectiveProduct.name,
+      description: effectiveProduct.description,
+      price: effectiveProduct.price,
+      compareAtPrice: effectiveProduct.costPrice || "",
+      categoryId: effectiveProduct.categoryId || undefined,
+      stockQuantity: effectiveProduct.stock.toString(),
+      tags: effectiveProduct.tags?.join(", ") || "",
+      images: effectiveProduct.images || [],
+      videoUrl: effectiveProduct.video || "",
+      deliveryDuration: (effectiveProduct as any).deliveryDuration || "",
       inStock: true,
-      dynamicFields: product.dynamicFields || {},
+      homepageFeatured: Boolean(effectiveProduct.dynamicFields?.homepageFeatured),
+      homepageNewArrival: Boolean(effectiveProduct.dynamicFields?.homepageNewArrival),
+      dynamicFields: effectiveProduct.dynamicFields || {},
     } : {
       name: "",
       description: "",
@@ -123,22 +163,14 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       videoUrl: "",
       deliveryDuration: "",
       inStock: true,
-      dynamicFields: store?.storeType ? (() => {
-        const fields = getStoreTypeFields(store.storeType);
-        const defaults: Record<string, any> = {};
-        fields.forEach(field => {
-          if (field.type === "multiselect") {
-            defaults[field.name] = [];
-          } else if (field.type === "number") {
-            defaults[field.name] = 0;
-          } else {
-            defaults[field.name] = "";
-          }
-        });
-        return defaults;
-      })() : {},
+      homepageFeatured: false,
+      homepageNewArrival: false,
+      dynamicFields: {},
     },
   });
+
+  const watchedDeliveryDuration = form.watch("deliveryDuration");
+  const selectedDeliveryPreset = getDeliveryDurationPreset(watchedDeliveryDuration);
 
   // Variant management state
   const [productVariants, setProductVariants] = useState<any[]>([]);
@@ -160,36 +192,24 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
     }
   }, [existingVariants, mode]);
 
-  // Reset form when store changes or dialog opens/closes
+  // Reset form when dialog opens/closes
   useEffect(() => {
-    if (open && store?.storeType) {
-      const dynamicDefaults: Record<string, any> = {};
-      const fields = getStoreTypeFields(store.storeType);
-      fields.forEach(field => {
-        if (field.type === "multiselect") {
-          dynamicDefaults[field.name] = [];
-        } else if (field.type === "number") {
-          dynamicDefaults[field.name] = 0;
-        } else {
-          dynamicDefaults[field.name] = "";
-        }
-      });
-      
-      form.reset(product ? {
-        name: product.name,
-        description: product.description,
-        price: product.price,
-        compareAtPrice: product.compareAtPrice || "",
-        categoryId: product.categoryId || undefined,
-        stockQuantity: product.stock.toString(),
-        tags: product.tags?.join(", ") || "",
-        images: product.images || [],
-        videoUrl: product.video || "",
+    if (open) {
+      form.reset(effectiveProduct ? {
+        name: effectiveProduct.name,
+        description: effectiveProduct.description,
+        price: effectiveProduct.price,
+        compareAtPrice: effectiveProduct.costPrice || "",
+        categoryId: effectiveProduct.categoryId || undefined,
+        stockQuantity: effectiveProduct.stock.toString(),
+        tags: effectiveProduct.tags?.join(", ") || "",
+        images: effectiveProduct.images || [],
+        videoUrl: effectiveProduct.video || "",
+        deliveryDuration: effectiveProduct.deliveryDuration || "",
         inStock: true,
-        dynamicFields: {
-          ...dynamicDefaults,
-          ...(product.dynamicFields || {}),
-        },
+        homepageFeatured: Boolean(effectiveProduct.dynamicFields?.homepageFeatured),
+        homepageNewArrival: Boolean(effectiveProduct.dynamicFields?.homepageNewArrival),
+        dynamicFields: effectiveProduct.dynamicFields || {},
       } : {
         name: "",
         description: "",
@@ -201,10 +221,12 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         images: [],
         videoUrl: "",
         inStock: true,
-        dynamicFields: dynamicDefaults,
+        homepageFeatured: false,
+        homepageNewArrival: false,
+        dynamicFields: {},
       });
     }
-  }, [open, store?.storeType, product, form]);
+  }, [open, effectiveProduct, form]);
 
   const createProductMutation = useMutation({
     mutationFn: async (data: ProductFormData) => {
@@ -212,35 +234,40 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         throw new Error("User not authenticated");
       }
 
+      const normalizedCategoryId = String(data.categoryId || "").trim() || undefined;
+
       const productData: any = {
         name: data.name,
         description: data.description,
         price: data.price,
-        compareAtPrice: data.compareAtPrice || null,
-        categoryId: data.categoryId,
+        costPrice: data.compareAtPrice || null,
+        categoryId: normalizedCategoryId,
         stock: parseInt(data.stockQuantity),
         images: data.images || [],
         video: data.videoUrl || null,
         deliveryDuration: data.deliveryDuration || null,
         sellerId: user.id,
         storeId: store?.id || null,
-        dynamicFields: data.dynamicFields || {},
+        dynamicFields: {
+          ...(data.dynamicFields || {}),
+          homepageFeatured: Boolean(data.homepageFeatured),
+          homepageNewArrival: Boolean(data.homepageNewArrival),
+        },
       };
 
-      if (data.tags) {
-        const tagsArray = data.tags.split(",").map(t => t.trim()).filter(Boolean);
-        productData.tags = tagsArray;
-      }
+      productData.tags = data.tags
+        ? data.tags.split(",").map(t => t.trim()).filter(Boolean)
+        : [];
 
-      return apiRequest("POST", "/api/products", productData);
+      const response = await apiRequest("POST", "/api/products", productData);
+      return response.json();
     },
     onSuccess: async (createdProduct: any) => {
       // Create variants if any exist
       if (productVariants.length > 0) {
         try {
           for (const variant of productVariants) {
-            if (variant.id?.startsWith('temp-')) {
-              // Remove temp ID and create real variant
+            if (variant.id?.startsWith("temp-")) {
               const { id, ...variantData } = variant;
               await apiRequest("POST", `/api/products/${createdProduct.id}/variants`, variantData);
             }
@@ -259,10 +286,12 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         title: "Success",
         description: "Product created successfully",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/featured-products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/new-arrivals"] });
       setOpen(false);
       form.reset();
-      setProductVariants([]); // Clear variants
+      setProductVariants([]);
     },
     onError: (error: any) => {
       toast({
@@ -275,32 +304,44 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
 
   const updateProductMutation = useMutation({
     mutationFn: async (data: ProductFormData) => {
+      const normalizedCategoryId = String(data.categoryId || "").trim() || undefined;
+
       const updateData: any = {
         name: data.name,
         description: data.description,
         price: data.price,
-        compareAtPrice: data.compareAtPrice || null,
-        categoryId: data.categoryId,
+        costPrice: data.compareAtPrice || null,
+        categoryId: normalizedCategoryId,
         stock: parseInt(data.stockQuantity),
         images: data.images,
         video: data.videoUrl || null,
         deliveryDuration: data.deliveryDuration || null,
-        dynamicFields: data.dynamicFields || {},
+        dynamicFields: {
+          ...(data.dynamicFields || {}),
+          homepageFeatured: Boolean(data.homepageFeatured),
+          homepageNewArrival: Boolean(data.homepageNewArrival),
+        },
       };
 
-      if (data.tags) {
-        const tagsArray = data.tags.split(",").map(t => t.trim()).filter(Boolean);
-        updateData.tags = tagsArray;
-      }
+      updateData.tags = data.tags
+        ? data.tags.split(",").map(t => t.trim()).filter(Boolean)
+        : [];
 
-      return apiRequest("PATCH", `/api/products/${product?.id}`, updateData);
+      const response = await apiRequest("PATCH", `/api/products/${product?.id}`, updateData);
+      return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedProduct: any) => {
       toast({
         title: "Success",
         description: "Product updated successfully",
       });
+      if (updatedProduct?.id) {
+        queryClient.setQueryData(["/api/products", updatedProduct.id], updatedProduct);
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", product?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/featured-products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/new-arrivals"] });
       setOpen(false);
     },
     onError: (error: any) => {
@@ -324,15 +365,15 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   const handleCreateVariant = async (variantData: any) => {
     try {
       if (!product?.id) {
-        // For new products, store variants temporarily until product is created
-        setProductVariants(prev => [...prev, { ...variantData, id: `temp-${Date.now()}` }]);
+        setProductVariants((prev) => [...prev, { ...variantData, id: `temp-${Date.now()}` }]);
         setShowVariantDialog(false);
         setEditingVariant(null);
         return;
       }
 
       const response = await apiRequest("POST", `/api/products/${product.id}/variants`, variantData);
-      setProductVariants(prev => [...prev, response]);
+      const createdVariant = await response.json();
+      setProductVariants((prev) => [...prev, createdVariant]);
       queryClient.invalidateQueries({ queryKey: ["/api/products", product.id, "variants"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
       setShowVariantDialog(false);
@@ -348,7 +389,8 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       if (!product?.id || !editingVariant) return;
 
       const response = await apiRequest("PUT", `/api/products/${product.id}/variants/${editingVariant.id}`, variantData);
-      setProductVariants(prev => prev.map(v => v.id === editingVariant.id ? response : v));
+      const updatedVariant = await response.json();
+      setProductVariants((prev) => prev.map((v) => (v.id === editingVariant.id ? updatedVariant : v)));
       queryClient.invalidateQueries({ queryKey: ["/api/products", product.id, "variants"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
       setShowVariantDialog(false);
@@ -362,13 +404,12 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   const handleDeleteVariant = async (variantId: string) => {
     try {
       if (!product?.id) {
-        // For new products, remove from temporary state
-        setProductVariants(prev => prev.filter(v => v.id !== variantId));
+        setProductVariants((prev) => prev.filter((v) => v.id !== variantId));
         return;
       }
 
       await apiRequest("DELETE", `/api/products/${product.id}/variants/${variantId}`);
-      setProductVariants(prev => prev.filter(v => v.id !== variantId));
+      setProductVariants((prev) => prev.filter((v) => v.id !== variantId));
       queryClient.invalidateQueries({ queryKey: ["/api/products", product.id, "variants"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
       toast({ title: "Success", description: "Variant deleted successfully" });
@@ -484,6 +525,12 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                       required={false}
                       testId="select-category"
                     />
+                    <div className="pt-2">
+                      <RequestCategoryDialog storeType={store?.storeType} />
+                    </div>
+                    <div className="pt-3">
+                      <SellerCategoryRequestList storeType={store?.storeType} />
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -503,20 +550,55 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="deliveryDuration"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Delivery Duration</FormLabel>
-                    <FormControl>
-                      <Input placeholder="1-2 business days" {...field} data-testid="input-delivery-duration" />
-                    </FormControl>
-                    <FormDescription>How long it takes to deliver this product</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <FormField
+              control={form.control}
+              name="deliveryDuration"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Delivery Duration</FormLabel>
+                  <FormControl>
+                    <div className="space-y-3">
+                      <Select
+                        value={selectedDeliveryPreset}
+                        onValueChange={(value) => {
+                          if (value === "custom") {
+                            if (DELIVERY_DURATION_PRESETS.includes(String(field.value || "").trim() as any)) {
+                              field.onChange("");
+                            }
+                            return;
+                          }
+                          field.onChange(value);
+                        }}
+                      >
+                        <SelectTrigger data-testid="select-delivery-duration-preset">
+                          <SelectValue placeholder="Choose a delivery duration" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DELIVERY_DURATION_PRESETS.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="custom">Custom duration</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {selectedDeliveryPreset === "custom" && (
+                        <Input
+                          placeholder="e.g. 4-6 business days"
+                          {...field}
+                          data-testid="input-delivery-duration"
+                        />
+                      )}
+                    </div>
+                  </FormControl>
+                  <FormDescription>
+                    Pick a quick preset or enter a custom delivery duration that will show on the product page.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             </div>
 
             <FormField
@@ -531,26 +613,48 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                   <FormDescription>Enter tags separated by commas</FormDescription>
                   <FormMessage />
                 </FormItem>
-              )}
-            />
+                )}
+              />
 
-            {/* Dynamic Store-Type Specific Fields */}
-            {dynamicFields.length > 0 && (
-              <Card className="p-4">
-                <h3 className="font-semibold mb-4">
-                  {store?.storeType ? `${store.storeType.replace(/_/g, ' ')} Store Information` : 'Store-Specific Information'}
-                </h3>
-                <div className="space-y-4">
-                  {dynamicFields.map((field) => (
-                    <DynamicFieldRenderer
-                      key={field.name}
-                      field={field}
-                      form={form}
-                    />
-                  ))}
-                </div>
-              </Card>
-            )}
+            <Card className="p-4">
+              <h3 className="font-semibold mb-4">Homepage Display</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Only the first 5 featured products can appear on the homepage.
+              </p>
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="homepageFeatured"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-1">
+                        <FormLabel>Featured Product</FormLabel>
+                        <FormDescription>Show this product in the homepage featured section.</FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-homepage-featured" />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="homepageNewArrival"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-1">
+                        <FormLabel>New Arrival</FormLabel>
+                        <FormDescription>Show this product in the homepage new arrivals section.</FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-homepage-new-arrival" />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </Card>
 
             <FormField
               control={form.control}
@@ -621,11 +725,11 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                   </div>
                   {productVariants.map((variant) => (
                     <div key={variant.id} className="grid grid-cols-12 gap-2 text-sm items-center py-2 border-b">
-                      <div className="col-span-2">{variant.color || '-'}</div>
-                      <div className="col-span-2">{variant.size || '-'}</div>
-                      <div className="col-span-2">{variant.sku || '-'}</div>
+                      <div className="col-span-2">{variant.color || "-"}</div>
+                      <div className="col-span-2">{variant.size || "-"}</div>
+                      <div className="col-span-2">{variant.sku || "-"}</div>
                       <div className="col-span-2">{variant.stock}</div>
-                      <div className="col-span-2">{variant.priceAdjustment ? `$${variant.priceAdjustment}` : '-'}</div>
+                      <div className="col-span-2">{variant.priceAdjustment ? `$${variant.priceAdjustment}` : "-"}</div>
                       <div className="col-span-2 flex gap-1">
                         <Button
                           type="button"
@@ -708,15 +812,277 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
           />
         </DialogContent>
       </Dialog>
+
     </Dialog>
   );
 }
 
+function RequestCategoryDialog({ storeType }: { storeType?: StoreType }) {
+  const [open, setOpen] = useState(false);
+  const { toast } = useToast();
+
+  const form = useForm<z.infer<typeof requestCategorySchema>>({
+    resolver: zodResolver(requestCategorySchema),
+    defaultValues: {
+      name: "",
+      slug: "",
+      description: "",
+      image: "",
+    },
+  });
+
+  const requestCategoryMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof requestCategorySchema>) => {
+      const response = await apiRequest("POST", "/api/seller/categories/request", data);
+      return response.json();
+    },
+    onSuccess: (payload: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories", "active"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/seller/category-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      setOpen(false);
+      form.reset();
+      toast({
+        title: "Category request submitted",
+        description: payload?.message || "An admin must approve it before it appears on the homepage.",
+      });
+    },
+    onError: (error: any) => {
+      let description = error?.message || "Could not submit category request";
+      const normalized = String(description).replace(/^\d+:\s*/, "");
+      try {
+        const parsed = JSON.parse(normalized);
+        description = parsed?.error || description;
+      } catch {
+        description = normalized;
+      }
+      toast({
+        title: "Request failed",
+        description,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleNameChange = (name: string) => {
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .trim();
+    form.setValue("slug", slug);
+  };
+
+  const handleRequestSubmit = form.handleSubmit((data) => {
+    requestCategoryMutation.mutate(data);
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" size="sm" disabled={!storeType} data-testid="button-request-category">
+          <Plus className="mr-2 h-4 w-4" />
+          Request Category
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Request New Category</DialogTitle>
+          <DialogDescription>
+            {storeType
+              ? `This request will be submitted for ${storeType.replace(/_/g, " ")} stores and will stay hidden until an admin approves it.`
+              : "Your store type must be configured before you can request a category."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Form {...form}>
+          <div className="space-y-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Category Name</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="e.g. Prayer Mats"
+                      onChange={(e) => {
+                        field.onChange(e);
+                        handleNameChange(e.target.value);
+                      }}
+                      data-testid="input-request-category-name"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="slug"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Slug</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="prayer-mats" data-testid="input-request-category-slug" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description</FormLabel>
+                  <FormControl>
+                    <Textarea {...field} value={field.value || ""} rows={3} placeholder="Short note for review" data-testid="input-request-category-description" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="image"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Category Image (Optional)</FormLabel>
+                  <FormControl>
+                    <MediaUploadInput
+                      id="seller-category-image"
+                      label=""
+                      value={field.value || ""}
+                      onChange={field.onChange}
+                      accept="image"
+                      placeholder="https://example.com/category-image.jpg"
+                      description="If you leave this empty, a default image for your store type will be used automatically."
+                      mediaCategory="category"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleRequestSubmit()}
+                disabled={requestCategoryMutation.isPending || !storeType}
+                data-testid="button-submit-category-request"
+              >
+                {requestCategoryMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Submit Request
+              </Button>
+            </div>
+          </div>
+        </Form>
+      </DialogContent>
+
+    </Dialog>
+  );
+}
+
+function SellerCategoryRequestList({ storeType }: { storeType?: StoreType }) {
+  const { data: requests = [], isLoading } = useQuery<SellerCategoryRequest[]>({
+    queryKey: ["/api/seller/category-requests"],
+    queryFn: async () => {
+      const data = await fetchApiJson<SellerCategoryRequest[]>("/api/seller/category-requests");
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!storeType,
+  });
+
+  const visibleRequests = requests.slice(0, 5);
+
+  if (!storeType) {
+    return (
+      <Card className="border-dashed p-3">
+        <p className="text-sm text-muted-foreground">
+          Set your store type first to request a category and track approval status.
+        </p>
+      </Card>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <Card className="p-3">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading category request status...
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold">Pending Approval</h4>
+          <p className="text-xs text-muted-foreground">
+            Your recent category requests and their current status.
+          </p>
+        </div>
+        <Badge variant="secondary">{requests.filter((request) => request.status === "pending").length} pending</Badge>
+      </div>
+
+      {visibleRequests.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          No category requests yet.
+        </p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {visibleRequests.map((request) => (
+            <div key={request.categoryId} className="rounded-lg border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{request.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {request.slug ? `/${request.slug}` : "Requested category"}
+                  </p>
+                </div>
+                <Badge
+                  variant={
+                    request.status === "approved"
+                      ? "default"
+                      : request.status === "rejected"
+                        ? "destructive"
+                        : "outline"
+                  }
+                >
+                  {request.status === "approved" ? "Approved" : request.status === "rejected" ? "Rejected" : "Pending"}
+                </Badge>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">{request.message}</p>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Requested {new Date(request.requestedAt).toLocaleString()}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // Variant Form Component
-function VariantForm({ variant, onSubmit, onCancel }: { 
-  variant?: any; 
-  onSubmit: (data: any) => void; 
-  onCancel: () => void; 
+function VariantForm({ variant, onSubmit, onCancel }: {
+  variant?: any;
+  onSubmit: (data: any) => void;
+  onCancel: () => void;
 }) {
   const [formData, setFormData] = useState({
     color: variant?.color || "",
@@ -744,7 +1110,7 @@ function VariantForm({ variant, onSubmit, onCancel }: {
           <Input
             id="variant-color"
             value={formData.color}
-            onChange={(e) => setFormData(prev => ({ ...prev, color: e.target.value }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, color: e.target.value }))}
             placeholder="e.g. Red, Blue"
           />
         </div>
@@ -753,7 +1119,7 @@ function VariantForm({ variant, onSubmit, onCancel }: {
           <Input
             id="variant-size"
             value={formData.size}
-            onChange={(e) => setFormData(prev => ({ ...prev, size: e.target.value }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, size: e.target.value }))}
             placeholder="e.g. S, M, L"
           />
         </div>
@@ -764,7 +1130,7 @@ function VariantForm({ variant, onSubmit, onCancel }: {
         <Input
           id="variant-sku"
           value={formData.sku}
-          onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
+          onChange={(e) => setFormData((prev) => ({ ...prev, sku: e.target.value }))}
           placeholder="Stock Keeping Unit"
         />
       </div>
@@ -774,7 +1140,7 @@ function VariantForm({ variant, onSubmit, onCancel }: {
         <Input
           id="variant-image"
           value={formData.image}
-          onChange={(e) => setFormData(prev => ({ ...prev, image: e.target.value }))}
+          onChange={(e) => setFormData((prev) => ({ ...prev, image: e.target.value }))}
           placeholder="https://..."
         />
       </div>
@@ -786,7 +1152,7 @@ function VariantForm({ variant, onSubmit, onCancel }: {
             id="variant-stock"
             type="number"
             value={formData.stock}
-            onChange={(e) => setFormData(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
             min="0"
           />
         </div>
@@ -797,7 +1163,7 @@ function VariantForm({ variant, onSubmit, onCancel }: {
             type="number"
             step="0.01"
             value={formData.priceAdjustment}
-            onChange={(e) => setFormData(prev => ({ ...prev, priceAdjustment: e.target.value }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, priceAdjustment: e.target.value }))}
             placeholder="0.00"
           />
         </div>
@@ -829,6 +1195,8 @@ function DeleteProductDialog({ product }: { product: Product }) {
         description: "Product deleted successfully",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/featured-products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/new-arrivals"] });
       setOpen(false);
     },
     onError: (error: any) => {
@@ -879,8 +1247,12 @@ function DeleteProductDialog({ product }: { product: Product }) {
 
 export default function SellerProducts() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const highlightedProductId = useMemo(() => {
+    const query = location.split("?")[1] || "";
+    return new URLSearchParams(query).get("productId") || "";
+  }, [location]);
 
   // Debounce search query to avoid excessive filtering
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -895,9 +1267,13 @@ export default function SellerProducts() {
   }, [isAuthenticated, authLoading, user, navigate]);
 
   const { data: products = [], isLoading, isError, error, refetch } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+    queryKey: ["/api/products", "seller", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const data = await fetchApiJson<Product[]>(`/api/products?sellerId=${encodeURIComponent(user.id)}`);
+      return Array.isArray(data) ? data : [];
+    },
     enabled: isAuthenticated && user?.role === "seller",
-    select: (data) => data.filter(p => p.sellerId === user?.id),
     retry: 2,
     retryDelay: 1000,
   });
@@ -910,12 +1286,22 @@ export default function SellerProducts() {
     );
   }, [products, debouncedSearchQuery]);
 
+  useEffect(() => {
+    if (!highlightedProductId || products.length === 0) return;
+    const targetProduct = products.find((product) => product.id === highlightedProductId);
+    if (!targetProduct) return;
+    setSearchQuery(targetProduct.name || "");
+    const frame = window.requestAnimationFrame(() => {
+      const element = document.querySelector(`[data-testid="card-product-${highlightedProductId}"]`);
+      if (element instanceof HTMLElement) {
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [highlightedProductId, products]);
+
   if (authLoading || !isAuthenticated || user?.role !== "seller") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoadingState title="Loading seller products" description="Preparing your catalog, stock levels, and product actions." />;
   }
 
   return (
@@ -987,7 +1373,11 @@ export default function SellerProducts() {
         ) : (
           <div className="grid gap-4">
             {filteredProducts.map((product) => (
-              <Card key={product.id} className="p-4" data-testid={`card-product-${product.id}`}>
+              <Card
+                key={product.id}
+                className={`p-4 transition-all ${product.id === highlightedProductId ? "ring-2 ring-primary shadow-lg" : ""}`}
+                data-testid={`card-product-${product.id}`}
+              >
                 <div className="flex items-start gap-4">
                   {product.images[0] && (
                     <img 
@@ -1023,9 +1413,9 @@ export default function SellerProducts() {
                     <div className="mt-3 flex items-center gap-4">
                       <div>
                         <span className="text-lg font-bold text-primary">GHS {product.price}</span>
-                        {product.compareAtPrice && (
+                        {product.costPrice && (
                           <span className="ml-2 text-sm line-through text-muted-foreground">
-                            GHS {product.compareAtPrice}
+                            GHS {product.costPrice}
                           </span>
                         )}
                       </div>
@@ -1037,6 +1427,14 @@ export default function SellerProducts() {
                       <Badge variant={product.isActive ? "default" : "secondary"}>
                         {product.isActive ? "Active" : "Inactive"}
                       </Badge>
+
+                      {product.dynamicFields?.homepageFeatured && (
+                        <Badge variant="outline">Featured</Badge>
+                      )}
+
+                      {product.dynamicFields?.homepageNewArrival && (
+                        <Badge variant="outline">New Arrival</Badge>
+                      )}
                     </div>
                   </div>
                 </div>

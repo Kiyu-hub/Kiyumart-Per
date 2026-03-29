@@ -3,12 +3,14 @@ import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pg
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const userRoleEnum = pgEnum("user_role", ["super_admin", "admin", "seller", "buyer", "rider", "agent"]);
+export const userRoleEnum = pgEnum("user_role", ["super_admin", "admin", "seller", "buyer", "rider", "agent", "pickup_agent"]);
 export const orderStatusEnum = pgEnum("order_status", [
   "pending",
   "searching_rider",
   "confirmed",
+  "packaged",
   "ready",
+  "external_dispatch_arranged",
   "processing",
   "assigned",
   "rider_arrived",
@@ -61,14 +63,44 @@ export const promotionalAds = pgTable("promotional_ads", {
 export const promotionPricing = pgTable("promotion_pricing", {
   id: serial("id").primaryKey(),
   type: promoTypeEnum("type").notNull(), // 'store' or 'product'
-  durationType: varchar("duration_type").notNull(), // 'hour' or 'day'
-  duration: integer("duration").notNull(), // e.g., 1 for 1 hour, 24 for 24 hours (1 day)
+  durationType: varchar("duration_type").notNull(), // 'hour', 'day', 'week', or 'month'
+  duration: integer("duration").notNull(), // e.g., 1 for 1 hour, 7 for 7 days, 2 for 2 weeks
   price: decimal("price", { precision: 10, scale: 2 }).notNull(), // price in GHS
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => ({
   typeDurationIdx: index("promotion_pricing_type_duration_idx").on(t.type, t.durationType, t.duration),
+}));
+
+export const promotionApplications = pgTable("promotion_applications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sellerId: varchar("seller_id").notNull().references(() => users.id),
+  type: promoTypeEnum("type").notNull(),
+  targetId: varchar("target_id").notNull(),
+  targetName: text("target_name").notNull(),
+  durationType: varchar("duration_type").notNull(),
+  duration: integer("duration").notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
+  sellerNote: text("seller_note"),
+  customerServiceNote: text("customer_service_note"),
+  status: varchar("status", { length: 40 }).notNull().default("pending_payment"),
+  paymentConfirmed: boolean("payment_confirmed").default(false),
+  paymentConfirmedAt: timestamp("payment_confirmed_at"),
+  paymentConfirmedBy: varchar("payment_confirmed_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: varchar("approved_by").references(() => users.id),
+  rejectedAt: timestamp("rejected_at"),
+  rejectedBy: varchar("rejected_by").references(() => users.id),
+  rejectionReason: text("rejection_reason"),
+  createdPromotionId: varchar("created_promotion_id").references(() => promotionalAds.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  sellerIdx: index("promotion_applications_seller_id_idx").on(t.sellerId),
+  statusIdx: index("promotion_applications_status_idx").on(t.status),
+  createdPromotionIdx: index("promotion_applications_created_promotion_id_idx").on(t.createdPromotionId),
 }));
 
 export const payoutTypeEnum = pgEnum("payout_type", ["bank_account", "mobile_money"]);
@@ -213,10 +245,10 @@ export const platformSettings = pgTable("platform_settings", {
   bannerAutoplayEnabled: boolean("banner_autoplay_enabled").default(true),
   bannerAutoplayDuration: integer("banner_autoplay_duration").default(5000),
   adsEnabled: boolean("ads_enabled").default(false),
-  heroBannerEnabled: boolean("hero_banner_enabled").default(true),
-  sidebarAdEnabled: boolean("sidebar_ad_enabled").default(true),
-  footerAdEnabled: boolean("footer_ad_enabled").default(true),
-  productPageAdEnabled: boolean("product_page_ad_enabled").default(true),
+  heroBannerEnabled: boolean("hero_banner_enabled").default(false),
+  sidebarAdEnabled: boolean("sidebar_ad_enabled").default(false),
+  footerAdEnabled: boolean("footer_ad_enabled").default(false),
+  productPageAdEnabled: boolean("product_page_ad_enabled").default(false),
   heroBannerAdImage: text("hero_banner_ad_image"),
   heroBannerAdUrl: text("hero_banner_ad_url"),
   sidebarAdImage: text("sidebar_ad_image"),
@@ -227,6 +259,10 @@ export const platformSettings = pgTable("platform_settings", {
   footerAdUrl: text("footer_ad_url"),
   productPageAdImage: text("product_page_ad_image"),
   productPageAdUrl: text("product_page_ad_url"),
+  showAdminOperationsPanels: boolean("show_admin_operations_panels").default(true),
+  isExternalRiderSystemEnabled: boolean("is_external_rider_system_enabled").default(false),
+  showCheckoutDeliveryMap: boolean("show_checkout_delivery_map").default(true),
+  allowPickupAgentAdminChat: boolean("allow_pickup_agent_admin_chat").default(true),
   allowSellerRegistration: boolean("allow_seller_registration").default(false),
   allowRiderRegistration: boolean("allow_rider_registration").default(false),
   primaryStoreId: varchar("primary_store_id"),
@@ -328,6 +364,7 @@ export const products = pgTable("products", {
 export const deliveryZones = pgTable("delivery_zones", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(), // Unique constraint on normalized lowercase name
+  entityKind: text("entity_kind").notNull().default("delivery_zone"), // delivery_zone | pickup_station
   type: text("type").notNull().default("city"), // city | region
   city: text("city"),
   region: text("region"),
@@ -361,6 +398,8 @@ export const orders = pgTable("orders", {
   checkoutSessionId: varchar("checkout_session_id"),
   status: orderStatusEnum("status").notNull().default("pending"),
   deliveryMethod: deliveryMethodEnum("delivery_method").notNull(),
+  externalDeliveryByBus: boolean("external_delivery_by_bus").default(false),
+  externalDeliveryType: varchar("external_delivery_type", { length: 32 }),
   deliveryZoneId: varchar("delivery_zone_id").references(() => deliveryZones.id),
   deliveryAddress: text("delivery_address"),
   deliveryCity: text("delivery_city"),
@@ -696,7 +735,15 @@ export const sellerPayouts = pgTable("seller_payouts", {
     accountName?: string;
     accountNumber?: string;
     bankName?: string;
+    bankCode?: string;
     mobileNumber?: string;
+    provider?: string;
+    transferFee?: string;
+    settlementMode?: "split" | "transfer";
+    transferReference?: string;
+    transferCode?: string;
+    transferStatus?: string;
+    recipientCode?: string;
   }>(),
   commissionIds: text("commission_ids").array(), // Array of commission IDs included in this payout
   notes: text("notes"),
@@ -913,18 +960,20 @@ export const insertProductSchema = createInsertSchema(products).pick({
   dynamicFields: true,
   storeId: true,
 }).extend({
-  images: z.array(z.string().url()).min(5, "Exactly 5 product images are required").max(5, "Maximum 5 images allowed"),
+  images: z.array(z.string().url()).min(3, "Minimum 3 product images are required").max(8, "Maximum 8 images allowed"),
   video: z.string().url("Product video is required").min(1, "Product video is required"),
 });
 
 export const insertDeliveryZoneSchema = createInsertSchema(deliveryZones).pick({
   name: true,
+  entityKind: true,
   type: true,
   city: true,
   region: true,
   fee: true,
 }).extend({
   name: z.string().min(1, "Zone name is required").max(100, "Zone name must be less than 100 characters"),
+  entityKind: z.enum(["delivery_zone", "pickup_station"]).default("delivery_zone"),
   type: z.enum(["city", "region"]).default("city"),
   city: z.string().max(120, "City must be less than 120 characters").optional().nullable(),
   region: z.string().max(120, "Region must be less than 120 characters").optional().nullable(),
@@ -937,6 +986,8 @@ export const insertOrderSchema = createInsertSchema(orders).pick({
   sellerId: true,
   status: true,
   deliveryMethod: true,
+  externalDeliveryByBus: true,
+  externalDeliveryType: true,
   deliveryZoneId: true,
   deliveryAddress: true,
   deliveryCity: true,
@@ -1312,3 +1363,6 @@ export type RoleFeatures = typeof roleFeatures.$inferSelect;
 export const insertPromotionPricingSchema = createInsertSchema(promotionPricing).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPromotionPricing = z.infer<typeof insertPromotionPricingSchema>;
 export type PromotionPricing = typeof promotionPricing.$inferSelect;
+export const insertPromotionApplicationSchema = createInsertSchema(promotionApplications).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPromotionApplication = z.infer<typeof insertPromotionApplicationSchema>;
+export type PromotionApplication = typeof promotionApplications.$inferSelect;

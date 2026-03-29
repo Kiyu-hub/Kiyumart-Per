@@ -32,6 +32,7 @@ import {
   stores,
   coupons,
   promotionalAds,
+  promotionApplications,
   promotions,
   featuredListings,
   commissions,
@@ -48,7 +49,7 @@ import {
   reportActivityLogs,
   receipts,
 } from "@shared/schema";
-import { eq, or, isNotNull, and, desc, sql, inArray, asc } from "drizzle-orm";
+import { eq, or, isNotNull, isNull, and, desc, sql, inArray, asc, lte, gte } from "drizzle-orm";
 import { 
   hashPassword, 
   comparePassword, 
@@ -56,6 +57,7 @@ import {
   verifyToken,
   requireAuth, 
   requireRole,
+  requireRoleAllowInactive,
   requirePermission,
   requirePermissionIfAdmin,
   requireRoleFeature,
@@ -178,6 +180,20 @@ const sortByCreatedAtAscending = (a: MinimalSuperAdminRecord, b: MinimalSuperAdm
   return aMs - bMs;
 };
 
+async function withStartupTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function enforceSingleSuperAdminAccount(): Promise<string | null> {
   const superAdmins = await db
     .select({
@@ -273,10 +289,95 @@ type RiderAssignmentAttempt = {
   reason?: string;
 };
 
+function buildRouteFallbackPlatformSettings() {
+  return {
+    id: "default",
+    isMultiVendor: false,
+    platformName: "KiyuMart",
+    logo: null,
+    primaryColor: "#1e7b5f",
+    secondaryColor: "#2c3e50",
+    accentColor: "#e74c3c",
+    lightBgColor: "#ffffff",
+    lightTextColor: "#000000",
+    darkBgColor: "#1a1a1a",
+    darkTextColor: "#ffffff",
+    lightCardColor: "#f8f9fa",
+    darkCardColor: "#2a2a2a",
+    onboardingImages: [],
+    defaultCurrency: "GHS",
+    mapboxPublicToken: null,
+    mapboxStyleUrl: "mapbox://styles/mapbox/navigation-night-v1",
+    mapboxGlVersion: "v3.4.0",
+    paystackPublicKey: null,
+    paystackSecretKey: null,
+    processingFeePercent: "1.95",
+    cloudinaryCloudName: null,
+    cloudinaryApiKey: null,
+    cloudinaryApiSecret: null,
+    contactPhone: null,
+    contactEmail: null,
+    contactAddress: null,
+    facebookUrl: null,
+    instagramUrl: null,
+    twitterUrl: null,
+    linkedinUrl: null,
+    youtubeUrl: null,
+    tiktokUrl: null,
+    pinterestUrl: null,
+    whatsappPage: null,
+    showSocialLinks: true,
+    showFacebook: true,
+    showInstagram: true,
+    showTwitter: true,
+    showLinkedin: true,
+    showYoutube: true,
+    showTiktok: true,
+    showPinterest: true,
+    showWhatsapp: true,
+    showShopBySection: true,
+    footerDescription: null,
+    footerLinks: [],
+    footerPaymentIcons: [],
+    activeBannerCollectionId: null,
+    categoryDisplayStyle: null,
+    bannerAutoplayEnabled: false,
+    bannerAutoplayDuration: 5,
+    adsEnabled: false,
+    heroBannerEnabled: false,
+    sidebarAdEnabled: false,
+    footerAdEnabled: false,
+    productPageAdEnabled: false,
+    heroBannerAdImage: null,
+    heroBannerAdUrl: null,
+    sidebarAdImage: null,
+    sidebarAdUrl: null,
+    shopDisplayMode: "by-store",
+    footerAdImage: null,
+    footerAdUrl: null,
+    productPageAdImage: null,
+    productPageAdUrl: null,
+    showAdminOperationsPanels: true,
+    isExternalRiderSystemEnabled: false,
+    showCheckoutDeliveryMap: true,
+    allowPickupAgentAdminChat: true,
+    allowSellerRegistration: true,
+    allowRiderRegistration: false,
+    primaryStoreId: null,
+    defaultCommissionRate: "1",
+    frontendUrl: null,
+    updatedAt: new Date(),
+  };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   let canonicalSuperAdminId: string | null = null;
   try {
-    canonicalSuperAdminId = await enforceSingleSuperAdminAccount();
+    canonicalSuperAdminId = await withStartupTimeout(
+      enforceSingleSuperAdminAccount(),
+      3000,
+      "Super admin normalization",
+    );
   } catch (superAdminNormalizationError) {
     console.error(
       "[SECURITY] Failed to normalize super admin accounts:",
@@ -509,7 +610,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     buyer: "Buyer",
     seller: "Seller",
     rider: "Rider",
-    agent: "Agent",
+    pickup_agent: "Pickup Agent",
+    agent: "Customer Agent",
     admin: "Admin",
     super_admin: "Super Admin",
   };
@@ -526,8 +628,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       "Track active delivery jobs and payout status",
     ],
     agent: [
-      "Access support-agent workspace",
+      "Access customer-agent workspace",
       "Handle customer support tickets and conversations",
+    ],
+    pickup_agent: [
+      "Access pickup-agent workspace",
+      "Verify pickup orders assigned to pickup stations",
     ],
     admin: [
       "Access admin management dashboard",
@@ -672,7 +778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       let user = dbUser;
-      if (!user.isActive) {
+      if (!user.isActive && user.role !== "seller" && user.role !== "rider") {
         return res.status(403).json({ error: "Account is inactive" });
       }
 
@@ -2028,9 +2134,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/users/:id/status", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req, res) => {
     try {
       const { isActive } = req.body;
+      const normalizedReason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
       const user = await storage.getUser(req.params.id);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!isActive && (user.role === "seller" || user.role === "rider") && !normalizedReason) {
+        return res.status(400).json({ error: "Deactivation reason is required" });
+      }
+
+      if (!isActive && (user.role === "seller" || user.role === "rider")) {
+        const { db } = await import("../db/index");
+        const { supportConversations, supportMessages } = await import("@shared/schema");
+        const { eq, inArray } = await import("drizzle-orm");
+
+        const previousAppeals = await db
+          .select({ id: supportConversations.id, subject: supportConversations.subject })
+          .from(supportConversations)
+          .where(eq(supportConversations.customerId, req.params.id));
+
+        const appealConversationIds = previousAppeals
+          .filter((conversation) => String(conversation.subject || "").startsWith("Account Reactivation Appeal"))
+          .map((conversation) => conversation.id);
+
+        if (appealConversationIds.length > 0) {
+          await db.delete(supportMessages).where(inArray(supportMessages.conversationId, appealConversationIds));
+          await db.delete(supportConversations).where(inArray(supportConversations.id, appealConversationIds));
+        }
       }
       
       // If deactivating an approved seller, also deactivate their store
@@ -2051,10 +2182,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const updatedUser = await storage.updateUser(req.params.id, { isActive });
+      const updatePayload: Record<string, any> = { isActive };
+      if (user.role === "seller" || user.role === "rider") {
+        updatePayload.rejectionReason = isActive
+          ? null
+          : (normalizedReason || user.rejectionReason || "Account deactivated by admin");
+      }
+
+      const updatedUser = await storage.updateUser(req.params.id, updatePayload);
       if (!updatedUser) {
         return res.status(404).json({ error: "User not found" });
       }
+
+      try {
+        const isSellerOrRider = updatedUser.role === "seller" || updatedUser.role === "rider";
+        const dashboardLink = updatedUser.role === "seller"
+          ? "/support"
+          : updatedUser.role === "rider"
+            ? "/support"
+            : "/";
+        const message = isActive
+          ? "Your account has been reactivated. You can access your dashboard again."
+          : isSellerOrRider
+            ? `Your account was deactivated by admin. Reason: ${updatePayload.rejectionReason}`
+            : "Your account status was updated by admin.";
+
+        await storage.createNotification({
+          userId: updatedUser.id,
+          type: "system",
+          title: isActive ? "Account Reactivated" : "Account Deactivated",
+          message,
+          metadata: {
+            reason: updatePayload.rejectionReason || null,
+            link: dashboardLink,
+          } as any,
+        });
+
+        io.to(updatedUser.id).emit("support_conversation_updated", {
+          conversationId: null,
+          event: isActive ? "account_reactivated" : "account_deactivated",
+        });
+      } catch (notificationError) {
+        console.error("Failed to create account status notification:", notificationError);
+      }
+
       const { password, ...userWithoutPassword } = updatedUser;
       res.json(userWithoutPassword);
     } catch (error: any) {
@@ -3237,12 +3408,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     { name: "video", maxCount: 1 }
   ]), async (req: AuthRequest, res) => {
     try {
-      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+      const files = (req.files as { [fieldname: string]: Express.Multer.File[] } | undefined) || {};
+      const parseMaybeJson = (value: any) => {
+        if (typeof value !== "string") return value;
+        const trimmed = value.trim();
+        if (!trimmed) return undefined;
+        try {
+          return JSON.parse(trimmed);
+        } catch {
+          return value;
+        }
+      };
+      const normalizeStringArray = (value: any): string[] => {
+        const parsed = parseMaybeJson(value);
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+        }
+        if (typeof parsed === "string" && parsed.trim()) {
+          return [parsed.trim()];
+        }
+        return [];
+      };
       const imageUrls: string[] = [];
       let videoUrl: string | undefined;
       let videoDuration: number | undefined;
 
-      if (files.images) {
+      if (files.images?.length) {
         for (const image of files.images) {
           const metadata = await sharp(image.buffer).metadata();
           const width = metadata.width || 0;
@@ -3285,8 +3476,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      if (imageUrls.length === 0) {
+        imageUrls.push(...normalizeStringArray(req.body.images));
+      }
+
+      if (!videoUrl) {
+        const parsedVideo = parseMaybeJson(req.body.video);
+        if (typeof parsedVideo === "string" && parsedVideo.trim()) {
+          videoUrl = parsedVideo.trim();
+        }
+      }
+
       // Parse dynamic fields if provided
-      const dynamicFields = req.body.dynamicFields ? JSON.parse(req.body.dynamicFields) : undefined;
+      const dynamicFields = parseMaybeJson(req.body.dynamicFields);
 
       // Auto-link products to seller's store if seller is creating the product
       let storeId = req.body.storeId;
@@ -3309,13 +3511,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      const normalizedCategoryId = String(req.body.categoryId || "").trim();
+      let resolvedCategorySlug: string | undefined;
+      if (normalizedCategoryId) {
+        const selectedCategory = await storage.getCategory(normalizedCategoryId);
+        if (!selectedCategory) {
+          return res.status(400).json({ error: "Selected category was not found." });
+        }
+        resolvedCategorySlug = selectedCategory.slug;
+      }
+
       const productData = {
         ...req.body,
         images: imageUrls,
         video: videoUrl,
         videoDuration,
         dynamicFields,
+        tags: normalizeStringArray(req.body.tags),
         price: req.body.price,
+        costPrice: req.body.costPrice || null,
         sellerId: req.user!.id,
         storeId: storeId || undefined,
       };
@@ -3323,21 +3537,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertProductSchema.parse(productData);
       const product = await storage.createProduct({
         ...validatedData,
+        category: resolvedCategorySlug,
         sellerId: req.user!.id,
-      });
+      } as any);
+      clearProductListCache();
 
-      // Notify admins about new product
-      await notifyAdmins(
-        "product",
-        "New product added",
-        `A seller added a new product: ${product.name}`,
-        { productId: product.id, sellerId: req.user!.id },
-        {
-          requiredAdminPermission: "manage_products",
-          includeAgents: true,
-          requiredAgentFeature: "products.viewAll",
-        }
-      );
+      // Best effort: product creation should not fail because notifications fail.
+      try {
+        await notifyAdmins(
+          "product",
+          "New product added",
+          `A seller added a new product: ${product.name}`,
+          { productId: product.id, sellerId: req.user!.id },
+          {
+            requiredAdminPermission: "manage_products",
+            includeAgents: true,
+            requiredAgentFeature: "products.viewAll",
+          }
+        );
+      } catch (notifyError) {
+        console.error("[PRODUCT CREATE] Failed to notify admins:", notifyError);
+      }
 
       res.json(product);
     } catch (error: any) {
@@ -3348,6 +3568,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin: create product on behalf of a seller
   app.post("/api/admin/products", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_products"), async (req: AuthRequest, res) => {
     try {
+      const parseMaybeJson = (value: any) => {
+        if (typeof value !== "string") return value;
+        const trimmed = value.trim();
+        if (!trimmed) return undefined;
+        try {
+          return JSON.parse(trimmed);
+        } catch {
+          return value;
+        }
+      };
+      const normalizeStringArray = (value: any): string[] => {
+        const parsed = parseMaybeJson(value);
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+        }
+        if (typeof parsed === "string" && parsed.trim()) {
+          return [parsed.trim()];
+        }
+        return [];
+      };
       const sellerId = req.body.sellerId;
       if (!sellerId) {
         return res.status(400).json({ error: "sellerId is required to create product on behalf of a seller" });
@@ -3367,13 +3607,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: `Cannot create product for seller: ${storeError.message}` });
       }
 
+      const normalizedCategoryId = String(req.body.categoryId || "").trim();
+      let resolvedCategorySlug: string | undefined;
+      if (normalizedCategoryId) {
+        const selectedCategory = await storage.getCategory(normalizedCategoryId);
+        if (!selectedCategory) {
+          return res.status(400).json({ error: "Selected category was not found." });
+        }
+        resolvedCategorySlug = selectedCategory.slug;
+      }
+
       const productData = {
         ...req.body,
-        images: req.body.images || [],
+        images: normalizeStringArray(req.body.images),
         video: req.body.video || null,
         videoDuration: req.body.videoDuration || undefined,
-        dynamicFields: req.body.dynamicFields ? JSON.parse(req.body.dynamicFields) : undefined,
+        dynamicFields: parseMaybeJson(req.body.dynamicFields),
+        tags: normalizeStringArray(req.body.tags),
         price: req.body.price,
+        costPrice: req.body.costPrice || null,
         sellerId,
         storeId: storeId || undefined,
       };
@@ -3381,26 +3633,166 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertProductSchema.parse(productData);
       const product = await storage.createProduct({
         ...validatedData,
+        category: resolvedCategorySlug,
         sellerId,
-      });
+      } as any);
 
-      await notifyAdmins(
-        "product",
-        "Product created by admin",
-        `An admin added a product for seller ${seller.email}: ${product.name}`,
-        { productId: product.id, sellerId },
-        {
-          requiredAdminPermission: "manage_products",
-          includeAgents: true,
-          requiredAgentFeature: "products.viewAll",
-        }
-      );
+      try {
+        await notifyAdmins(
+          "product",
+          "Product created by admin",
+          `An admin added a product for seller ${seller.email}: ${product.name}`,
+          { productId: product.id, sellerId },
+          {
+            requiredAdminPermission: "manage_products",
+            includeAgents: true,
+            requiredAgentFeature: "products.viewAll",
+          }
+        );
+      } catch (notifyError) {
+        console.error("[ADMIN PRODUCT CREATE] Failed to notify admins:", notifyError);
+      }
 
       res.json(product);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
+
+  const hydrateProductsWithCategories = async (productList: any[]) => {
+    const categories = await storage.getCategories();
+    const categoryById = new Map(categories.map((item: any) => [item.id, item]));
+    const allStores = await storage.getStores();
+    const storeByPrimarySellerId = new Map(
+      allStores
+        .filter((store: any) => String(store?.primarySellerId || "").trim())
+        .map((store: any) => [String(store.primarySellerId), store]),
+    );
+    const uniqueStoreIds = Array.from(
+      new Set(productList.map((product: any) => String(product?.storeId || "").trim()).filter(Boolean))
+    );
+    const uniqueSellerIdsNeedingFallback = Array.from(
+      new Set(
+        productList
+          .filter((product: any) => {
+            const sellerId = String(product?.sellerId || "").trim();
+            const storeId = String(product?.storeId || "").trim();
+            return sellerId && !storeId && !storeByPrimarySellerId.has(sellerId);
+          })
+          .map((product: any) => String(product?.sellerId || "").trim())
+          .filter(Boolean)
+      )
+    );
+    const storeEntries = await Promise.all(
+      uniqueStoreIds.map(async (storeId) => {
+        const store = await storage.getStore(storeId);
+        return [storeId, store] as const;
+      })
+    );
+    const sellerEntries = await Promise.all(
+      uniqueSellerIdsNeedingFallback.map(async (sellerId) => {
+        const seller = await storage.getUser(sellerId);
+        return [sellerId, seller] as const;
+      })
+    );
+    const storeById = new Map(storeEntries);
+    const sellerById = new Map(sellerEntries);
+
+    return productList.map((product: any) => {
+      const resolvedCategory = product.categoryId ? categoryById.get(product.categoryId) : undefined;
+      const resolvedStore = product.storeId ? storeById.get(String(product.storeId)) : undefined;
+      const resolvedSellerStore = product.sellerId
+        ? storeByPrimarySellerId.get(String(product.sellerId))
+        : undefined;
+      const resolvedSeller = product.sellerId ? sellerById.get(String(product.sellerId)) : undefined;
+      return {
+        ...product,
+        category: resolvedCategory?.slug || product.category || null,
+        categoryName: resolvedCategory?.name || null,
+        storeName:
+          resolvedStore?.name ||
+          resolvedSellerStore?.name ||
+          resolvedSeller?.storeName ||
+          product.storeName ||
+          null,
+      };
+    });
+  };
+
+  const filterPublicMarketplaceProducts = async (productList: any[]) => {
+    if (!Array.isArray(productList) || productList.length === 0) return [];
+
+    const [activeCategories, activeStores, allSellers] = await Promise.all([
+      storage.getCategories({ isActive: true }),
+      storage.getStores({ isActive: true, isApproved: true }),
+      storage.getUsersByRole("seller"),
+    ]);
+
+    const activeCategoryById = new Map(
+      (activeCategories || []).map((category: any) => [String(category.id), category]),
+    );
+    const activeCategoryKeys = new Set(
+      (activeCategories || []).flatMap((category: any) => {
+        const values = [category.slug, category.name]
+          .map((value) => String(value || "").trim().toLowerCase().replace(/[_\s]+/g, "-"))
+          .filter(Boolean);
+        return values;
+      }),
+    );
+    const activeStoreIds = new Set(
+      (activeStores || []).map((store: any) => String(store.id)).filter(Boolean),
+    );
+    const activeApprovedSellerIds = new Set(
+      (allSellers || [])
+        .filter((seller: any) => Boolean(seller?.isActive) && Boolean(seller?.isApproved))
+        .map((seller: any) => String(seller.id))
+        .filter(Boolean),
+    );
+
+    return productList.filter((product: any) => {
+      if (!product || product.isActive !== true) return false;
+
+      const sellerId = String(product.sellerId || "").trim();
+      if (!sellerId || !activeApprovedSellerIds.has(sellerId)) return false;
+
+      const storeId = String(product.storeId || "").trim();
+      if (storeId && !activeStoreIds.has(storeId)) return false;
+
+      const categoryId = String(product.categoryId || "").trim();
+      if (categoryId) {
+        return activeCategoryById.has(categoryId);
+      }
+
+      const categoryKeys = [product.category, product.categoryName]
+        .map((value: any) => String(value || "").trim().toLowerCase().replace(/[_\s]+/g, "-"))
+        .filter(Boolean);
+
+      if (categoryKeys.length === 0) return false;
+
+      return categoryKeys.some((key) => activeCategoryKeys.has(key));
+    });
+  };
+
+  const PRODUCT_LIST_CACHE_TTL_MS = 15000;
+  const productListCache = new Map<string, { timestamp: number; data: any }>();
+
+  const getCachedProductList = (key: string) => {
+    const entry = productListCache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > PRODUCT_LIST_CACHE_TTL_MS) {
+      productListCache.delete(key);
+      return null;
+    }
+    return entry.data;
+  };
+
+  const setCachedProductList = (key: string, data: any) => {
+    productListCache.set(key, { timestamp: Date.now(), data });
+  };
+
+  const clearProductListCache = () => {
+    productListCache.clear();
+  };
 
   app.get("/api/products", async (req, res) => {
     try {
@@ -3409,21 +3801,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get platform settings to check for single-store mode
       const platformSettings = await storage.getPlatformSettings();
       
-      // In single-store mode with a primary store set, always force product scope to that store's seller.
+      // In single-store mode with a primary store set, always force product scope to that exact store.
       let finalSellerId: string | undefined = sellerId as string;
+      let finalStoreId: string | undefined;
       if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
         const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
         if (primaryStore) {
           finalSellerId = primaryStore.primarySellerId || undefined;
+          finalStoreId = primaryStore.id;
         }
       }
       
+      const normalizedIsActive =
+        isActive === "true" ? true : isActive === "false" ? false : undefined;
+      const cacheKey = JSON.stringify({
+        scope: "products",
+        sellerId: finalSellerId || null,
+        storeId: finalStoreId || null,
+        category: String(category || ""),
+        isActive: normalizedIsActive ?? null,
+      });
+      const cachedProducts = getCachedProductList(cacheKey);
+      if (cachedProducts) {
+        return res.json(cachedProducts);
+      }
+
       const products = await storage.getProducts({
         sellerId: finalSellerId,
+        storeId: finalStoreId,
         category: category as string,
-        isActive: isActive === "true" ? true : isActive === "false" ? false : undefined,
+        isActive: normalizedIsActive,
       });
-      res.json(products);
+      const hydratedProducts = await hydrateProductsWithCategories(products);
+      const shouldApplyPublicVisibilityFilter = !sellerId;
+      const responseProducts = shouldApplyPublicVisibilityFilter
+        ? await filterPublicMarketplaceProducts(hydratedProducts)
+        : hydratedProducts;
+      setCachedProductList(cacheKey, responseProducts);
+      res.json(responseProducts);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3439,14 +3854,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
         const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
         if (primaryStore) {
-          const outOfScopeSeller = product.sellerId !== primaryStore.primarySellerId;
-          const outOfScopeStore = !!product.storeId && product.storeId !== primaryStore.id;
-          if (outOfScopeSeller || outOfScopeStore) {
+          if (product.storeId !== primaryStore.id) {
             return res.status(404).json({ error: "Product not found" });
           }
         }
       }
-      res.json(product);
+      const resolvedCategory = product.categoryId ? await storage.getCategory(product.categoryId) : undefined;
+      res.json({
+        ...product,
+        category: resolvedCategory?.slug || product.category || null,
+        categoryName: resolvedCategory?.name || null,
+      });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3463,8 +3881,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Not authorized" });
       }
 
-      const updated = await storage.updateProduct(req.params.id, req.body);
-      res.json(updated);
+      const updateData = { ...req.body } as Record<string, any>;
+
+      if (Object.prototype.hasOwnProperty.call(updateData, "categoryId")) {
+        const normalizedCategoryId = String(updateData.categoryId || "").trim();
+        updateData.categoryId = normalizedCategoryId || null;
+
+        if (normalizedCategoryId) {
+          const selectedCategory = await storage.getCategory(normalizedCategoryId);
+          if (!selectedCategory) {
+            return res.status(400).json({ error: "Selected category was not found." });
+          }
+          updateData.category = selectedCategory.slug;
+        } else {
+          updateData.category = null;
+        }
+      }
+
+      const updated = await storage.updateProduct(req.params.id, updateData);
+      if (!updated) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      clearProductListCache();
+      const [hydratedUpdated] = await hydrateProductsWithCategories([updated]);
+      res.json(hydratedUpdated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3478,6 +3919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updated = await storage.updateProduct(req.params.id, { isActive: req.body.isActive });
+      clearProductListCache();
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -3496,6 +3938,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.deleteProduct(req.params.id);
+      clearProductListCache();
       res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -3506,7 +3949,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/delivery-zones", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       // Storage layer handles all validation
-      const zone = await storage.createDeliveryZone(req.body);
+      const entityKind =
+        String(req.body?.entityKind || "").trim().toLowerCase() === "pickup_station"
+          ? "pickup_station"
+          : "delivery_zone";
+      const zone = await storage.createDeliveryZone({ ...req.body, entityKind });
       io.emit("delivery_zones_updated", { action: "created", zoneId: zone.id });
       res.json(zone);
     } catch (error: any) {
@@ -3529,8 +3976,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/delivery-zones", async (req, res) => {
     try {
-      const zones = await storage.getDeliveryZones();
+      const requestedEntityKind =
+        String(req.query.entityKind || "").trim().toLowerCase() === "pickup_station"
+          ? "pickup_station"
+          : "delivery_zone";
+      const zones = await storage.getDeliveryZones(false, requestedEntityKind);
       res.json(zones);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/pickup-stations", async (_req, res) => {
+    try {
+      const stations = await storage.getDeliveryZones(false, "pickup_station");
+      res.json(stations);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3539,8 +3999,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin/super_admin management endpoint (includes inactive zones)
   app.get("/api/admin/delivery-zones", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
-      const zones = await storage.getDeliveryZones(true);
+      const requestedEntityKind =
+        String(req.query.entityKind || "").trim().toLowerCase() === "pickup_station"
+          ? "pickup_station"
+          : "delivery_zone";
+      const zones = await storage.getDeliveryZones(true, requestedEntityKind);
       res.json(zones);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/pickup-stations", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (_req, res) => {
+    try {
+      const stations = await storage.getDeliveryZones(true, "pickup_station");
+      res.json(stations);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3549,7 +4022,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/delivery-zones/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
     try {
       // Storage layer handles all validation
-      const zone = await storage.updateDeliveryZone(req.params.id, req.body);
+      const entityKind =
+        req.body?.entityKind === undefined
+          ? undefined
+          : String(req.body?.entityKind || "").trim().toLowerCase() === "pickup_station"
+            ? "pickup_station"
+            : "delivery_zone";
+      const zone = await storage.updateDeliveryZone(req.params.id, {
+        ...req.body,
+        ...(entityKind ? { entityKind } : {}),
+      });
       if (!zone) {
         return res.status(404).json({ error: "Zone not found" });
       }
@@ -4262,22 +4744,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/homepage/featured-products", async (req, res) => {
     try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 12;
+      const requestedLimit = req.query.limit ? parseInt(req.query.limit as string) : 5;
+      const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 5)) : 5;
+      const cacheKey = JSON.stringify({ scope: "homepage-featured-products", limit });
+      const cachedProducts = getCachedProductList(cacheKey);
+      if (cachedProducts) {
+        return res.json(cachedProducts);
+      }
       
       // Get platform settings to check for single-store mode
       const platformSettings = await storage.getPlatformSettings();
       
-      let featuredProducts;
+      let scopedProducts;
       if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
         // In single-store mode, only show products from the primary store
         const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
         const primarySellerId = primaryStore?.primarySellerId || undefined;
-        featuredProducts = await storage.getFeaturedProducts(limit, primarySellerId);
+        const primaryStoreId = primaryStore?.id || undefined;
+        scopedProducts = await storage.getProducts({
+          sellerId: primarySellerId,
+          storeId: primaryStoreId,
+          isActive: true,
+        });
       } else {
-        featuredProducts = await storage.getFeaturedProducts(limit);
+        scopedProducts = await storage.getProducts({ isActive: true });
       }
+
+      const featuredProducts = scopedProducts
+        .filter((product: any) => Boolean(product?.dynamicFields?.homepageFeatured))
+        .sort((a: any, b: any) => {
+          const ratingDiff = Number(b?.ratings || 0) - Number(a?.ratings || 0);
+          if (ratingDiff !== 0) return ratingDiff;
+          return new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime();
+        })
+        .slice(0, limit);
       
-      res.json(featuredProducts);
+      const hydratedFeaturedProducts = await hydrateProductsWithCategories(featuredProducts);
+      const visibleFeaturedProducts = await filterPublicMarketplaceProducts(hydratedFeaturedProducts);
+      setCachedProductList(cacheKey, visibleFeaturedProducts);
+      res.json(visibleFeaturedProducts);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/homepage/new-arrivals", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 12;
+      const cacheKey = JSON.stringify({ scope: "homepage-new-arrivals", limit });
+      const cachedProducts = getCachedProductList(cacheKey);
+      if (cachedProducts) {
+        return res.json(cachedProducts);
+      }
+      const platformSettings = await storage.getPlatformSettings();
+
+      let scopedProducts;
+      if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
+        const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
+        const primarySellerId = primaryStore?.primarySellerId || undefined;
+        const primaryStoreId = primaryStore?.id || undefined;
+        scopedProducts = await storage.getProducts({
+          sellerId: primarySellerId,
+          storeId: primaryStoreId,
+          isActive: true,
+        });
+      } else {
+        scopedProducts = await storage.getProducts({ isActive: true });
+      }
+
+      const newArrivals = scopedProducts
+        .filter((product: any) => Boolean(product?.dynamicFields?.homepageNewArrival))
+        .sort((a: any, b: any) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())
+        .slice(0, limit);
+
+      const hydratedNewArrivals = await hydrateProductsWithCategories(newArrivals);
+      const visibleNewArrivals = await filterPublicMarketplaceProducts(hydratedNewArrivals);
+      setCachedProductList(cacheKey, visibleNewArrivals);
+      res.json(visibleNewArrivals);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -4414,6 +4957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin: Sellers list with payout summary
   app.get('/api/admin/sellers', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
+      await storage.backfillMissingCommissionEarnings(100);
       const sellers = await storage.getUsersByRole('seller');
       const results: any[] = [];
 
@@ -4426,7 +4970,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Aggregates for payouts (use sql templates instead of db.raw)
         const totals = await db.select({
           totalPaid: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'completed' THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
-          pending: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'pending' THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
+          pending: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} IN ('pending', 'processing') THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
           count: sql`COALESCE(COUNT(*), 0)`,
           lastPayoutAt: sql`MAX(${sellerPayouts.processedAt})`
         }).from(sellerPayouts).where(eq(sellerPayouts.sellerId, s.id));
@@ -4453,6 +4997,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/sellers/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const sellerId = req.params.id;
+      await storage.backfillMissingCommissionEarnings(100);
       const payouts = await storage.getSellerPayouts(sellerId);
       res.json(payouts);
     } catch (error: any) {
@@ -5370,6 +5915,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
   const isPickupMethod = (value?: string | null) => (value || "").toLowerCase().trim() === "pickup";
   const isBusMethod = (value?: string | null) => (value || "").toLowerCase().trim() === "bus";
+  const isManualExternalDeliveryOrder = (orderLike?: {
+    deliveryMethod?: string | null;
+    externalDeliveryType?: string | null;
+    externalDeliveryByBus?: boolean | null;
+  } | null) => {
+    if (!orderLike || isPickupMethod(orderLike.deliveryMethod) || isBusMethod(orderLike.deliveryMethod)) return false;
+    const externalType = String(orderLike.externalDeliveryType || "").toLowerCase().trim();
+    return orderLike.externalDeliveryByBus === true || externalType === "bus" || externalType === "third_party";
+  };
+  const isExternalDeliveryArrangedStatus = (value?: string | null) =>
+    (value || "").toLowerCase().trim() === "external_dispatch_arranged";
+  const isExternalRiderSystemActive = async () =>
+    Boolean((await storage.getPlatformSettings())?.isExternalRiderSystemEnabled);
   type BusDeliveryWorkflowStage =
     | "READY"
     | "ASSIGNED"
@@ -5459,19 +6017,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
   };
   const resolveVisibleOrderStateForRole = (
-    orderLike: { status?: string | null; paymentStatus?: string | null; deliveryMethod?: string | null },
+    orderLike: {
+      status?: string | null;
+      paymentStatus?: string | null;
+      deliveryMethod?: string | null;
+      externalDeliveryType?: string | null;
+      externalDeliveryByBus?: boolean | null;
+    },
     viewerRole?: string | null
   ): { status: string; hidden: boolean } => {
     const canonicalStatus = canonicalizeOrderStatus(orderLike?.status || "");
     const paid = isPaidPaymentStatus(orderLike?.paymentStatus);
     const pickup = isPickupMethod(orderLike?.deliveryMethod);
     const bus = isBusMethod(orderLike?.deliveryMethod);
+    const manualExternalDelivery = isManualExternalDeliveryOrder(orderLike);
 
     if (isPrivilegedOpsRole(viewerRole)) return { status: canonicalStatus, hidden: false };
 
     if (viewerRole === "seller") {
       if (!paid) return { status: canonicalStatus, hidden: true };
+      if (pickup && canonicalStatus === "packaged") return { status: "packaged", hidden: false };
       if (canonicalStatus === "searching_rider") return { status: "ready", hidden: false };
+      if (canonicalStatus === "external_dispatch_arranged") return { status: "processing", hidden: false };
+      if (manualExternalDelivery && ["rider_arrived", "delivered", "completed"].includes(canonicalStatus)) {
+        return { status: "completed", hidden: false };
+      }
       if (bus && canonicalStatus === "delivered") return { status: "in_transit", hidden: false };
       if (["assigned", "rider_arrived", "picked_up", "in_transit", "en_route"].includes(canonicalStatus)) {
         return { status: "in_transit", hidden: false };
@@ -5493,11 +6063,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (viewerRole === "buyer") {
       if (!paid) return { status: "pending", hidden: false };
       if (pickup) {
+        if (canonicalStatus === "packaged") return { status: "packaged", hidden: false };
         if (["delivered", "completed"].includes(canonicalStatus)) return { status: "delivered", hidden: false };
         return { status: canonicalStatus, hidden: false };
       }
+      if (manualExternalDelivery && ["rider_arrived", "delivered", "completed"].includes(canonicalStatus)) {
+        return { status: "completed", hidden: false };
+      }
       if (bus) {
-        if (["searching_rider", "assigned", "rider_arrived", "ready", "confirmed", "processing"].includes(canonicalStatus)) {
+        if (["searching_rider", "assigned", "rider_arrived", "ready", "confirmed", "processing", "external_dispatch_arranged"].includes(canonicalStatus)) {
           return { status: "processing", hidden: false };
         }
         if (["picked_up", "in_transit", "en_route", "delivered"].includes(canonicalStatus)) {
@@ -5506,7 +6080,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (canonicalStatus === "completed") return { status: "delivered", hidden: false };
         return { status: canonicalStatus, hidden: false };
       }
-      if (["searching_rider", "assigned", "rider_arrived", "ready", "confirmed", "processing"].includes(canonicalStatus)) {
+      if (["searching_rider", "assigned", "rider_arrived", "ready", "confirmed", "processing", "external_dispatch_arranged"].includes(canonicalStatus)) {
         return { status: "processing", hidden: false };
       }
       if (["picked_up", "in_transit", "en_route"].includes(canonicalStatus)) return { status: "en_route", hidden: false };
@@ -5514,7 +6088,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return { status: canonicalStatus, hidden: false };
     }
 
+    if (viewerRole === "admin" || viewerRole === "super_admin" || viewerRole === "agent") {
+      return { status: canonicalStatus, hidden: false };
+    }
+
+    if (manualExternalDelivery && ["rider_arrived", "delivered", "completed"].includes(canonicalStatus)) {
+      return { status: "completed", hidden: false };
+    }
+    if (pickup && canonicalStatus === "packaged") return { status: "packaged", hidden: false };
     if (canonicalStatus === "searching_rider") return { status: "processing", hidden: false };
+    if (canonicalStatus === "external_dispatch_arranged") return { status: "processing", hidden: false };
     return { status: canonicalStatus, hidden: false };
   };
   const mapOrderStatusForViewerRole = (
@@ -5645,19 +6228,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const sanitizeOrderVerificationSecrets = (order: any, viewer: { id: string; role: string }) => {
     const isAdminViewer = viewer.role === "admin" || viewer.role === "super_admin";
+    const isAgentViewer = viewer.role === "agent";
     const isBuyerViewer = order?.buyerId === viewer.id;
     const isSellerViewer = order?.sellerId === viewer.id;
     const isRiderViewer = order?.riderId && order.riderId === viewer.id;
     const sanitized = { ...order } as any;
     const busDelivery = isBusMethod(order?.deliveryMethod);
+    const manualExternalDelivery = isManualExternalDeliveryOrder(order);
 
-    if (busDelivery) {
+    if (busDelivery || manualExternalDelivery) {
       sanitized.qrCode = null;
       sanitized.deliveryOtp = null;
-      sanitized.pickupOtp = null;
+      if (manualExternalDelivery) {
+        sanitized.pickupOtp = isPickupMethod(order?.deliveryMethod) ? sanitized.pickupOtp : null;
+      } else {
+        sanitized.pickupOtp = null;
+      }
     }
 
-    if (isAdminViewer) {
+    if (isAdminViewer || (isAgentViewer && isPickupMethod(order?.deliveryMethod))) {
       return sanitized;
     }
 
@@ -5884,7 +6473,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return etaControls;
   };
 
-  await refreshEtaControls();
+  void refreshEtaControls();
 
   const getRegionKeyForEta = (order: any): string => {
     const region = String(order?.deliveryRegion || order?.deliveryCity || "global").toLowerCase().trim();
@@ -5986,6 +6575,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (zone?.id) return String(zone.id);
     }
     return null;
+  };
+
+  const resolvePickupStationRecord = (order: any, stations: any[]) => {
+    const stationId = String(order?.deliveryZoneId || "").trim();
+    if (!stationId) return null;
+    return stations.find((station: any) => String(station.id) === stationId) || null;
+  };
+
+  const formatPickupStationLocation = (station?: any | null) => {
+    if (!station) return null;
+    const locationParts = [station.name, station.city, station.region]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    return locationParts.length > 0 ? locationParts.join(", ") : null;
+  };
+
+  const resolvePickupAgentsForStation = async (stationId?: string | null) => {
+    const normalizedStationId = String(stationId || "").trim();
+    if (!normalizedStationId) return [];
+    const pickupAgents = await storage.getUsersByRole("pickup_agent");
+    return pickupAgents
+      .filter((agent: any) => agent?.isActive !== false)
+      .filter((agent: any) => String(agent.deliveryZoneId || "").trim() === normalizedStationId)
+      .sort((a: any, b: any) => resolveUserDisplayName(a).localeCompare(resolveUserDisplayName(b)));
+  };
+
+  const buildPickupStationInfo = async (order: any) => {
+    if (!isPickupMethod(order?.deliveryMethod)) return null;
+    const stations = await storage.getDeliveryZones(true, "pickup_station");
+    const station = resolvePickupStationRecord(order, stations);
+    if (!station) return null;
+    const agents = await resolvePickupAgentsForStation(station.id);
+    const primaryAgent = agents[0] || null;
+    return {
+      id: station.id,
+      name: station.name || null,
+      city: station.city || null,
+      region: station.region || null,
+      locationLabel: formatPickupStationLocation(station),
+      pickupAgentName: primaryAgent ? resolveUserDisplayName(primaryAgent) : null,
+      pickupAgentPhone: primaryAgent?.phone || null,
+    };
   };
 
   const getRiderMatchCandidates = async (order: any, radiusKm: number, excludedRiderIds: string[] = []): Promise<RiderMatchCandidate[]> => {
@@ -6212,6 +6843,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const startRiderMatching = async (orderId: string, actorId: string, actorRole: "seller" | "admin" | "super_admin") => {
+    if (await isExternalRiderSystemActive()) {
+      throw new Error("Internal rider matching is disabled while the External Rider System is enabled");
+    }
     const order = await storage.getOrder(orderId);
     if (!order) {
       throw new Error("Order not found");
@@ -6276,6 +6910,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const startRiderMatchingForPaidOrders = async (orderIds: string[]) => {
+    if (await isExternalRiderSystemActive()) {
+      return;
+    }
     for (const orderId of orderIds) {
       try {
         const order = await storage.getOrder(orderId);
@@ -6880,7 +7517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return updatedOrder;
   };
 
-  app.post("/api/orders", requireAuth, requireRoleFeature("orders.create"), async (req: AuthRequest, res) => {
+  app.post("/api/orders", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { items, ...orderData } = req.body;
       
@@ -6891,8 +7528,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get platform settings to check if multi-vendor mode is enabled
       const platformSettings = await storage.getPlatformSettings();
       const platformIsMultiVendor = platformSettings?.isMultiVendor ?? false;
+      const externalRiderSystemEnabled = !!platformSettings?.isExternalRiderSystemEnabled;
       const processingFeePercent = Number(platformSettings?.processingFeePercent ?? "1.95");
       const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
+      const computeExactProcessingFee = (chargeableBase: number) => {
+        const normalizedBase = Math.max(0, chargeableBase);
+        if (normalizedBase <= 0 || processingFeeRate <= 0 || processingFeeRate >= 1) {
+          return 0;
+        }
+        return normalizedBase * processingFeeRate / (1 - processingFeeRate);
+      };
       const primaryStoreForSingleStore =
         !platformIsMultiVendor && platformSettings?.primaryStoreId
           ? await storage.getStore(platformSettings.primaryStoreId)
@@ -7004,19 +7649,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Recalculate total server-side (note: multi-vendor coupons calculated per-seller later)
-      const deliveryFee = parseFloat(orderData.deliveryFee || "0");
-      const serverProcessingFee = (serverSubtotal + deliveryFee) * processingFeeRate;
-      const serverTotal = serverSubtotal + deliveryFee + serverProcessingFee;
-      
-      // Verify total matches
+      const requestedExternalDeliveryByBus = orderData.externalDeliveryByBus === true;
+      const requestedExternalDeliveryType = String(orderData.externalDeliveryType || "").toLowerCase().trim();
+      const deliveryFee = externalRiderSystemEnabled
+        ? 0
+        : parseFloat(orderData.deliveryFee || "0");
       const clientTotal = parseFloat(orderData.total || "0");
-      if (Math.abs(serverTotal - clientTotal) > 0.02) {
-        return res.status(400).json({ 
-          error: "Total amount mismatch. Please refresh and try again.",
-          serverTotal: serverTotal.toFixed(2),
-          clientTotal: clientTotal.toFixed(2)
-        });
-      }
       
       // Detect multi-vendor cart
       const hasMultipleSellers = productsBySeller.size > 1;
@@ -7041,6 +7679,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       const isPickupOrder = normalizedDeliveryMethod === "pickup";
+      const effectiveExternalDeliveryType =
+        externalRiderSystemEnabled && !isPickupOrder
+          ? (requestedExternalDeliveryType === "bus" || requestedExternalDeliveryType === "third_party"
+              ? requestedExternalDeliveryType
+              : requestedExternalDeliveryByBus
+                ? "bus"
+                : "third_party")
+          : null;
+      if (
+        externalRiderSystemEnabled &&
+        !isPickupOrder &&
+        effectiveExternalDeliveryType !== "bus" &&
+        effectiveExternalDeliveryType !== "third_party"
+      ) {
+        return res.status(400).json({
+          error: "Invalid external delivery type",
+          userMessage: "Please choose either VIP Bus Delivery or Third-Party Delivery before placing your order.",
+        });
+      }
+      const effectiveExternalDeliveryByBus = effectiveExternalDeliveryType === "bus";
+      const storedDeliveryMethod = externalRiderSystemEnabled && !isPickupOrder
+        ? "rider"
+        : normalizedDeliveryMethod;
       const resolvedDeliveryPhone = isPickupOrder
         ? null
         : ((typeof orderData.deliveryPhone === "string" && orderData.deliveryPhone.trim()) ||
@@ -7054,7 +7715,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : (typeof orderData.deliveryCity === "string" && orderData.deliveryCity.trim())
           ? orderData.deliveryCity
           : null;
-      const resolvedDeliveryZoneId = isPickupOrder ? null : (orderData.deliveryZoneId || null);
+      const resolvedDeliveryZoneId =
+        isPickupOrder || externalRiderSystemEnabled
+          ? null
+          : (orderData.deliveryZoneId || null);
       const resolvedDeliveryLatitude = isPickupOrder ? null : toFiniteNumber(orderData.deliveryLatitude);
       const resolvedDeliveryLongitude = isPickupOrder ? null : toFiniteNumber(orderData.deliveryLongitude);
 
@@ -7073,7 +7737,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isPickupOrder && (resolvedDeliveryLatitude === null || resolvedDeliveryLongitude === null)) {
         return res.status(400).json({
           error: "Delivery coordinates are required",
-          userMessage: "Please pin your location on the map so rider navigation can be enabled.",
+          userMessage: externalRiderSystemEnabled
+            ? "Please pin your location on the map so customer service can coordinate external delivery."
+            : "Please pin your location on the map so rider navigation can be enabled.",
         });
       }
       if (
@@ -7116,7 +7782,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             
             // Calculate processing fee for this seller's order AFTER applying coupon
-            const sellerProcessingFee = (sellerSubtotal - sellerCouponDiscount + sellerDeliveryFee) * processingFeeRate;
+            const sellerProcessingFee = computeExactProcessingFee(
+              sellerSubtotal - sellerCouponDiscount + sellerDeliveryFee
+            );
             const sellerTotal = sellerSubtotal - sellerCouponDiscount + sellerDeliveryFee + sellerProcessingFee;
             
             return {
@@ -7140,7 +7808,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const baseOrderData = {
           buyerId: req.user!.id,
           status: orderData.status || 'pending',
-          deliveryMethod: normalizedDeliveryMethod,
+          deliveryMethod: storedDeliveryMethod,
+          externalDeliveryByBus: effectiveExternalDeliveryByBus,
+          externalDeliveryType: effectiveExternalDeliveryType,
           deliveryZoneId: resolvedDeliveryZoneId,
           deliveryAddress: resolvedDeliveryAddress,
           deliveryCity: resolvedDeliveryCity,
@@ -7153,6 +7823,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           estimatedDelivery: orderData.estimatedDelivery || null,
         };
         
+        const aggregateMultiVendorTotal = itemsBySeller.reduce((sum, sellerGroup) => sum + sellerGroup.total, 0);
+        if (Math.abs(aggregateMultiVendorTotal - clientTotal) > 0.02) {
+          return res.status(400).json({
+            error: "Total amount mismatch. Please refresh and try again.",
+            serverTotal: aggregateMultiVendorTotal.toFixed(2),
+            clientTotal: clientTotal.toFixed(2),
+          });
+        }
+
         const result = await storage.createMultiSellerOrders(baseOrderData as any, itemsBySeller);
         sessionId = result.sessionId;
         createdOrders = result.orders;
@@ -7174,13 +7853,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Recalculate processing fee and total with coupon discount
-        const finalProcessingFee = (serverSubtotal - singleVendorCouponDiscount + deliveryFee) * processingFeeRate;
+        const finalProcessingFee = computeExactProcessingFee(
+          serverSubtotal - singleVendorCouponDiscount + deliveryFee
+        );
         const finalTotal = serverSubtotal - singleVendorCouponDiscount + deliveryFee + finalProcessingFee;
+        if (Math.abs(finalTotal - clientTotal) > 0.02) {
+          return res.status(400).json({
+            error: "Total amount mismatch. Please refresh and try again.",
+            serverTotal: finalTotal.toFixed(2),
+            clientTotal: clientTotal.toFixed(2),
+          });
+        }
         
         const orderInput = {
           ...orderData,
           buyerId: req.user!.id,
-          deliveryMethod: normalizedDeliveryMethod,
+          deliveryMethod: storedDeliveryMethod,
+          externalDeliveryByBus: effectiveExternalDeliveryByBus,
+          externalDeliveryType: effectiveExternalDeliveryType,
           deliveryZoneId: resolvedDeliveryZoneId,
           deliveryCity: resolvedDeliveryCity,
           deliveryAddress: resolvedDeliveryAddress,
@@ -7241,7 +7931,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (opsNotifyErr) {
         console.error("[ORDERS] Could not send ops notification for created order:", opsNotifyErr);
       }
-      
+
       // Return response: single order for single-vendor (backward compatible)
       // or first order + session info for multi-vendor
       if (isMultiVendor) {
@@ -7351,10 +8041,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
           const rider = order.riderId ? ridersById.get(order.riderId) : null;
+          const pickupStationInfo = await buildPickupStationInfo(order);
           const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
           const deliveryMethod = String(order?.deliveryMethod || "").toLowerCase().trim();
           const isPickup = deliveryMethod === "pickup";
           const isBus = deliveryMethod === "bus";
+          const isManualExternalDelivery = isManualExternalDeliveryOrder(order as any);
           const isBuyerOrAdminViewer =
             req.user!.role === "buyer" ||
             req.user!.role === "customer" ||
@@ -7367,7 +8059,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               await storage.updateOrder(order.id, { pickupOtp: newPickupOtp } as any);
               securedOrder.pickupOtp = newPickupOtp;
             }
-            if (!isPickup && !isBus && !securedOrder.deliveryOtp) {
+            if (!isPickup && !isBus && !isManualExternalDelivery && !securedOrder.deliveryOtp) {
               const newDeliveryOtp = generateOrderOtp();
               await storage.updateOrder(order.id, { deliveryOtp: newDeliveryOtp } as any);
               securedOrder.deliveryOtp = newDeliveryOtp;
@@ -7377,7 +8069,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               await storage.updateOrder(order.id, { pickupOtp: newPickupOtp } as any);
               securedOrder.pickupOtp = newPickupOtp;
             }
-            if (!isPickup && !isBus && !securedOrder.deliveryOtp) {
+            if (!isPickup && !isBus && !isManualExternalDelivery && !securedOrder.deliveryOtp) {
               const newDeliveryOtp = generateOrderOtp();
               await storage.updateOrder(order.id, { deliveryOtp: newDeliveryOtp } as any);
               securedOrder.deliveryOtp = newDeliveryOtp;
@@ -7408,11 +8100,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             buyer: buyer
               ? {
                   id: buyer.id,
-                  name: buyer.name,
+                  name: resolveUserDisplayName(buyer),
                   email: buyer.email,
                   phone: buyer.phone,
                 }
               : undefined,
+            pickupStationInfo,
           };
         })
       );
@@ -7425,6 +8118,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ error: error.message });
     }
   });
+
+  app.get(
+    "/api/pickup-agent/orders",
+    requireAuth,
+    requireRole("pickup_agent"),
+    requireRoleFeature("orders.view"),
+    async (req: AuthRequest, res) => {
+      try {
+        const pickupAgent = await storage.getUser(req.user!.id);
+        const agentZoneId = String(pickupAgent?.deliveryZoneId || "").trim();
+        if (!agentZoneId) {
+          return res.json([]);
+        }
+
+        const [allOrders, pickupStations] = await Promise.all([
+          storage.getAllOrders(),
+          storage.getDeliveryZones(false, "pickup_station"),
+        ]);
+
+        const pickupOrders = allOrders.filter((order: any) => {
+          const normalizedMethod = String(order?.deliveryMethod || "").toLowerCase().trim();
+          const normalizedStatus = String(order?.status || "").toLowerCase().trim();
+          return normalizedMethod === "pickup" && normalizedStatus !== "cancelled";
+        });
+
+        const zoneMatchedOrders: Array<{ order: any; store: any; seller: any; resolvedZoneId: string }> = [];
+        for (const order of pickupOrders) {
+          const store = order.storeId ? await storage.getStore(order.storeId) : null;
+          const seller =
+            (order.sellerId ? await storage.getUser(order.sellerId) : null) ||
+            (store?.primarySellerId ? await storage.getUser(store.primarySellerId) : null);
+          const resolvedZoneId = String(order.deliveryZoneId || "").trim();
+
+          if (resolvedZoneId && String(resolvedZoneId) === agentZoneId) {
+            zoneMatchedOrders.push({ order, store, seller, resolvedZoneId });
+          }
+        }
+
+        const payload = await Promise.all(
+          zoneMatchedOrders.map(async ({ order, store, seller, resolvedZoneId }) => {
+            const [buyer, items] = await Promise.all([
+              storage.getUser(order.buyerId),
+              storage.getOrderItems(order.id),
+            ]);
+            const zone = pickupStations.find((candidate: any) => String(candidate.id) === String(resolvedZoneId));
+            return {
+              id: order.id,
+              orderNumber: order.orderNumber,
+              status: order.status,
+              total: order.total,
+              createdAt: order.createdAt,
+              storeName: store?.name || seller?.storeName || null,
+              sellerName: seller ? resolveUserDisplayName(seller) : null,
+              sellerPhone: seller?.phone || null,
+              buyerName: buyer?.name || null,
+              buyerPhone: buyer?.phone || order.deliveryPhone || null,
+              zoneId: resolvedZoneId,
+              zoneName: zone?.name || zone?.city || zone?.region || null,
+              itemCount: items.length,
+              items: items.map((item) => ({
+                productName: item.productName,
+                quantity: item.quantity,
+              })),
+            };
+          }),
+        );
+
+        res.json(payload);
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    },
+  );
 
   app.get("/api/orders/:id", requireAuth, requireRoleFeature("orders.view"), async (req: AuthRequest, res) => {
     try {
@@ -7445,6 +8211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const deliveryMethod = String(finalOrder?.deliveryMethod || "").toLowerCase().trim();
       const isPickup = deliveryMethod === "pickup";
       const isBus = deliveryMethod === "bus";
+      const isManualExternalDelivery = isManualExternalDeliveryOrder(finalOrder as any);
       const isBuyerOrAdminViewer =
         req.user!.role === "buyer" ||
         req.user!.role === "customer" ||
@@ -7457,7 +8224,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.updateOrder(finalOrder.id, { pickupOtp: newPickupOtp } as any);
           securedOrder.pickupOtp = newPickupOtp;
         }
-        if (!isPickup && !isBus && !securedOrder.deliveryOtp) {
+        if (!isPickup && !isBus && !isManualExternalDelivery && !securedOrder.deliveryOtp) {
           const newDeliveryOtp = generateOrderOtp();
           await storage.updateOrder(finalOrder.id, { deliveryOtp: newDeliveryOtp } as any);
           securedOrder.deliveryOtp = newDeliveryOtp;
@@ -7467,7 +8234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.updateOrder(finalOrder.id, { pickupOtp: newPickupOtp } as any);
           securedOrder.pickupOtp = newPickupOtp;
         }
-        if (!isPickup && !isBus && !securedOrder.deliveryOtp) {
+        if (!isPickup && !isBus && !isManualExternalDelivery && !securedOrder.deliveryOtp) {
           const newDeliveryOtp = generateOrderOtp();
           await storage.updateOrder(finalOrder.id, { deliveryOtp: newDeliveryOtp } as any);
           securedOrder.deliveryOtp = newDeliveryOtp;
@@ -7501,6 +8268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Order not found" });
       }
 
+      const pickupStationInfo = await buildPickupStationInfo(securedOrder);
       let riderInfo: any = securedOrder.riderId
         ? {
             id: securedOrder.riderId,
@@ -7570,6 +8338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...securedOrder,
           riderInfo,
           sellerInfo,
+          pickupStationInfo,
           verificationSummary: normalizedVerificationSummary,
           busDeliveryWorkflow,
           customerInfo: buyer ? {
@@ -7585,6 +8354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...securedOrder,
           riderInfo,
           sellerInfo,
+          pickupStationInfo,
           verificationSummary: normalizedVerificationSummary,
           busDeliveryWorkflow,
         });
@@ -7867,6 +8637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
       }
+      const externalRiderSystemEnabled = await isExternalRiderSystemActive();
       const isBusDelivery = isBusMethod(order.deliveryMethod);
       const actorRole = req.user!.role;
       const actorId = req.user!.id;
@@ -7905,6 +8676,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (normalizedStatus === "delivered") {
         return res.status(409).json({
           error: "Delivery completion requires verification. Use /api/orders/:id/complete-delivery with QR or OTP.",
+        });
+      }
+
+      if (externalRiderSystemEnabled && normalizedStatus === "searching_rider") {
+        return res.status(409).json({
+          error: "Rider matching is disabled while the External Rider System is enabled.",
+        });
+      }
+
+      if (
+        externalRiderSystemEnabled &&
+        canonicalizeOrderStatus(order.status) === "ready" &&
+        normalizedStatus !== "external_dispatch_arranged" &&
+        normalizedStatus !== "cancelled" &&
+        normalizedStatus !== "ready"
+      ) {
+        return res.status(409).json({
+          error: "Ready orders must remain ready until an admin arranges external delivery or cancels the order.",
         });
       }
 
@@ -7950,9 +8739,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } as any
         });
       }
+
+      if (actorRole === "seller" && canonicalStatus === "packaged" && isPickupMethod(updatedOrder.deliveryMethod)) {
+        try {
+          await notifyAdmins(
+            "order",
+            "Pickup Order Packaged",
+            `Seller packaged pickup order #${updatedOrder.orderNumber}. Assign it to a pickup station to make it ready for collection.`,
+            {
+              orderId: updatedOrder.id,
+              orderNumber: updatedOrder.orderNumber,
+              status: canonicalStatus,
+              link: `/admin/orders/${updatedOrder.id}/action`,
+            },
+            {
+              requiredAdminPermission: "manage_orders",
+              includeAgents: false,
+            }
+          );
+        } catch (packagedNotifyErr) {
+          console.error("[PICKUP_PACKAGED_NOTIFY] Failed to notify ops users:", packagedNotifyErr);
+        }
+      }
+
+      if (actorRole === "seller" && canonicalStatus === "ready") {
+        try {
+          const isPickupOrder = isPickupMethod(updatedOrder.deliveryMethod);
+          const adminMessage = isPickupOrder
+            ? `Seller marked pickup order #${updatedOrder.orderNumber} ready for collection. Admin or pickup agent can now verify completion.`
+            : `Seller marked order #${updatedOrder.orderNumber} ready for the next delivery action.`;
+
+          await notifyAdmins(
+            "order",
+            isPickupOrder ? "Pickup Order Ready" : "Order Ready",
+            adminMessage,
+            {
+              orderId: updatedOrder.id,
+              orderNumber: updatedOrder.orderNumber,
+              status: canonicalStatus,
+              link: `/admin/orders/${updatedOrder.id}/action`,
+            },
+            {
+              requiredAdminPermission: "manage_orders",
+              includeAgents: false,
+            }
+          );
+        } catch (readyNotifyErr) {
+          console.error("[ORDER_READY_NOTIFY] Failed to notify ops users:", readyNotifyErr);
+        }
+
+      }
       await emitOrderStatusUpdateToStakeholders(updatedOrder, canonicalStatus);
 
       if (
+        !externalRiderSystemEnabled &&
         ["rider", "bus"].includes(String(updatedOrder.deliveryMethod || "").toLowerCase().trim()) &&
         !updatedOrder.riderId &&
         updatedOrder.paymentStatus === "completed" &&
@@ -7990,6 +8830,285 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post(
+    "/api/admin/orders/:id/arrange-external-delivery",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermissionIfAdmin("manage_orders"),
+    async (req: AuthRequest, res) => {
+      try {
+        const externalRiderSystemEnabled = await isExternalRiderSystemActive();
+        if (!externalRiderSystemEnabled) {
+          return res.status(409).json({
+            error: "External Rider System is not enabled.",
+          });
+        }
+
+        const order = await storage.getOrder(req.params.id);
+        if (!order) {
+          return res.status(404).json({ error: "Order not found" });
+        }
+
+        if (isPickupMethod(order.deliveryMethod)) {
+          return res.status(409).json({
+            error: "Pickup orders cannot be arranged for external delivery.",
+          });
+        }
+
+        if (canonicalizeOrderStatus(order.status) !== "ready") {
+          return res.status(409).json({
+            error: "Only ready orders can be moved to external dispatch.",
+          });
+        }
+
+        const updatedOrder = await storage.applyOrderStatusTransition(
+          order.id,
+          "external_dispatch_arranged",
+          req.user!.id,
+          req.user!.role,
+          "external_delivery_arranged"
+        );
+
+        if (!updatedOrder) {
+          return res.status(404).json({ error: "Order not found" });
+        }
+
+        const externalDeliveryTypeLabel =
+          String((updatedOrder as any).externalDeliveryType || "").toLowerCase().trim() === "bus" ||
+          Boolean((updatedOrder as any).externalDeliveryByBus)
+            ? "VIP Bus Delivery"
+            : "Third-Party Delivery (Yango, Uber, Bolt)";
+
+        await Promise.all(
+          [updatedOrder.buyerId, updatedOrder.sellerId]
+            .filter(Boolean)
+            .map((userId) =>
+              storage.createNotification({
+                userId: userId!,
+                type: "order",
+                title: "External Delivery Arranged",
+                message: `Order #${updatedOrder.orderNumber} has been arranged for ${externalDeliveryTypeLabel}.`,
+                metadata: {
+                  orderId: updatedOrder.id,
+                  orderNumber: updatedOrder.orderNumber,
+                  status: "external_dispatch_arranged",
+                  externalDeliveryByBus: Boolean((updatedOrder as any).externalDeliveryByBus),
+                  externalDeliveryType: (updatedOrder as any).externalDeliveryType || null,
+                } as any,
+              })
+            )
+        );
+
+        await emitOrderStatusUpdateToStakeholders(updatedOrder, "external_dispatch_arranged");
+
+        return res.json({
+          ...updatedOrder,
+          status: mapOrderStatusForViewerRole(updatedOrder as any, req.user!.role),
+        });
+      } catch (error: any) {
+        return res.status((error as any)?.code || 400).json({ error: error.message || "Failed to arrange external delivery" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/admin/orders/:id/assign-pickup-station",
+    requireAuth,
+    requireRole("super_admin"),
+    requirePermissionIfAdmin("manage_orders"),
+    async (req: AuthRequest, res) => {
+      try {
+        const stationId = String(req.body?.stationId || "").trim();
+        if (!stationId) {
+          return res.status(400).json({ error: "Pickup station is required." });
+        }
+
+        const order = await storage.getOrder(req.params.id);
+        if (!order) {
+          return res.status(404).json({ error: "Order not found" });
+        }
+
+        if (!isPickupMethod(order.deliveryMethod)) {
+          return res.status(409).json({ error: "Pickup station assignment is only valid for pickup orders." });
+        }
+
+        if (canonicalizeOrderStatus(order.status) !== "packaged") {
+          return res.status(409).json({ error: "Only packaged pickup orders can be assigned to a pickup station." });
+        }
+
+        const pickupStations = await storage.getDeliveryZones(true, "pickup_station");
+        const station = pickupStations.find((candidate: any) => String(candidate.id) === stationId);
+        if (!station || station.isActive === false) {
+          return res.status(404).json({ error: "Pickup station not found." });
+        }
+
+        await storage.updateOrder(order.id, { deliveryZoneId: station.id } as any);
+        const updatedOrder = await storage.applyOrderStatusTransition(
+          order.id,
+          "ready",
+          req.user!.id,
+          req.user!.role,
+          "pickup_station_assigned"
+        );
+
+        if (!updatedOrder) {
+          return res.status(404).json({ error: "Order not found" });
+        }
+
+        const pickupAgents = await resolvePickupAgentsForStation(station.id);
+        const primaryAgent = pickupAgents[0] || null;
+        const stationLocationLabel = formatPickupStationLocation(station);
+
+        await Promise.all(
+          pickupAgents.map((agent: any) =>
+            storage.createNotification({
+              userId: agent.id,
+              type: "order",
+              title: "Pickup Order Assigned",
+              message: `Pickup order #${updatedOrder.orderNumber} is ready for collection at ${stationLocationLabel || station.name}.`,
+              metadata: {
+                orderId: updatedOrder.id,
+                orderNumber: updatedOrder.orderNumber,
+                stationId: station.id,
+                stationName: station.name || null,
+                stationCity: station.city || null,
+                stationRegion: station.region || null,
+                link: `/pickup-agent?orderId=${updatedOrder.id}`,
+              },
+            } as any)
+          )
+        );
+
+        await storage.createNotification({
+          userId: updatedOrder.buyerId,
+          type: "order",
+          title: "Order Ready for Pickup",
+          message: `Order #${updatedOrder.orderNumber} is ready for pickup at ${stationLocationLabel || station.name}.${primaryAgent?.phone ? ` Contact ${resolveUserDisplayName(primaryAgent)} on ${primaryAgent.phone}.` : ""}`,
+          metadata: {
+            orderId: updatedOrder.id,
+            orderNumber: updatedOrder.orderNumber,
+            stationId: station.id,
+            stationName: station.name || null,
+            stationCity: station.city || null,
+            stationRegion: station.region || null,
+            pickupAgentId: primaryAgent?.id || null,
+            pickupAgentName: primaryAgent ? resolveUserDisplayName(primaryAgent) : null,
+            pickupAgentPhone: primaryAgent?.phone || null,
+            link: `/track?orderId=${updatedOrder.id}`,
+          },
+        } as any);
+
+        await storage.createNotification({
+          userId: updatedOrder.sellerId,
+          type: "order",
+          title: "Pickup Station Assigned",
+          message: `Order #${updatedOrder.orderNumber} is now ready for pickup at ${stationLocationLabel || station.name}.`,
+          metadata: {
+            orderId: updatedOrder.id,
+            orderNumber: updatedOrder.orderNumber,
+            stationId: station.id,
+            stationName: station.name || null,
+            link: `/seller/orders?orderId=${updatedOrder.id}`,
+          },
+        } as any);
+
+        await emitOrderStatusUpdateToStakeholders(updatedOrder, "ready");
+
+        return res.json({
+          ...updatedOrder,
+          pickupStationInfo: {
+            id: station.id,
+            name: station.name || null,
+            city: station.city || null,
+            region: station.region || null,
+            locationLabel: stationLocationLabel,
+            pickupAgentName: primaryAgent ? resolveUserDisplayName(primaryAgent) : null,
+            pickupAgentPhone: primaryAgent?.phone || null,
+          },
+          status: mapOrderStatusForViewerRole(updatedOrder as any, req.user!.role),
+        });
+      } catch (error: any) {
+        return res.status((error as any)?.code || 400).json({ error: error.message || "Failed to assign pickup station" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/admin/orders/:id/mark-external-delivered",
+    requireAuth,
+    requireRole("super_admin"),
+    requirePermissionIfAdmin("manage_orders"),
+    async (req: AuthRequest, res) => {
+      try {
+        const externalRiderSystemEnabled = await isExternalRiderSystemActive();
+        if (!externalRiderSystemEnabled) {
+          return res.status(409).json({
+            error: "External Rider System is not enabled.",
+          });
+        }
+
+        const order = await storage.getOrder(req.params.id);
+        if (!order) {
+          return res.status(404).json({ error: "Order not found" });
+        }
+
+        const deliveryMethod = String(order.deliveryMethod || "").toLowerCase().trim();
+        if (deliveryMethod === "pickup" || deliveryMethod === "store_pickup") {
+          return res.status(409).json({
+            error: "Pickup orders should continue using the pickup completion flow.",
+          });
+        }
+
+        const currentStatus = canonicalizeOrderStatus(order.status);
+        if (!["external_dispatch_arranged", "en_route", "delivered", "rider_arrived"].includes(currentStatus)) {
+          return res.status(409).json({
+            error: "Only manually arranged external deliveries can be marked complete here.",
+          });
+        }
+
+        const updatedOrder = await storage.applyOrderStatusTransition(
+          order.id,
+          "completed",
+          req.user!.id,
+          req.user!.role,
+          "super_admin_marked_external_delivery_completed"
+        );
+
+        if (!updatedOrder) {
+          return res.status(404).json({ error: "Order not found" });
+        }
+
+        await Promise.all(
+          [updatedOrder.buyerId, updatedOrder.sellerId]
+            .filter(Boolean)
+            .map((userId) =>
+              storage.createNotification({
+                userId: userId!,
+                type: "order",
+                title: "External Delivery Completed",
+                message: `Order #${updatedOrder.orderNumber} has been manually confirmed as completed.`,
+                metadata: {
+                  orderId: updatedOrder.id,
+                  orderNumber: updatedOrder.orderNumber,
+                  status: "completed",
+                  manuallyCompletedExternalDelivery: true,
+                } as any,
+              })
+            )
+        );
+
+        await emitOrderStatusUpdateToStakeholders(updatedOrder, "completed");
+
+        return res.json({
+          ...updatedOrder,
+          status: mapOrderStatusForViewerRole(updatedOrder as any, req.user!.role),
+        });
+      } catch (error: any) {
+        return res.status((error as any)?.code || 400).json({ error: error.message || "Failed to mark external delivery as completed" });
+      }
+    }
+  );
+
   assignRiderToOrder = async (params: {
     orderId: string;
     riderId: string;
@@ -7998,6 +9117,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     allowSellerOwnershipCheck?: boolean;
   }) => {
     const { orderId, riderId, actorId, actorRole, allowSellerOwnershipCheck = false } = params;
+
+    if (await isExternalRiderSystemActive()) {
+      const error = new Error("Internal rider assignment is disabled while the External Rider System is enabled");
+      (error as any).code = 409;
+      throw error;
+    }
 
     if (!riderId) {
       const error = new Error("Rider ID is required");
@@ -8324,6 +9449,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const order = await storage.getOrder(orderId);
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
+      }
+      if (isManualExternalDeliveryOrder(order as any)) {
+        return res.status(409).json({
+          error: "External/manual deliveries are completed by platform operations and do not use rider QR/OTP verification.",
+        });
       }
       if (isBusMethod(order.deliveryMethod)) {
         return res.status(409).json({
@@ -8728,6 +9858,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const order = await storage.getOrder(orderId);
         if (!order) return res.status(404).json({ error: "Order not found" });
+        if (isManualExternalDeliveryOrder(order as any)) {
+          return res.status(409).json({
+            error: "External/manual deliveries do not use rider pickup verification.",
+          });
+        }
 
         if (actorRole === "seller" && order.sellerId !== actorId) {
           console.warn(`[PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=not_owner`);
@@ -8775,11 +9910,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // Seller verifies customer pickup (store pickup flow) using QR + OTP.
+  // Pickup verification accepts either QR code or OTP for pickup agents, admins, and super admins.
   app.post(
     "/api/orders/:id/verify-customer-pickup",
     requireAuth,
-    requireRole("seller", "admin", "super_admin"),
+    requireRole("pickup_agent", "admin", "super_admin"),
     requirePermissionIfAdmin("manage_orders"),
     async (req: AuthRequest, res) => {
       try {
@@ -8797,13 +9932,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const order = await storage.getOrder(orderId);
         if (!order) return res.status(404).json({ error: "Order not found" });
 
-        if (actorRole === "seller" && order.sellerId !== actorId) {
-          console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=not_owner`);
-          return res.status(403).json({ error: "Unauthorized to verify this pickup" });
-        }
         if (order.deliveryMethod !== "pickup") {
           console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=wrong_delivery_method method=${order.deliveryMethod}`);
           return res.status(409).json({ error: "Customer pickup verification is only valid for pickup orders" });
+        }
+        if (canonicalizeOrderStatus(order.status) !== "ready") {
+          console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=pickup_not_ready status=${order.status}`);
+          return res.status(409).json({ error: "Pickup verification is only available after the order has been assigned to a pickup station and marked ready for pickup" });
+        }
+        if (actorRole === "pickup_agent") {
+          const [pickupAgent, pickupStations] = await Promise.all([
+            storage.getUser(actorId),
+            storage.getDeliveryZones(false, "pickup_station"),
+          ]);
+          const agentZoneId = String(pickupAgent?.deliveryZoneId || "").trim();
+          const resolvedOrderZoneId = String(order.deliveryZoneId || "").trim();
+          const stationExists = pickupStations.some((station: any) => String(station.id) === resolvedOrderZoneId);
+
+          if (!agentZoneId || !resolvedOrderZoneId || !stationExists || String(resolvedOrderZoneId) !== agentZoneId) {
+            console.warn(`[CUSTOMER_PICKUP_VERIFY_DENIED] order=${orderId} actor=${actorId} role=${actorRole} reason=zone_mismatch`);
+            return res.status(403).json({ error: "This pickup order does not belong to your assigned zone" });
+          }
         }
         const isQrValid = qrCode ? (order as any).qrCode === qrCode : false;
         const isOtpValid = otp ? normalizeOtp((order as any).pickupOtp) === otp : false;
@@ -9544,6 +10693,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             phone: rider.phone,
             profileImage: rider.profileImage || null,
             isAvailable,
+            onlineStatus: isAvailable ? String(presence?.status || "online") : "offline",
+            vehicleType: String((((rider as any).vehicleInfo || {}) as any).type || "").trim() || "motorcycle",
             zoneId,
             zoneMatched:
               ENABLE_SOFT_ZONE_MATCH &&
@@ -9555,6 +10706,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               String(zoneId || "") === String(sellerZoneId),
             distanceToOrder,
             currentLocation: riderLat !== null && riderLng !== null ? { lat: riderLat, lng: riderLng } : undefined,
+            heading:
+              latest?.heading ??
+              (Number.isFinite(prefLocation.heading) ? Number(prefLocation.heading) : null),
+            timestamp: locationTs > 0 ? new Date(locationTs).toISOString() : null,
             activeOrderCount,
             maxCapacity,
             gpsFresh,
@@ -9652,6 +10807,652 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Rider & Seller Analytics Routes ============
+  app.get("/api/admin/sellers/:sellerId/dashboard", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
+    try {
+      const { sellerId } = req.params;
+      const seller = await storage.getUser(sellerId);
+
+      if (!seller || seller.role !== "seller") {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+
+      const toNumber = (value: unknown) => Number.parseFloat(String(value ?? "0")) || 0;
+      const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
+      const isPaidPaymentStatus = (value?: string | null) =>
+        ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+
+      const [store, rawProducts, sales, payouts, commissionsList, availableBalance, activeFeaturedRows] = await Promise.all([
+        storage.getStoreByPrimarySeller(sellerId),
+        storage.getProducts({ sellerId }),
+        storage.getOrdersByUser(sellerId, "seller"),
+        storage.getSellerPayouts(sellerId),
+        storage.getSellerCommissions(sellerId),
+        storage.getSellerAvailableBalance(sellerId),
+        db
+          .select()
+          .from(featuredListings)
+          .where(and(eq(featuredListings.sellerId, sellerId), eq(featuredListings.isActive, true))),
+      ]);
+
+      const productsHydrated = await hydrateProductsWithCategories(rawProducts);
+      const productById = new Map(productsHydrated.map((product: any) => [product.id, product]));
+
+      const buyerIds = Array.from(new Set(sales.map((order: any) => order.buyerId).filter(Boolean)));
+      const riderIds = Array.from(new Set(sales.map((order: any) => order.riderId).filter(Boolean)));
+      const relatedUserIds = Array.from(new Set([sellerId, ...buyerIds, ...riderIds]));
+      const buyers = relatedUserIds.length > 0
+        ? await db
+            .select({
+              id: users.id,
+              name: users.name,
+              email: users.email,
+              phone: users.phone,
+            })
+            .from(users)
+            .where(inArray(users.id, relatedUserIds))
+        : [];
+      const buyerById = new Map(buyers.map((buyer) => [buyer.id, buyer]));
+
+      const orderIds = sales.map((order: any) => order.id).filter(Boolean);
+      const orderItemRows = orderIds.length > 0
+        ? await db
+            .select({
+              orderId: orderItems.orderId,
+              productId: orderItems.productId,
+              quantity: orderItems.quantity,
+              price: orderItems.price,
+              total: orderItems.total,
+              productName: products.name,
+              productImages: products.images,
+            })
+            .from(orderItems)
+            .leftJoin(products, eq(orderItems.productId, products.id))
+            .where(inArray(orderItems.orderId, orderIds))
+        : [];
+
+      const itemsByOrderId = new Map<string, any[]>();
+      const productPerformanceMap = new Map<string, {
+        productId: string;
+        name: string;
+        image: string | null;
+        unitsSold: number;
+        revenue: number;
+        ordersCount: number;
+      }>();
+
+      for (const row of orderItemRows) {
+        const currentItems = itemsByOrderId.get(row.orderId) || [];
+        currentItems.push({
+          productId: row.productId,
+          productName: row.productName || "Product",
+          quantity: Number(row.quantity || 0),
+          price: row.price,
+          total: row.total,
+          image: Array.isArray(row.productImages) ? row.productImages[0] || null : null,
+        });
+        itemsByOrderId.set(row.orderId, currentItems);
+
+        const existing = productPerformanceMap.get(row.productId) || {
+          productId: row.productId,
+          name: row.productName || "Product",
+          image: Array.isArray(row.productImages) ? row.productImages[0] || null : null,
+          unitsSold: 0,
+          revenue: 0,
+          ordersCount: 0,
+        };
+        existing.unitsSold += Number(row.quantity || 0);
+        existing.revenue += toNumber(row.total);
+        existing.ordersCount += 1;
+        productPerformanceMap.set(row.productId, existing);
+      }
+
+      const detailedSales = sales.map((order: any) => ({
+        ...order,
+        buyer: buyerById.get(order.buyerId) || null,
+        seller: buyerById.get(order.sellerId) || null,
+        rider: order.riderId ? buyerById.get(order.riderId) || null : null,
+        items: itemsByOrderId.get(order.id) || [],
+      }));
+
+      const completedPaidOrders = sales.filter((order: any) => {
+        const normalizedStatus = String(order.status || "").toLowerCase().trim();
+        return normalizedStatus === "completed" && isPaidPaymentStatus(order.paymentStatus);
+      });
+      const paidOrders = sales.filter((order: any) => isPaidPaymentStatus(order.paymentStatus));
+      const totalRevenue = completedPaidOrders.reduce((sum: number, order: any) => sum + toNumber(order.total), 0);
+      const totalPaid = paidOrders.reduce((sum: number, order: any) => sum + toNumber(order.total), 0);
+      const totalCommissionCharged = commissionsList.reduce((sum: number, commission: any) => sum + toNumber(commission.commissionAmount), 0);
+      const netSellerProfit = commissionsList.reduce((sum: number, commission: any) => sum + toNumber(commission.sellerAmount), 0);
+      const completedPayoutValue = payouts
+        .filter((payout: any) => String(payout.status || "").toLowerCase() === "completed")
+        .reduce((sum: number, payout: any) => sum + toNumber(payout.amount), 0);
+      const pendingPayoutValue = payouts
+        .filter((payout: any) => ["pending", "processing"].includes(String(payout.status || "").toLowerCase()))
+        .reduce((sum: number, payout: any) => sum + toNumber(payout.amount), 0);
+
+      const now = new Date();
+      const salesThisMonth = sales.filter((order: any) => {
+        const orderDate = order.createdAt ? new Date(order.createdAt) : null;
+        return Boolean(orderDate) && orderDate!.getMonth() === now.getMonth() && orderDate!.getFullYear() === now.getFullYear();
+      }).length;
+      const revenueThisMonth = completedPaidOrders
+        .filter((order: any) => {
+          const completionDate = order.updatedAt ? new Date(order.updatedAt) : order.deliveredAt ? new Date(order.deliveredAt) : null;
+          return Boolean(completionDate) && completionDate!.getMonth() === now.getMonth() && completionDate!.getFullYear() === now.getFullYear();
+        })
+        .reduce((sum: number, order: any) => sum + toNumber(order.total), 0);
+
+      const totalStockUnits = productsHydrated.reduce((sum: number, product: any) => sum + Number(product.stock || 0), 0);
+      const activeProducts = productsHydrated.filter((product: any) => product.isActive);
+      const inactiveProducts = productsHydrated.filter((product: any) => !product.isActive);
+      const outOfStockProducts = productsHydrated.filter((product: any) => Number(product.stock || 0) <= 0);
+      const lowStockProducts = productsHydrated.filter((product: any) => {
+        const stock = Number(product.stock || 0);
+        return stock > 0 && stock <= 5;
+      });
+      const ratedProducts = productsHydrated.filter((product: any) => Number(product.totalRatings || 0) > 0);
+      const averageProductRating = ratedProducts.length > 0
+        ? ratedProducts.reduce((sum: number, product: any) => sum + toNumber(product.ratings), 0) / ratedProducts.length
+        : 0;
+      const totalProductRatings = productsHydrated.reduce((sum: number, product: any) => sum + Number(product.totalRatings || 0), 0);
+
+      const topProducts = Array.from(productPerformanceMap.values())
+        .map((entry) => ({
+          ...entry,
+          product: productById.get(entry.productId) || null,
+        }))
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 8);
+
+      const recentActivity = [
+        ...detailedSales.slice(0, 6).map((order: any) => ({
+          type: "sale",
+          title: `Order #${order.orderNumber}`,
+          description: `${order.buyer?.name || "Buyer"} placed an order worth ${order.total} ${order.currency || "GHS"}`,
+          status: order.status,
+          at: order.createdAt,
+        })),
+        ...payouts.slice(0, 4).map((payout: any) => ({
+          type: "payout",
+          title: `Payout ${payout.reference || payout.id}`,
+          description: `${payout.amount} ${payout.currency || "GHS"} via ${payout.method}`,
+          status: payout.status,
+          at: payout.createdAt,
+        })),
+        ...productsHydrated.slice(0, 4).map((product: any) => ({
+          type: "product",
+          title: product.name,
+          description: `${product.isActive ? "Active" : "Inactive"} product in ${product.categoryName || "Uncategorized"}`,
+          status: product.isActive ? "active" : "inactive",
+          at: product.updatedAt || product.createdAt,
+        })),
+      ]
+        .filter((item) => item.at)
+        .sort((a, b) => new Date(String(b.at)).getTime() - new Date(String(a.at)).getTime())
+        .slice(0, 12);
+
+      const { password: _password, ...sellerWithoutPassword } = seller as any;
+
+      res.json({
+        seller: sellerWithoutPassword,
+        store,
+        summary: {
+          totalSales: sales.length,
+          totalRevenue,
+          totalPaid,
+          salesThisMonth,
+          revenueThisMonth,
+          avgOrderValue: sales.length > 0 ? totalRevenue / sales.length : 0,
+          totalProducts: productsHydrated.length,
+          activeProducts: activeProducts.length,
+          inactiveProducts: inactiveProducts.length,
+          outOfStockProducts: outOfStockProducts.length,
+          lowStockProducts: lowStockProducts.length,
+          totalStockUnits,
+          averageProductRating,
+          totalProductRatings,
+          featuredProducts: activeFeaturedRows.length,
+          totalCommissionCharged,
+          netSellerProfit,
+          availableBalance,
+          completedPayoutValue,
+          pendingPayoutValue,
+        },
+        sales: detailedSales,
+        payouts,
+        commissions: commissionsList,
+        products: productsHydrated,
+        topProducts,
+        recentActivity,
+      });
+    } catch (error: any) {
+      console.error("Error building seller dashboard:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/riders/:riderId/dashboard", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
+    try {
+      const { riderId } = req.params;
+      const rider = await storage.getUser(riderId);
+
+      if (!rider || rider.role !== "rider") {
+        return res.status(404).json({ error: "Rider not found" });
+      }
+
+      const toNumber = (value: unknown) => Number.parseFloat(String(value ?? "0")) || 0;
+      const normalizeStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
+      const isCompletedDelivery = (status?: string | null) => {
+        const normalized = normalizeStatus(status);
+        return normalized === "completed" || normalized === "delivered";
+      };
+
+      const [deliveries, payouts, reviewsList, averageRating, latestLocation] = await Promise.all([
+        storage.getOrdersByUser(riderId, "rider"),
+        storage.getRiderPayouts(riderId),
+        storage.getRiderReviews(riderId),
+        storage.getRiderAverageRating(riderId),
+        storage.getLatestRiderLocation(riderId),
+      ]);
+
+      const buyerIds = Array.from(new Set(deliveries.map((order: any) => order.buyerId).filter(Boolean)));
+      const sellerIds = Array.from(new Set(deliveries.map((order: any) => order.sellerId).filter(Boolean)));
+      const relatedUserIds = Array.from(new Set([...buyerIds, ...sellerIds]));
+      const relatedUsers = relatedUserIds.length > 0
+        ? await db
+            .select({
+              id: users.id,
+              name: users.name,
+              email: users.email,
+              phone: users.phone,
+            })
+            .from(users)
+            .where(inArray(users.id, relatedUserIds))
+        : [];
+      const userById = new Map(relatedUsers.map((entry) => [entry.id, entry]));
+
+      const deliveryOrderIds = deliveries.map((order: any) => order.id).filter(Boolean);
+      const deliveryItems = deliveryOrderIds.length > 0
+        ? await db
+            .select({
+              orderId: orderItems.orderId,
+              productId: orderItems.productId,
+              quantity: orderItems.quantity,
+              total: orderItems.total,
+              productName: products.name,
+              productImages: products.images,
+            })
+            .from(orderItems)
+            .leftJoin(products, eq(orderItems.productId, products.id))
+            .where(inArray(orderItems.orderId, deliveryOrderIds))
+        : [];
+
+      const deliveryItemsByOrderId = new Map<string, any[]>();
+      for (const row of deliveryItems) {
+        const items = deliveryItemsByOrderId.get(row.orderId) || [];
+        items.push({
+          productId: row.productId,
+          productName: row.productName || "Product",
+          quantity: Number(row.quantity || 0),
+          total: row.total,
+          image: Array.isArray(row.productImages) ? row.productImages[0] || null : null,
+        });
+        deliveryItemsByOrderId.set(row.orderId, items);
+      }
+
+      const detailedDeliveries = deliveries.map((order: any) => ({
+        ...order,
+        buyer: userById.get(order.buyerId) || null,
+        seller: userById.get(order.sellerId) || null,
+        items: deliveryItemsByOrderId.get(order.id) || [],
+      }));
+
+      const completedDeliveries = deliveries.filter((order: any) => isCompletedDelivery(order.status));
+      const activeDeliveries = deliveries.filter((order: any) => {
+        const normalized = normalizeStatus(order.status);
+        return !["completed", "delivered", "cancelled"].includes(normalized);
+      });
+      const cancelledDeliveries = deliveries.filter((order: any) => normalizeStatus(order.status) === "cancelled");
+      const totalDeliveryFees = completedDeliveries.reduce((sum: number, order: any) => sum + toNumber(order.deliveryFee), 0);
+      const now = new Date();
+      const completedThisMonth = completedDeliveries.filter((order: any) => {
+        const deliveredDate = order.deliveredAt ? new Date(order.deliveredAt) : order.updatedAt ? new Date(order.updatedAt) : null;
+        return Boolean(deliveredDate) && deliveredDate!.getMonth() === now.getMonth() && deliveredDate!.getFullYear() === now.getFullYear();
+      }).length;
+      const earningsThisMonth = completedDeliveries
+        .filter((order: any) => {
+          const deliveredDate = order.deliveredAt ? new Date(order.deliveredAt) : order.updatedAt ? new Date(order.updatedAt) : null;
+          return Boolean(deliveredDate) && deliveredDate!.getMonth() === now.getMonth() && deliveredDate!.getFullYear() === now.getFullYear();
+        })
+        .reduce((sum: number, order: any) => sum + toNumber(order.deliveryFee), 0);
+
+      const completedPayoutValue = payouts
+        .filter((payout: any) => String(payout.status || "").toLowerCase() === "completed")
+        .reduce((sum: number, payout: any) => sum + toNumber(payout.amount), 0);
+      const pendingPayoutValue = payouts
+        .filter((payout: any) => ["pending_approval", "approved", "processing"].includes(String(payout.status || "").toLowerCase()))
+        .reduce((sum: number, payout: any) => sum + toNumber(payout.amount), 0);
+
+      const risk = getRiderRiskScore(riderId);
+      const recentActivity = [
+        ...detailedDeliveries.slice(0, 8).map((order: any) => ({
+          type: "delivery",
+          title: `Order #${order.orderNumber}`,
+          description: `${order.seller?.name || "Seller"} to ${order.buyer?.name || "Buyer"}`,
+          status: order.status,
+          at: order.deliveredAt || order.updatedAt || order.createdAt,
+        })),
+        ...payouts.slice(0, 4).map((payout: any) => ({
+          type: "payout",
+          title: `Payout ${payout.id}`,
+          description: `${payout.amount} ${payout.currency || "GHS"} via ${payout.method}`,
+          status: payout.status,
+          at: payout.createdAt,
+        })),
+        ...reviewsList.slice(0, 4).map((review: any) => ({
+          type: "review",
+          title: `Review from ${review.userName || "Customer"}`,
+          description: review.comment || "Rating submitted",
+          status: `${review.rating || 0} stars`,
+          at: review.createdAt,
+        })),
+      ]
+        .filter((item) => item.at)
+        .sort((a, b) => new Date(String(b.at)).getTime() - new Date(String(a.at)).getTime())
+        .slice(0, 12);
+
+      const { password: _password, ...riderWithoutPassword } = rider as any;
+
+      res.json({
+        rider: riderWithoutPassword,
+        summary: {
+          totalDeliveries: deliveries.length,
+          completedDeliveries: completedDeliveries.length,
+          activeDeliveries: activeDeliveries.length,
+          cancelledDeliveries: cancelledDeliveries.length,
+          completionRate: deliveries.length > 0 ? (completedDeliveries.length / deliveries.length) * 100 : 0,
+          totalEarnings: totalDeliveryFees,
+          earningsThisMonth,
+          completedThisMonth,
+          avgDeliveryFee: completedDeliveries.length > 0 ? totalDeliveryFees / completedDeliveries.length : 0,
+          completedPayoutValue,
+          pendingPayoutValue,
+          averageRating,
+          totalReviews: reviewsList.length,
+          riskScore: Number(risk.score || 0),
+          riderOnline: Boolean((rider as any).riderOnline),
+        },
+        deliveries: detailedDeliveries,
+        payouts,
+        reviews: reviewsList,
+        latestLocation,
+        risk,
+        recentActivity,
+      });
+    } catch (error: any) {
+      console.error("Error building rider dashboard:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/buyers/:buyerId/dashboard", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
+    try {
+      const { buyerId } = req.params;
+      const buyer = await storage.getUser(buyerId);
+
+      if (!buyer || buyer.role !== "buyer") {
+        return res.status(404).json({ error: "Buyer not found" });
+      }
+
+      const toNumber = (value: unknown) => Number.parseFloat(String(value ?? "0")) || 0;
+      const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
+      const isPaid = (value?: string | null) => ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+      const normalizeStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
+
+      const [ordersForBuyer, wishlistItems] = await Promise.all([
+        storage.getOrdersByUser(buyerId, "buyer"),
+        storage.getWishlist(buyerId),
+      ]);
+
+      const sellerIds = Array.from(new Set(ordersForBuyer.map((order: any) => order.sellerId).filter(Boolean)));
+      const riderIds = Array.from(new Set(ordersForBuyer.map((order: any) => order.riderId).filter(Boolean)));
+      const relatedUserIds = Array.from(new Set([buyerId, ...sellerIds, ...riderIds]));
+      const relatedUsers = relatedUserIds.length > 0
+        ? await db.select({
+            id: users.id,
+            name: users.name,
+            email: users.email,
+            phone: users.phone,
+            profileImage: users.profileImage,
+          }).from(users).where(inArray(users.id, relatedUserIds))
+        : [];
+      const userById = new Map(relatedUsers.map((entry) => [entry.id, entry]));
+
+      const orderIds = ordersForBuyer.map((order: any) => order.id).filter(Boolean);
+      const orderItemRows = orderIds.length > 0
+        ? await db.select({
+            orderId: orderItems.orderId,
+            productId: orderItems.productId,
+            quantity: orderItems.quantity,
+            price: orderItems.price,
+            total: orderItems.total,
+            productName: products.name,
+            productImages: products.images,
+          }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(inArray(orderItems.orderId, orderIds))
+        : [];
+      const itemsByOrderId = new Map<string, any[]>();
+      for (const row of orderItemRows) {
+        const items = itemsByOrderId.get(row.orderId) || [];
+        items.push({
+          productId: row.productId,
+          productName: row.productName || "Product",
+          quantity: Number(row.quantity || 0),
+          price: row.price,
+          total: row.total,
+          image: Array.isArray(row.productImages) ? row.productImages[0] || null : null,
+        });
+        itemsByOrderId.set(row.orderId, items);
+      }
+
+      const detailedOrders = ordersForBuyer.map((order: any) => ({
+        ...order,
+        buyer: userById.get(order.buyerId) || null,
+        seller: userById.get(order.sellerId) || null,
+        rider: order.riderId ? userById.get(order.riderId) || null : null,
+        items: itemsByOrderId.get(order.id) || [],
+      }));
+
+      const paidOrders = ordersForBuyer.filter((order: any) => isPaid(order.paymentStatus));
+      const completedOrders = ordersForBuyer.filter((order: any) => ["completed", "delivered"].includes(normalizeStatus(order.status)));
+      const totalSpend = paidOrders.reduce((sum: number, order: any) => sum + toNumber(order.total), 0);
+      const deliverySpend = paidOrders.reduce((sum: number, order: any) => sum + toNumber(order.deliveryFee), 0);
+      const processingFees = paidOrders.reduce((sum: number, order: any) => sum + toNumber(order.processingFee), 0);
+      const wishlistProductIds = Array.from(new Set(wishlistItems.map((item: any) => item.productId).filter(Boolean)));
+      const wishedProducts = wishlistProductIds.length > 0
+        ? await db.select().from(products).where(inArray(products.id, wishlistProductIds))
+        : [];
+      const hydratedWishlist = await hydrateProductsWithCategories(wishedProducts);
+      const now = new Date();
+      const ordersThisMonth = ordersForBuyer.filter((order: any) => {
+        const createdAt = order.createdAt ? new Date(order.createdAt) : null;
+        return Boolean(createdAt) && createdAt!.getMonth() === now.getMonth() && createdAt!.getFullYear() === now.getFullYear();
+      }).length;
+
+      const recentActivity = [
+        ...detailedOrders.slice(0, 10).map((order: any) => ({
+          type: "order",
+          title: `Order #${order.orderNumber}`,
+          description: `${order.seller?.name || "Seller"} • ${order.total} ${order.currency || "GHS"}`,
+          status: order.status,
+          at: order.createdAt,
+        })),
+        ...hydratedWishlist.slice(0, 4).map((product: any) => ({
+          type: "wishlist",
+          title: product.name,
+          description: `Wishlisted product in ${product.categoryName || "Uncategorized"}`,
+          status: "wishlisted",
+          at: product.updatedAt || product.createdAt,
+        })),
+      ].filter((item) => item.at).sort((a, b) => new Date(String(b.at)).getTime() - new Date(String(a.at)).getTime()).slice(0, 12);
+
+      const { password: _password, ...buyerWithoutPassword } = buyer as any;
+
+      res.json({
+        buyer: buyerWithoutPassword,
+        summary: {
+          totalOrders: ordersForBuyer.length,
+          completedOrders: completedOrders.length,
+          activeOrders: ordersForBuyer.filter((order: any) => !["completed", "delivered", "cancelled"].includes(normalizeStatus(order.status))).length,
+          totalSpend,
+          deliverySpend,
+          processingFees,
+          averageOrderValue: paidOrders.length > 0 ? totalSpend / paidOrders.length : 0,
+          ordersThisMonth,
+          wishlistCount: hydratedWishlist.length,
+          sellerCount: sellerIds.length,
+          riderCount: riderIds.length,
+        },
+        orders: detailedOrders,
+        wishlist: hydratedWishlist,
+        recentActivity,
+      });
+    } catch (error: any) {
+      console.error("Error building buyer dashboard:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/stores/:storeId/dashboard", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const store = await storage.getStore(storeId);
+      if (!store) {
+        return res.status(404).json({ error: "Store not found" });
+      }
+
+      const toNumber = (value: unknown) => Number.parseFloat(String(value ?? "0")) || 0;
+      const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
+      const isPaid = (value?: string | null) => ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+      const normalizeStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
+
+      const [seller, storeProductsRaw, storeOrders, payouts, commissionsList] = await Promise.all([
+        store.primarySellerId ? storage.getUser(store.primarySellerId) : Promise.resolve(undefined),
+        storage.getProducts({ storeId }),
+        db.select().from(orders).where(eq(orders.storeId, storeId)).orderBy(desc(orders.createdAt)),
+        store.primarySellerId ? storage.getSellerPayouts(store.primarySellerId) : Promise.resolve([]),
+        store.primarySellerId ? storage.getSellerCommissions(store.primarySellerId) : Promise.resolve([]),
+      ]);
+
+      const storeProducts = await hydrateProductsWithCategories(storeProductsRaw);
+      const buyerIds = Array.from(new Set(storeOrders.map((order: any) => order.buyerId).filter(Boolean)));
+      const riderIds = Array.from(new Set(storeOrders.map((order: any) => order.riderId).filter(Boolean)));
+      const relatedUserIds = Array.from(new Set([...buyerIds, ...riderIds, ...(store.primarySellerId ? [store.primarySellerId] : [])]));
+      const relatedUsers = relatedUserIds.length > 0
+        ? await db.select({
+            id: users.id,
+            name: users.name,
+            email: users.email,
+            phone: users.phone,
+            profileImage: users.profileImage,
+          }).from(users).where(inArray(users.id, relatedUserIds))
+        : [];
+      const userById = new Map(relatedUsers.map((entry) => [entry.id, entry]));
+
+      const orderIds = storeOrders.map((order: any) => order.id).filter(Boolean);
+      const orderItemRows = orderIds.length > 0
+        ? await db.select({
+            orderId: orderItems.orderId,
+            productId: orderItems.productId,
+            quantity: orderItems.quantity,
+            price: orderItems.price,
+            total: orderItems.total,
+            productName: products.name,
+            productImages: products.images,
+          }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(inArray(orderItems.orderId, orderIds))
+        : [];
+      const itemsByOrderId = new Map<string, any[]>();
+      const performanceMap = new Map<string, { productId: string; name: string; image: string | null; unitsSold: number; revenue: number }>();
+      for (const row of orderItemRows) {
+        const items = itemsByOrderId.get(row.orderId) || [];
+        items.push({
+          productId: row.productId,
+          productName: row.productName || "Product",
+          quantity: Number(row.quantity || 0),
+          price: row.price,
+          total: row.total,
+          image: Array.isArray(row.productImages) ? row.productImages[0] || null : null,
+        });
+        itemsByOrderId.set(row.orderId, items);
+        const current = performanceMap.get(row.productId) || {
+          productId: row.productId,
+          name: row.productName || "Product",
+          image: Array.isArray(row.productImages) ? row.productImages[0] || null : null,
+          unitsSold: 0,
+          revenue: 0,
+        };
+        current.unitsSold += Number(row.quantity || 0);
+        current.revenue += toNumber(row.total);
+        performanceMap.set(row.productId, current);
+      }
+
+      const detailedOrders = storeOrders.map((order: any) => ({
+        ...order,
+        buyer: userById.get(order.buyerId) || null,
+        seller: userById.get(order.sellerId) || null,
+        rider: order.riderId ? userById.get(order.riderId) || null : null,
+        items: itemsByOrderId.get(order.id) || [],
+      }));
+
+      const paidOrders = storeOrders.filter((order: any) => isPaid(order.paymentStatus));
+      const totalRevenue = paidOrders.reduce((sum: number, order: any) => sum + toNumber(order.total), 0);
+      const completedOrders = storeOrders.filter((order: any) => ["completed", "delivered"].includes(normalizeStatus(order.status)));
+
+      const recentActivity = [
+        ...detailedOrders.slice(0, 8).map((order: any) => ({
+          type: "order",
+          title: `Order #${order.orderNumber}`,
+          description: `${order.buyer?.name || "Buyer"} • ${order.total} ${order.currency || "GHS"}`,
+          status: order.status,
+          at: order.createdAt,
+        })),
+        ...storeProducts.slice(0, 4).map((product: any) => ({
+          type: "product",
+          title: product.name,
+          description: `${product.categoryName || "Uncategorized"} • stock ${product.stock || 0}`,
+          status: product.isActive ? "active" : "inactive",
+          at: product.updatedAt || product.createdAt,
+        })),
+      ].filter((item) => item.at).sort((a, b) => new Date(String(b.at)).getTime() - new Date(String(a.at)).getTime()).slice(0, 12);
+
+      res.json({
+        store,
+        seller: seller ? (({ password, ...rest }) => rest)(seller as any) : null,
+        summary: {
+          totalOrders: storeOrders.length,
+          completedOrders: completedOrders.length,
+          activeOrders: storeOrders.filter((order: any) => !["completed", "delivered", "cancelled"].includes(normalizeStatus(order.status))).length,
+          totalRevenue,
+          averageOrderValue: paidOrders.length > 0 ? totalRevenue / paidOrders.length : 0,
+          totalProducts: storeProducts.length,
+          activeProducts: storeProducts.filter((product: any) => product.isActive).length,
+          totalStockUnits: storeProducts.reduce((sum: number, product: any) => sum + Number(product.stock || 0), 0),
+          completedPayoutValue: payouts.filter((p: any) => String(p.status || "").toLowerCase() === "completed").reduce((sum: number, p: any) => sum + toNumber(p.amount), 0),
+          pendingPayoutValue: payouts.filter((p: any) => ["pending", "processing"].includes(String(p.status || "").toLowerCase())).reduce((sum: number, p: any) => sum + toNumber(p.amount), 0),
+          totalCommissionCharged: commissionsList.reduce((sum: number, commission: any) => sum + toNumber(commission.commissionAmount), 0),
+        },
+        products: storeProducts,
+        orders: detailedOrders,
+        payouts,
+        commissions: commissionsList,
+        topProducts: Array.from(performanceMap.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 8),
+        recentActivity,
+      });
+    } catch (error: any) {
+      console.error("Error building store dashboard:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/riders/:riderId/deliveries", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
     try {
       const { riderId } = req.params;
@@ -10118,7 +11919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get message contacts for sellers:
   // - Always include exactly one masked support entry ("Support Agent")
   // - Include active-order stakeholders + existing non-support conversation partners
-  app.get("/api/seller/message-contacts", requireAuth, requireRole("seller"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
+  app.get("/api/seller/message-contacts", requireAuth, requireRoleAllowInactive("seller"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const userId = req.user!.id;
 
@@ -10224,7 +12025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get message contacts for riders:
   // - Always include exactly one masked support entry ("Support Agent")
   // - Include only active-order stakeholders (buyer/seller) for assigned deliveries
-  app.get("/api/rider/message-contacts", requireAuth, requireRole("rider"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
+  app.get("/api/rider/message-contacts", requireAuth, requireRoleAllowInactive("rider"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const userId = req.user!.id;
 
@@ -10975,6 +12776,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const sanitizedSettings = {
         ...settings,
+        showAdminOperationsPanels: settings.showAdminOperationsPanels !== false,
+        isExternalRiderSystemEnabled: settings.isExternalRiderSystemEnabled === true,
+        showCheckoutDeliveryMap: settings.showCheckoutDeliveryMap !== false,
+        allowPickupAgentAdminChat: settings.allowPickupAgentAdminChat !== false,
+        allowPickupAgentAdminChat: settings.allowPickupAgentAdminChat !== false,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
         paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
         cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret ?? undefined, process.env.CLOUDINARY_API_SECRET),
@@ -11004,7 +12810,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Alias for platform settings (used by multi-vendor components)
   app.get("/api/platform-settings", async (req, res) => {
     try {
-      let settings = await storage.getPlatformSettings();
+      let settings: any;
+      try {
+        settings = await storage.getPlatformSettings();
+      } catch {
+        settings = buildRouteFallbackPlatformSettings();
+      }
 
       // Import env secrets to DB if missing (so they appear in admin dashboard)
       try {
@@ -11037,7 +12848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           toUpdate.mapboxGlVersion = process.env.VITE_MAPBOX_GL_VERSION;
         }
 
-        if (Object.keys(toUpdate).length > 0) {
+        if (settings?.id !== "default" && Object.keys(toUpdate).length > 0) {
           settings = await storage.updatePlatformSettings(toUpdate);
         }
       } catch (err: any) {
@@ -11054,6 +12865,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const sanitizedSettings = {
         ...settings,
+        showAdminOperationsPanels: settings.showAdminOperationsPanels !== false,
+        isExternalRiderSystemEnabled: settings.isExternalRiderSystemEnabled === true,
+        showCheckoutDeliveryMap: settings.showCheckoutDeliveryMap !== false,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
         paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
         cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret ?? undefined, process.env.CLOUDINARY_API_SECRET),
@@ -11076,7 +12890,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       res.json(sanitizedSettings);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.warn('[ROUTES] Falling back to default platform settings response:', error?.message || error);
+      const settings: any = buildRouteFallbackPlatformSettings();
+      res.json({
+        ...settings,
+        showAdminOperationsPanels: true,
+        isExternalRiderSystemEnabled: false,
+        showCheckoutDeliveryMap: true,
+        cloudinaryApiSecret: "",
+        paystackSecretKey: "",
+        cloudinaryApiSecretSource: "none",
+        cloudinaryApiKeySource: "none",
+        cloudinaryCloudNameSource: "none",
+        paystackSecretKeySource: "none",
+        paystackPublicKeySource: "none",
+        mapboxPublicTokenSource: "none",
+        mapboxStyleUrlSource: "db",
+        mapboxGlVersionSource: "db",
+      });
+    }
+  });
+
+  app.get("/api/public/platform-settings", async (_req, res) => {
+    try {
+      let settings: any;
+      try {
+        settings = await storage.getPlatformSettings();
+      } catch {
+        settings = buildRouteFallbackPlatformSettings();
+      }
+      res.json({
+        isExternalRiderSystemEnabled: settings.isExternalRiderSystemEnabled === true,
+        showCheckoutDeliveryMap: settings.showCheckoutDeliveryMap !== false,
+      });
+    } catch (error: any) {
+      console.warn('[ROUTES] Falling back to public platform settings response:', error?.message || error);
+      res.json({
+        isExternalRiderSystemEnabled: false,
+        showCheckoutDeliveryMap: true,
+      });
     }
   });
 
@@ -11176,13 +13028,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/settings", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req, res) => {
+  app.patch("/api/settings", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req: AuthRequest, res) => {
     const start = Date.now();
     try {
       const previousSettings = await storage.getPlatformSettings();
       
       // Handle cloudinaryApiSecret: preserve existing if placeholder or empty is sent
       const updateData: any = { ...req.body };
+
+      if (req.user?.role !== "super_admin") {
+        delete updateData.isExternalRiderSystemEnabled;
+        delete updateData.showCheckoutDeliveryMap;
+        delete updateData.allowPickupAgentAdminChat;
+      }
 
       // Preserve sensitive fields when placeholders or empty values are submitted
       if (!updateData.cloudinaryApiSecret || updateData.cloudinaryApiSecret === "••••••••••••••••") {
@@ -11253,6 +13111,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const settings = await storage.updatePlatformSettings(updateData);
 
+      if (previousSettings.allowPickupAgentAdminChat !== settings.allowPickupAgentAdminChat) {
+        const { db } = await import("../db/index");
+        const { supportConversations, users } = await import("@shared/schema");
+        const { eq, inArray } = await import("drizzle-orm");
+        const superAdmins = await storage.getUsersByRole("super_admin");
+        const activeSuperAdminIds = superAdmins
+          .filter((staff) => staff?.isActive !== false)
+          .map((staff) => String(staff.id));
+
+        const pickupAgentConversations = await db
+          .select({ id: supportConversations.id, customerId: supportConversations.customerId })
+          .from(supportConversations)
+          .leftJoin(users, eq(supportConversations.customerId, users.id))
+          .where(eq(users.role, "pickup_agent" as any));
+
+        const activePickupAgents = await storage.getUsersByRole("pickup_agent");
+        const activePickupAgentIds = new Set(
+          activePickupAgents.filter((agent) => agent?.isActive !== false).map((agent) => String(agent.id)),
+        );
+        const targetConversationIds = pickupAgentConversations
+          .filter((conversation) => activePickupAgentIds.has(String(conversation.customerId)))
+          .map((conversation) => String(conversation.id));
+
+        if (targetConversationIds.length > 0) {
+          const nextRoutingMode = settings.allowPickupAgentAdminChat !== false ? "all_admins" : "specific_staff";
+          await db
+            .update(supportConversations)
+            .set({
+              routingMode: nextRoutingMode,
+              routingUserIds: nextRoutingMode === "specific_staff" ? activeSuperAdminIds : [],
+              agentId: nextRoutingMode === "specific_staff" ? activeSuperAdminIds[0] || null : null,
+              status: nextRoutingMode === "specific_staff" && activeSuperAdminIds.length > 0 ? "assigned" : "open",
+              updatedAt: new Date(),
+            })
+            .where(inArray(supportConversations.id, targetConversationIds as any));
+        }
+      }
+
       // Handle automatic store updates when multi-vendor mode is toggled
       if (previousSettings.isMultiVendor !== settings.isMultiVendor) {
         if (settings.isMultiVendor) {
@@ -11282,7 +13178,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      res.json(settings);
+      res.json({
+        ...settings,
+        showAdminOperationsPanels: settings.showAdminOperationsPanels !== false,
+        isExternalRiderSystemEnabled: settings.isExternalRiderSystemEnabled === true,
+        showCheckoutDeliveryMap: settings.showCheckoutDeliveryMap !== false,
+        allowPickupAgentAdminChat: settings.allowPickupAgentAdminChat !== false,
+        cloudinaryApiSecret: settings.cloudinaryApiSecret ? "â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" : "",
+        paystackSecretKey: settings.paystackSecretKey ? "â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" : "",
+      });
     } catch (error: any) {
       const duration = Date.now() - start;
       console.error(`PATCH /api/settings failed after ${duration}ms:`, error?.message || error);
@@ -11344,7 +13248,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Support bulk creation for products when targetIds array is provided
       if (type === 'product' && Array.isArray(targetIds) && targetIds.length > 0) {
         const createdRows = [] as any[];
-        for (const tId of targetIds) {
+        const uniqueTargetIds = Array.from(new Set(targetIds.map((value: any) => String(value || '').trim()).filter(Boolean)));
+        const now = new Date();
+
+        for (const tId of uniqueTargetIds) {
+          const [existingActivePromotion] = await db
+            .select()
+            .from(promotionalAds)
+            .where(
+              and(
+                eq(promotionalAds.type, type),
+                eq(promotionalAds.targetId, tId),
+                eq(promotionalAds.isActive, true),
+                or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now)),
+              ),
+            )
+            .limit(1);
+
+          if (existingActivePromotion) {
+            return res.status(400).json({
+              error: `A product promotion already exists for one of the selected products. End the current promotion before creating another one.`,
+            });
+          }
+        }
+
+        for (const tId of uniqueTargetIds) {
           const created = await storage.createPromotionalAd({ type, targetId: tId, startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null });
           createdRows.push(created);
         }
@@ -11380,76 +13308,253 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/promotion-applications', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_users"), async (req, res) => {
-    try {
-      const rows = await storage.getAllPromotionalAds();
-      const creatorCache = new Map<string, any>();
+  const calculatePromotionEndAt = (startAt: Date, durationType: string, duration: number) => {
+    const endAt = new Date(startAt);
+    if (durationType === "hour") {
+      endAt.setHours(endAt.getHours() + duration);
+    } else if (durationType === "day") {
+      endAt.setDate(endAt.getDate() + duration);
+    } else if (durationType === "week") {
+      endAt.setDate(endAt.getDate() + (duration * 7));
+    } else if (durationType === "month") {
+      endAt.setMonth(endAt.getMonth() + duration);
+    } else {
+      endAt.setDate(endAt.getDate() + duration);
+    }
+    return endAt;
+  };
+
+  const buildPromotionApplicationResponse = async (application: any) => {
+    const seller = await storage.getUser(String(application.sellerId)).catch(() => null);
+    let resolvedTargetName = String(application.targetName || "Promotion Target");
+    let resolvedStoreId: string | null = null;
+    let resolvedStoreName: string | null = null;
+
+    if (application.type === "store") {
+      const store = await storage.getStore(String(application.targetId || "")).catch(() => null);
+      resolvedTargetName = store?.name || resolvedTargetName;
+      resolvedStoreId = store?.id || null;
+      resolvedStoreName = store?.name || null;
+    } else if (application.type === "product") {
+      const product = await storage.getProduct(String(application.targetId || "")).catch(() => null);
+      resolvedTargetName = product?.name || resolvedTargetName;
+      if (product?.storeId) {
+        const store = await storage.getStore(String(product.storeId)).catch(() => null);
+        resolvedStoreId = store?.id || null;
+        resolvedStoreName = store?.name || null;
+      }
+    }
+
+    const createdPromotion = application.createdPromotionId
+      ? await db.select().from(promotionalAds).where(eq(promotionalAds.id, String(application.createdPromotionId))).limit(1).then((rows) => rows[0] || null)
+      : null;
+
+    let derivedStatus = String(application.status || "pending_payment");
+    if (derivedStatus === "approved" && createdPromotion) {
       const now = new Date();
+      const endAt = createdPromotion.endAt ? new Date(createdPromotion.endAt) : null;
+      derivedStatus = createdPromotion.isActive && (!endAt || endAt > now) ? "active" : "expired";
+    }
 
-      const sellerSubmittedRows = [] as any[];
-      for (const row of rows) {
-        const createdBy = String(row?.createdBy || "");
-        if (!createdBy) continue;
+    return {
+      id: application.id,
+      type: application.type,
+      targetId: application.targetId,
+      targetName: resolvedTargetName,
+      storeId: resolvedStoreId,
+      storeName: resolvedStoreName,
+      durationType: application.durationType,
+      duration: application.duration,
+      durationHours:
+        application.durationType === "day"
+          ? Number(application.duration || 0) * 24
+          : application.durationType === "week"
+            ? Number(application.duration || 0) * 24 * 7
+            : application.durationType === "month"
+              ? Number(application.duration || 0) * 24 * 30
+              : Number(application.duration || 0),
+      unitPrice: application.unitPrice,
+      totalPrice: application.totalPrice,
+      sellerNote: application.sellerNote,
+      customerServiceNote: application.customerServiceNote,
+      paymentConfirmed: Boolean(application.paymentConfirmed),
+      paymentConfirmedAt: application.paymentConfirmedAt,
+      approvedAt: application.approvedAt,
+      approvedBy: application.approvedBy,
+      rejectedAt: application.rejectedAt,
+      rejectedBy: application.rejectedBy,
+      rejectionReason: application.rejectionReason,
+      createdPromotionId: application.createdPromotionId,
+      status: derivedStatus,
+      isActive: createdPromotion ? Boolean(createdPromotion.isActive) : false,
+      startAt: createdPromotion?.startAt || null,
+      endAt: createdPromotion?.endAt || null,
+      createdAt: application.createdAt,
+      seller: seller
+        ? {
+            id: seller.id,
+            name: seller.name,
+            email: seller.email,
+            phone: seller.phone,
+          }
+        : null,
+    };
+  };
 
-        let creator = creatorCache.get(createdBy);
-        if (!creator) {
-          creator = await storage.getUser(createdBy);
-          creatorCache.set(createdBy, creator || null);
-        }
+  app.get('/api/admin/promotion-applications', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
+    try {
+      const rows = await db.select().from(promotionApplications).orderBy(desc(promotionApplications.createdAt));
+      const enriched = await Promise.all(rows.map((row) => buildPromotionApplicationResponse(row)));
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
 
-        if (!creator || String(creator.role || "").toLowerCase() !== "seller") continue;
-        sellerSubmittedRows.push({ row, creator });
+  app.patch('/api/admin/promotion-applications/:id/confirm-payment', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
+    try {
+      const [application] = await db.select().from(promotionApplications).where(eq(promotionApplications.id, req.params.id)).limit(1);
+      if (!application) {
+        return res.status(404).json({ error: "Promotion application not found" });
+      }
+      if (String(application.status) === "rejected") {
+        return res.status(400).json({ error: "Rejected applications cannot be confirmed" });
       }
 
-      const enriched = await Promise.all(
-        sellerSubmittedRows.map(async ({ row, creator }) => {
-          let targetName = "Unknown target";
-          if (row.type === "store") {
-            const store = await storage.getStore(String(row.targetId)).catch(() => null);
-            targetName = store?.name || "Store";
-          } else if (row.type === "product") {
-            const product = await storage.getProduct(String(row.targetId)).catch(() => null);
-            targetName = product?.name || "Product";
-          }
+      const customerServiceNote = typeof req.body?.customerServiceNote === "string" ? req.body.customerServiceNote.trim() : "";
+      const [updated] = await db
+        .update(promotionApplications)
+        .set({
+          paymentConfirmed: true,
+          paymentConfirmedAt: new Date(),
+          paymentConfirmedBy: req.user?.id || null,
+          customerServiceNote: customerServiceNote || application.customerServiceNote || null,
+          status: "payment_confirmed",
+          updatedAt: new Date(),
+        })
+        .where(eq(promotionApplications.id, application.id))
+        .returning();
 
-          const startAt = row.startAt ? new Date(row.startAt) : null;
-          const endAt = row.endAt ? new Date(row.endAt) : null;
-          const durationHours =
-            startAt && endAt ? Math.max(0, Math.round((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60))) : null;
-          const status =
-            row.isActive && (!endAt || endAt > now)
-              ? "active"
-              : endAt && endAt <= now
-                ? "expired"
-                : "ended";
+      if (application.sellerId) {
+        await storage.createNotification({
+          userId: application.sellerId,
+          type: "system" as any,
+          title: "Promotion payment confirmed",
+          message: `Your ${application.type} promotion payment has been confirmed. Your request is now under final review.`,
+          metadata: {
+            promotionApplicationId: application.id,
+            status: "payment_confirmed",
+          },
+        });
+      }
 
-          return {
-            id: row.id,
-            type: row.type,
-            targetId: row.targetId,
-            targetName,
-            startAt: row.startAt,
-            endAt: row.endAt,
-            durationHours,
-            isActive: Boolean(row.isActive),
-            status,
-            createdAt: row.createdAt,
-            seller: {
-              id: creator.id,
-              name: creator.name,
-              email: creator.email,
-            },
-          };
-        }),
-      );
+      res.json(await buildPromotionApplicationResponse(updated));
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
 
-      enriched.sort((a: any, b: any) => {
-        const aTs = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTs = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTs - aTs;
+  app.patch('/api/admin/promotion-applications/:id/reject', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
+    try {
+      const [application] = await db.select().from(promotionApplications).where(eq(promotionApplications.id, req.params.id)).limit(1);
+      if (!application) {
+        return res.status(404).json({ error: "Promotion application not found" });
+      }
+
+      const rejectionReason = typeof req.body?.rejectionReason === "string" ? req.body.rejectionReason.trim() : "";
+      const customerServiceNote = typeof req.body?.customerServiceNote === "string" ? req.body.customerServiceNote.trim() : "";
+
+      const [updated] = await db
+        .update(promotionApplications)
+        .set({
+          status: "rejected",
+          rejectedAt: new Date(),
+          rejectedBy: req.user?.id || null,
+          rejectionReason: rejectionReason || null,
+          customerServiceNote: customerServiceNote || application.customerServiceNote || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(promotionApplications.id, application.id))
+        .returning();
+
+      if (application.sellerId) {
+        await storage.createNotification({
+          userId: application.sellerId,
+          type: "system" as any,
+          title: "Promotion application rejected",
+          message: rejectionReason || "Your promotion application was rejected. Contact customer support for more details.",
+          metadata: {
+            promotionApplicationId: application.id,
+            status: "rejected",
+          },
+        });
+      }
+
+      res.json(await buildPromotionApplicationResponse(updated));
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/admin/promotion-applications/:id/approve', requireAuth, requireRole('super_admin'), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
+    try {
+      const [application] = await db.select().from(promotionApplications).where(eq(promotionApplications.id, req.params.id)).limit(1);
+      if (!application) {
+        return res.status(404).json({ error: "Promotion application not found" });
+      }
+      if (String(application.status) === "rejected") {
+        return res.status(400).json({ error: "Rejected applications cannot be approved" });
+      }
+      if (!application.paymentConfirmed) {
+        return res.status(400).json({ error: "Confirm payment before approving this promotion" });
+      }
+      if (application.createdPromotionId) {
+        return res.status(400).json({ error: "This promotion application has already been approved" });
+      }
+
+      const now = new Date();
+      const endAt = calculatePromotionEndAt(now, String(application.durationType), Number(application.duration || 0));
+      const createdPromotion = await storage.createPromotionalAd({
+        type: application.type as "store" | "product",
+        targetId: String(application.targetId),
+        startAt: now,
+        endAt,
+        createdBy: application.sellerId,
+        title: null,
+        description: null,
+        imageUrl: null,
+        ctaText: null,
+        ctaUrl: null,
+        themeColor: null,
       });
 
-      res.json(enriched);
+      const [updated] = await db
+        .update(promotionApplications)
+        .set({
+          status: "approved",
+          approvedAt: now,
+          approvedBy: req.user?.id || null,
+          createdPromotionId: createdPromotion.id,
+          updatedAt: now,
+        })
+        .where(eq(promotionApplications.id, application.id))
+        .returning();
+
+      if (application.sellerId) {
+        await storage.createNotification({
+          userId: application.sellerId,
+          type: "system" as any,
+          title: "Promotion approved",
+          message: `Your ${application.type} promotion has been approved and is now scheduled to run.`,
+          metadata: {
+            promotionApplicationId: application.id,
+            promotionId: createdPromotion.id,
+            status: "approved",
+          },
+        });
+      }
+
+      res.json(await buildPromotionApplicationResponse(updated));
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
@@ -11460,6 +13565,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = req.params.id;
       await storage.expirePromotionById(id);
       res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/admin/promotions/reset-expired', requireAuth, requireRole('super_admin'), requirePermission("manage_promotions"), async (req, res) => {
+    try {
+      const now = new Date();
+      const deleted = await db
+        .delete(promotionalAds)
+        .where(and(isNotNull(promotionalAds.endAt), lte(promotionalAds.endAt, now)))
+        .returning({ id: promotionalAds.id });
+
+      res.json({
+        ok: true,
+        deletedCount: deleted.length,
+      });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
@@ -11493,7 +13615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { type, durationType, duration, price } = req.body;
       if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
-      if (!['hour', 'day'].includes(durationType)) return res.status(400).json({ error: 'Invalid durationType' });
+      if (!['hour', 'day', 'week', 'month'].includes(durationType)) return res.status(400).json({ error: 'Invalid durationType' });
       if (typeof duration !== 'number' || duration <= 0) return res.status(400).json({ error: 'Invalid duration' });
       if (typeof price !== 'string' || isNaN(parseFloat(price))) return res.status(400).json({ error: 'Invalid price' });
 
@@ -11506,7 +13628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/admin/promotion-pricing', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
-      const rows = await storage.getAllPromotionPricing();
+      const rows = await storage.getAllPromotionPricing({ includeInactive: true });
       res.json(rows);
     } catch (e: any) {
       res.status(400).json({ error: e.message });
@@ -11769,53 +13891,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Seller access required" });
       }
 
-      const rows = await storage.getAllPromotionalAds();
-      const mine = rows.filter((row: any) => String(row?.createdBy || "") === String(user.id));
-      const now = new Date();
+      const rows = await db
+        .select()
+        .from(promotionApplications)
+        .where(eq(promotionApplications.sellerId, user.id))
+        .orderBy(desc(promotionApplications.createdAt));
 
-      const enriched = await Promise.all(
-        mine.map(async (row: any) => {
-          let targetName = "Unknown target";
-          if (row.type === "store") {
-            const store = await storage.getStore(String(row.targetId)).catch(() => null);
-            targetName = store?.name || "Store";
-          } else if (row.type === "product") {
-            const product = await storage.getProduct(String(row.targetId)).catch(() => null);
-            targetName = product?.name || "Product";
-          }
-
-          const startAt = row.startAt ? new Date(row.startAt) : null;
-          const endAt = row.endAt ? new Date(row.endAt) : null;
-          const durationHours =
-            startAt && endAt ? Math.max(0, Math.round((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60))) : null;
-          const status =
-            row.isActive && (!endAt || endAt > now)
-              ? "active"
-              : endAt && endAt <= now
-                ? "expired"
-                : "ended";
-
-          return {
-            id: row.id,
-            type: row.type,
-            targetId: row.targetId,
-            targetName,
-            startAt: row.startAt,
-            endAt: row.endAt,
-            durationHours,
-            isActive: Boolean(row.isActive),
-            status,
-            createdAt: row.createdAt,
-          };
-        }),
-      );
-
-      enriched.sort((a: any, b: any) => {
-        const aTs = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTs = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTs - aTs;
-      });
-
+      const enriched = await Promise.all(rows.map((row) => buildPromotionApplicationResponse(row)));
       res.json(enriched);
     } catch (e: any) {
       res.status(400).json({ error: e.message });
@@ -11835,9 +13917,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Promotions are only available in multi-vendor mode" });
       }
 
-      const { type, targetId, durationType, duration, paymentReference } = req.body;
+      const { type, targetId, durationType, duration, sellerNote } = req.body;
       if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
-      if (!['hour', 'day'].includes(durationType)) return res.status(400).json({ error: 'Invalid durationType' });
+      if (!['hour', 'day', 'week', 'month'].includes(durationType)) return res.status(400).json({ error: 'Invalid durationType' });
       if (typeof duration !== 'number' || duration <= 0) return res.status(400).json({ error: 'Invalid duration' });
 
       // Validate targetId belongs to seller
@@ -11856,6 +13938,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         targetName = product.name || "Product";
       }
 
+      const now = new Date();
+      const [existingActivePromotion] = await db
+        .select()
+        .from(promotionalAds)
+        .where(
+          and(
+            eq(promotionalAds.type, type),
+            eq(promotionalAds.targetId, targetId),
+            eq(promotionalAds.isActive, true),
+            or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now)),
+          ),
+        )
+        .limit(1);
+
+      if (existingActivePromotion) {
+        return res.status(400).json({ error: `This ${type} already has an active promotion.` });
+      }
+
+      const [existingOpenApplication] = await db
+        .select()
+        .from(promotionApplications)
+        .where(
+          and(
+            eq(promotionApplications.sellerId, user.id),
+            eq(promotionApplications.type, type),
+            eq(promotionApplications.targetId, targetId),
+            or(
+              eq(promotionApplications.status, "pending_payment"),
+              eq(promotionApplications.status, "payment_confirmed"),
+            ),
+          ),
+        )
+        .limit(1);
+
+      if (existingOpenApplication) {
+        return res.status(400).json({ error: `A promotion request for this ${type} is already in progress.` });
+      }
+
       // Get pricing
       const pricing = await storage.getPromotionPricing(type, durationType, duration);
       if (!pricing) {
@@ -11865,96 +13985,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Calculate total price (for multiple days, multiply)
       const unitPrice = parseFloat(pricing.price);
       const totalPrice = unitPrice * duration;
-      const expectedAmountMinor = Math.round(totalPrice * 100);
-
-      if (!paymentReference || typeof paymentReference !== "string" || !paymentReference.trim()) {
-        return res.status(400).json({ error: "paymentReference is required to activate a promotion" });
-      }
-
-      const existingTx = await storage.getTransactionByReference(paymentReference.trim());
-      if (existingTx) {
-        return res.status(400).json({ error: "This payment reference has already been used" });
-      }
-
-      if (!settings.paystackSecretKey) {
-        return res.status(503).json({ error: "Payment gateway not configured" });
-      }
-
-      const verifyResp = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(paymentReference.trim())}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${settings.paystackSecretKey}`,
-          "Content-Type": "application/json",
-        },
-      });
-      if (!verifyResp.ok) {
-        return res.status(400).json({ error: "Unable to verify payment reference" });
-      }
-      const verifyJson = await verifyResp.json();
-      const paystackStatus = (verifyJson?.data?.status || "").toString().toLowerCase().trim();
-      const paidAmountMinor = Number(verifyJson?.data?.amount || 0);
-      const paidCurrency = (verifyJson?.data?.currency || "GHS").toString().toUpperCase();
-      if (paystackStatus !== "success") {
-        return res.status(400).json({ error: "Payment is not successful for this reference" });
-      }
-      if (paidAmountMinor < expectedAmountMinor) {
-        return res.status(400).json({ error: `Insufficient promotion payment amount. Expected ${expectedAmountMinor}, got ${paidAmountMinor}` });
-      }
-
-      // Calculate end time
-      const startAt = new Date();
-      const endAt = new Date(startAt);
-      if (durationType === 'hour') {
-        endAt.setHours(endAt.getHours() + duration);
-      } else {
-        endAt.setDate(endAt.getDate() + duration);
-      }
-
-      // Create promotional ad only after verified payment.
-      const promo = await storage.createPromotionalAd({
-        type,
-        targetId,
-        startAt,
-        endAt,
-        createdBy: user.id,
-        title: null,
-        description: null,
-        imageUrl: null,
-        ctaText: null,
-        ctaUrl: null,
-        themeColor: null,
-      });
-
-      await notifyAdmins(
-        "system",
-        "New Seller Promotion Application",
-        `${user.email || "Seller"} submitted a ${type} promotion request for ${targetName}.`,
-        {
-          promotionId: promo.id,
+      const [application] = await db
+        .insert(promotionApplications)
+        .values({
           sellerId: user.id,
           type,
           targetId,
           targetName,
           durationType,
           duration,
-          paymentReference: paymentReference.trim(),
+          unitPrice: unitPrice.toFixed(2),
           totalPrice: totalPrice.toFixed(2),
-          link: `/admin/applications?tab=promotions&promotionId=${encodeURIComponent(String(promo.id))}`,
+          sellerNote: typeof sellerNote === "string" && sellerNote.trim() ? sellerNote.trim() : null,
+          status: "pending_payment",
+          paymentConfirmed: false,
+        } as any)
+        .returning();
+
+      await notifyAdmins(
+        "system",
+        "New Seller Promotion Application",
+        `${user.name || user.email || "Seller"} requested a ${type} promotion for ${targetName}. Contact the seller to facilitate payment.`,
+        {
+          promotionApplicationId: application.id,
+          sellerId: user.id,
+          sellerName: user.name,
+          sellerEmail: user.email,
+          sellerPhone: user.phone,
+          type,
+          targetId,
+          targetName,
+          durationType,
+          duration,
+          totalPrice: totalPrice.toFixed(2),
+          sellerNote: application.sellerNote,
+          link: `/admin/applications?tab=promotions&promotionId=${encodeURIComponent(String(application.id))}`,
         },
         {
-          requiredAdminPermission: "manage_users",
-          includeAgents: false,
+          requiredAdminPermission: "manage_promotions",
+          includeAgents: true,
+          requiredAgentFeature: "support.view",
         },
       );
 
-      res.json({
-        ...promo,
-        totalPrice: totalPrice.toFixed(2),
-        currency: 'GHS',
-        durationType,
-        duration,
-        unitPrice: pricing.price,
+      await storage.createNotification({
+        userId: user.id,
+        type: "system" as any,
+        title: "Promotion application received",
+        message: "Customer service will call you to facilitate payment for this promotion request.",
+        metadata: {
+          promotionApplicationId: application.id,
+          targetName,
+          totalPrice: totalPrice.toFixed(2),
+        },
       });
+
+      res.json(await buildPromotionApplicationResponse(application));
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
@@ -12187,6 +14273,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       };
 
+      const calculateSellerShareKobo = (order: any, commissionRate: number) => {
+        const subtotal = parseFloat(order.subtotal || "0") || 0;
+        const couponDiscount = parseFloat(order.couponDiscount || "0") || 0;
+        const merchandiseNet = Math.max(0, subtotal - couponDiscount);
+        const sellerShare = Math.max(0, merchandiseNet * (100 - commissionRate) / 100);
+        return Math.round(sellerShare * 100);
+      };
+
       // Build split payment configuration
       if (isMultiVendor) {
         // Multi-vendor: Build subaccounts array with splits for each seller
@@ -12203,25 +14297,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 continue;
               }
               
-              if (!store.paystackSubaccountId || !store.isPayoutVerified) {
-                storeErrors.push(`Store ${store.name} is not configured for payments`);
-                continue;
-              }
-              
-              // Calculate seller's share for this order excluding processing fee
-              const orderAmount = parseFloat(order.total);
-              const orderProcessingFee = parseFloat(order.processingFee || "0");
-              const amountExcludingProcessing = Math.max(0, orderAmount - orderProcessingFee);
-
-              const sellerShare = Math.round(amountExcludingProcessing * (100 - commissionRate) / 100 * 100); // In kobo
+              // Seller share is merchandise net of coupon discounts and commission only.
+              // Delivery fees and processing fees remain with the platform.
+              const sellerShare = calculateSellerShareKobo(order, commissionRate);
 
               // Only include as Paystack subaccount if seller uses bank account payouts
-              if (store.payoutType === 'bank_account' && store.paystackSubaccountId) {
+              if (store.payoutType === 'bank_account') {
+                if (!store.isPayoutVerified || !store.paystackSubaccountId) {
+                  storeErrors.push(`Store ${store.name} bank payout setup is incomplete`);
+                  continue;
+                }
                 subaccounts.push({
                   subaccount: store.paystackSubaccountId,
                   share: sellerShare,
                 });
-              } else {
+              } else if (store.payoutType === 'mobile_money') {
+                if (
+                  !store.isPayoutVerified ||
+                  !store.payoutDetails?.mobileNumber ||
+                  !store.payoutDetails?.provider
+                ) {
+                  storeErrors.push(`Store ${store.name} mobile money payout setup is incomplete`);
+                  continue;
+                }
                 // For mobile money recipients, include payout info in metadata for post-processing
                 paymentPayload.metadata = paymentPayload.metadata || {};
                 paymentPayload.metadata.mobilePayouts = paymentPayload.metadata.mobilePayouts || [];
@@ -12232,6 +14330,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   mobileNumber: store.payoutDetails?.mobileNumber,
                   amountKobo: sellerShare,
                 });
+              } else {
+                storeErrors.push(`Store ${store.name} has an unsupported payout method`);
               }
             } catch (storeError) {
               storeErrors.push(`Failed to fetch store for order ${order.orderNumber}`);
@@ -12266,20 +14366,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (order.storeId) {
           try {
             const store = await storage.getStore(order.storeId);
-            if (store && store.paystackSubaccountId && store.isPayoutVerified) {
+            if (store) {
               const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "1");
+              const sellerShare = calculateSellerShareKobo(order, commissionRate);
 
               // Only assign as Paystack subaccount when seller uses bank account payouts
               if (store.payoutType === 'bank_account') {
+                if (!store.isPayoutVerified || !store.paystackSubaccountId) {
+                  return res.status(400).json({
+                    error: "Payment configuration incomplete",
+                    userMessage: `Store ${store.name} bank payout setup is incomplete.`,
+                  });
+                }
                 paymentPayload.subaccount = store.paystackSubaccountId;
-                // Let Paystack charge processing fee from the transaction_charge (set above)
+                // Keep only the seller's merchandise share with the subaccount.
+                // Commission, processing, and delivery remain with the platform.
+                paymentPayload.transaction_charge = Math.max(0, paymentPayload.amount - sellerShare);
                 paymentPayload.bearer = "account"; // Platform bears Paystack fees
 
                 paymentPayload.metadata.storeId = store.id;
                 paymentPayload.metadata.storeName = store.name;
                 paymentPayload.metadata.commissionRate = commissionRate;
                 paymentPayload.metadata.splitEnabled = true;
-              } else {
+                paymentPayload.metadata.sellerShareKobo = sellerShare;
+              } else if (store.payoutType === 'mobile_money') {
+                if (
+                  !store.isPayoutVerified ||
+                  !store.payoutDetails?.mobileNumber ||
+                  !store.payoutDetails?.provider
+                ) {
+                  return res.status(400).json({
+                    error: "Payment configuration incomplete",
+                    userMessage: `Store ${store.name} mobile money payout setup is incomplete.`,
+                  });
+                }
                 // For mobile money, include payout info for post-processing and do not set subaccount
                 paymentPayload.metadata.storeId = store.id;
                 paymentPayload.metadata.storeName = store.name;
@@ -12289,7 +14409,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 paymentPayload.metadata.mobilePayout[store.id] = {
                   provider: store.payoutDetails?.provider,
                   mobileNumber: store.payoutDetails?.mobileNumber,
+                  amountKobo: sellerShare,
                 };
+              } else {
+                return res.status(400).json({
+                  error: "Payment configuration incomplete",
+                  userMessage: `Store ${store.name} has an unsupported payout method.`,
+                });
               }
             }
           } catch (storeError) {
@@ -12463,6 +14589,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           })
         );
+        await Promise.allSettled(
+          targetOrderIds.map((id: string) => storage.createCommissionWithEarning(id))
+        );
         await startRiderMatchingForPaidOrders(targetOrderIds);
         await ensureReceiptsForOrders(targetOrderIds, {
           trigger: "payment_success",
@@ -12485,6 +14614,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
 
+    let usedVerificationFallback = false;
     try {
       const response = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
         headers: { Authorization: `Bearer ${settings.paystackSecretKey}` },
@@ -12620,6 +14750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (procErr: any) {
         console.error('[VERIFY] Error processing payment via shared helper:', procErr?.message || procErr);
         if (data.data.status === "success") {
+          usedVerificationFallback = true;
           const existingTx = await storage.getTransactionByReference(reference);
           if (!existingTx) {
             await storage.createTransaction({
@@ -12649,6 +14780,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
               } as any);
             })
           );
+          const commissionResults = await Promise.allSettled(
+            orders.map((o: any) => storage.createCommissionWithEarning(o.id))
+          );
+          commissionResults.forEach((result, index) => {
+            if (result.status === "rejected") {
+              const reason: any = result.reason;
+              if (reason?.code === "COMMISSION_ALREADY_EXISTS") return;
+              console.error(
+                `[VERIFY] Failed to backfill commission for paid order ${orders[index]?.id}:`,
+                reason?.message || reason,
+              );
+            }
+          });
+          await Promise.all(
+            commissionResults.map(async (result) => {
+              if (result.status !== "fulfilled") return;
+              try {
+                await storage.ensureAutomaticSellerPayoutForCommission(result.value.commission.id);
+              } catch (settlementErr: any) {
+                console.error(
+                  `[VERIFY] Failed to ensure automatic seller settlement for commission ${result.value.commission.id}:`,
+                  settlementErr?.message || settlementErr,
+                );
+              }
+            })
+          );
+          try {
+            const { notifySellerSettlementSuccess } = await import("./payments");
+            await Promise.all(
+              commissionResults.map(async (result, index) => {
+                if (result.status !== "fulfilled") return;
+                const commission = result.value.commission;
+                const order = orders[index];
+                const payout = await storage.ensureAutomaticSellerPayoutForCommission(commission.id);
+                if (!payout) return;
+                const store = await storage.getStoreByPrimarySeller(commission.sellerId);
+                const destinationLabel = store?.payoutType === "mobile_money"
+                  ? `mobile money ${store?.payoutDetails?.mobileNumber || ""}`.trim()
+                  : store?.payoutDetails?.accountNumber
+                    ? `bank account ${store.payoutDetails.accountNumber}`
+                    : "configured payout account";
+                if (String(payout.status || "").toLowerCase() === "completed") {
+                  await notifySellerSettlementSuccess(storage, io, {
+                    sellerId: commission.sellerId,
+                    payoutId: payout.id,
+                    sellerAmount: commission.sellerAmount,
+                    orderId: order?.id || commission.orderId,
+                    orderNumber: order?.orderNumber,
+                    destinationLabel,
+                  });
+                }
+              })
+            );
+          } catch (settlementNotifyErr: any) {
+            console.error("[VERIFY] Could not send seller settlement notifications:", settlementNotifyErr?.message || settlementNotifyErr);
+          }
         } else {
           throw procErr;
         }
@@ -12664,27 +14851,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
             generatedByRole: currentUserId ? "buyer" : "super_admin",
           },
         );
-        try {
-          const orderNumbers = orders.map((o: any) => `#${o.orderNumber}`).join(", ");
-          const totalPaid = (Number(data.data.amount || 0) / 100).toFixed(2);
-          await notifyAdmins(
-            "order",
-            "New Paid Order",
-            `Payment confirmed for ${orders.length} order(s): ${orderNumbers}. Total: ${data.data.currency} ${totalPaid}.`,
-            {
-              reference,
-              orderIds: orders.map((o: any) => o.id),
-              orderNumbers,
-              link: "/admin/orders",
-            },
-            {
-              requiredAdminPermission: "manage_orders",
-              includeAgents: true,
-              requiredAgentFeature: "orders.view",
-            }
-          );
-        } catch (opsNotifyErr) {
-          console.error("[VERIFY] Could not send ops notification for paid order:", opsNotifyErr);
+        if (usedVerificationFallback) {
+          try {
+            await Promise.all(
+              orders
+                .filter((order: any) => Boolean(order?.sellerId))
+                .map(async (order: any) => {
+                  const deliveryMethod = String(order.deliveryMethod || "").toLowerCase().trim();
+                  const isPickup = deliveryMethod === "pickup" || deliveryMethod === "store_pickup";
+                  const sellerMessage = isPickup
+                    ? `Order #${order.orderNumber} has been paid. Start packaging and mark it as packaged when the pickup order is prepared.`
+                    : `Order #${order.orderNumber} has been paid. Start packaging and mark it ready when dispatch preparation is complete.`;
+                  await storage.createNotification({
+                    userId: order.sellerId,
+                    type: "order",
+                    title: "New Paid Order",
+                    message: sellerMessage,
+                    metadata: {
+                      orderId: order.id,
+                      orderNumber: order.orderNumber,
+                      link: "/seller/orders",
+                      paymentStatus: "completed",
+                    } as any,
+                  });
+                })
+            );
+          } catch (sellerPaidNotifyErr) {
+            console.error("[VERIFY] Could not send seller paid-order notification:", sellerPaidNotifyErr);
+          }
+        }
+        if (usedVerificationFallback) {
+          try {
+            const orderNumbers = orders.map((o: any) => `#${o.orderNumber}`).join(", ");
+            const totalPaid = (Number(data.data.amount || 0) / 100).toFixed(2);
+            await notifyAdmins(
+              "order",
+              "New Paid Order",
+              `Payment confirmed for ${orders.length} order(s): ${orderNumbers}. Total: ${data.data.currency} ${totalPaid}.`,
+              {
+                reference,
+                orderIds: orders.map((o: any) => o.id),
+                orderNumbers,
+                link: "/admin/orders",
+              },
+              {
+                requiredAdminPermission: "manage_orders",
+                includeAgents: false,
+              }
+            );
+          } catch (opsNotifyErr) {
+            console.error("[VERIFY] Could not send ops notification for paid order:", opsNotifyErr);
+          }
         }
       }
 
@@ -13031,6 +15248,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Payout not found" });
       }
 
+      if (status === "completed") {
+        try {
+          await storage.createNotification({
+            userId: updated.sellerId,
+            type: "payout",
+            title: "Seller Settlement Sent",
+            message: `A settlement of ${updated.amount} has been sent to your payout account.`,
+            metadata: {
+              payoutId: updated.id,
+            },
+          });
+
+          const admins = await storage.getUsersByRole("admin");
+          const superAdmins = await storage.getUsersByRole("super_admin");
+          await Promise.all(
+            [...admins, ...superAdmins].map((admin: any) =>
+              storage.createNotification({
+                userId: admin.id,
+                type: "payout",
+                title: "Seller Settlement Sent",
+                message: `Seller settlement of ${updated.amount} was completed.`,
+                metadata: {
+                  payoutId: updated.id,
+                  sellerId: updated.sellerId,
+                },
+              })
+            )
+          );
+        } catch (notifyErr) {
+          console.error("[ADMIN-PAYOUT] Failed to notify payout completion:", notifyErr);
+        }
+      }
+
       console.log(`[ADMIN-PAYOUT] Admin ${req.user!.email} updated payout ${id} to ${status}`);
       
       res.json(updated);
@@ -13049,6 +15299,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ error: error.message });
     }
   });
+
+  app.get(
+    "/api/admin/dashboard-summary",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
+        const successfulDeliveryFilter = sql`lower(cast(${orders.status} as text)) in ('delivered', 'completed')`;
+        const pickupMethodFilter = sql`lower(cast(${orders.deliveryMethod} as text)) in ('pickup', 'store_pickup')`;
+
+        const [orderTotals, userTotals, commissionTotals, receivedMoneyTotals, successfulTotals] = await Promise.all([
+          db.select({ count: sql<number>`count(*)` }).from(orders),
+          db.select({ count: sql<number>`count(*)` }).from(users),
+          db.select({ total: sql<number>`coalesce(sum(${commissions.commissionAmount}::numeric), 0)` }).from(commissions),
+          db.select({ total: sql<number>`coalesce(sum(${orders.total}::numeric), 0)` }).from(orders).where(paidStatusFilter),
+          db.select({
+            deliveries: sql<number>`coalesce(sum(case when not (${pickupMethodFilter}) and ${successfulDeliveryFilter} then 1 else 0 end), 0)`,
+            pickups: sql<number>`coalesce(sum(case when ${pickupMethodFilter} and ${successfulDeliveryFilter} then 1 else 0 end), 0)`,
+          }).from(orders),
+        ]);
+
+        res.json({
+          totalOrders: Number(orderTotals[0]?.count ?? 0),
+          totalUsers: Number(userTotals[0]?.count ?? 0),
+          totalRevenue: Number(commissionTotals[0]?.total ?? 0),
+          totalReceivedMoney: Number(receivedMoneyTotals[0]?.total ?? 0),
+          deliveries: Number(successfulTotals[0]?.deliveries ?? 0),
+          successfulPickups: Number(successfulTotals[0]?.pickups ?? 0),
+        });
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    },
+  );
 
   // Revenue aggregate views (completed-only accounting source for dashboards/audits).
   app.get("/api/admin/revenue/views/summary", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (_req: AuthRequest, res) => {
@@ -14540,8 +16825,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.user!;
       const { db } = await import("../db/index");
-      const { supportConversations, supportMessages, users } = await import("@shared/schema");
-      const { eq, desc, sql } = await import("drizzle-orm");
+      const { supportConversations, supportMessages, users, notifications } = await import("@shared/schema");
+      const { and, eq, desc, sql } = await import("drizzle-orm");
 
       let conversationsQuery;
       
@@ -14553,6 +16838,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             customerId: supportConversations.customerId,
             customerName: users.name,
             customerEmail: users.email,
+            customerRole: users.role,
+            customerIsActive: users.isActive,
             customerProfileImage: users.profileImage,
             agentId: supportConversations.agentId,
             agentName: sql<string | null>`(
@@ -14614,6 +16901,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             customerId: supportConversations.customerId,
             customerName: users.name,
             customerEmail: users.email,
+            customerRole: users.role,
+            customerIsActive: users.isActive,
             customerProfileImage: users.profileImage,
             agentId: supportConversations.agentId,
             agentName: sql<string | null>`(
@@ -14671,7 +16960,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await conversationsQuery;
-      const routed = result.filter((conversation: any) => canSupportUserAccessConversation(user, conversation));
+      let currentRestrictionStartedAt: Date | null = null;
+      const freshUser = await storage.getUser(user.id);
+
+      if ((user.role === "seller" || user.role === "rider") && freshUser?.isActive === false) {
+        const [latestDeactivation] = await db
+          .select({ createdAt: notifications.createdAt })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.userId, user.id),
+              eq(notifications.title, "Account Deactivated"),
+            ),
+          )
+          .orderBy(desc(notifications.createdAt))
+          .limit(1);
+
+        currentRestrictionStartedAt = latestDeactivation?.createdAt || null;
+      }
+
+      const restrictionCutoffTime = currentRestrictionStartedAt
+        ? new Date(currentRestrictionStartedAt).getTime()
+        : null;
+
+      const routed = result
+        .filter((conversation: any) => canSupportUserAccessConversation(user, conversation))
+        .filter((conversation: any) => {
+          if (!restrictionCutoffTime) return true;
+          if (String(conversation.subject || "").trim() !== "Account Reactivation Appeal") return true;
+          const createdAtTime = conversation.createdAt ? new Date(conversation.createdAt).getTime() : 0;
+          return createdAtTime >= restrictionCutoffTime;
+        });
       const response = routed.map((conversation: any) => {
         const maskedAgentName = resolveSupportDisplayName({
           senderRole: conversation.agentRole,
@@ -14688,8 +17007,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           agentProfileImage: shouldMaskAgentImage ? null : conversation.agentProfileImage,
         };
       });
+      if (res.headersSent || res.writableEnded) {
+        return;
+      }
       res.json(response);
     } catch (error: any) {
+      if (res.headersSent || res.writableEnded) {
+        return;
+      }
       res.status(400).json({ error: error.message });
     }
   });
@@ -14704,16 +17029,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { db } = await import("../db/index");
-      const { supportConversations, supportMessages } = await import("@shared/schema");
+      const { supportConversations, supportMessages, notifications } = await import("@shared/schema");
+      const { and, eq, desc } = await import("drizzle-orm");
+      const freshUser = await storage.getUser(user.id);
+      const isRestrictedOperationalUser = Boolean(
+        freshUser &&
+        (freshUser.role === "seller" || freshUser.role === "rider") &&
+        freshUser.isActive === false,
+      );
+      const effectiveSubject = isRestrictedOperationalUser
+        ? "Account Reactivation Appeal"
+        : String(subject).trim();
+      const supportSettings = await storage.getPlatformSettings();
+
+      if (isRestrictedOperationalUser) {
+        const [latestDeactivation] = await db
+          .select({ createdAt: notifications.createdAt })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.userId, user.id),
+              eq(notifications.title, "Account Deactivated"),
+            ),
+          )
+          .orderBy(desc(notifications.createdAt))
+          .limit(1);
+
+        const restrictionCutoffTime = latestDeactivation?.createdAt
+          ? new Date(latestDeactivation.createdAt).getTime()
+          : null;
+
+        const existingAppeals = await db
+          .select({ id: supportConversations.id, createdAt: supportConversations.createdAt })
+          .from(supportConversations)
+          .where(
+            and(
+              eq(supportConversations.customerId, user.id),
+              eq(supportConversations.subject, "Account Reactivation Appeal"),
+            ),
+          );
+
+        const hasCurrentCycleAppeal = existingAppeals.some((conversation) => {
+          if (!restrictionCutoffTime) return true;
+          const createdAtTime = conversation.createdAt ? new Date(conversation.createdAt).getTime() : 0;
+          return createdAtTime >= restrictionCutoffTime;
+        });
+
+        if (hasCurrentCycleAppeal) {
+          return res.status(409).json({ error: "Appeal ticket already submitted" });
+        }
+      }
 
       // Create conversation
+      const pickupAgentRoutingMode =
+        freshUser?.role === "pickup_agent"
+          ? (supportSettings.allowPickupAgentAdminChat !== false ? "all_admins" : "specific_staff")
+          : "all_support";
+      const pickupAgentSuperAdminIds =
+        freshUser?.role === "pickup_agent"
+          ? (await storage.getUsersByRole("super_admin"))
+              .filter((staff) => staff?.isActive !== false)
+              .map((staff) => String(staff.id))
+          : [];
       const [conversation] = await db.insert(supportConversations).values({
         customerId: user.id,
-        subject,
+        subject: effectiveSubject,
         lastMessage: message,
-        routingMode: "all_support",
-        routingUserIds: [],
-        status: "open",
+        routingMode: pickupAgentRoutingMode,
+        routingUserIds: pickupAgentRoutingMode === "specific_staff" ? pickupAgentSuperAdminIds : [],
+        agentId: pickupAgentRoutingMode === "specific_staff" ? pickupAgentSuperAdminIds[0] || null : null,
+        status:
+          pickupAgentRoutingMode === "specific_staff" && pickupAgentSuperAdminIds.length > 0
+            ? "assigned"
+            : "open",
       }).returning();
 
       // Create first message
@@ -14904,6 +17292,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (isSupportSender) {
         updatedConversationData.lastSupportResponderId = user.id;
+        if (String(conversation.subject || "").trim() === "Account Reactivation Appeal") {
+          updatedConversationData.status = "resolved";
+          updatedConversationData.resolvedAt = new Date();
+        }
       }
 
       await db
@@ -14996,6 +17388,175 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       res.json(newMessage);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/support/conversations/:id/appeal-decision", requireAuth, requireRoleFeature("support.manage"), async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { decision, message } = req.body;
+      const user = req.user!;
+      const normalizedDecision = String(decision || "").trim().toLowerCase();
+      const responseMessage = String(message || "").trim();
+      const { db } = await import("../db/index");
+      const { supportConversations, supportMessages } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const platformSettings = await storage.getPlatformSettings();
+      const supportEmail = String(platformSettings?.contactEmail || "support@kiyumart.com").trim();
+      const supportPhone = String(platformSettings?.contactPhone || "+233 XX XXX XXXX").trim();
+
+      if (!isSupportStaffRole(user.role)) {
+        return res.status(403).json({ error: "Only support staff can decide appeals" });
+      }
+
+      if (normalizedDecision !== "activate" && normalizedDecision !== "reject") {
+        return res.status(400).json({ error: "Invalid appeal decision" });
+      }
+
+      if (!responseMessage) {
+        return res.status(400).json({ error: "Response message is required" });
+      }
+
+      const [conversation] = await db
+        .select()
+        .from(supportConversations)
+        .where(eq(supportConversations.id, id))
+        .limit(1);
+
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      if (!canSupportUserAccessConversation(user, conversation as any)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      if (String(conversation.subject || "").trim() !== "Account Reactivation Appeal") {
+        return res.status(400).json({ error: "This ticket is not an appeal" });
+      }
+
+      const targetUser = await storage.getUser(conversation.customerId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "Appeal owner not found" });
+      }
+
+      if (targetUser.role !== "seller" && targetUser.role !== "rider") {
+        return res.status(400).json({ error: "Appeal owner is not a seller or rider" });
+      }
+
+      if (normalizedDecision === "activate") {
+        if (targetUser.role === "seller" && targetUser.isApproved) {
+          const store = await storage.getStoreByPrimarySeller(targetUser.id);
+          if (store) {
+            await storage.updateStore(store.id, { isActive: true, isApproved: true });
+          }
+        }
+        await storage.updateUser(targetUser.id, {
+          isActive: true,
+          rejectionReason: null,
+        });
+      } else {
+        if (targetUser.role === "seller" && targetUser.isApproved) {
+          const store = await storage.getStoreByPrimarySeller(targetUser.id);
+          if (store) {
+            await storage.updateStore(store.id, { isActive: false, isApproved: false });
+          }
+        }
+        await storage.updateUser(targetUser.id, {
+          isActive: false,
+          rejectionReason: responseMessage,
+        });
+      }
+
+      const supportContactLine =
+        normalizedDecision === "reject"
+          ? `\n\nFor more information, contact Customer Support directly:\nPhone: ${supportPhone}\nEmail: ${supportEmail}`
+          : "";
+      const decisionSummary =
+        normalizedDecision === "activate"
+          ? "\n\nAppeal decision: Activated. Your dashboard is now accessible again."
+          : "\n\nAppeal decision: Rejected. Your account remains restricted.";
+      const finalMessage = `${responseMessage}${decisionSummary}${supportContactLine}`;
+      const notificationBody =
+        normalizedDecision === "activate"
+          ? `${responseMessage}\n\nYour appeal was approved. Your dashboard is now active again.`
+          : `${responseMessage}\n\nYour appeal was rejected. Your account remains restricted.\nContact Customer Support:\nPhone: ${supportPhone}\nEmail: ${supportEmail}`;
+
+      const [newMessage] = await db.insert(supportMessages).values({
+        conversationId: id,
+        senderId: user.id,
+        message: finalMessage,
+        isRead: false,
+      }).returning();
+
+      const now = new Date();
+      const updatedConversationData: any = {
+        agentId: conversation.agentId || user.id,
+        lastMessage: finalMessage,
+        updatedAt: now,
+        lastSupportResponderId: user.id,
+        status: "resolved",
+        resolvedAt: now,
+      };
+      if (!conversation.firstResponseAt) {
+        updatedConversationData.firstResponseAt = now;
+      }
+
+      await db
+        .update(supportConversations)
+        .set(updatedConversationData)
+        .where(eq(supportConversations.id, id));
+
+      try {
+        const senderProfile = await storage.getUser(user.id);
+        const senderName = senderProfile?.name || req.user?.email || "Support";
+        const customerVisibleSenderName = resolveSupportDisplayName({
+          senderRole: user.role,
+          senderName,
+          viewerRole: "buyer",
+        });
+        const customerLink = `/support?conversationId=${id}`;
+        const supportReplyPreview =
+          decodeAttachmentNotificationPreview(`${customerVisibleSenderName}: ${finalMessage}`) ||
+          `${customerVisibleSenderName}: ${finalMessage}`;
+
+        await storage.createNotification({
+          userId: conversation.customerId,
+          type: "message",
+          title: normalizedDecision === "activate" ? "Appeal Approved" : "Appeal Rejected",
+          message: notificationBody,
+          metadata: { conversationId: id, senderId: user.id, link: customerLink } as any,
+        });
+
+        io.to(conversation.customerId).emit("notification", {
+          type: "message",
+          title: normalizedDecision === "activate" ? "Appeal Approved" : "Appeal Rejected",
+          message: notificationBody,
+          data: { conversationId: id, senderId: user.id, link: customerLink },
+        });
+        io.to(conversation.customerId).emit("support_conversation_updated", {
+          conversationId: id,
+          event: "message",
+        });
+
+        const routedStaff = await resolveConversationSupportRecipients(conversation as any, { includeSuperAdminsAlways: true });
+        for (const staff of routedStaff) {
+          io.to(staff.id).emit("support_conversation_updated", {
+            conversationId: id,
+            event: "resolved",
+          });
+        }
+      } catch (notifyError) {
+        console.error("Failed to notify appeal participants:", notifyError);
+      }
+
+      res.json({
+        ...conversation,
+        ...updatedConversationData,
+        customerIsActive: normalizedDecision === "activate",
+      });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -15477,6 +18038,255 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Category Routes ============
+  const DEFAULT_CATEGORY_IMAGES_BY_STORE_TYPE: Record<string, string> = {
+    clothing: "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=800",
+    beauty_cosmetics: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=800",
+    groceries: "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800",
+    electronics: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=800",
+    food_restaurant: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800",
+    pharmacy: "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=800",
+    automotive: "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=800",
+    health_wellness: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
+    home_living: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=800",
+    toys_games: "https://images.unsplash.com/photo-1515488042361-ee00e0ddd4e4?w=800",
+    books_stationery: "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=800",
+    sports_outdoor: "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=800",
+    jewelry_accessories: "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=800",
+  };
+
+  const getDefaultCategoryImageForStoreType = (storeType?: string | null) => {
+    const normalized = String(storeType || "").trim();
+    return DEFAULT_CATEGORY_IMAGES_BY_STORE_TYPE[normalized] || "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800";
+  };
+
+  const buildRequestedCategoryImage = (categoryName: string, storeType?: string | null) => {
+    const normalizedName = String(categoryName || "").trim().toLowerCase();
+    const normalizedStoreType = String(storeType || "").trim().replace(/_/g, " ");
+    const keywordByCategoryName: Array<[RegExp, string]> = [
+      [/\bprayer\s*mat\b|\bprayer\s*rug\b/, "islamic prayer mat"],
+      [/\bhijab\b/, "modest hijab fashion"],
+      [/\babayas?\b/, "modest abaya fashion"],
+      [/\bqur'?an\b|\bislamic book\b/, "islamic books quran"],
+      [/\btasbih\b|\bmisbaha\b|\bprayer beads\b/, "islamic prayer beads"],
+      [/\bbukhoor\b|\boud\b|\bincense\b/, "arabic oud incense"],
+      [/\bthobe\b|\bjubba\b/, "traditional islamic thobe"],
+      [/\bjalabiya\b/, "jalabiya traditional clothing"],
+      [/\bdates?\b/, "premium dates ramadan"],
+      [/\bperfume\b|\battar\b|\bfragrance\b/, "arabic perfume bottle"],
+    ];
+
+    const matchedKeyword =
+      keywordByCategoryName.find(([pattern]) => pattern.test(normalizedName))?.[1] ||
+      `${normalizedName} ${normalizedStoreType}`.trim();
+
+    const query = encodeURIComponent(matchedKeyword.replace(/\s+/g, " ").trim());
+    return `https://loremflickr.com/960/720/${query}`;
+  };
+
+  const flagSellerRequestedCategories = async <T extends { id: string }>(categoryList: T[]) => {
+    if (categoryList.length === 0) return categoryList.map((category) => ({ ...category, requestedBySeller: false }));
+
+    const requestRows = await db
+      .select({
+        categoryId: sql<string>`${notifications.metadata} ->> 'categoryId'`,
+      })
+      .from(notifications)
+      .where(sql`${notifications.metadata} ->> 'categoryRequestKind' = 'seller_category_request'`);
+
+    const sellerRequestedCategoryIds = new Set(
+      requestRows
+        .map((row) => String(row.categoryId || "").trim())
+        .filter(Boolean),
+    );
+
+    return categoryList.map((category) => ({
+      ...category,
+      requestedBySeller: sellerRequestedCategoryIds.has(String(category.id || "").trim()),
+    }));
+  };
+
+  app.post("/api/seller/categories/request", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const sellerStore = await storage.ensureStoreForSeller(req.user!.id, { requireApproval: true });
+      const storeType = String(sellerStore.storeType || "").trim();
+
+      if (!storeType) {
+        return res.status(400).json({ error: "Your store type must be configured before requesting a category." });
+      }
+
+      const rawName = String(req.body?.name || "").trim();
+      if (!rawName) {
+        return res.status(400).json({ error: "Category name is required." });
+      }
+
+      const slug = String(req.body?.slug || rawName)
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+        .trim();
+
+      if (!slug) {
+        return res.status(400).json({ error: "A valid category slug could not be generated." });
+      }
+
+      const existingCategories = await storage.getCategories();
+      const existing = existingCategories.find((category: any) => String(category.slug || "").trim().toLowerCase() === slug);
+      if (existing) {
+        return res.status(200).json({
+          ...existing,
+          message: existing.isActive
+            ? "This category already exists and is already available."
+            : "This category request already exists and is pending admin approval.",
+        });
+      }
+
+      const normalizedName = rawName.toLowerCase().replace(/\s+/g, " ").trim();
+      const existingByName = existingCategories.find(
+        (category: any) => String(category.name || "").toLowerCase().replace(/\s+/g, " ").trim() === normalizedName
+      );
+      if (existingByName) {
+        return res.status(200).json({
+          ...existingByName,
+          message: existingByName.isActive
+            ? "This category already exists and is already available."
+            : "This category request already exists and is pending admin approval.",
+        });
+      }
+
+      const category = await storage.createCategory({
+        name: rawName,
+        slug,
+        image: String(req.body?.image || "").trim() || buildRequestedCategoryImage(rawName, storeType) || getDefaultCategoryImageForStoreType(storeType),
+        description: String(req.body?.description || "").trim() || `Seller-submitted category for ${storeType.replace(/_/g, " ")} stores.`,
+        storeTypes: [storeType],
+        displayOrder: existingCategories.length,
+        isActive: false,
+      });
+
+      try {
+        await storage.createNotification({
+          userId: req.user!.id,
+          type: "system",
+          title: "Category request submitted",
+          message: `"${category.name}" is pending admin approval.`,
+          metadata: {
+            categoryRequestKind: "seller_category_request",
+            categoryId: category.id,
+            categoryName: category.name,
+            categorySlug: category.slug,
+            storeId: sellerStore.id,
+            storeName: sellerStore.name,
+            storeType,
+            categoryStatus: "pending",
+            link: `/seller/categories?categoryId=${encodeURIComponent(String(category.id))}`,
+          } as any,
+        });
+      } catch (notificationError) {
+        console.error("[CATEGORY REQUEST] Failed to create seller notification:", notificationError);
+      }
+
+      try {
+        await notifyAdmins(
+          "system",
+          "New category request",
+          `${req.user?.email || "A seller"} requested the "${category.name}" category for ${sellerStore.name || "their store"}.`,
+          {
+            categoryId: category.id,
+            categoryName: category.name,
+            categorySlug: category.slug,
+            storeId: sellerStore.id,
+            storeName: sellerStore.name,
+            storeType,
+            sellerId: req.user!.id,
+            sellerName: sellerStore.name || null,
+            sellerEmail: req.user?.email || null,
+            link: `/admin/categories?categoryId=${encodeURIComponent(String(category.id))}&action=review`,
+          },
+          {
+            requiredAdminPermission: "manage_categories",
+            includeAgents: false,
+          }
+        );
+      } catch (notifyErr) {
+        console.error("[CATEGORY REQUEST] Failed to notify admins:", notifyErr);
+      }
+
+      res.status(201).json({
+        ...category,
+        message: "Category request submitted. An admin must approve it before it appears on the homepage.",
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/seller/category-requests", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const sellerNotifications = await storage.getNotificationsByUser(req.user!.id, 500);
+      const latestRequestByCategory = new Map<string, { notification: any; metadata: Record<string, any> }>();
+
+      for (const notification of sellerNotifications) {
+        const metadata = typeof notification.metadata === "string"
+          ? (() => {
+              try {
+                return JSON.parse(notification.metadata);
+              } catch {
+                return {};
+              }
+            })()
+          : (notification.metadata || {});
+        const categoryId = String(metadata?.categoryId || "").trim();
+        if (metadata?.categoryRequestKind !== "seller_category_request" || !categoryId || latestRequestByCategory.has(categoryId)) {
+          continue;
+        }
+        latestRequestByCategory.set(categoryId, { notification, metadata });
+      }
+
+      const requests = await Promise.all(
+        Array.from(latestRequestByCategory.values()).map(async ({ notification, metadata }) => {
+          const categoryId = String(metadata?.categoryId || "").trim();
+          const category = categoryId ? await storage.getCategory(categoryId) : undefined;
+          const metadataStatus = String(metadata?.categoryStatus || "").trim().toLowerCase();
+          const status =
+            category?.isActive === true
+              ? "approved"
+              : metadataStatus === "rejected"
+                ? "rejected"
+                : "pending";
+          const categoryName = category?.name || metadata?.categoryName || "Requested category";
+
+          return {
+            categoryId,
+            name: categoryName,
+            slug: category?.slug || metadata?.categorySlug || "",
+            image: category?.image || null,
+            storeType: metadata?.storeType || null,
+            requestedAt: notification.createdAt,
+            status,
+            message: status === "approved"
+              ? `"${categoryName}" has been approved and is now available for use.`
+              : status === "rejected"
+                ? metadata?.rejectionReason
+                  ? `"${categoryName}" was rejected by admin. Reason: ${metadata.rejectionReason}`
+                  : `"${categoryName}" was rejected by admin.`
+                : notification.message,
+          };
+        })
+      );
+
+      requests.sort((a, b) => {
+        const aTime = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+        const bTime = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
+        return bTime - aTime;
+      });
+
+      res.json(requests);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.post("/api/categories", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const category = await storage.createCategory(req.body);
@@ -15492,7 +18302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const categories = await storage.getCategories({
         isActive: isActive === "true" ? true : isActive === "false" ? false : undefined,
       });
-      res.json(categories);
+      res.json(await flagSellerRequestedCategories(categories));
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -15529,6 +18339,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Category not found" });
       }
       res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/categories/:id/approve", requireAuth, requireRole("super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
+    try {
+      const updated = await storage.updateCategory(req.params.id, { isActive: true });
+      if (!updated) {
+        return res.status(404).json({ error: "Category not found" });
+      }
+
+      try {
+        const [requestNotification] = await db
+          .select()
+          .from(notifications)
+          .where(
+            and(
+              sql`${notifications.metadata} ->> 'categoryRequestKind' = 'seller_category_request'`,
+              sql`${notifications.metadata} ->> 'categoryId' = ${req.params.id}`
+            )
+          )
+          .orderBy(desc(notifications.createdAt))
+          .limit(1);
+
+        if (requestNotification?.userId) {
+          const approvalMessage = `"${updated.name}" has been approved and is now available for use.`;
+          await storage.createNotification({
+            userId: requestNotification.userId,
+            type: "system",
+            title: "Category approved",
+            message: approvalMessage,
+            metadata: {
+              categoryRequestKind: "seller_category_request",
+              categoryId: updated.id,
+              categoryName: updated.name,
+              categorySlug: updated.slug,
+              storeType: Array.isArray(updated.storeTypes) ? updated.storeTypes[0] || null : null,
+              categoryStatus: "approved",
+               link: `/seller/categories?categoryId=${encodeURIComponent(String(updated.id))}`,
+            } as any,
+          });
+
+          io.to(requestNotification.userId).emit("notification", {
+            title: "Category approved",
+            message: approvalMessage,
+            type: "default",
+          });
+        }
+      } catch (notifyErr) {
+        console.error("[CATEGORY APPROVAL] Failed to notify seller:", notifyErr);
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/categories/:id/reject", requireAuth, requireRole("super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
+    try {
+      const category = await storage.getCategory(req.params.id);
+      if (!category) {
+        return res.status(404).json({ error: "Category not found" });
+      }
+
+      if (category.isActive) {
+        return res.status(400).json({ error: "Active categories cannot be rejected." });
+      }
+
+      const rejectionReason = String(req.body?.reason || "").trim();
+
+      let sellerUserId: string | null = null;
+      try {
+        const [requestNotification] = await db
+          .select()
+          .from(notifications)
+          .where(
+            and(
+              sql`${notifications.metadata} ->> 'categoryRequestKind' = 'seller_category_request'`,
+              sql`${notifications.metadata} ->> 'categoryId' = ${req.params.id}`
+            )
+          )
+          .orderBy(desc(notifications.createdAt))
+          .limit(1);
+
+        sellerUserId = requestNotification?.userId || null;
+      } catch (lookupErr) {
+        console.error("[CATEGORY REJECTION] Failed to resolve seller request notification:", lookupErr);
+      }
+
+      const success = await storage.deleteCategory(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: "Category not found" });
+      }
+
+      if (sellerUserId) {
+        const rejectionMessage = rejectionReason
+          ? `"${category.name}" was rejected by admin. Reason: ${rejectionReason}`
+          : `"${category.name}" was rejected by admin.`;
+
+        try {
+          await storage.createNotification({
+            userId: sellerUserId,
+            type: "system",
+            title: "Category rejected",
+            message: rejectionMessage,
+            metadata: {
+              categoryRequestKind: "seller_category_request",
+              categoryId: category.id,
+              categoryName: category.name,
+              categorySlug: category.slug,
+              storeType: Array.isArray(category.storeTypes) ? category.storeTypes[0] || null : null,
+              categoryStatus: "rejected",
+              rejectionReason: rejectionReason || null,
+               link: `/seller/categories?categoryId=${encodeURIComponent(String(category.id))}`,
+            } as any,
+          });
+
+          io.to(sellerUserId).emit("notification", {
+            title: "Category rejected",
+            message: rejectionMessage,
+            type: "default",
+          });
+        } catch (notifyErr) {
+          console.error("[CATEGORY REJECTION] Failed to notify seller:", notifyErr);
+        }
+      }
+
+      res.json({
+        success: true,
+        categoryId: category.id,
+        message: `"${category.name}" was rejected successfully.`,
+      });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

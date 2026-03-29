@@ -5,14 +5,17 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, Eraser, ZoomIn, ZoomOut, RotateCw, Tag } from "lucide-react";
+import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, ZoomIn, ZoomOut, RotateCw, Tag } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { PageLoadingState } from "@/components/ui/loading-state";
 
 interface Application {
   id: string;
@@ -52,17 +55,33 @@ interface PromotionApplication {
   type: "store" | "product";
   targetId: string;
   targetName: string;
+  storeId?: string | null;
+  storeName?: string | null;
+  durationType: "hour" | "day";
+  duration: number;
+  unitPrice: string;
+  totalPrice: string;
+  sellerNote?: string | null;
+  customerServiceNote?: string | null;
+  paymentConfirmed: boolean;
+  paymentConfirmedAt?: string | null;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectionReason?: string | null;
+  createdPromotionId?: string | null;
   startAt?: string | null;
   endAt?: string | null;
   durationHours?: number | null;
   isActive: boolean;
-  status: "active" | "expired" | "ended";
+  status: "pending_payment" | "payment_confirmed" | "approved" | "active" | "expired" | "rejected";
   createdAt: string;
   seller: {
     id: string;
     name: string;
     email: string;
-  };
+    phone?: string | null;
+  } | null;
 }
 
 export default function AdminApplications() {
@@ -76,13 +95,17 @@ export default function AdminApplications() {
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
   const [interviewDateTime, setInterviewDateTime] = useState("");
-  const [activeTab, setActiveTab] = useState<"sellers" | "riders" | "interview" | "rejected" | "promotions">("sellers");
+  const [mainTab, setMainTab] = useState<"applications" | "promotion">("applications");
+  const [applicationTab, setApplicationTab] = useState<"pending_sellers" | "pending_riders" | "interview" | "rejected">("pending_sellers");
+  const [promotionTab, setPromotionTab] = useState<"pending" | "active" | "expired">("pending");
   const deepLinkHandledRef = useRef(false);
   const [rotatedImageUrls, setRotatedImageUrls] = useState<Record<string, boolean>>({});
   const [zoomedImage, setZoomedImage] = useState<{ label: string; url: string; rotation: number } | null>(null);
   const [zoomScale, setZoomScale] = useState(1);
   const [zoomRotation, setZoomRotation] = useState(0);
   const isTestingPurgeEnabled = (import.meta.env.MODE || "development") !== "production";
+  const { isExternalRiderSystemEnabled, hasResolvedSettings } = usePlatformSettings();
+  const showInternalRiderFeatures = hasResolvedSettings ? !isExternalRiderSystemEnabled : false;
 
   const queryParams = useMemo(() => {
     const query = location.includes("?") ? location.split("?")[1] : "";
@@ -335,7 +358,7 @@ export default function AdminApplications() {
   const { data: pendingRiderApplications = [], isLoading: pendingRidersLoading } = useQuery<Application[]>({
     queryKey: ["/api/users", "rider", "pending"],
     queryFn: async () => fetchApplications("/api/users?role=rider&applicationStatus=pending"),
-    enabled: canManageApplications,
+    enabled: canManageApplications && showInternalRiderFeatures,
   });
 
   const { data: interviewSellerApplications = [], isLoading: interviewSellersLoading } = useQuery<Application[]>({
@@ -347,7 +370,7 @@ export default function AdminApplications() {
   const { data: interviewRiderApplications = [], isLoading: interviewRidersLoading } = useQuery<Application[]>({
     queryKey: ["/api/users", "rider", "interview_scheduled"],
     queryFn: async () => fetchApplications("/api/users?role=rider&applicationStatus=interview_scheduled"),
-    enabled: canManageApplications,
+    enabled: canManageApplications && showInternalRiderFeatures,
   });
 
   const { data: rejectedSellerApplications = [], isLoading: rejectedSellersLoading } = useQuery<Application[]>({
@@ -359,7 +382,7 @@ export default function AdminApplications() {
   const { data: rejectedRiderApplications = [], isLoading: rejectedRidersLoading } = useQuery<Application[]>({
     queryKey: ["/api/users", "rider", "rejected"],
     queryFn: async () => fetchApplications("/api/users?role=rider&applicationStatus=rejected"),
-    enabled: canManageApplications,
+    enabled: canManageApplications && showInternalRiderFeatures,
   });
 
   const { data: promotionApplications = [], isLoading: promotionApplicationsLoading } = useQuery<PromotionApplication[]>({
@@ -472,6 +495,52 @@ export default function AdminApplications() {
     },
   });
 
+  const promotionMutationSuccess = async (title: string, description: string) => {
+    toast({ title, description });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/promotion-applications"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/seller/promotion-applications"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/promotions"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/promotional"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/analytics"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-earnings"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/finance-summary"] }),
+    ]);
+  };
+
+  const confirmPromotionPaymentMutation = useMutation({
+    mutationFn: async (promotionId: string) =>
+      requestJsonWithFallback("PATCH", `/api/admin/promotion-applications/${promotionId}/confirm-payment`, {}, "Confirm promotion payment"),
+    onSuccess: async () => {
+      await promotionMutationSuccess("Payment confirmed", "The seller promotion payment has been marked as confirmed.");
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to confirm payment", variant: "destructive" });
+    },
+  });
+
+  const approvePromotionMutation = useMutation({
+    mutationFn: async (promotionId: string) =>
+      requestJsonWithFallback("POST", `/api/admin/promotion-applications/${promotionId}/approve`, {}, "Approve promotion application"),
+    onSuccess: async () => {
+      await promotionMutationSuccess("Promotion approved", "The promotion has been created from the seller application.");
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to approve promotion", variant: "destructive" });
+    },
+  });
+
+  const rejectPromotionMutation = useMutation({
+    mutationFn: async ({ promotionId, rejectionReason }: { promotionId: string; rejectionReason?: string }) =>
+      requestJsonWithFallback("PATCH", `/api/admin/promotion-applications/${promotionId}/reject`, { rejectionReason }, "Reject promotion application"),
+    onSuccess: async () => {
+      await promotionMutationSuccess("Promotion request rejected", "The seller has been notified about the rejection.");
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to reject promotion", variant: "destructive" });
+    },
+  });
+
   const purgePendingMutation = useMutation({
     mutationFn: async () => {
       if (!isTestingPurgeEnabled) {
@@ -491,9 +560,9 @@ export default function AdminApplications() {
         // Legacy fallback: perform equivalent cleanup using existing user APIs.
         const buckets = await Promise.all([
           fetchApplications("/api/users?role=seller&applicationStatus=pending"),
-          fetchApplications("/api/users?role=rider&applicationStatus=pending"),
+          ...(showInternalRiderFeatures ? [fetchApplications("/api/users?role=rider&applicationStatus=pending")] : []),
           fetchApplications("/api/users?role=seller&applicationStatus=interview_scheduled"),
-          fetchApplications("/api/users?role=rider&applicationStatus=interview_scheduled"),
+          ...(showInternalRiderFeatures ? [fetchApplications("/api/users?role=rider&applicationStatus=interview_scheduled")] : []),
         ]);
 
         const byId = new Map<string, Application>();
@@ -561,6 +630,9 @@ export default function AdminApplications() {
   };
 
   const openDetails = async (application: Application) => {
+    if (!showInternalRiderFeatures && getEffectiveRole(application) === "rider") {
+      return;
+    }
     setSelectedApplication(application);
     setViewDetailsOpen(true);
     setDetailsLoading(true);
@@ -576,18 +648,44 @@ export default function AdminApplications() {
 
   useEffect(() => {
     if (queryParams.tab === "promotions") {
-      setActiveTab("promotions");
+      setMainTab("promotion");
       return;
     }
-    if (queryParams.role === "seller") setActiveTab("sellers");
-    if (queryParams.role === "rider") setActiveTab("riders");
-  }, [queryParams.role, queryParams.tab]);
+    setMainTab("applications");
+    if (queryParams.role === "seller") setApplicationTab("pending_sellers");
+    if (showInternalRiderFeatures && queryParams.role === "rider") setApplicationTab("pending_riders");
+  }, [queryParams.role, queryParams.tab, showInternalRiderFeatures]);
+
+  useEffect(() => {
+    if (!showInternalRiderFeatures && applicationTab === "pending_riders") {
+      setApplicationTab("pending_sellers");
+    }
+  }, [applicationTab, showInternalRiderFeatures]);
 
   useEffect(() => {
     if (queryParams.promotionId) {
-      setActiveTab("promotions");
+      setMainTab("promotion");
     }
   }, [queryParams.promotionId]);
+
+  useEffect(() => {
+    if (!queryParams.promotionId) return;
+    const matchedPromotion = promotionApplications.find(
+      (application) => String(application.id) === String(queryParams.promotionId),
+    );
+    if (!matchedPromotion) return;
+
+    setMainTab("promotion");
+    if (matchedPromotion.status === "active") {
+      setPromotionTab("active");
+      return;
+    }
+    if (matchedPromotion.status === "expired") {
+      setPromotionTab("expired");
+      return;
+    }
+    setPromotionTab("pending");
+  }, [promotionApplications, queryParams.promotionId]);
 
   useEffect(() => {
     deepLinkHandledRef.current = false;
@@ -596,18 +694,19 @@ export default function AdminApplications() {
   useEffect(() => {
     if (!queryParams.userId || deepLinkHandledRef.current) return;
 
-    const allBuckets: Array<{ tab: "sellers" | "riders" | "interview" | "rejected" | "promotions"; items: Application[] }> = [
-      { tab: "sellers", items: pendingSellerApplications },
-      { tab: "riders", items: pendingRiderApplications },
-      { tab: "interview", items: [...interviewSellerApplications, ...interviewRiderApplications] },
-      { tab: "rejected", items: [...rejectedSellerApplications, ...rejectedRiderApplications] },
+    const allBuckets: Array<{ tab: "pending_sellers" | "pending_riders" | "interview" | "rejected"; items: Application[] }> = [
+      { tab: "pending_sellers", items: pendingSellerApplications },
+      ...(showInternalRiderFeatures ? [{ tab: "pending_riders" as const, items: pendingRiderApplications }] : []),
+      { tab: "interview", items: [...interviewSellerApplications, ...(showInternalRiderFeatures ? interviewRiderApplications : [])] },
+      { tab: "rejected", items: [...rejectedSellerApplications, ...(showInternalRiderFeatures ? rejectedRiderApplications : [])] },
     ];
 
     for (const bucket of allBuckets) {
       const found = bucket.items.find((app) => app.id === queryParams.userId);
       if (found) {
         deepLinkHandledRef.current = true;
-        setActiveTab(bucket.tab);
+        setMainTab("applications");
+        setApplicationTab(bucket.tab);
         openDetails(found);
         return;
       }
@@ -620,6 +719,7 @@ export default function AdminApplications() {
     interviewRiderApplications,
     rejectedSellerApplications,
     rejectedRiderApplications,
+    showInternalRiderFeatures,
   ]);
 
   const openRejectDialog = (application: Application) => {
@@ -679,18 +779,24 @@ export default function AdminApplications() {
       });
       return;
     }
-    const confirmed = window.confirm("Clear all pending seller/rider applications now? This deletes unapproved applicant accounts.");
+    const confirmed = window.confirm(`Clear all pending ${showInternalRiderFeatures ? "seller/rider" : "seller"} applications now? This deletes unapproved applicant accounts.`);
     if (!confirmed) return;
     purgePendingMutation.mutate();
   };
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoadingState title="Loading applications" description="Preparing applicant queues, promotion requests, and review actions." />;
   }
+
+  const pendingTotal = pendingSellerApplications.length + (showInternalRiderFeatures ? pendingRiderApplications.length : 0);
+  const interviewTotal = interviewSellerApplications.length + (showInternalRiderFeatures ? interviewRiderApplications.length : 0);
+  const rejectedTotal = rejectedSellerApplications.length + (showInternalRiderFeatures ? rejectedRiderApplications.length : 0);
+  const pendingPromotionApplications = promotionApplications.filter((application) =>
+    ["pending_payment", "payment_confirmed", "approved"].includes(application.status),
+  );
+  const activePromotionApplications = promotionApplications.filter((application) => application.status === "active");
+  const expiredPromotionApplications = promotionApplications.filter((application) => application.status === "expired");
+  const promotionTotal = pendingPromotionApplications.length;
 
   const ApplicationCard = ({ 
     application, 
@@ -703,153 +809,187 @@ export default function AdminApplications() {
   }) => {
     const isActionable = status === "pending" || status === "interview_scheduled";
     const effectiveRole = getEffectiveRole(application);
+    if (!showInternalRiderFeatures && effectiveRole === "rider") {
+      return null;
+    }
+    const completionChecks = getApplicationChecklist(application, effectiveRole);
+    const completedChecks = completionChecks.filter((check) => check.ok).length;
+    const roleTone = effectiveRole === "seller"
+      ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-200"
+      : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200";
+    const statusTone =
+      status === "pending"
+        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"
+        : status === "interview_scheduled"
+          ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-200"
+          : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200";
     return (
-      <Card className="p-4 hover:shadow-md transition-shadow" data-testid={`card-${type}-${application.id}`}>
-        <div className="flex items-start gap-4">
-          <div className={`p-3 rounded-full ${type === "seller" ? "bg-blue-500/10" : "bg-orange-500/10"}`}>
-            {type === "seller" ? (
-              <Store className="h-6 w-6 text-blue-500" />
-            ) : (
-              <Bike className="h-6 w-6 text-orange-500" />
-            )}
-          </div>
+      <Card className="overflow-hidden border-border/70 bg-card/95 shadow-sm transition-all hover:border-primary/30 hover:shadow-md" data-testid={`card-${type}-${application.id}`}>
+        <div className={`h-1 w-full ${effectiveRole === "seller" ? "bg-gradient-to-r from-sky-500/80 to-cyan-400/70" : "bg-gradient-to-r from-amber-500/80 to-orange-400/70"}`} />
+        <CardContent className="p-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+            <div className="flex min-w-0 flex-1 gap-3">
+              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${type === "seller" ? "border-sky-200 bg-sky-50 dark:border-sky-500/20 dark:bg-sky-500/10" : "border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/10"}`}>
+                {type === "seller" ? (
+                  <Store className="h-5 w-5 text-sky-600 dark:text-sky-300" />
+                ) : (
+                  <Bike className="h-5 w-5 text-amber-600 dark:text-amber-300" />
+                )}
+              </div>
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <h3 className="font-semibold text-lg" data-testid={`text-name-${application.id}`}>
-                  {application.name}
-                </h3>
-                {application.profileImage && (
-                  <div className="mt-2">
-                    <img
-                      src={application.profileImage}
-                      alt="Profile"
-                      className="w-16 h-16 rounded-full object-cover border-2 border-border"
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-start gap-2">
+                  <h3 className="text-base font-semibold" data-testid={`text-name-${application.id}`}>
+                    {application.name}
+                  </h3>
+                  <Badge variant="outline" className={roleTone}>
+                    {effectiveRole === "seller" ? "Seller Application" : "Rider Application"}
+                  </Badge>
+                  <Badge variant="outline" className={statusTone}>
+                    {status === "interview_scheduled" ? "Interview Scheduled" : status === "rejected" ? "Rejected" : "Pending Review"}
+                  </Badge>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span>Applied {new Date(application.createdAt).toLocaleDateString()}</span>
+                  <span>Checklist {completedChecks}/{completionChecks.length}</span>
+                  {effectiveRole === "seller" && application.storeName ? <span>Store: {application.storeName}</span> : null}
+                </div>
+
+                {application.profileImage ? (
+                    <div className="mt-3">
+                      <img
+                        src={application.profileImage}
+                        alt="Profile"
+                        className="h-14 w-14 rounded-2xl border border-border/70 object-cover"
                     />
                   </div>
-                )}
+                ) : null}
+
+                <div className="mt-2 space-y-1">
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-email-${application.id}`}>
+                    <span className="font-medium">Email:</span> {application.email}
+                  </p>
+                  {application.phone ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-phone-${application.id}`}>
+                      <span className="font-medium">Phone:</span> {application.phone}
+                    </p>
+                  ) : null}
+                  {application.businessAddress ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-location-${application.id}`}>
+                      <MapPin className="h-3 w-3" />
+                      <span className="font-medium">Location:</span> {application.businessAddress}
+                    </p>
+                  ) : null}
+                  {type === "seller" && application.storeName ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-store-${application.id}`}>
+                      <Store className="h-3 w-3" />
+                      <span className="font-medium">Store:</span> {application.storeName}
+                    </p>
+                  ) : null}
+                  {showInternalRiderFeatures && type === "rider" && application.vehicleInfo ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-vehicle-${application.id}`}>
+                      <Car className="h-3 w-3" />
+                      <span className="font-medium">Vehicle:</span> {application.vehicleInfo.type}
+                    </p>
+                  ) : null}
+                  {showInternalRiderFeatures && effectiveRole === "rider" && (application.riderCity || application.riderRegion) ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-rider-zone-${application.id}`}>
+                      <MapPin className="h-3 w-3" />
+                      <span className="font-medium">City/Region:</span> {[application.riderCity, application.riderRegion].filter(Boolean).join(" / ")}
+                    </p>
+                  ) : null}
+                  {status === "interview_scheduled" && application.interviewScheduledAt ? (
+                    <p className="flex items-center gap-2 text-sm text-primary" data-testid={`text-interview-${application.id}`}>
+                      <CalendarClock className="h-3 w-3" />
+                      <span className="font-medium">Interview:</span>{" "}
+                      {new Date(application.interviewScheduledAt).toLocaleString()}
+                    </p>
+                  ) : null}
+                  {status === "rejected" && application.rejectionReason ? (
+                    <div className="mt-2 rounded border border-destructive/20 bg-destructive/10 p-2">
+                      <p className="flex items-center gap-2 text-sm font-medium text-destructive">
+                        <AlertTriangle className="h-3 w-3" />
+                        Rejection Reason:
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">{application.rejectionReason}</p>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
 
-            <div className="space-y-1 mt-3">
-              <p className="text-sm text-muted-foreground flex items-center gap-2" data-testid={`text-email-${application.id}`}>
-                <span className="font-medium">Email:</span> {application.email}
-              </p>
-              {application.phone && (
-                <p className="text-sm text-muted-foreground flex items-center gap-2" data-testid={`text-phone-${application.id}`}>
-                  <span className="font-medium">Phone:</span> {application.phone}
-                </p>
-              )}
-              {application.businessAddress && (
-                <p className="text-sm text-muted-foreground flex items-center gap-2" data-testid={`text-location-${application.id}`}>
-                  <MapPin className="h-3 w-3" />
-                  <span className="font-medium">Location:</span> {application.businessAddress}
-                </p>
-              )}
-              {type === "seller" && application.storeName && (
-                <p className="text-sm text-muted-foreground flex items-center gap-2" data-testid={`text-store-${application.id}`}>
-                  <Store className="h-3 w-3" />
-                  <span className="font-medium">Store:</span> {application.storeName}
-                </p>
-              )}
-              {type === "rider" && application.vehicleInfo && (
-                <p className="text-sm text-muted-foreground flex items-center gap-2" data-testid={`text-vehicle-${application.id}`}>
-                  <Car className="h-3 w-3" />
-                  <span className="font-medium">Vehicle:</span> {application.vehicleInfo.type}
-                </p>
-              )}
-              {effectiveRole === "rider" && (application.riderCity || application.riderRegion) && (
-                <p className="text-sm text-muted-foreground flex items-center gap-2" data-testid={`text-rider-zone-${application.id}`}>
-                  <MapPin className="h-3 w-3" />
-                  <span className="font-medium">City/Region:</span> {[application.riderCity, application.riderRegion].filter(Boolean).join(" / ")}
-                </p>
-              )}
-              {status === "interview_scheduled" && application.interviewScheduledAt && (
-                <p className="text-sm text-primary flex items-center gap-2" data-testid={`text-interview-${application.id}`}>
-                  <CalendarClock className="h-3 w-3" />
-                  <span className="font-medium">Interview:</span>{" "}
-                  {new Date(application.interviewScheduledAt).toLocaleString()}
-                </p>
-              )}
-              {status === "rejected" && application.rejectionReason && (
-                <div className="mt-2 p-2 bg-destructive/10 rounded border border-destructive/20">
-                  <p className="text-sm font-medium text-destructive flex items-center gap-2">
-                    <AlertTriangle className="h-3 w-3" />
-                    Rejection Reason:
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-1">{application.rejectionReason}</p>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground mt-2" data-testid={`text-date-${application.id}`}>
-                Applied: {new Date(application.createdAt).toLocaleDateString()}
-              </p>
+            <div className="grid gap-3 xl:min-w-[210px]">
+              <div className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Readiness</p>
+                <p className="mt-2 text-xl font-semibold">{completedChecks}/{completionChecks.length}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Required fields completed</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { void openDetails(application); }}
+                  data-testid={`button-view-${application.id}`}
+                  className="gap-2"
+                >
+                  <Eye className="h-4 w-4" />
+                  View Details
+                </Button>
+                {isActionable ? (
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => openScheduleDialog(application)}
+                      disabled={scheduleInterviewMutation.isPending}
+                      data-testid={`button-schedule-${application.id}`}
+                      className="gap-2"
+                    >
+                      <CalendarClock className="h-4 w-4" />
+                      {status === "interview_scheduled" ? "Reschedule" : "Schedule Interview"}
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => approveApplicationMutation.mutate({ userId: application.id })}
+                      disabled={approveApplicationMutation.isPending}
+                      data-testid={`button-approve-${application.id}`}
+                      className="gap-2"
+                    >
+                      <Check className="h-4 w-4" />
+                      Approve
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => openRejectDialog(application)}
+                      disabled={rejectApplicationMutation.isPending}
+                      data-testid={`button-reject-${application.id}`}
+                      className="gap-2"
+                    >
+                      <X className="h-4 w-4" />
+                      Reject
+                    </Button>
+                  </>
+                ) : null}
+                {status === "rejected" && user?.role === "super_admin" ? (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDeleteApplicant(application)}
+                    disabled={deleteApplicantMutation.isPending}
+                    data-testid={`button-delete-rejected-${application.id}`}
+                    className="gap-2"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove Rejected Application
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
-
-          <div className="flex flex-col gap-2">
-              <Button
-              variant="outline"
-              size="sm"
-              onClick={() => { void openDetails(application); }}
-              data-testid={`button-view-${application.id}`}
-              className="gap-2"
-            >
-              <Eye className="h-4 w-4" />
-              View Details
-            </Button>
-            {isActionable && (
-              <>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => openScheduleDialog(application)}
-                  disabled={scheduleInterviewMutation.isPending}
-                  data-testid={`button-schedule-${application.id}`}
-                  className="gap-2"
-                >
-                  <CalendarClock className="h-4 w-4" />
-                  {status === "interview_scheduled" ? "Reschedule" : "Schedule Interview"}
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => approveApplicationMutation.mutate({ userId: application.id })}
-                  disabled={approveApplicationMutation.isPending}
-                  data-testid={`button-approve-${application.id}`}
-                  className="gap-2"
-                >
-                  <Check className="h-4 w-4" />
-                  Approve
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => openRejectDialog(application)}
-                  disabled={rejectApplicationMutation.isPending}
-                  data-testid={`button-reject-${application.id}`}
-                  className="gap-2"
-                >
-                  <X className="h-4 w-4" />
-                  Reject
-                </Button>
-              </>
-            )}
-            {status === "rejected" && user?.role === "super_admin" && (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => handleDeleteApplicant(application)}
-                disabled={deleteApplicantMutation.isPending}
-                data-testid={`button-delete-rejected-${application.id}`}
-                className="gap-2"
-              >
-                <Trash2 className="h-4 w-4" />
-                Remove Rejected Application
-              </Button>
-            )}
-          </div>
-        </div>
+        </CardContent>
       </Card>
     );
   };
@@ -867,7 +1007,11 @@ export default function AdminApplications() {
         ? "border-emerald-200 bg-emerald-100 text-emerald-700"
         : application.status === "expired"
           ? "border-zinc-200 bg-zinc-100 text-zinc-700"
-          : "border-amber-200 bg-amber-100 text-amber-700";
+          : application.status === "payment_confirmed"
+            ? "border-sky-200 bg-sky-100 text-sky-700"
+            : application.status === "rejected"
+              ? "border-red-200 bg-red-100 text-red-700"
+              : "border-amber-200 bg-amber-100 text-amber-700";
 
     return (
       <Card
@@ -887,240 +1031,453 @@ export default function AdminApplications() {
                 <p className="text-sm text-muted-foreground">{application.targetName}</p>
               </div>
             </div>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-medium">Seller:</span> {application.seller?.name || "Unknown"} ({application.seller?.email || "N/A"})
-            </p>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-medium">Submitted:</span> {createdAtText}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-medium">Promotion Window:</span> {windowText}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-medium">Duration:</span> {application.durationHours ?? "N/A"} hour(s)
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusClass}`}>
-              {application.status}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate("/admin/promotions")}
-              data-testid={`button-open-promotion-${application.id}`}
-            >
-              Open Promotions
-            </Button>
-          </div>
-        </div>
+             <p className="text-sm text-muted-foreground">
+               <span className="font-medium">Seller:</span> {application.seller?.name || "Unknown"} ({application.seller?.email || "N/A"})
+             </p>
+             <p className="text-sm text-muted-foreground">
+               <span className="font-medium">Phone:</span> {application.seller?.phone || "No phone"}
+             </p>
+             <p className="text-sm text-muted-foreground">
+               <span className="font-medium">Submitted:</span> {createdAtText}
+             </p>
+             <p className="text-sm text-muted-foreground">
+               <span className="font-medium">Duration:</span> {application.duration} {application.durationType}(s)
+             </p>
+             <p className="text-sm text-muted-foreground">
+               <span className="font-medium">Unit price:</span> GHS {application.unitPrice} <span className="font-medium ml-3">Quoted total:</span> GHS {application.totalPrice}
+             </p>
+             {application.customerServiceNote ? (
+               <p className="text-sm text-muted-foreground">
+                 <span className="font-medium">Service note:</span> {application.customerServiceNote}
+               </p>
+             ) : null}
+             {application.sellerNote ? (
+               <p className="text-sm text-muted-foreground">
+                 <span className="font-medium">Seller note:</span> {application.sellerNote}
+               </p>
+             ) : null}
+             {application.startAt && application.endAt ? (
+               <p className="text-sm text-muted-foreground">
+                 <span className="font-medium">Promotion Window:</span> {windowText}
+               </p>
+             ) : null}
+             {application.rejectionReason ? (
+               <p className="text-sm text-destructive">
+                 <span className="font-medium">Reason:</span> {application.rejectionReason}
+               </p>
+             ) : null}
+           </div>
+           <div className="flex flex-col items-end gap-2 min-w-[190px]">
+             <span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusClass}`}>
+               {application.status.replace(/_/g, " ")}
+             </span>
+             {(application.status === "pending_payment" || application.status === "payment_confirmed") && (
+               <div className="flex flex-col gap-2 w-full">
+                 {application.status === "pending_payment" ? (
+                   <Button
+                     size="sm"
+                     className="w-full"
+                     onClick={() => confirmPromotionPaymentMutation.mutate(application.id)}
+                     disabled={confirmPromotionPaymentMutation.isPending}
+                   >
+                     Confirm Payment
+                   </Button>
+                 ) : null}
+                 {user?.role === "super_admin" && application.status === "payment_confirmed" ? (
+                   <Button
+                     size="sm"
+                     className="w-full"
+                     onClick={() => approvePromotionMutation.mutate(application.id)}
+                     disabled={approvePromotionMutation.isPending}
+                   >
+                     Approve & Create
+                   </Button>
+                 ) : null}
+                 <Button
+                   variant="outline"
+                   size="sm"
+                   className="w-full"
+                   onClick={() => {
+                     const reason = window.prompt("Reason for rejecting this promotion request?") || "";
+                     rejectPromotionMutation.mutate({ promotionId: application.id, rejectionReason: reason });
+                   }}
+                   disabled={rejectPromotionMutation.isPending}
+                 >
+                   Reject
+                 </Button>
+               </div>
+             )}
+             {(application.status === "active" || application.status === "approved" || application.status === "expired") ? (
+               <Button
+                 variant="outline"
+                 size="sm"
+                 onClick={() => navigate("/admin/promotions")}
+                 data-testid={`button-open-promotion-${application.id}`}
+               >
+                 Open Promotions
+               </Button>
+             ) : null}
+           </div>
+         </div>
       </Card>
     );
   };
 
   return (
     <DashboardLayout role={user?.role as any}>
-      <div className="p-8">
-        <div className="flex items-center gap-4 mb-6">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => window.history.back()}
-            data-testid="button-back"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex-1">
-            <h1 className="text-3xl font-bold text-foreground" data-testid="heading-applications">
-              Applications
-            </h1>
-            <p className="text-muted-foreground mt-1">Review and approve seller and rider applications</p>
-          </div>
-          {user?.role === "super_admin" && (
-            <Button
-              variant="outline"
-              onClick={handlePurgePendingQueue}
-              disabled={purgePendingMutation.isPending || !isTestingPurgeEnabled}
-              data-testid="button-clear-pending-queue"
-              className="gap-2"
-              title={
-                isTestingPurgeEnabled
-                  ? "Testing utility to clear stale pending applications"
-                  : "Disabled in production"
-              }
-            >
-              {purgePendingMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Eraser className="h-4 w-4" />
-              )}
-              Clear Pending Queue {isTestingPurgeEnabled ? "(Testing)" : "(Disabled)"}
-            </Button>
-          )}
-        </div>
+      <div className="space-y-5 p-4 md:p-6">
+        <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
+          <CardContent className="p-5 md:p-6">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => window.history.back()}
+                data-testid="button-back"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div className="flex-1">
+                <h1 className="text-2xl font-bold text-foreground md:text-3xl" data-testid="heading-applications">
+                  Applications Center
+                </h1>
+                <p className="text-muted-foreground mt-1">
+                  Review onboarding applications and seller promotion requests from one operations workspace.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">Operations Queue</Badge>
+                  <Badge variant="outline" className="border-border/70">
+                    {showInternalRiderFeatures ? "Seller + Rider Intake" : "Seller Intake Only"}
+                  </Badge>
+                  <Badge variant="outline" className="border-border/70">Promotion Review</Badge>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-          <TabsList className="grid w-full max-w-6xl grid-cols-5">
-            <TabsTrigger value="sellers" data-testid="tab-sellers">
-              Pending Sellers ({pendingSellerApplications.length})
+        <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as "applications" | "promotion")} className="w-full">
+          <TabsList className="grid h-auto w-full grid-cols-1 gap-3 bg-transparent p-0 md:grid-cols-2">
+            <TabsTrigger
+              value="applications"
+              className="rounded-2xl border border-border/70 bg-card px-5 py-4 text-left data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10"
+            >
+              <div className="flex w-full items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Applications</p>
+                  <p className="text-xs text-muted-foreground">Seller and rider onboarding review</p>
+                </div>
+                <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                  {pendingTotal + interviewTotal + rejectedTotal}
+                </span>
+              </div>
             </TabsTrigger>
-            <TabsTrigger value="riders" data-testid="tab-riders">
-              Pending Riders ({pendingRiderApplications.length})
-            </TabsTrigger>
-            <TabsTrigger value="interview" data-testid="tab-interview">
-              Pending Interview ({interviewSellerApplications.length + interviewRiderApplications.length})
-            </TabsTrigger>
-            <TabsTrigger value="rejected" data-testid="tab-rejected">
-              Rejected ({rejectedSellerApplications.length + rejectedRiderApplications.length})
-            </TabsTrigger>
-            <TabsTrigger value="promotions" data-testid="tab-promotion-applications">
-              Promotion Requests ({promotionApplications.length})
+            <TabsTrigger
+              value="promotion"
+              className="rounded-2xl border border-border/70 bg-card px-5 py-4 text-left data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10"
+            >
+              <div className="flex w-full items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Promotion</p>
+                  <p className="text-xs text-muted-foreground">Seller promotion requests and live campaigns</p>
+                </div>
+                <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                  {promotionTotal + activePromotionApplications.length + expiredPromotionApplications.length}
+                </span>
+              </div>
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="sellers" className="mt-6">
-            {pendingSellersLoading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {pendingSellerApplications.map((application) => (
-                  <ApplicationCard key={application.id} application={application} type="seller" status="pending" />
-                ))}
-                
-                {pendingSellerApplications.length === 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground" data-testid="text-no-sellers">
-                      No pending seller applications
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+          <TabsContent value="applications" className="mt-5 space-y-5">
+            <div className={`grid gap-3 ${showInternalRiderFeatures ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+              <Card className="border-border/70 bg-card/95 shadow-sm">
+                <CardContent className="p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Pending Sellers</p>
+                  <p className="mt-2 text-2xl font-semibold">{pendingSellerApplications.length}</p>
+                </CardContent>
+              </Card>
+              {showInternalRiderFeatures ? (
+                <Card className="border-border/70 bg-card/95 shadow-sm">
+                  <CardContent className="p-4">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Pending Riders</p>
+                    <p className="mt-2 text-2xl font-semibold">{pendingRiderApplications.length}</p>
+                  </CardContent>
+                </Card>
+              ) : null}
+              <Card className="border-border/70 bg-card/95 shadow-sm">
+                <CardContent className="p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Interviews</p>
+                  <p className="mt-2 text-2xl font-semibold">{interviewTotal}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-border/70 bg-card/95 shadow-sm">
+                <CardContent className="p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Rejected</p>
+                  <p className="mt-2 text-2xl font-semibold">{rejectedTotal}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="border-border/70 bg-card/95 shadow-sm">
+              <CardContent className="p-4 md:p-5">
+                <Tabs
+                  value={applicationTab}
+                  onValueChange={(value) =>
+                    setApplicationTab(value as "pending_sellers" | "pending_riders" | "interview" | "rejected")
+                  }
+                  className="w-full"
+                >
+                  <TabsList
+                    className={`grid h-auto w-full gap-2 bg-transparent p-0 ${
+                      showInternalRiderFeatures ? "grid-cols-1 md:grid-cols-4" : "grid-cols-1 md:grid-cols-3"
+                    }`}
+                  >
+                    <TabsTrigger value="pending_sellers" data-testid="tab-sellers" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
+                      Pending Sellers ({pendingSellerApplications.length})
+                    </TabsTrigger>
+                    {showInternalRiderFeatures ? (
+                      <TabsTrigger value="pending_riders" data-testid="tab-riders" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
+                        Pending Riders ({pendingRiderApplications.length})
+                      </TabsTrigger>
+                    ) : null}
+                    <TabsTrigger value="interview" data-testid="tab-interview" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
+                      Interviews ({interviewTotal})
+                    </TabsTrigger>
+                    <TabsTrigger value="rejected" data-testid="tab-rejected" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
+                      Rejected ({rejectedTotal})
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="pending_sellers" className="mt-6">
+                    {pendingSellersLoading ? (
+                      <div className="flex justify-center py-12">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        {pendingSellerApplications.map((application) => (
+                          <ApplicationCard key={application.id} application={application} type="seller" status="pending" />
+                        ))}
+                        {pendingSellerApplications.length === 0 ? (
+                          <div className="col-span-full text-center py-12">
+                            <p className="text-muted-foreground" data-testid="text-no-sellers">
+                              No pending seller applications
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  {showInternalRiderFeatures ? (
+                    <TabsContent value="pending_riders" className="mt-6">
+                      {pendingRidersLoading ? (
+                        <div className="flex justify-center py-12">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        </div>
+                      ) : (
+                        <div className="grid gap-4 xl:grid-cols-2">
+                          {pendingRiderApplications.map((application) => (
+                            <ApplicationCard key={application.id} application={application} type="rider" status="pending" />
+                          ))}
+                          {pendingRiderApplications.length === 0 ? (
+                            <div className="col-span-full text-center py-12">
+                              <p className="text-muted-foreground" data-testid="text-no-riders">
+                                No pending rider applications
+                              </p>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </TabsContent>
+                  ) : null}
+
+                  <TabsContent value="interview" className="mt-6">
+                    {interviewSellersLoading || (showInternalRiderFeatures && interviewRidersLoading) ? (
+                      <div className="flex justify-center py-12">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {interviewSellerApplications.length > 0 ? (
+                          <div>
+                            <h3 className="mb-4 text-lg font-semibold">Seller Interviews</h3>
+                            <div className="grid gap-4 xl:grid-cols-2">
+                              {interviewSellerApplications.map((application) => (
+                                <ApplicationCard key={application.id} application={application} type="seller" status="interview_scheduled" />
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {showInternalRiderFeatures && interviewRiderApplications.length > 0 ? (
+                          <div>
+                            <h3 className="mb-4 text-lg font-semibold">Rider Interviews</h3>
+                            <div className="grid gap-4 xl:grid-cols-2">
+                              {interviewRiderApplications.map((application) => (
+                                <ApplicationCard key={application.id} application={application} type="rider" status="interview_scheduled" />
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {interviewSellerApplications.length === 0 && (!showInternalRiderFeatures || interviewRiderApplications.length === 0) ? (
+                          <div className="text-center py-12">
+                            <p className="text-muted-foreground" data-testid="text-no-interviews">
+                              No pending interviews
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="rejected" className="mt-6">
+                    {rejectedSellersLoading || (showInternalRiderFeatures && rejectedRidersLoading) ? (
+                      <div className="flex justify-center py-12">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {rejectedSellerApplications.length > 0 ? (
+                          <div>
+                            <h3 className="mb-4 text-lg font-semibold">Rejected Sellers</h3>
+                            <div className="grid gap-4 xl:grid-cols-2">
+                              {rejectedSellerApplications.map((application) => (
+                                <ApplicationCard key={application.id} application={application} type="seller" status="rejected" />
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {showInternalRiderFeatures && rejectedRiderApplications.length > 0 ? (
+                          <div>
+                            <h3 className="mb-4 text-lg font-semibold">Rejected Riders</h3>
+                            <div className="grid gap-4 xl:grid-cols-2">
+                              {rejectedRiderApplications.map((application) => (
+                                <ApplicationCard key={application.id} application={application} type="rider" status="rejected" />
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {rejectedSellerApplications.length === 0 && (!showInternalRiderFeatures || rejectedRiderApplications.length === 0) ? (
+                          <div className="text-center py-12">
+                            <p className="text-muted-foreground" data-testid="text-no-rejected">
+                              No rejected applications
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
           </TabsContent>
 
-          <TabsContent value="riders" className="mt-6">
-            {pendingRidersLoading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {pendingRiderApplications.map((application) => (
-                  <ApplicationCard key={application.id} application={application} type="rider" status="pending" />
-                ))}
-                
-                {pendingRiderApplications.length === 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground" data-testid="text-no-riders">
-                      No pending rider applications
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </TabsContent>
+          <TabsContent value="promotion" className="mt-5 space-y-5">
+            <div className="grid gap-3 md:grid-cols-3">
+              <Card className="border-border/70 bg-card/95 shadow-sm">
+                <CardContent className="p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Pending Applications</p>
+                  <p className="mt-2 text-2xl font-semibold">{pendingPromotionApplications.length}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-border/70 bg-card/95 shadow-sm">
+                <CardContent className="p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Active</p>
+                  <p className="mt-2 text-2xl font-semibold">{activePromotionApplications.length}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-border/70 bg-card/95 shadow-sm">
+                <CardContent className="p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Expired</p>
+                  <p className="mt-2 text-2xl font-semibold">{expiredPromotionApplications.length}</p>
+                </CardContent>
+              </Card>
+            </div>
 
-          <TabsContent value="interview" className="mt-6">
-            {interviewSellersLoading || interviewRidersLoading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {interviewSellerApplications.length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4">Seller Interviews</h3>
-                    <div className="grid gap-4">
-                      {interviewSellerApplications.map((application) => (
-                        <ApplicationCard key={application.id} application={application} type="seller" status="interview_scheduled" />
-                      ))}
-                    </div>
-                  </div>
-                )}
+            <Card className="border-border/70 bg-card/95 shadow-sm">
+              <CardContent className="p-4 md:p-5">
+                <Tabs
+                  value={promotionTab}
+                  onValueChange={(value) => setPromotionTab(value as "pending" | "active" | "expired")}
+                  className="w-full"
+                >
+                  <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 md:grid-cols-3">
+                    <TabsTrigger value="pending" data-testid="tab-promotion-applications" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
+                      Pending Applications ({pendingPromotionApplications.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="active" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
+                      Active ({activePromotionApplications.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="expired" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
+                      Expired ({expiredPromotionApplications.length})
+                    </TabsTrigger>
+                  </TabsList>
 
-                {interviewRiderApplications.length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4">Rider Interviews</h3>
-                    <div className="grid gap-4">
-                      {interviewRiderApplications.map((application) => (
-                        <ApplicationCard key={application.id} application={application} type="rider" status="interview_scheduled" />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                  <TabsContent value="pending" className="mt-6">
+                    {promotionApplicationsLoading ? (
+                      <div className="flex justify-center py-12">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {pendingPromotionApplications.map((promotion) => (
+                          <PromotionApplicationCard key={promotion.id} application={promotion} />
+                        ))}
+                        {pendingPromotionApplications.length === 0 ? (
+                          <div className="text-center py-12">
+                            <p className="text-muted-foreground" data-testid="text-no-promotion-applications">
+                              No pending promotion applications
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </TabsContent>
 
-                {interviewSellerApplications.length === 0 && interviewRiderApplications.length === 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground" data-testid="text-no-interviews">
-                      No pending interviews
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </TabsContent>
+                  <TabsContent value="active" className="mt-6">
+                    {promotionApplicationsLoading ? (
+                      <div className="flex justify-center py-12">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {activePromotionApplications.map((promotion) => (
+                          <PromotionApplicationCard key={promotion.id} application={promotion} />
+                        ))}
+                        {activePromotionApplications.length === 0 ? (
+                          <div className="text-center py-12">
+                            <p className="text-muted-foreground">No active promotions</p>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </TabsContent>
 
-          <TabsContent value="rejected" className="mt-6">
-            {rejectedSellersLoading || rejectedRidersLoading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {rejectedSellerApplications.length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4">Rejected Sellers</h3>
-                    <div className="grid gap-4">
-                      {rejectedSellerApplications.map((application) => (
-                        <ApplicationCard key={application.id} application={application} type="seller" status="rejected" />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {rejectedRiderApplications.length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4">Rejected Riders</h3>
-                    <div className="grid gap-4">
-                      {rejectedRiderApplications.map((application) => (
-                        <ApplicationCard key={application.id} application={application} type="rider" status="rejected" />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {rejectedSellerApplications.length === 0 && rejectedRiderApplications.length === 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground" data-testid="text-no-rejected">
-                      No rejected applications
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="promotions" className="mt-6">
-            {promotionApplicationsLoading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {promotionApplications.map((promotion) => (
-                  <PromotionApplicationCard key={promotion.id} application={promotion} />
-                ))}
-                {promotionApplications.length === 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground" data-testid="text-no-promotion-applications">
-                      No seller promotion requests found
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+                  <TabsContent value="expired" className="mt-6">
+                    {promotionApplicationsLoading ? (
+                      <div className="flex justify-center py-12">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {expiredPromotionApplications.map((promotion) => (
+                          <PromotionApplicationCard key={promotion.id} application={promotion} />
+                        ))}
+                        {expiredPromotionApplications.length === 0 ? (
+                          <div className="text-center py-12">
+                            <p className="text-muted-foreground">No expired promotions</p>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
 
@@ -1266,7 +1623,7 @@ export default function AdminApplications() {
                           </span>
                         </DialogTitle>
                         <DialogDescription className="mt-2">
-                          {getEffectiveRole(selectedApplication) === "seller" ? "Seller" : "Delivery Rider"} application profile and verification details
+                          {getEffectiveRole(selectedApplication) === "seller" ? "Seller" : "Delivery"} application profile and verification details
                         </DialogDescription>
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1351,7 +1708,7 @@ export default function AdminApplications() {
                       <DetailField label="Application Status" value={selectedApplication.applicationStatus} />
                       <DetailField label="Delivery Zone ID" value={selectedApplication.deliveryZoneId} />
                       <DetailField label="Address / Location" value={selectedApplication.businessAddress} fullWidth />
-                      {getEffectiveRole(selectedApplication) === "rider" && (
+                      {showInternalRiderFeatures && getEffectiveRole(selectedApplication) === "rider" && (
                         <>
                           <div>
                             <p className="text-sm font-medium text-muted-foreground">Rider City</p>
@@ -1414,7 +1771,7 @@ export default function AdminApplications() {
                   </Card>
 
                   {/* Vehicle Information (rider-only) */}
-                  {getEffectiveRole(selectedApplication) === "rider" && (
+                  {showInternalRiderFeatures && getEffectiveRole(selectedApplication) === "rider" && (
                     <Card className="p-4">
                       <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                         <Car className="h-5 w-5" />
@@ -1456,16 +1813,16 @@ export default function AdminApplications() {
                       {getApplicationChecklist(selectedApplication, getEffectiveRole(selectedApplication)).map((item) => (
                         <div
                           key={item.label}
-                          className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-                            item.ok
-                              ? "border-emerald-400/80 bg-emerald-900/45 text-emerald-50"
-                              : "border-yellow-400/80 bg-yellow-900/45 text-yellow-50"
-                          }`}
+                            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                              item.ok
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/80 dark:bg-emerald-900/45 dark:text-emerald-50"
+                                : "border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-400/80 dark:bg-yellow-900/45 dark:text-yellow-50"
+                            }`}
                         >
                           {item.ok ? (
-                            <Check className="h-4 w-4 text-emerald-200" />
+                            <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-200" />
                           ) : (
-                            <X className="h-4 w-4 text-yellow-200" />
+                            <X className="h-4 w-4 text-yellow-600 dark:text-yellow-200" />
                           )}
                           <span>{item.label}</span>
                         </div>

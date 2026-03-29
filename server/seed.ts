@@ -1041,7 +1041,9 @@ async function seed() {
         await db.insert(platformSettings).values({
           isMultiVendor: false,
           primaryStoreId: clothingStore.id,
-          defaultCurrency: "GHS"
+          defaultCurrency: "GHS",
+          isExternalRiderSystemEnabled: false,
+          showCheckoutDeliveryMap: true,
         });
         console.log(`[seed] Created initial platform settings with primaryStoreId=${clothingStore.id}`);
       } else {

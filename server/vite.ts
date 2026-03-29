@@ -33,16 +33,33 @@ export async function setupVite(app: Express, server: Server) {
       ...viteLogger,
       error: (msg, options) => {
         viteLogger.error(msg, options);
-        process.exit(1);
       },
     },
     server: serverOptions,
     appType: "custom",
   });
 
+  app.use("/api", (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+  });
+
+  app.use("/socket.io", (_req, res) => {
+    res.status(404).end();
+  });
+
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
+
+    if (url.startsWith("/api") || url.startsWith("/socket.io")) {
+      res.status(404).json({ error: `API route not found: ${req.method} ${url}` });
+      return;
+    }
+
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.status(404).end();
+      return;
+    }
 
     try {
       const clientTemplate = path.resolve(
@@ -76,10 +93,28 @@ export function serveStatic(app: Express) {
     );
   }
 
+  app.use("/api", (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+  });
+
+  app.use("/socket.io", (_req, res) => {
+    res.status(404).end();
+  });
+
   app.use(express.static(distPath));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  // fall through to index.html only for non-API GET/HEAD requests
+  app.use("*", (req, res) => {
+    if (req.originalUrl.startsWith("/api") || req.originalUrl.startsWith("/socket.io")) {
+      res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+      return;
+    }
+
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.status(404).end();
+      return;
+    }
+
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

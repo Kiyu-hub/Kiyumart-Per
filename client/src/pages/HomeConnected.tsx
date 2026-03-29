@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -20,12 +20,11 @@ import SinglePromotionSidebar from "@/components/SinglePromotionSidebar";
 import MultiVendorHome from "./MultiVendorHome";
 import LocationPrompt from "@/components/LocationPrompt";
 import { Button } from '@/components/ui/button';
+import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 import type { PlatformSettings } from "@shared/schema";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 import heroImage from "@assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png";
-import abayaCategoryImage from "@assets/stock_images/Abayas_category_collection_image_cbf9978c.png";
-import hijabCategoryImage from "@assets/stock_images/Hijabs_and_accessories_category_09f9b1a2.png";
-import eveningCategoryImage from "@assets/stock_images/Evening_wear_category_image_455c3389.png";
 
 interface Product {
   id: string;
@@ -36,8 +35,12 @@ interface Product {
   discount: number;
   ratings: string;
   totalRatings: number;
-  category: string;
+  category?: string | null;
+  categoryName?: string | null;
+  categoryId?: string | null;
+  stock?: number;
   storeId?: string;
+  dynamicFields?: Record<string, any>;
 }
 
 interface CartItem {
@@ -65,6 +68,7 @@ export default function HomeConnected() {
   const { currency, currencySymbol, t } = useLanguage();
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAllFeaturedProducts, setShowAllFeaturedProducts] = useState(false);
 
   const { data: platformSettings, isLoading: settingsLoading } = useQuery<PlatformSettings>({
     queryKey: ["/api/platform-settings"],
@@ -74,18 +78,17 @@ export default function HomeConnected() {
   });
 
   // Defensive flags to avoid runtime errors when settings are undefined during hydration/HMR
-  const adsEnabled = platformSettings?.adsEnabled ?? true;
-  const heroBannerEnabled = platformSettings?.heroBannerEnabled ?? true;
-  const sidebarAdEnabled = platformSettings?.sidebarAdEnabled ?? true;
-  const footerAdEnabled = platformSettings?.footerAdEnabled ?? true;
-  const productPageAdEnabled = platformSettings?.productPageAdEnabled ?? true;
+  const adsEnabled = platformSettings?.adsEnabled ?? false;
+  const heroBannerEnabled = platformSettings?.heroBannerEnabled ?? false;
+  const sidebarAdEnabled = platformSettings?.sidebarAdEnabled ?? false;
+  const footerAdEnabled = platformSettings?.footerAdEnabled ?? false;
+  const productPageAdEnabled = platformSettings?.productPageAdEnabled ?? false;
 
   // Query promotions to determine sidebar display logic
   const { data: allPromotions = [] } = useQuery<any[]>({
     queryKey: ["/api/homepage/promotional"],
     queryFn: async () => {
-      const res = await fetch("/api/homepage/promotional");
-      return res.json();
+      return fetchApiJson<any[]>("/api/homepage/promotional");
     },
     refetchInterval: 5000,
   });
@@ -93,15 +96,23 @@ export default function HomeConnected() {
   // Determine sidebar display logic based on promotion count
   const hasExactlyOnePromotion = allPromotions.length === 1;
   const hasMultiplePromotions = allPromotions.length > 1;
-  const hasPromotion = allPromotions.length >= 1;
-  const singlePromotion = hasPromotion ? allPromotions[0] : null;
+  const singlePromotion = hasExactlyOnePromotion ? allPromotions[0] : null;
 
   // Sidebar content stacking: both promo + ad can coexist (matching MultiVendorHome)
   const hasSidebarAd = adsEnabled && sidebarAdEnabled;
-  const sidebarItemCount = (hasPromotion ? 1 : 0) + (hasSidebarAd ? 1 : 0);
+  const sidebarItemCount = (hasExactlyOnePromotion ? 1 : 0) + (hasSidebarAd ? 1 : 0);
 
   const { data: allProducts = [], isLoading: productsLoading } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+    queryKey: ["/api/products", "active", "home"],
+    queryFn: async () => {
+      return fetchApiJson<Product[]>("/api/products?isActive=true");
+    },
+  });
+  const { data: featuredProducts = [], isLoading: featuredProductsLoading } = useQuery<Product[]>({
+    queryKey: ["/api/homepage/featured-products"],
+  });
+  const { data: newArrivalProducts = [], isLoading: newArrivalProductsLoading } = useQuery<Product[]>({
+    queryKey: ["/api/homepage/new-arrivals"],
   });
 
   const { data: dbStores = [] } = useQuery<Array<{
@@ -114,37 +125,16 @@ export default function HomeConnected() {
   }>>({
     queryKey: ["/api/stores"],
     queryFn: async () => {
-      const res = await fetch("/api/stores?isActive=true&isApproved=true");
-      return res.json();
+      return fetchApiJson("/api/stores?isActive=true&isApproved=true");
     },
     enabled: platformSettings?.isMultiVendor === true && platformSettings?.shopDisplayMode === "by-store",
   });
 
-  // Products are already filtered server-side by primary store's sellerId in single-store mode
+  // Products are already filtered server-side by the selected primary store in single-store mode
   // No additional client-side filtering needed — /api/products handles store mode correctly
   const products = allProducts;
 
-  // Development-only fallback: show a few sample products when DB/products are not available
-  const sampleProducts: Product[] = [
-    { id: 'demo-1', name: 'Classic Abaya', price: '29.99', costPrice: '59.99', images: [heroImage], discount: 50, ratings: '4.7', totalRatings: 12, category: 'abayas' },
-    { id: 'demo-2', name: 'Luxe Hijab', price: '9.99', costPrice: '19.99', images: [hijabCategoryImage], discount: 50, ratings: '4.6', totalRatings: 8, category: 'hijabs' },
-    { id: 'demo-3', name: 'Evening Dress', price: '49.99', costPrice: '79.99', images: [eveningCategoryImage], discount: 38, ratings: '4.8', totalRatings: 21, category: 'evening' },
-    { id: 'demo-4', name: 'Abaya Set', price: '34.99', costPrice: '49.99', images: [abayaCategoryImage], discount: 29, ratings: '4.5', totalRatings: 10, category: 'abayas' },
-  ];
-
-  // Merge DB products with development sample products (DEV only) so the grid always has content for visual checks
-  const mergedProducts = (() => {
-    const seen = new Set<string>();
-    const combined = [ ...(products || []), ...(import.meta.env.DEV ? sampleProducts : []) ].filter((p) => {
-      if (!p || !p.id) return false;
-      if (seen.has(p.id)) return false;
-      seen.add(p.id);
-      return true;
-    });
-    return combined;
-  })();
-
-  const availableProducts = mergedProducts;
+  const availableProducts = products;
 
   const { data: cartItems = [], isLoading: cartLoading } = useQuery<CartItem[]>({
     queryKey: ["/api/cart"],
@@ -163,8 +153,7 @@ export default function HomeConnected() {
       const productIds = cartItems.map(item => item.productId);
       const productsData = await Promise.all(
         productIds.map(async (id) => {
-          const res = await fetch(`/api/products/${id}`);
-          return res.json();
+          return fetchApiJson<Product>(`/api/products/${id}`);
         })
       );
       return productsData;
@@ -272,12 +261,10 @@ export default function HomeConnected() {
     }
   ];
 
-  const { data: dbCategories = [] } = useQuery<Array<{id: string; name: string; slug: string; image: string; isActive: boolean; storeTypes: string[] | null}>>({
+  const { data: dbCategories = [] } = useQuery<Array<{id: string; name: string; slug: string; image: string; isActive: boolean; storeTypes: string[] | null; requestedBySeller?: boolean}>>({
     queryKey: ["/api/categories"],
     queryFn: async () => {
-      const res = await fetch("/api/categories?isActive=true");
-      if (!res.ok) return [];
-      const data = await res.json();
+      const data = await fetchApiJson<Array<{id: string; name: string; slug: string; image: string; isActive: boolean; storeTypes: string[] | null; requestedBySeller?: boolean}>>("/api/categories?isActive=true");
       return Array.isArray(data) ? data : [];
     },
   });
@@ -287,9 +274,11 @@ export default function HomeConnected() {
     queryKey: ["/api/stores", platformSettings?.primaryStoreId],
     queryFn: async () => {
       if (!platformSettings?.primaryStoreId) return null;
-      const res = await fetch(`/api/stores/${platformSettings.primaryStoreId}`);
-      if (!res.ok) return null;
-      return res.json();
+      try {
+        return await fetchApiJson<{storeType: string}>(`/api/stores/${platformSettings.primaryStoreId}`);
+      } catch {
+        return null;
+      }
     },
     enabled: !platformSettings?.isMultiVendor && !!platformSettings?.primaryStoreId,
   });
@@ -306,12 +295,15 @@ export default function HomeConnected() {
     : safeCategories;
 
   // Use database categories only
-  const categories = filteredCategories.map(cat => ({
-    id: cat.slug,
-    name: cat.name,
-    image: cat.image,
-    productCount: products.filter(p => p.category === cat.slug).length
-  }));
+  const categories = filteredCategories
+    .map(cat => ({
+      id: cat.slug,
+      name: cat.name,
+      image: cat.image,
+      requestedBySeller: Boolean(cat.requestedBySeller),
+      productCount: products.filter((product) => productMatchesCategory(product, cat)).length,
+    }))
+    .filter(category => category.productCount > 0 || category.requestedBySeller);
 
   const cartItemsForSidebar = cartItems.map(cartItem => {
     const product = cartProducts.find(p => p.id === cartItem.productId);
@@ -373,13 +365,32 @@ export default function HomeConnected() {
     };
   }, []);
 
+  const matchesProductSearch = (product: Product) => {
+    const categoryLabel = getProductCategoryLabel(product).toLowerCase();
+    return product.name.toLowerCase().includes(searchQuery) || categoryLabel.includes(searchQuery);
+  };
+
   // Filter products based on search query
   const filteredProducts = searchQuery
-    ? availableProducts.filter(product => 
-        product.name.toLowerCase().includes(searchQuery) ||
-        (product.category || '').toLowerCase().includes(searchQuery)
-      )
+    ? availableProducts.filter(matchesProductSearch)
     : availableProducts;
+  const filteredFeaturedProducts = (
+    searchQuery
+      ? featuredProducts.filter(matchesProductSearch)
+      : featuredProducts
+  ).slice(0, 5);
+  const filteredNewArrivalProducts = searchQuery
+    ? newArrivalProducts.filter(matchesProductSearch)
+    : newArrivalProducts;
+
+  const FEATURED_ROW_LIMIT = 5;
+  const visibleFeaturedProducts =
+    searchQuery || showAllFeaturedProducts
+      ? filteredFeaturedProducts
+      : filteredFeaturedProducts.slice(0, FEATURED_ROW_LIMIT);
+  const visibleNewArrivalProducts = searchQuery
+    ? filteredNewArrivalProducts
+    : filteredNewArrivalProducts.slice(0, FEATURED_ROW_LIMIT);
 
   // In development, log available products to help debug display issues
   if (import.meta.env.DEV) {
@@ -477,9 +488,11 @@ export default function HomeConnected() {
 
           {/* Products and Sidebar row */}
           {/* Mobile promo: visible on small screens, hidden on large (sidebar shows on lg+) */}
-          <div className="lg:hidden mb-6">
-            <PromotionalAd />
-          </div>
+          {hasExactlyOnePromotion && (
+            <div className="lg:hidden mb-6">
+              <PromotionalAd />
+            </div>
+          )}
 
           <div className="mt-8 grid lg:grid-cols-12 gap-6">
             {/* Left Sidebar - Show promo AND/OR ad when available (stacking like MultiVendorHome) */}
@@ -487,7 +500,7 @@ export default function HomeConnected() {
               <aside className="hidden lg:block lg:col-span-4">
                 <div className="sticky top-24 flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
                   {/* Promotion — fills available height, splits evenly when stacked */}
-                  {hasPromotion && (
+                  {hasExactlyOnePromotion && singlePromotion && (
                     <div
                       className="overflow-hidden rounded-xl"
                       style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
@@ -510,20 +523,36 @@ export default function HomeConnected() {
 
             {/* Products column - Adjust width based on sidebar visibility */}
             <div className={sidebarItemCount > 0 ? 'lg:col-span-8' : 'lg:col-span-12'}>
+              {(featuredProductsLoading || filteredFeaturedProducts.length > 0 || Boolean(searchQuery)) && (
               <section>
                 <div className="flex items-center justify-between mb-8">
                   <h2 className="text-3xl font-bold">
-                    {searchQuery ? `${t("search").replace("...", "")} (${filteredProducts.length})` : t("featuredProducts")}
+                    {searchQuery ? `${t("search").replace("...", "")} (${filteredFeaturedProducts.length})` : t("featuredProducts")}
                   </h2>
+                  {!searchQuery && filteredFeaturedProducts.length > FEATURED_ROW_LIMIT && (
+                    <Button
+                      variant="ghost"
+                      className="flex items-center gap-2 text-sm font-medium text-primary hover:text-primary"
+                      onClick={() => setShowAllFeaturedProducts((current) => !current)}
+                      data-testid="button-toggle-featured-products"
+                    >
+                      <span>{showAllFeaturedProducts ? "Show less" : "Show all"}</span>
+                      {showAllFeaturedProducts ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </Button>
+                  )}
                 </div>
 
-              {productsLoading ? (
+              {featuredProductsLoading ? (
                 <div className="text-center py-12">Loading products...</div>
-              ) : filteredProducts.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">No products found matching "{searchQuery}"</div>
+              ) : filteredFeaturedProducts.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  {searchQuery
+                    ? `No featured products found matching "${searchQuery}"`
+                    : "No featured products selected yet."}
+                </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
-                  {(searchQuery ? filteredProducts : filteredProducts.slice(0, 8)).map((product) => {
+                  {visibleFeaturedProducts.map((product) => {
                     const sellingPrice = parseFloat(product.price);
                     const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
                     const calculatedDiscount = originalPrice && originalPrice > sellingPrice
@@ -545,22 +574,78 @@ export default function HomeConnected() {
                         discount={calculatedDiscount}
                         rating={parseFloat(product.ratings) || 0}
                         reviewCount={product.totalRatings}
+                        inStock={(product.stock || 0) > 0}
                         isWishlisted={isWishlisted}
                         onToggleWishlist={handleToggleWishlist}
                       />
                     );
                   })}
                 </div>
-              )}
+                )}
             </section>
+              )}
 
-              {/* All Products Section */}
-              {filteredProducts.length > 8 && !searchQuery && (
+              {visibleNewArrivalProducts.length > 0 && (
                 <section className="mt-8">
                   <div className="flex items-center justify-between mb-8">
-                    <h2 className="text-3xl font-bold">All Products</h2>
-                    <span className="text-sm text-muted-foreground">{filteredProducts.length} products</span>
+                    <h2 className="text-3xl font-bold">New Arrivals</h2>
+                    {!searchQuery && filteredNewArrivalProducts.length > FEATURED_ROW_LIMIT && (
+                      <span className="text-sm text-muted-foreground">
+                        {filteredNewArrivalProducts.length} new arrivals
+                      </span>
+                    )}
                   </div>
+
+                  {newArrivalProductsLoading ? (
+                    <div className="text-center py-12">Loading products...</div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
+                      {visibleNewArrivalProducts.map((product) => {
+                        const sellingPrice = parseFloat(product.price);
+                        const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
+                        const calculatedDiscount = originalPrice && originalPrice > sellingPrice
+                          ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
+                          : 0;
+
+                        const isWishlisted = wishlist.some(item => item.productId === product.id);
+                        const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : heroImage;
+
+                        return (
+                          <ProductCard
+                            key={product.id}
+                            id={product.id}
+                            name={product.name}
+                            price={sellingPrice}
+                            costPrice={originalPrice || undefined}
+                            currency={currencySymbol}
+                            image={productImage}
+                            discount={calculatedDiscount}
+                            rating={parseFloat(product.ratings) || 0}
+                            reviewCount={product.totalRatings}
+                            inStock={(product.stock || 0) > 0}
+                            isWishlisted={isWishlisted}
+                            onToggleWishlist={handleToggleWishlist}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <section className="mt-8">
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-3xl font-bold">All Products</h2>
+                  <span className="text-sm text-muted-foreground">{filteredProducts.length} products</span>
+                </div>
+
+                {productsLoading ? (
+                  <div className="text-center py-12">Loading products...</div>
+                ) : filteredProducts.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    {searchQuery ? `No products found matching "${searchQuery}"` : "No products available in this store yet."}
+                  </div>
+                ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4 gap-y-6 gap-y-6">
                     {filteredProducts.map((product) => {
                       const sellingPrice = parseFloat(product.price);
@@ -570,6 +655,7 @@ export default function HomeConnected() {
                         : 0;
                       const isWishlisted = wishlist.some(item => item.productId === product.id);
                       const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : heroImage;
+
                       return (
                         <ProductCard
                           key={product.id}
@@ -582,14 +668,15 @@ export default function HomeConnected() {
                           discount={calculatedDiscount}
                           rating={parseFloat(product.ratings) || 0}
                           reviewCount={product.totalRatings}
+                          inStock={(product.stock || 0) > 0}
                           isWishlisted={isWishlisted}
                           onToggleWishlist={handleToggleWishlist}
                         />
                       );
                     })}
                   </div>
-                </section>
-              )}
+                )}
+              </section>
             </div>
           </div>
         </div>

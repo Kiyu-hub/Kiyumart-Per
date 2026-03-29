@@ -6,12 +6,13 @@ import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Search, User, Edit, Plus, Bike, ArrowLeft, CheckCircle, XCircle, ShieldCheck, Clock, Eye, CreditCard, MapPin, ZoomIn, ZoomOut, RotateCw } from "lucide-react";
+import { Loader2, Search, User, Edit, Plus, Bike, ArrowLeft, CheckCircle, XCircle, ShieldCheck, Clock, Eye, CreditCard, MapPin, ZoomIn, ZoomOut, RotateCw, Ban, ShoppingBag, Wifi, WifiOff } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
@@ -41,6 +42,7 @@ interface Rider {
   businessAddress: string | null;
   riderCity?: string | null;
   riderRegion?: string | null;
+  riderOnline?: boolean;
   createdAt: string | null;
 }
 
@@ -118,6 +120,7 @@ const normalizeRider = (raw: any): Rider => ({
   businessAddress: raw?.businessAddress || null,
   riderCity: raw?.riderCity || null,
   riderRegion: raw?.riderRegion || null,
+  riderOnline: Boolean(raw?.riderOnline),
   createdAt: raw?.createdAt || null,
 });
 
@@ -871,6 +874,99 @@ function ApproveRejectDialog({ riderData }: { riderData: Rider }) {
   );
 }
 
+function BanActivateDialog({ riderData }: { riderData: Rider }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const { toast } = useToast();
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: async (reasonText: string) => {
+      return apiRequest("PATCH", `/api/users/${riderData.id}/status`, {
+        isActive: !riderData.isActive,
+        reason: riderData.isActive ? reasonText : undefined,
+      });
+    },
+    onSuccess: async () => {
+      toast({
+        title: "Success",
+        description: `Rider ${riderData.isActive ? "deactivated" : "activated"} successfully`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/users", "rider"] });
+      setReason("");
+      setOpen(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update rider status",
+        variant: "destructive",
+      });
+    },
+  });
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setReason("");
+        }
+      }}
+    >
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={(event) => event.stopPropagation()}
+          data-testid={`button-ban-${riderData.id}`}
+          className="gap-1"
+        >
+          <Ban className="h-4 w-4" />
+          <span className="sr-only md:not-sr-only md:inline">Deactivate</span>
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {riderData.isActive ? "Deactivate" : "Activate"} Rider?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to {riderData.isActive ? "deactivate" : "activate"} {riderData.name || riderData.username}?
+            {riderData.isActive && " This will restrict their dashboard until the account is reactivated."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {riderData.isActive ? (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Reason for deactivation</label>
+            <Textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Explain why this rider account is being deactivated..."
+              rows={4}
+            />
+          </div>
+        ) : null}
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-cancel-ban">Cancel</AlertDialogCancel>
+          <Button
+            type="button"
+            onClick={() => toggleStatusMutation.mutate(reason.trim())}
+            disabled={toggleStatusMutation.isPending || (riderData.isActive && !reason.trim())}
+            data-testid="button-confirm-ban"
+            variant="default"
+          >
+            {toggleStatusMutation.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            {riderData.isActive ? "Deactivate" : "Activate"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function AdminRiders() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
@@ -898,6 +994,27 @@ export default function AdminRiders() {
       return payload.map(normalizeRider);
     },
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+
+  const { data: riderOrders = [] } = useQuery<Array<{ id: string; riderId?: string | null }>>({
+    queryKey: ["/api/orders", "admin-rider-stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/orders", { credentials: "include" });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to load rider orders");
+      }
+      const payload = await res.json();
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   // All riders (exclude rejected application records from management lists)
@@ -925,6 +1042,12 @@ export default function AdminRiders() {
     (r.username?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
     (r.email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
   );
+  const riderOrderCountMap = new Map<string, number>();
+  for (const order of riderOrders) {
+    const riderId = order?.riderId;
+    if (!riderId) continue;
+    riderOrderCountMap.set(riderId, (riderOrderCountMap.get(riderId) || 0) + 1);
+  }
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
@@ -984,11 +1107,54 @@ export default function AdminRiders() {
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             ) : (
-              <div className="grid gap-4">
-                {filteredRiders.map((rider) => (
-                <Card key={rider.id} className="p-4" data-testid={`card-rider-${rider.id}`}>
-                  <div className="flex items-center gap-4">
-                    <div className="bg-orange-500/10 p-0 rounded-full w-12 h-12 overflow-hidden flex items-center justify-center">
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                {filteredRiders.map((rider) => {
+                  const riderOrderCount = riderOrderCountMap.get(rider.id) || 0;
+
+                  return (
+                <Card
+                  key={rider.id}
+                  className="group relative min-h-[320px] cursor-pointer overflow-hidden border-border/60 bg-card/95 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-orange-500/40 hover:shadow-2xl"
+                  data-testid={`card-rider-${rider.id}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/admin/riders/${rider.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/admin/riders/${rider.id}`);
+                    }
+                  }}
+                >
+                  <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-r from-orange-500/20 via-orange-500/5 to-transparent" />
+                  <div className="relative flex h-full flex-col p-5">
+                    <div className="absolute right-5 top-5 z-10 flex gap-2">
+                      <div className="rounded-2xl border border-white/10 bg-background/85 px-3 py-2 text-right shadow-lg backdrop-blur">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Orders</p>
+                        <p className="mt-1 flex items-center justify-end gap-1 text-sm font-semibold">
+                          <ShoppingBag className="h-3.5 w-3.5 text-orange-500" />
+                          {riderOrderCount}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-background/85 px-3 py-2 text-right shadow-lg backdrop-blur">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Status</p>
+                        <p className="mt-1 flex items-center justify-end gap-1 text-sm font-semibold">
+                          {rider.riderOnline ? (
+                            <>
+                              <Wifi className="h-3.5 w-3.5 text-emerald-500" />
+                              Online
+                            </>
+                          ) : (
+                            <>
+                              <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />
+                              Offline
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-1 flex-col gap-4">
+                    <div className="h-20 w-20 overflow-hidden rounded-3xl border border-orange-500/20 bg-orange-500/10 shadow-sm flex items-center justify-center">
                       {rider.profileImage ? (
                         <img
                           src={withImageVersion(rider.profileImage, `${rider.id}-${imageVersionToken}`)}
@@ -1003,7 +1169,7 @@ export default function AdminRiders() {
                       )}
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold text-lg" data-testid={`text-username-${rider.id}`}>
+                      <h3 className="truncate text-xl font-semibold" data-testid={`text-username-${rider.id}`}>
                         {rider.name || rider.username}
                       </h3>
                       <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
@@ -1039,9 +1205,12 @@ export default function AdminRiders() {
                             Pending Approval
                           </Badge>
                         )}
+                        <Badge variant={rider.riderOnline ? "outline" : "secondary"}>
+                          {rider.riderOnline ? "Online" : "Offline"}
+                        </Badge>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
+                    <div className="mt-auto flex w-full flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-background/70 p-1.5 shadow-sm" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                       <ViewApplicationDialog riderData={rider} />
                       {!rider.isApproved && rider.isActive ? (
                         <ApproveRejectDialog riderData={rider} />
@@ -1055,10 +1224,12 @@ export default function AdminRiders() {
                           <Edit className="h-4 w-4" />
                         </Button>
                       )}
+                      <BanActivateDialog riderData={rider} />
                     </div>
                   </div>
+                  </div>
                 </Card>
-              ))}
+              )})}
               
                 {filteredRiders.length === 0 && (
                   <div className="text-center py-12">

@@ -81,12 +81,12 @@ function AddAgentDialog() {
       <DialogTrigger asChild>
         <Button data-testid="button-add-agent" className="gap-2">
           <Plus className="h-4 w-4" />
-          Add Agent
+          Add Customer Agent
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add New Agent</DialogTitle>
+          <DialogTitle>Add New Customer Agent</DialogTitle>
           <DialogDescription>
             Create a new customer support agent account
           </DialogDescription>
@@ -114,7 +114,7 @@ function AddAgentDialog() {
                 <FormItem>
                   <FormLabel>Email</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="agent@example.com" {...field} data-testid="input-agent-email" />
+                        <Input type="email" placeholder="customer-agent@example.com" {...field} data-testid="input-agent-email" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -164,7 +164,7 @@ function AddAgentDialog() {
                 data-testid="button-submit-agent"
               >
                 {createAgentMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Create Agent
+                Create Customer Agent
               </Button>
             </div>
           </form>
@@ -227,7 +227,7 @@ export default function AdminAgents() {
               <UserCog className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">No agents found</h3>
               <p className="text-muted-foreground mb-6">
-                {searchTerm ? "Try adjusting your search" : "Get started by adding your first agent"}
+                {searchTerm ? "Try adjusting your search" : "Get started by adding your first customer agent"}
               </p>
               {!searchTerm && <AddAgentDialog />}
             </div>
