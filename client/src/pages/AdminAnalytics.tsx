@@ -64,6 +64,8 @@ type Analytics = {
   totalProducts?: number;
   totalReceivedMoney?: number;
   platformCommissionTotal?: number;
+  promotionRevenueTotal?: number;
+  platformRevenueTotal?: number;
   processingFeesTotal?: number;
   deliveryReserveTotal?: number;
 };
@@ -521,18 +523,21 @@ export default function AdminAnalytics() {
     });
     return Array.from(map.entries()).map(([region, revenue]) => ({ region, revenue })).sort((a, b) => b.revenue - a.revenue).slice(0, 8);
   }, [paidDone, resolveOrderRegion]);
-  const hasRevenueOverTimeData = useMemo(() => revenueTime.some((row) => num(row.revenue) > 0), [revenueTime]);
+  const hasRevenueOverTimeData = useMemo(() => revenueTime.some((row: { revenue: number | string }) => num(row.revenue) > 0), [revenueTime]);
   const hasRevenueByMethodData = useMemo(() => revenueByMethod.some((row) => num(row.revenue) > 0), [revenueByMethod]);
   const hasRevenueByRegionData = useMemo(() => revenueByRegion.some((row) => num(row.revenue) > 0), [revenueByRegion]);
 
   const finance = useMemo(() => {
     const rows = Array.isArray(revenueViews?.platformCommission) ? revenueViews.platformCommission : [];
+    const platformRevenue = num(analytics?.platformRevenueTotal) || (num(analytics?.platformCommissionTotal) + num(analytics?.promotionRevenueTotal));
     return {
-      fees: num(analytics?.platformCommissionTotal),
+      fees: platformRevenue,
+      commission: num(analytics?.platformCommissionTotal),
+      promotion: num(analytics?.promotionRevenueTotal),
       processing: num(analytics?.processingFeesTotal),
       payouts: rows.reduce((s: number, r: any) => s + num(r.seller_amount), 0),
     };
-  }, [analytics?.platformCommissionTotal, analytics?.processingFeesTotal, revenueViews?.platformCommission]);
+  }, [analytics?.platformCommissionTotal, analytics?.platformRevenueTotal, analytics?.processingFeesTotal, analytics?.promotionRevenueTotal, revenueViews?.platformCommission]);
 
   const ops = useMemo(() => {
       const funnel = [
@@ -883,7 +888,7 @@ export default function AdminAnalytics() {
             </div>
 
             <div className={showInternalRiderFeatures ? "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-8" : "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-7"}>
-              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Total Revenue</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.platformCommissionTotal))}</p></CardContent></Card>
+              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Total Revenue</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.platformRevenueTotal) || (num(analytics?.platformCommissionTotal) + num(analytics?.promotionRevenueTotal)))}</p></CardContent></Card>
               <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Received Money</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.totalReceivedMoney))}</p></CardContent></Card>
               <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Processing Fees</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.processingFeesTotal))}</p></CardContent></Card>
               <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Orders Today</p><p className="text-xl font-semibold text-foreground dark:text-white">{kpi.ordersToday}</p></CardContent></Card>
@@ -896,7 +901,7 @@ export default function AdminAnalytics() {
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border border-border/70 bg-background/85 p-4">
                 <p className="text-sm font-medium">Total Revenue</p>
-                <p className="mt-1 text-sm text-muted-foreground">Platform commission only. This is the platform share after the split, not gross customer intake.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Commission and promotion revenue combined. This is platform-side revenue, not gross customer intake.</p>
               </div>
               <div className="rounded-xl border border-border/70 bg-background/85 p-4">
                 <p className="text-sm font-medium">Received Money</p>
@@ -978,7 +983,9 @@ export default function AdminAnalytics() {
                 <Card>
                   <CardHeader><CardTitle>Platform Fees vs Payouts</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Platform Commission</p><p className="text-lg font-semibold">{formatPrice(finance.fees)}</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Platform Revenue</p><p className="text-lg font-semibold">{formatPrice(finance.fees)}</p><p className="mt-1 text-[11px] text-muted-foreground">Commission + promotion</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Platform Commission</p><p className="text-lg font-semibold">{formatPrice(finance.commission)}</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Promotion Revenue</p><p className="text-lg font-semibold">{formatPrice(finance.promotion)}</p></div>
                     <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Processing Fees</p><p className="text-lg font-semibold">{formatPrice(finance.processing)}</p></div>
                     <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Seller Settlements</p><p className="text-lg font-semibold">{formatPrice(finance.payouts)}</p></div>
                   </CardContent>

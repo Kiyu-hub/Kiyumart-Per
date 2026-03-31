@@ -16,6 +16,7 @@ import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface Analytics {
   totalRevenue?: number;
+  platformRevenueTotal?: number;
   totalOrders?: number;
   totalUsers?: number;
   totalProducts?: number;
@@ -25,6 +26,7 @@ interface DashboardSummary {
   totalOrders?: number;
   totalUsers?: number;
   totalRevenue?: number;
+  platformRevenueTotal?: number;
 }
 
 interface Order {
@@ -290,7 +292,7 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   <MetricCard
                     title="Total Revenue"
-                    value={formatPrice(dashboardSummary?.totalRevenue ?? analytics?.totalRevenue ?? 0)}
+                    value={formatPrice(dashboardSummary?.totalRevenue ?? dashboardSummary?.platformRevenueTotal ?? analytics?.platformRevenueTotal ?? analytics?.totalRevenue ?? 0)}
                     icon={DollarSign}
                     change={12.5}
                   />

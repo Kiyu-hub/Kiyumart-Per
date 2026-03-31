@@ -1264,7 +1264,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (role && role !== "all") {
         if (role === "seller" || role === "rider") {
-          const allRoles = ["admin", "buyer", "seller", "rider", "agent"];
+          const allRoles = ["admin", "buyer", "seller", "rider", "pickup_agent", "agent"];
           users = [];
           for (const r of allRoles) {
             const roleUsers = await storage.getUsersByRole(r);
@@ -1298,7 +1298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } else {
         // Get all users including admins
-        const allRoles = ["admin", "buyer", "seller", "rider", "agent"];
+        const allRoles = ["admin", "buyer", "seller", "rider", "pickup_agent", "agent"];
         users = [];
         for (const r of allRoles) {
           const roleUsers = await storage.getUsersByRole(r);
@@ -4857,88 +4857,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const to = req.query.to as string | undefined;
 
       const earnings = await storage.getPlatformEarningsDetailed({ limit, offset, sellerId, storeId, type, from, to });
-      console.log('[DBG] earnings sample:', earnings[0]);
-
-      // Enrich results with store and seller names (defensive: storage method may not return them in all DB adapters)
-      const sellerIds = Array.from(new Set(earnings.map((e: any) => e.sellerId).filter(Boolean)));
-      const storeIds = Array.from(new Set(earnings.map((e: any) => e.storeId).filter(Boolean)));
-
-      const sellersMap: Record<string, any> = {};
-      for (const sid of sellerIds) {
-        try {
-          const su = await db.select().from(users).where(eq(users.id, sid as string)).limit(1);
-          if (su[0]) sellersMap[sid as string] = { id: su[0].id, name: su[0].name };
-        } catch (e) { continue; }
-      }
-
-      const storesMap: Record<string, any> = {};
-      for (const stid of storeIds) {
-        try {
-          const su = await db.select().from(stores).where(eq(stores.id, stid as string)).limit(1);
-          if (su[0]) storesMap[stid as string] = { id: su[0].id, name: su[0].name };
-        } catch (e) { continue; }
-      }
-
-      // Fallback: ensure seller/store details are attached by querying commissions/orders/stores per row
-      const result = [] as any[];
-      for (const e of earnings) {
-        let commissionRow: any[] = [];
-        if (e.commissionId) {
-          try {
-            commissionRow = await db.select().from(commissions).where(eq(commissions.id, e.commissionId)).limit(1);
-          } catch (err) {
-            console.warn('Warning: failed to load commission for id', e.commissionId, (err as any)?.message || (err as any));
-            commissionRow = [];
-          }
-        }
-        const commission = commissionRow[0];
-        let sellerName = null;
-        let storeName = null;
-        let sellerIdLocal = commission?.sellerId || null;
-
-        if (sellerIdLocal) {
-          const su = await db.select().from(users).where(eq(users.id, sellerIdLocal)).limit(1);
-          sellerName = su[0]?.name || null;
-        }
-
-        // Try to find store by commission sellerId or order.storeId
-        let storeIdLocal = null;
-        if (commission && commission.sellerId) {
-          const storeRow = await db.select().from(stores).where(eq(stores.primarySellerId, commission.sellerId)).limit(1);
-          if (storeRow[0]) {
-            storeIdLocal = storeRow[0].id;
-            storeName = storeRow[0].name;
-          }
-        }
-        if (!storeName && e.orderId) {
-          const orderRow = await db.select().from(orders).where(eq(orders.id, e.orderId)).limit(1);
-          if (orderRow[0] && orderRow[0].storeId) {
-            const storeRow = await db.select().from(stores).where(eq(stores.id, orderRow[0].storeId)).limit(1);
-            if (storeRow[0]) {
-              storeIdLocal = storeRow[0].id;
-              storeName = storeRow[0].name;
-            }
-          }
-        }
-
-        result.push({
-          id: e.id,
-          orderId: e.orderId,
-          orderNumber: e.orderNumber || null,
-          orderCreatedAt: e.orderCreatedAt || null,
-          commissionId: e.commissionId,
-          amount: e.amount,
-          type: e.type,
-          description: e.description,
-          createdAt: e.createdAt,
-          sellerId: sellerIdLocal,
-          sellerName,
-          storeId: storeIdLocal,
-          storeName,
-        });
-      }
-
-      res.json(result);
+      res.json(earnings);
     } catch (error: any) {
       console.error('ERROR /api/admin/platform-earnings', error?.stack || error);
       res.status(400).json({ error: error.message });
@@ -12796,7 +12715,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isExternalRiderSystemEnabled: settings.isExternalRiderSystemEnabled === true,
         showCheckoutDeliveryMap: settings.showCheckoutDeliveryMap !== false,
         allowPickupAgentAdminChat: settings.allowPickupAgentAdminChat !== false,
-        allowPickupAgentAdminChat: settings.allowPickupAgentAdminChat !== false,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
         paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
         cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret ?? undefined, process.env.CLOUDINARY_API_SECRET),
@@ -13460,7 +13378,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           metadata: {
             promotionApplicationId: application.id,
             status: "payment_confirmed",
-          },
+          } as any,
         });
       }
 
@@ -13502,7 +13420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           metadata: {
             promotionApplicationId: application.id,
             status: "rejected",
-          },
+          } as any,
         });
       }
 
@@ -13566,7 +13484,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             promotionApplicationId: application.id,
             promotionId: createdPromotion.id,
             status: "approved",
-          },
+          } as any,
         });
       }
 
@@ -14018,16 +13936,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } as any)
         .returning();
 
+      const requestUser = req.user as (typeof req.user & { name?: string; phone?: string });
       await notifyAdmins(
         "system",
         "New Seller Promotion Application",
-        `${user.name || user.email || "Seller"} requested a ${type} promotion for ${targetName}. Contact the seller to facilitate payment.`,
+        `${requestUser.name || user.email || "Seller"} requested a ${type} promotion for ${targetName}. Contact the seller to facilitate payment.`,
         {
           promotionApplicationId: application.id,
           sellerId: user.id,
-          sellerName: user.name,
+          sellerName: requestUser.name,
           sellerEmail: user.email,
-          sellerPhone: user.phone,
+          sellerPhone: requestUser.phone,
           type,
           targetId,
           targetName,
@@ -14053,7 +13972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           promotionApplicationId: application.id,
           targetName,
           totalPrice: totalPrice.toFixed(2),
-        },
+        } as any,
       });
 
       res.json(await buildPromotionApplicationResponse(application));
@@ -15273,7 +15192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             message: `A settlement of ${updated.amount} has been sent to your payout account.`,
             metadata: {
               payoutId: updated.id,
-            },
+            } as any,
           });
 
           const admins = await storage.getUsersByRole("admin");
@@ -15288,7 +15207,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 metadata: {
                   payoutId: updated.id,
                   sellerId: updated.sellerId,
-                },
+                } as any,
               })
             )
           );
@@ -15326,10 +15245,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const successfulDeliveryFilter = sql`lower(cast(${orders.status} as text)) in ('delivered', 'completed')`;
         const pickupMethodFilter = sql`lower(cast(${orders.deliveryMethod} as text)) in ('pickup', 'store_pickup')`;
 
-        const [orderTotals, userTotals, commissionTotals, receivedMoneyTotals, successfulTotals] = await Promise.all([
+        const [orderTotals, userTotals, commissionTotals, promotionTotals, receivedMoneyTotals, successfulTotals] = await Promise.all([
           db.select({ count: sql<number>`count(*)` }).from(orders),
           db.select({ count: sql<number>`count(*)` }).from(users),
           db.select({ total: sql<number>`coalesce(sum(${commissions.commissionAmount}::numeric), 0)` }).from(commissions),
+          db
+            .select({ total: sql<number>`coalesce(sum(${promotionApplications.totalPrice}::numeric), 0)` })
+            .from(promotionApplications)
+            .where(and(eq(promotionApplications.paymentConfirmed, true), isNotNull(promotionApplications.approvedAt))),
           db.select({ total: sql<number>`coalesce(sum(${orders.total}::numeric), 0)` }).from(orders).where(paidStatusFilter),
           db.select({
             deliveries: sql<number>`coalesce(sum(case when not (${pickupMethodFilter}) and ${successfulDeliveryFilter} then 1 else 0 end), 0)`,
@@ -15337,10 +15260,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }).from(orders),
         ]);
 
+        const commissionRevenue = Number(commissionTotals[0]?.total ?? 0);
+        const promotionRevenue = Number(promotionTotals[0]?.total ?? 0);
+
         res.json({
           totalOrders: Number(orderTotals[0]?.count ?? 0),
           totalUsers: Number(userTotals[0]?.count ?? 0),
-          totalRevenue: Number(commissionTotals[0]?.total ?? 0),
+          totalRevenue: commissionRevenue + promotionRevenue,
+          platformCommissionTotal: commissionRevenue,
+          promotionRevenueTotal: promotionRevenue,
+          platformRevenueTotal: commissionRevenue + promotionRevenue,
           totalReceivedMoney: Number(receivedMoneyTotals[0]?.total ?? 0),
           deliveries: Number(successfulTotals[0]?.deliveries ?? 0),
           successfulPickups: Number(successfulTotals[0]?.pickups ?? 0),

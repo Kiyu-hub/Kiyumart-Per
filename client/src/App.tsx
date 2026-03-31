@@ -317,6 +317,7 @@ function Router() {
 
 function App() {
   const [isAppReady, setIsAppReady] = React.useState(false);
+  const backendRecoveredRef = React.useRef(true);
 
   React.useEffect(() => {
     // Initialize app - preload critical resources and detect backend availability
@@ -361,6 +362,46 @@ function App() {
     };
 
     initializeApp();
+  }, []);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const recoverPlatformData = async () => {
+      await Promise.allSettled([
+        queryClient.invalidateQueries(),
+        queryClient.refetchQueries({ type: "active" }),
+      ]);
+    };
+
+    const checkBackendHealth = async () => {
+      try {
+        const response = await fetch("/api/health", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const isHealthy = response.ok;
+
+        if (isHealthy && !backendRecoveredRef.current && isMounted) {
+          backendRecoveredRef.current = true;
+          await recoverPlatformData();
+        } else if (!isHealthy) {
+          backendRecoveredRef.current = false;
+        }
+      } catch {
+        backendRecoveredRef.current = false;
+      }
+    };
+
+    checkBackendHealth();
+    const intervalId = window.setInterval(checkBackendHealth, 5000);
+    window.addEventListener("focus", checkBackendHealth);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", checkBackendHealth);
+    };
   }, []);
 
   return (

@@ -905,54 +905,54 @@ export default function AdminSettings() {
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <div className="overflow-hidden rounded-[26px] border border-border/70 bg-card/60 shadow-sm">
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-none bg-transparent p-3 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9">
-              <TabsTrigger value="general" data-testid="tab-general" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-none bg-transparent p-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+              <TabsTrigger value="general" data-testid="tab-general" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Settings2 className="h-4 w-4 mr-2" />
                 General
               </TabsTrigger>
-              <TabsTrigger value="payments" data-testid="tab-payments" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+              <TabsTrigger value="payments" data-testid="tab-payments" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <CreditCard className="h-4 w-4 mr-2" />
                 Payments
               </TabsTrigger>
-              <TabsTrigger value="storage" data-testid="tab-storage" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+              <TabsTrigger value="storage" data-testid="tab-storage" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Cloud className="h-4 w-4 mr-2" />
                 Storage
               </TabsTrigger>
-              <TabsTrigger value="map" data-testid="tab-map" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+              <TabsTrigger value="map" data-testid="tab-map" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Globe className="h-4 w-4 mr-2" />
                 Map
               </TabsTrigger>
-              <TabsTrigger value="contact" data-testid="tab-contact" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+              <TabsTrigger value="contact" data-testid="tab-contact" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Mail className="h-4 w-4 mr-2" />
                 Contact
               </TabsTrigger>
               {user?.role === "super_admin" && (
-                <TabsTrigger value="advanced-features" data-testid="tab-advanced-features" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                <TabsTrigger value="advanced-features" data-testid="tab-advanced-features" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                   <Rocket className="h-4 w-4 mr-2" />
                   Advanced Features
                 </TabsTrigger>
               )}
               {user?.role !== "super_admin" && (
                 <>
-                  <TabsTrigger value="branding" data-testid="tab-branding" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                  <TabsTrigger value="branding" data-testid="tab-branding" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                     <Palette className="h-4 w-4 mr-2" />
                     Branding
                   </TabsTrigger>
-                  <TabsTrigger value="currency" data-testid="tab-currency" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                  <TabsTrigger value="currency" data-testid="tab-currency" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                     <DollarSign className="h-4 w-4 mr-2" />
                     Currency
                   </TabsTrigger>
                 </>
               )}
-              <TabsTrigger value="ads" data-testid="tab-ads" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+              <TabsTrigger value="ads" data-testid="tab-ads" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <ImageIcon className="h-4 w-4 mr-2" />
                 Ads
               </TabsTrigger>
-              <TabsTrigger value="footer" data-testid="tab-footer" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+              <TabsTrigger value="footer" data-testid="tab-footer" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Layers className="h-4 w-4 mr-2" />
                 Footer
               </TabsTrigger>
-              <TabsTrigger value="diagnostics" data-testid="tab-diagnostics" className="min-h-[52px] justify-start rounded-xl border border-transparent px-4 py-3 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+              <TabsTrigger value="diagnostics" data-testid="tab-diagnostics" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Activity className="h-4 w-4 mr-2" />
                 Diagnostics
               </TabsTrigger>

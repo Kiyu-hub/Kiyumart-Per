@@ -10,5 +10,6 @@ if /i "%BACKEND_ALREADY_RUNNING%"=="RUNNING" (
   exit /b 0
 )
 
+set "NODE_ENV=development"
 node --preserve-symlinks --preserve-symlinks-main "%KIYUMART_SAFE_ROOT%\node_modules\tsx\dist\cli.mjs" "%KIYUMART_SAFE_ROOT%\server\index.ts"
 exit /b %ERRORLEVEL%

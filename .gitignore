@@ -8,3 +8,7 @@ vite.config.ts.*
 vite.log
 *.log
 cloudflared.exe
+# Environment variables (CRITICAL: Do not commit secrets!)
+.env
+.env.local
+.env.*.local

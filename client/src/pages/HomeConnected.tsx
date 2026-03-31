@@ -22,7 +22,7 @@ import LocationPrompt from "@/components/LocationPrompt";
 import { Button } from '@/components/ui/button';
 import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 import type { PlatformSettings } from "@shared/schema";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 
 import heroImage from "@assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png";
 
@@ -543,7 +543,10 @@ export default function HomeConnected() {
                 </div>
 
               {featuredProductsLoading ? (
-                <div className="text-center py-12">Loading products...</div>
+                <div className="flex items-center justify-center py-12 text-muted-foreground">
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
+                  <span>Loading products...</span>
+                </div>
               ) : filteredFeaturedProducts.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   {searchQuery
@@ -597,7 +600,10 @@ export default function HomeConnected() {
                   </div>
 
                   {newArrivalProductsLoading ? (
-                    <div className="text-center py-12">Loading products...</div>
+                    <div className="flex items-center justify-center py-12 text-muted-foreground">
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
+                      <span>Loading products...</span>
+                    </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
                       {visibleNewArrivalProducts.map((product) => {
@@ -640,7 +646,10 @@ export default function HomeConnected() {
                 </div>
 
                 {productsLoading ? (
-                  <div className="text-center py-12">Loading products...</div>
+                  <div className="flex items-center justify-center py-12 text-muted-foreground">
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
+                    <span>Loading products...</span>
+                  </div>
                 ) : filteredProducts.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
                     {searchQuery ? `No products found matching "${searchQuery}"` : "No products available in this store yet."}

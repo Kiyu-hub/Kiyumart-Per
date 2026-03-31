@@ -34,6 +34,7 @@ interface PlatformSettings {
   showWhatsapp?: boolean;
   footerDescription: string;
   isMultiVendor?: boolean;
+  allowRiderRegistration?: boolean;
 }
 
 interface FooterPageItem {

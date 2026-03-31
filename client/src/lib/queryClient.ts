@@ -1,5 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+const API_CANDIDATE_TIMEOUT_MS = 4000;
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -51,11 +53,20 @@ async function fetchWithApiFallback(url: string, init?: RequestInit): Promise<Re
   let lastError: Error | null = null;
 
   for (const candidate of candidates) {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), API_CANDIDATE_TIMEOUT_MS);
+      const signal =
+        init?.signal && typeof AbortSignal !== "undefined" && "any" in AbortSignal
+          ? AbortSignal.any([init.signal, controller.signal])
+          : (init?.signal ?? controller.signal);
       const res = await fetch(candidate, {
         credentials: "include",
+        signal,
         ...init,
       });
+      clearTimeout(timeoutId);
 
       const contentType = res.headers.get("content-type") || "";
       if (contentType.includes("text/html")) {
@@ -68,7 +79,14 @@ async function fetchWithApiFallback(url: string, init?: RequestInit): Promise<Re
 
       return res;
     } catch (error: any) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+      // Ensure each fallback attempt releases its timeout before trying the next candidate.
+      if (timeoutId) clearTimeout(timeoutId);
+      lastError =
+        error instanceof Error
+          ? error.name === "AbortError"
+            ? new Error(`Request timed out after ${API_CANDIDATE_TIMEOUT_MS}ms for ${candidate}`)
+            : error
+          : new Error(String(error));
     }
   }
 
@@ -126,6 +144,7 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
+      refetchOnReconnect: true,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
       retry: false,

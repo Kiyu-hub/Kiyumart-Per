@@ -13,7 +13,7 @@ if (!connectionString) {
 const useNeon = process.env.DB_DRIVER === "neon" || /neon/i.test(connectionString);
 
 const attachPoolErrorHandler = (
-  pool: { on: (event: string, handler: (error: any) => void) => void },
+  pool: { on: (...args: any[]) => any },
   label: string,
 ) => {
   pool.on("error", (error: any) => {

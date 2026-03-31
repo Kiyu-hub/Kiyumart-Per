@@ -25,6 +25,8 @@ interface Analytics {
   totalRevenue: number;
   totalReceivedMoney?: number;
   platformCommissionTotal?: number;
+  promotionRevenueTotal?: number;
+  platformRevenueTotal?: number;
   processingFeesTotal?: number;
   deliveryReserveTotal?: number;
   totalUsers: number;
@@ -32,6 +34,7 @@ interface Analytics {
 
 interface FinanceSummary {
   total?: string;
+  totalRevenue?: string;
   byType?: Record<string, string>;
 }
 
@@ -39,6 +42,9 @@ interface DashboardSummary {
   totalOrders?: number;
   totalUsers?: number;
   totalRevenue?: number;
+  platformCommissionTotal?: number;
+  promotionRevenueTotal?: number;
+  platformRevenueTotal?: number;
   totalReceivedMoney?: number;
   deliveries?: number;
   successfulPickups?: number;
@@ -624,9 +630,12 @@ export default function AdminDashboardConnected() {
   const totalUsersValue = dashboardSummary?.totalUsers ?? analytics?.totalUsers;
   const totalRevenueValue =
     dashboardSummary?.totalRevenue ??
+    dashboardSummary?.platformRevenueTotal ??
+    analytics?.platformRevenueTotal ??
+    (financeSummary?.totalRevenue ? Number(financeSummary.totalRevenue) : undefined) ??
+    analytics?.totalRevenue ??
     analytics?.platformCommissionTotal ??
-    (financeSummary?.byType?.commission ? Number(financeSummary.byType.commission) : undefined) ??
-    analytics?.totalRevenue;
+    (financeSummary?.byType?.commission ? Number(financeSummary.byType.commission) : undefined);
   const paidMoneyFromOrders = orders
     .filter((o) => isPaidPaymentStatus((o as any).paymentStatus))
     .reduce((sum, o) => sum + Number.parseFloat((o as any).total || "0"), 0);

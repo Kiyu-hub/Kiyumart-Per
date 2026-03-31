@@ -18,6 +18,7 @@ import {
   Calendar,
   CreditCard,
   DollarSign,
+  Loader2,
   Percent,
   Receipt,
   RefreshCw,
@@ -30,6 +31,7 @@ import {
 
 type FinanceSummary = {
   total?: string;
+  totalRevenue?: string;
   byType?: Record<string, string>;
 };
 
@@ -105,6 +107,8 @@ export default function AdminPlatformEarnings() {
     data: analytics,
   } = useQuery<{
     platformCommissionTotal?: number;
+    promotionRevenueTotal?: number;
+    platformRevenueTotal?: number;
     processingFeesTotal?: number;
     deliveryReserveTotal?: number;
   }>({
@@ -224,8 +228,8 @@ export default function AdminPlatformEarnings() {
     const byType = summary?.byType || {};
     const commission = num(byType.commission) || num(analytics?.platformCommissionTotal);
     const serviceFee = num(byType.service_fee) || num(analytics?.processingFeesTotal);
-    const promotion = num(byType.promotion) + num(byType.promotion_fee);
-    const total = commission + promotion;
+    const promotion = (num(byType.promotion) + num(byType.promotion_fee)) || num(analytics?.promotionRevenueTotal);
+    const total = num(summary?.totalRevenue) || num(analytics?.platformRevenueTotal) || commission + promotion;
 
     const last7Days = new Date();
     last7Days.setDate(last7Days.getDate() - 7);
@@ -262,7 +266,7 @@ export default function AdminPlatformEarnings() {
       topStoreName: topStore?.[0] || "No store data",
       topStoreValue: topStore?.[1] || 0,
     };
-  }, [analytics?.platformCommissionTotal, analytics?.processingFeesTotal, earningsArray, summary, transactions]);
+  }, [analytics?.platformCommissionTotal, analytics?.platformRevenueTotal, analytics?.processingFeesTotal, analytics?.promotionRevenueTotal, earningsArray, summary, transactions]);
 
   const typeBreakdown = useMemo(() => {
     return [
@@ -370,7 +374,7 @@ export default function AdminPlatformEarnings() {
     return <PageLoadingState title="Loading finance access" description="Preparing the platform earnings workspace." />;
   }
 
-  if (summaryLoading || earningsLoading || transactionsLoading) {
+  if (summaryLoading && !summary) {
     return (
       <DashboardLayout role={user.role as "admin" | "super_admin"} showBackButton>
         <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 py-16 text-center">
@@ -602,7 +606,9 @@ export default function AdminPlatformEarnings() {
                   Earnings Ledger
                 </CardTitle>
                 <CardDescription>
-                  Showing {filteredEarnings.length} visible records from the live platform earnings stream.
+                  {earningsLoading
+                    ? "Loading live platform earnings stream..."
+                    : `Showing ${filteredEarnings.length} visible records from the live platform earnings stream.`}
                 </CardDescription>
               </div>
               {hasFilters ? (
@@ -695,7 +701,15 @@ export default function AdminPlatformEarnings() {
           </CardHeader>
 
           <CardContent>
-            {filteredEarnings.length === 0 ? (
+            {earningsLoading ? (
+              <div className="py-14 text-center">
+                <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-primary" />
+                <p className="text-base font-medium">Loading platform earnings ledger...</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Pulling the latest commission, promotion, and fee rows.
+                </p>
+              </div>
+            ) : filteredEarnings.length === 0 ? (
               <div className="py-14 text-center">
                 <Receipt className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
                 <p className="text-base font-medium">
@@ -755,7 +769,12 @@ export default function AdminPlatformEarnings() {
             <CardDescription>Recent payment attempts and completed payment records linked to the platform flow.</CardDescription>
           </CardHeader>
           <CardContent>
-            {!Array.isArray(transactions) || transactions.length === 0 ? (
+            {transactionsLoading ? (
+              <div className="py-12 text-center">
+                <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-primary" />
+                <p className="text-base font-medium">Loading recent transactions...</p>
+              </div>
+            ) : !Array.isArray(transactions) || transactions.length === 0 ? (
               <div className="py-12 text-center">
                 <CreditCard className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
                 <p className="text-base font-medium">No transactions recorded yet.</p>

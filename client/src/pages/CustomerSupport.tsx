@@ -1292,9 +1292,9 @@ export default function CustomerSupport() {
                                   {conv.unreadCount}
                                 </Badge>
                               )}
-                              <span className={`${getStatusBadgeClass(normalizedConversationStatus)} whitespace-nowrap`}>
+                              <Badge className={`${getStatusBadgeClass(normalizedConversationStatus)} whitespace-nowrap`}>
                                 {getStatusLabel(normalizedConversationStatus)}
-                              </span>
+                              </Badge>
                             </div>
                           </div>
                           {isSupportStaff && (
@@ -1308,7 +1308,7 @@ export default function CustomerSupport() {
                               </p>
                             </div>
                           )}
-                          <p className="text-xs text-muted-foreground truncate mb-1">
+                          <p className="mb-1 text-xs text-muted-foreground whitespace-pre-wrap break-words line-clamp-3">
                             {(() => {
                               const attachment = parseAttachmentMessage(conv.lastMessage || "");
                               if (!attachment) return conv.lastMessage;
@@ -1361,9 +1361,9 @@ export default function CustomerSupport() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h2 className="font-semibold truncate">{selectedConv.subject}</h2>
-                          <span className={`${getStatusBadgeClass(normalizeSupportStatus(selectedConv.status))} whitespace-nowrap`}>
+                          <Badge className={`${getStatusBadgeClass(normalizeSupportStatus(selectedConv.status))} whitespace-nowrap`}>
                             {getStatusLabel(normalizeSupportStatus(selectedConv.status))}
-                          </span>
+                          </Badge>
                         </div>
                         <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {isPeerTyping ? (

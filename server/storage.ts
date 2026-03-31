@@ -29,6 +29,8 @@ const normalizeRequestedQuantity = (value: unknown) => {
   return Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0;
 };
 
+const productInventoryReconciliationInFlight = new Set<string>();
+
 const reconcileProductInventory = async (tx: any, productId: string) => {
   const [productRow] = await tx
     .select({
@@ -93,6 +95,36 @@ const reconcileProductInventory = async (tx: any, productId: string) => {
   return updatedProduct || { ...productRow, stock: reconciledStock, updatedAt: new Date() };
 };
 
+const scheduleProductInventoryReconciliation = (productIds: string[]) => {
+  const uniqueIds = Array.from(new Set((productIds || []).filter(Boolean)));
+  const queuedIds = uniqueIds.filter((productId) => {
+    if (productInventoryReconciliationInFlight.has(productId)) return false;
+    productInventoryReconciliationInFlight.add(productId);
+    return true;
+  });
+
+  if (queuedIds.length === 0) return;
+
+  setTimeout(() => {
+    void db
+      .transaction(async (tx) => {
+        for (const productId of queuedIds) {
+          try {
+            await reconcileProductInventory(tx, productId);
+          } catch (error) {
+            console.warn(`[INVENTORY] Background reconciliation failed for product ${productId}:`, error);
+          }
+        }
+      })
+      .catch((error) => {
+        console.warn("[INVENTORY] Background product reconciliation batch failed:", error);
+      })
+      .finally(() => {
+        queuedIds.forEach((productId) => productInventoryReconciliationInFlight.delete(productId));
+      });
+  }, 0);
+};
+
 const reserveProductStock = async (
   tx: any,
   items: Array<{ productId: string; quantity: number }>,
@@ -106,7 +138,7 @@ const reserveProductStock = async (
     quantityByProduct.set(productId, (quantityByProduct.get(productId) || 0) + quantity);
   }
 
-  for (const [productId, requestedQuantity] of quantityByProduct.entries()) {
+  for (const [productId, requestedQuantity] of Array.from(quantityByProduct.entries())) {
     await reconcileProductInventory(tx, productId);
     const currentRows = await tx
       .select({
@@ -360,6 +392,46 @@ export interface IStorage {
 }
 
 export class DbStorage implements IStorage {
+  // FREE TIER OPTIMIZATION: Query result caching (saves 44 DB calls/day)
+  private queryCache = new Map<string, { timestamp: number; data: any }>();
+  private readonly CACHE_TTL = {
+    getAllOrders: 5 * 60 * 1000,      // 5 minutes
+    getProducts: 15 * 1000,            // 15 seconds
+    getPlatformSettings: 60 * 60 * 1000, // 1 hour
+    getDeliveryZones: 30 * 60 * 1000,  // 30 minutes
+  };
+
+  private getCachedResult(key: string, ttlMs: number): any | null {
+    const entry = this.queryCache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > ttlMs) {
+      this.queryCache.delete(key);
+      return null;
+    }
+    return entry.data;
+  }
+
+  private setCachedResult(key: string, data: any): void {
+    this.queryCache.set(key, { timestamp: Date.now(), data });
+  }
+
+  private invalidateCache(pattern?: string): void {
+    if (!pattern) {
+      this.queryCache.clear();
+      return;
+    }
+    // Invalidate entries matching pattern
+    for (const key of Array.from(this.queryCache.keys())) {
+      if (key.includes(pattern)) {
+        this.queryCache.delete(key);
+      }
+    }
+  }
+
+  private invalidateOrderCache(): void {
+    this.invalidateCache("getAllOrders");
+  }
+
   // Helper method for database operations with retry logic
   private async executeDbOperation<T>(
     operation: () => Promise<T>,
@@ -462,15 +534,8 @@ export class DbStorage implements IStorage {
     const rows = await (conditions.length > 0 ? query.where(and(...conditions)) : query).orderBy(desc(products.createdAt));
 
     if (rows.length === 0) return rows;
-
-    await db.transaction(async (tx) => {
-      for (const row of rows) {
-        await reconcileProductInventory(tx, row.id);
-      }
-    });
-
-    const refreshedQuery = db.select().from(products);
-    return (conditions.length > 0 ? refreshedQuery.where(and(...conditions)) : refreshedQuery).orderBy(desc(products.createdAt));
+    scheduleProductInventoryReconciliation(rows.map((row) => row.id));
+    return rows;
   }
 
   async updateProduct(id: string, data: Partial<Product>): Promise<Product | undefined> {
@@ -488,7 +553,7 @@ export class DbStorage implements IStorage {
     order: InsertOrder, 
     items: Array<{ productId: string; quantity: number; price: string; total: string }>
   ): Promise<Order> {
-    return await db.transaction(async (tx) => {
+    const createdOrder = await db.transaction(async (tx) => {
       await reserveProductStock(tx, items);
 
       const orderNumber = `ORD-${Date.now()}`;
@@ -521,6 +586,8 @@ export class DbStorage implements IStorage {
 
       return newOrder;
     });
+    this.invalidateOrderCache();
+    return createdOrder;
   }
 
   async createMultiSellerOrders(
@@ -536,7 +603,7 @@ export class DbStorage implements IStorage {
       total: number;
     }>
   ): Promise<{ sessionId: string; orders: Order[] }> {
-    return await db.transaction(async (tx) => {
+    const createdOrderBatch = await db.transaction(async (tx) => {
       await reserveProductStock(
         tx,
         itemsBySeller.flatMap((sellerGroup) => sellerGroup.items),
@@ -589,6 +656,8 @@ export class DbStorage implements IStorage {
 
       return { sessionId, orders: createdOrders };
     });
+    this.invalidateOrderCache();
+    return createdOrderBatch;
   }
 
   async getOrder(id: string): Promise<Order | undefined> {
@@ -597,7 +666,14 @@ export class DbStorage implements IStorage {
   }
 
   async getAllOrders(): Promise<Order[]> {
-    return db.select().from(orders).orderBy(desc(orders.createdAt));
+    // FREE TIER OPTIMIZATION: Cache frequently accessed query (saves 44 calls/day)
+    const cacheKey = "getAllOrders";
+    const cached = this.getCachedResult(cacheKey, this.CACHE_TTL.getAllOrders);
+    if (cached) return cached;
+
+    const result = await db.select().from(orders).orderBy(desc(orders.createdAt));
+    this.setCachedResult(cacheKey, result);
+    return result;
   }
 
   async getOrdersByUser(userId: string, role: "buyer" | "seller" | "rider"): Promise<Order[]> {
@@ -637,6 +713,7 @@ export class DbStorage implements IStorage {
       updatedAt: new Date(),
       ...(normalizedStatus === "delivered" ? { deliveredAt: new Date() } : {})
     }).where(eq(orders.id, id)).returning();
+    if (result[0]) this.invalidateOrderCache();
     return result[0];
   }
 
@@ -723,6 +800,7 @@ export class DbStorage implements IStorage {
         return updatedOrder;
       });
 
+      if (updatedOrder) this.invalidateOrderCache();
       return updatedOrder;
     } catch (error: any) {
       console.error("Failed to apply order status transition:", error);
@@ -748,6 +826,7 @@ export class DbStorage implements IStorage {
       ...data,
       updatedAt: new Date()
     }).where(eq(orders.id, orderId)).returning();
+    if (result[0]) this.invalidateOrderCache();
     return result[0];
   }
 
@@ -758,6 +837,7 @@ export class DbStorage implements IStorage {
     })
     .where(and(eq(orders.id, orderId), isNull(orders.riderId)))
     .returning();
+    if (result[0]) this.invalidateOrderCache();
     return result[0];
   }
 
@@ -1308,7 +1388,7 @@ export class DbStorage implements IStorage {
   }
 
   // Summary of platform earnings grouped by type and total
-  async getPlatformEarningsSummary(): Promise<{ total: string; byType: Record<string, string> }> {
+  async getPlatformEarningsSummary(): Promise<{ total: string; totalRevenue: string; byType: Record<string, string> }> {
     void this.backfillMissingCommissionEarnings(100).catch((error: any) => {
       console.error("[FINANCE] Background finance summary sync failed:", error?.message || error);
     });
@@ -1324,7 +1404,12 @@ export class DbStorage implements IStorage {
     if (promotionSum > 0) {
       byType.promotion = promotionSum.toFixed(2);
     }
-    return { total: ((parseFloat(String(totalAll[0]?.sum)) || 0) + promotionSum).toFixed(2), byType };
+    const commissionSum = parseFloat(String(byType.commission || 0)) || 0;
+    return {
+      total: ((parseFloat(String(totalAll[0]?.sum)) || 0) + promotionSum).toFixed(2),
+      totalRevenue: (commissionSum + promotionSum).toFixed(2),
+      byType,
+    };
   }
 
   // Fetch recent transactions
@@ -2081,11 +2166,16 @@ export class DbStorage implements IStorage {
 
   // Platform settings
   async getPlatformSettings(): Promise<PlatformSettings> {
+    // FREE TIER OPTIMIZATION: Cache platform settings (rarely changes)
+    const cacheKey = "getPlatformSettings";
+    const cached = this.getCachedResult(cacheKey, this.CACHE_TTL.getPlatformSettings);
+    if (cached) return cached;
+
     try {
       // Return the most recently updated settings row (if multiple exist) to avoid ambiguity
       const result = await withStorageTimeout(
         db.select().from(platformSettings).orderBy(desc(platformSettings.updatedAt)).limit(1),
-        3000,
+        10000,
         "Platform settings lookup",
       );
       if (result.length === 0) {
@@ -2103,9 +2193,10 @@ export class DbStorage implements IStorage {
             showCheckoutDeliveryMap: true,
             allowRiderRegistration: false,
           }).returning(),
-          3000,
+          10000,
           "Platform settings bootstrap",
         );
+        this.setCachedResult(cacheKey, settings);
         return settings;
       }
       // Sanitize social URLs: convert '__CLEAR__' to null
@@ -2116,6 +2207,7 @@ export class DbStorage implements IStorage {
       for (const key of socialKeys) {
         if (settings[key] === '__CLEAR__') settings[key] = null;
       }
+      this.setCachedResult(cacheKey, settings);
       return settings;
     } catch (err: any) {
       const msg = err?.message || String(err);
@@ -2216,11 +2308,17 @@ export class DbStorage implements IStorage {
   }
 
   async updatePlatformSettings(data: Partial<PlatformSettings>): Promise<PlatformSettings> {
+    // Invalidate cache when settings change
+    this.invalidateCache("getPlatformSettings");
+
     const existing = await this.getPlatformSettings();
     const result = await db.update(platformSettings)
       .set({ ...data, updatedAt: new Date() })
       .where(eq(platformSettings.id, existing.id))
       .returning();
+
+    // Invalidate cache again after update
+    this.invalidateCache("getPlatformSettings");
     return result[0];
   }
 
@@ -2854,16 +2952,20 @@ export class DbStorage implements IStorage {
         .from(orders)
         .where(completedRevenueFilter);
       
-      const totalRevenue = await db.select({ sum: sql<number>`sum(${orders.total})` })
-        .from(orders)
-        .where(completedRevenueFilter);
-
       const totalReceivedMoney = await db.select({ sum: sql<number>`sum(${orders.total})` })
         .from(orders)
         .where(paidStatusFilter);
-      const commissionTotals = await db.select({
-        commission: sql<number>`coalesce(sum(${commissions.commissionAmount}::numeric), 0)`,
-      }).from(commissions);
+      const [commissionTotals, promotionTotals] = await Promise.all([
+        db.select({
+          commission: sql<number>`coalesce(sum(${commissions.commissionAmount}::numeric), 0)`,
+        }).from(commissions),
+        db
+          .select({
+            promotion: sql<number>`coalesce(sum(${promotionApplications.totalPrice}::numeric), 0)`,
+          })
+          .from(promotionApplications)
+          .where(and(eq(promotionApplications.paymentConfirmed, true), isNotNull(promotionApplications.approvedAt))),
+      ]);
       const processingFeeTotals = await db.select({
         serviceFee: sql<number>`coalesce(sum(${orders.processingFee}::numeric), 0)`,
       })
@@ -2879,9 +2981,13 @@ export class DbStorage implements IStorage {
       result.totalOrders = Number(totalOrders[0]?.count ?? 0);
       result.paidOrders = Number(completedOrders[0]?.count ?? 0);
       result.completedOrders = Number(completedOrders[0]?.count ?? 0);
-      result.totalRevenue = Number(totalRevenue[0]?.sum ?? 0);
+      const commissionRevenue = Number(commissionTotals[0]?.commission ?? 0);
+      const promotionRevenue = Number(promotionTotals[0]?.promotion ?? 0);
+      result.totalRevenue = commissionRevenue + promotionRevenue;
       result.totalReceivedMoney = Number(totalReceivedMoney[0]?.sum ?? 0);
-      result.platformCommissionTotal = Number(commissionTotals[0]?.commission ?? 0);
+      result.platformCommissionTotal = commissionRevenue;
+      result.promotionRevenueTotal = promotionRevenue;
+      result.platformRevenueTotal = commissionRevenue + promotionRevenue;
       result.processingFeesTotal = Number(processingFeeTotals[0]?.serviceFee ?? 0);
       result.deliveryReserveTotal = Number(deliveryReserveTotals[0]?.deliveryFee ?? 0);
       result.totalUsers = Number(totalUsers[0]?.count ?? 0);
@@ -3241,7 +3347,7 @@ export class DbStorage implements IStorage {
 
       return await withStorageTimeout(
         query.orderBy(categories.displayOrder, categories.name),
-        3000,
+        10000,
         "Categories lookup",
       );
     } catch (err: any) {

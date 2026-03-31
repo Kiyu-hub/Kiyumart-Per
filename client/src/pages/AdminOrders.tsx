@@ -843,7 +843,7 @@ export default function AdminOrders() {
     refetchInterval: 30000, // Refetch every 30 seconds as fallback
   });
 
-  const { data: analytics } = useQuery<{ totalRevenue?: number }>({
+  const { data: analytics } = useQuery<{ totalRevenue?: number; platformCommissionTotal?: number; promotionRevenueTotal?: number; platformRevenueTotal?: number }>({
     queryKey: ["/api/analytics"],
     queryFn: async () => {
       const res = await fetch("/api/analytics", { credentials: "include" });
@@ -926,16 +926,60 @@ export default function AdminOrders() {
       delivered: allOrders.filter(o => !isPickupOrderMethod(o.deliveryMethod) && ["delivered", "completed"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
       pickups: allOrders.filter(o => isPickupOrderMethod(o.deliveryMethod) && ["delivered", "completed"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
       cancelled: allOrders.filter(o => getEffectiveOrderStatus(o, showInternalRiderFeatures) === "cancelled").length,
-      totalRevenue: allOrders
-        .filter(o => normalizePaymentStatus(o.paymentStatus) === "paid")
-        .reduce((sum, o) => sum + Number(o.total || 0), 0),
+      totalRevenue: Number(analytics?.platformRevenueTotal ?? analytics?.totalRevenue ?? analytics?.platformCommissionTotal ?? 0),
       todayOrders: allOrders.filter(o => new Date(o.createdAt) >= today).length,
     };
-  }, [allOrders, showInternalRiderFeatures]);
+  }, [allOrders, analytics?.platformCommissionTotal, analytics?.platformRevenueTotal, analytics?.totalRevenue, showInternalRiderFeatures]);
 
   // Separate admin's personal orders (where admin is the buyer)
   const myOrders = useMemo(() => 
     allOrders.filter(o => o.buyerId === user?.id), [allOrders, user?.id]);
+
+  const orderFlowTabs = useMemo(() => {
+    const baseOrders = activeTab === "my-orders" ? myOrders : allOrders;
+    const countByMatcher = (matcher: (order: Order) => boolean) => baseOrders.filter(matcher).length;
+
+    return [
+      { value: "all", label: "All Flow", count: baseOrders.length },
+      {
+        value: "pending",
+        label: "Pending",
+        count: countByMatcher((order) => getEffectiveOrderStatus(order, showInternalRiderFeatures) === "pending"),
+      },
+      {
+        value: "processing",
+        label: "Processing",
+        count: countByMatcher((order) =>
+          ["processing", "confirmed", "ready", "packaged", "external_dispatch_arranged"].includes(
+            getEffectiveOrderStatus(order, showInternalRiderFeatures),
+          ),
+        ),
+      },
+      {
+        value: "in_transit",
+        label: showInternalRiderFeatures ? "En Route" : "In Progress",
+        count: countByMatcher((order) =>
+          ["picked_up", "in_transit", "en_route", "arrived"].includes(
+            getEffectiveOrderStatus(order, showInternalRiderFeatures),
+          ),
+        ),
+      },
+      {
+        value: "completed",
+        label: "Completed",
+        count: countByMatcher((order) => {
+          const effective = getEffectiveOrderStatus(order, showInternalRiderFeatures);
+          const current = normalizeOrderStatusValue(order.status);
+          return ["completed", "delivered"].includes(effective) || ["completed", "delivered"].includes(current);
+        }),
+      },
+      {
+        value: "cancelled",
+        label: "Cancelled",
+        count: countByMatcher((order) => getEffectiveOrderStatus(order, showInternalRiderFeatures) === "cancelled"),
+      },
+    ];
+  }, [activeTab, allOrders, myOrders, showInternalRiderFeatures]);
 
   // Recent orders (last 24 hours)
   const recentOrders = useMemo(() => {
@@ -994,6 +1038,9 @@ export default function AdminOrders() {
         const current = normalizeOrderStatusValue(o.status);
         const effective = getEffectiveOrderStatus(o, showInternalRiderFeatures);
         if (target === "delivered") return ["delivered", "completed"].includes(current);
+        if (target === "completed") {
+          return ["completed", "delivered"].includes(current) || ["completed", "delivered"].includes(effective);
+        }
         if (target === "in_transit") return ["in_transit", "en_route"].includes(current);
         if (target === "external_dispatch_arranged") return current === "external_dispatch_arranged";
         if (target === "pending") return effective === "pending";
@@ -1224,6 +1271,25 @@ export default function AdminOrders() {
           </TabsList>
 
           <div className="mt-4">
+            <div className="mb-4 flex flex-wrap gap-2">
+              {orderFlowTabs.map((tab) => {
+                const isActive = statusFilter === tab.value || (tab.value === "all" && statusFilter === "all");
+                return (
+                  <Button
+                    key={tab.value}
+                    type="button"
+                    variant={isActive ? "default" : "outline"}
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => setStatusFilter(tab.value)}
+                    data-testid={`button-order-flow-${tab.value}`}
+                  >
+                    {tab.label} ({tab.count})
+                  </Button>
+                );
+              })}
+            </div>
+
             {/* Search and Filter */}
             <div className="flex flex-col sm:flex-row gap-3 mb-4">
               <div className="relative flex-1">

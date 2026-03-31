@@ -141,7 +141,7 @@ export async function runPayoutWorker(io?: any) {
             amountKobo,
             recipient: recipientCode,
             reason: payout.notes || 'Seller payout',
-            reference: transferReference || payout.reference,
+            reference: transferReference || payout.reference || undefined,
           }, secret);
           const transferStatus = String(transferRes?.data?.status || '').toLowerCase().trim();
 

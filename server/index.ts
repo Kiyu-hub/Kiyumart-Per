@@ -8,12 +8,13 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import { setupVite, serveStatic, log, DIST_PUBLIC_PATH } from "./vite";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
 const app = express();
 let processLevelGuardsInstalled = false;
+let frontendReady = false;
 
 function installProcessLevelGuards() {
   if (processLevelGuardsInstalled) return;
@@ -107,9 +108,16 @@ app.use(cors({
     if (allowedOrigins.some(allowed => origin.startsWith(allowed.replace(/\/$/, '')))) {
       return callback(null, true);
     }
-    // In production, also allow any netlify.app subdomain
-    if (origin.includes('.netlify.app')) {
-      return callback(null, true);
+    // In production, ONLY allow exact Netlify domain to prevent subdomain takeovers
+    if (process.env.NODE_ENV === 'production') {
+      if (origin === 'https://kiyumart.netlify.app') {
+        return callback(null, true);
+      }
+    } else {
+      // In development, allow any *.netlify.app for flexibility
+      if (origin.includes('.netlify.app')) {
+        return callback(null, true);
+      }
     }
     callback(new Error('Not allowed by CORS'));
   },
@@ -160,6 +168,43 @@ app.use((req, res, next) => {
     res.status(408).json({ error: "Request timeout after 30 seconds" });
   });
   next();
+});
+
+app.use((req, res, next) => {
+  if (frontendReady) return next();
+  if (req.originalUrl.startsWith("/api") || req.originalUrl.startsWith("/socket.io")) return next();
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+
+  res
+    .status(503)
+    .type("html")
+    .send(`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="refresh" content="2" />
+    <title>Loading KiyuMart</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0f172a; color: #e5e7eb; font-family: Arial, sans-serif; }
+      .card { max-width: 420px; padding: 24px 28px; border: 1px solid rgba(255,255,255,0.1); border-radius: 18px; background: rgba(15, 23, 42, 0.92); text-align: center; box-shadow: 0 20px 45px rgba(0,0,0,0.35); }
+      .spinner { width: 32px; height: 32px; margin: 0 auto 16px; border: 3px solid rgba(255,255,255,0.18); border-top-color: #10b981; border-radius: 999px; animation: spin 0.9s linear infinite; }
+      h1 { margin: 0 0 10px; font-size: 22px; }
+      p { margin: 0; color: #cbd5e1; line-height: 1.5; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="spinner"></div>
+      <h1>Loading KiyuMart</h1>
+      <p>Please wait a moment. This page will reload automatically when everything is ready.</p>
+    </div>
+    <script>
+      setTimeout(function () { window.location.reload(); }, 1800);
+    </script>
+  </body>
+</html>`);
 });
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -222,7 +267,11 @@ const apiLimiter = rateLimit({
     const token = req.headers.authorization?.replace('Bearer ', '');
     if (token) {
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as any;
+        const secret = process.env.JWT_SECRET;
+        if (!secret) {
+          throw new Error('[FATAL] JWT_SECRET not configured. This is required in production.');
+        }
+        const decoded = jwt.verify(token, secret) as any;
         
         // Role-based limits (per IP address)
         switch (decoded.role) {
@@ -655,6 +704,7 @@ app.use(cookieParser());
   if (app.get("env") === "development") {
     try {
       await setupVite(app, server);
+      frontendReady = true;
 
       // In development, Vite's HMR injects inline scripts which can be blocked by strict CSP.
       // Set a permissive CSP for dev to allow inline and eval needed by dev tools.
@@ -666,12 +716,13 @@ app.use(cookieParser());
         next();
       });
     } catch (viteError: any) {
-      const fallbackDistPath = path.resolve(import.meta.dirname, "public");
+      const fallbackDistPath = DIST_PUBLIC_PATH;
       console.error("[BOOT] Vite dev middleware failed; continuing without crashing the backend:", viteError?.message || viteError);
 
       if (fs.existsSync(path.resolve(fallbackDistPath, "index.html"))) {
         console.warn("[BOOT] Serving existing built frontend as a fallback while Vite is unavailable.");
         serveStatic(app);
+        frontendReady = true;
       } else {
         app.use("*", (req, res) => {
           if (req.originalUrl.startsWith("/api") || req.originalUrl.startsWith("/socket.io")) {
@@ -690,6 +741,7 @@ app.use(cookieParser());
     }
   } else {
     serveStatic(app);
+    frontendReady = true;
   }
 
   // Start payout worker

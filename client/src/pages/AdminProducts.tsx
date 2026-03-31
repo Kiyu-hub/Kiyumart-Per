@@ -263,41 +263,53 @@ export default function AdminProducts() {
             </div>
           </div>
 
-          <div className="mb-6 space-y-4">
-            <div className="relative max-w-3xl">
-              {isSearching ? (
-                <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground animate-spin" />
-              ) : (
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              )}
-              <Input
-                placeholder="Search stores, products, or categories..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-                data-testid="input-search-products"
-              />
-              {isSearching && (
-                <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-muted-foreground">
-                  Searching...
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <Card className="min-h-[128px] rounded-[20px] border border-border/70 bg-card/95 p-4 shadow-sm">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Visible</p>
-                <p className="mt-2 text-2xl font-semibold text-foreground">{activeProductsCount}</p>
-                <p className="text-sm text-muted-foreground">Active storefront products</p>
+          <div className="mb-5">
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,2.3fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,0.85fr)]">
+              <div className="relative">
+                {isSearching ? (
+                  <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground animate-spin" />
+                ) : (
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                )}
+                <Input
+                  placeholder="Search stores, products, or categories..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-14 pl-10 pr-20 text-base"
+                  data-testid="input-search-products"
+                />
+                {isSearching && (
+                  <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-muted-foreground">
+                    Searching...
+                  </span>
+                )}
+              </div>
+              <Card className="h-14 rounded-[18px] border border-border/70 bg-card/95 px-4 shadow-sm">
+                <div className="flex h-full items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Visible</p>
+                    <p className="truncate text-xs text-muted-foreground">Storefront products</p>
+                  </div>
+                  <p className="text-3xl font-semibold leading-none text-foreground">{activeProductsCount}</p>
+                </div>
               </Card>
-              <Card className="min-h-[128px] rounded-[20px] border border-border/70 bg-card/95 p-4 shadow-sm">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Low Stock</p>
-                <p className="mt-2 text-2xl font-semibold text-amber-600 dark:text-amber-300">{lowStockCount}</p>
-                <p className="text-sm text-muted-foreground">Five units or fewer left</p>
+              <Card className="h-14 rounded-[18px] border border-border/70 bg-card/95 px-4 shadow-sm">
+                <div className="flex h-full items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Low Stock</p>
+                    <p className="truncate text-xs text-muted-foreground">Five or fewer left</p>
+                  </div>
+                  <p className="text-3xl font-semibold leading-none text-amber-600 dark:text-amber-300">{lowStockCount}</p>
+                </div>
               </Card>
-              <Card className="min-h-[128px] rounded-[20px] border border-border/70 bg-card/95 p-4 shadow-sm">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Hidden</p>
-                <p className="mt-2 text-2xl font-semibold text-foreground">{hiddenProductsCount}</p>
-                <p className="text-sm text-muted-foreground">Super-admin hidden items</p>
+              <Card className="h-14 rounded-[18px] border border-border/70 bg-card/95 px-4 shadow-sm">
+                <div className="flex h-full items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Hidden</p>
+                    <p className="truncate text-xs text-muted-foreground">Super-admin items</p>
+                  </div>
+                  <p className="text-3xl font-semibold leading-none text-foreground">{hiddenProductsCount}</p>
+                </div>
               </Card>
             </div>
           </div>
