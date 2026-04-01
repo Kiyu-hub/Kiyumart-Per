@@ -245,7 +245,7 @@ export default function AdminPlatformEarnings() {
 
     const topStoreMap = new Map<string, number>();
     earningsArray.forEach((earning) => {
-      const storeName = String(earning.storeName || "Unknown Store");
+      const storeName = getDisplayStoreName(earning);
       topStoreMap.set(storeName, (topStoreMap.get(storeName) || 0) + num(earning.amount));
     });
 
@@ -369,6 +369,42 @@ export default function AdminPlatformEarnings() {
           minute: "2-digit",
         })
       : "N/A";
+  const getDisplayStoreName = (earning: EarningRow) => {
+    const storeName = String(earning.storeName || "").trim();
+    if (storeName && storeName.toLowerCase() !== "unknown store") return storeName;
+
+    const sellerName = String(earning.sellerName || "").trim();
+    if (sellerName) return `${sellerName}'s Store`;
+
+    const description = String(earning.description || "").trim();
+    if (description) {
+      const promotionMatch = description.match(/for\s+(.+)$/i);
+      if (promotionMatch?.[1]) return promotionMatch[1].trim();
+    }
+
+    return "Unknown Store";
+  };
+  const getEntryReference = (earning: EarningRow) => {
+    const normalizedType = String(earning.type || "").toLowerCase();
+    if (earning.orderNumber || earning.orderId) {
+      return {
+        title: `#${earning.orderNumber || earning.orderId?.slice(0, 8) || "N/A"}`,
+        subtitle: earning.orderCreatedAt ? formatDate(earning.orderCreatedAt) : "Order date unavailable",
+      };
+    }
+    if (normalizedType === "promotion" || normalizedType === "promotion_fee") {
+      const promotionRef = String(earning.id || "").replace(/^promotion-/i, "").slice(0, 8).toUpperCase();
+      return {
+        title: `Promotion ${promotionRef || "ENTRY"}`,
+        subtitle: earning.createdAt ? `Approved ${formatDate(earning.createdAt)}` : "Promotion approval date unavailable",
+      };
+    }
+    const entryRef = String(earning.id || "").slice(0, 8).toUpperCase();
+    return {
+      title: `Entry ${entryRef || "N/A"}`,
+      subtitle: earning.createdAt ? formatDate(earning.createdAt) : "Entry date unavailable",
+    };
+  };
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return <PageLoadingState title="Loading finance access" description="Preparing the platform earnings workspace." />;
@@ -734,25 +770,28 @@ export default function AdminPlatformEarnings() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredEarnings.map((earning) => (
-                      <TableRow key={earning.id} className="hover:bg-muted/20">
-                        <TableCell className="min-w-[150px]">
-                          <p className="font-medium">#{earning.orderNumber || earning.orderId?.slice(0, 8) || "N/A"}</p>
-                          <p className="text-xs text-muted-foreground">{earning.orderCreatedAt ? formatDate(earning.orderCreatedAt) : "Order date unavailable"}</p>
-                        </TableCell>
-                        <TableCell className="min-w-[180px]">
-                          <div className="flex items-center gap-2">
-                            <Store className="h-4 w-4 text-muted-foreground" />
-                            <span>{earning.storeName || "Unknown Store"}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="min-w-[160px] text-sm">{earning.sellerName || earning.sellerId || "Unknown Seller"}</TableCell>
-                        <TableCell>{getTypeBadge(earning.type)}</TableCell>
-                        <TableCell className="min-w-[220px] text-sm text-muted-foreground">{earning.description || "No description provided"}</TableCell>
-                        <TableCell className="text-right font-semibold text-emerald-400">{formatCurrency(earning.amount)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{formatDate(earning.createdAt)}</TableCell>
-                      </TableRow>
-                    ))}
+                    {filteredEarnings.map((earning) => {
+                      const entryReference = getEntryReference(earning);
+                      return (
+                        <TableRow key={earning.id} className="hover:bg-muted/20">
+                          <TableCell className="min-w-[150px]">
+                            <p className="font-medium">{entryReference.title}</p>
+                            <p className="text-xs text-muted-foreground">{entryReference.subtitle}</p>
+                          </TableCell>
+                          <TableCell className="min-w-[180px]">
+                            <div className="flex items-center gap-2">
+                              <Store className="h-4 w-4 text-muted-foreground" />
+                              <span>{getDisplayStoreName(earning)}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="min-w-[160px] text-sm">{earning.sellerName || earning.sellerId || "Unknown Seller"}</TableCell>
+                          <TableCell>{getTypeBadge(earning.type)}</TableCell>
+                          <TableCell className="min-w-[220px] text-sm text-muted-foreground">{earning.description || "No description provided"}</TableCell>
+                          <TableCell className="text-right font-semibold text-emerald-400">{formatCurrency(earning.amount)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{formatDate(earning.createdAt)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

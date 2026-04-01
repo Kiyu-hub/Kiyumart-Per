@@ -4,7 +4,7 @@ import { Mail, Phone, MapPin, ShieldCheck, Truck, CreditCard, Clock, ArrowUp,
 import { FaFacebookF, FaInstagram, FaTwitter, FaLinkedin, FaYoutube, FaTiktok, FaPinterest, FaWhatsapp } from 'react-icons/fa';
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useRoute, useLocation } from "wouter";
+import { useRoute, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import Logo from "@/components/Logo";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
@@ -64,6 +64,24 @@ export default function Footer() {
   const [, navigate] = useLocation();
   const sellerId = match ? params?.id : null;
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
+
+  const navigateInternal = (path: string) => {
+    scrollToTop();
+    navigate(path);
+  };
+
+  const renderInternalLink = (path: string, label: React.ReactNode, className = "hover:text-primary transition-colors") => (
+    <a
+      href={path}
+      onClick={(event) => {
+        event.preventDefault();
+        navigateInternal(path);
+      }}
+      className={className}
+    >
+      {label}
+    </a>
+  );
   
   const { data: settings } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
@@ -160,26 +178,34 @@ export default function Footer() {
 
   // Helper to render a footer page link — uses Wouter <Link> for internal paths to avoid page refresh
   const renderPageLink = (page: FooterPageItem) => {
-    const url = page.url || `/page/${page.slug}`;
-    const isExternal = url.startsWith('http://') || url.startsWith('https://');
-    
-    if (isExternal || page.openInNewTab) {
+    const raw = (page.url || `/page/${page.slug}`).trim();
+    const isProtocol = /^mailto:|^tel:/i.test(raw);
+    const isHttp = /^https?:\/\//i.test(raw) || /^\/\//.test(raw);
+
+    let normalized = raw;
+    if (!isHttp && !isProtocol && !raw.startsWith("#")) {
+      if (!raw.startsWith("/")) normalized = `/${raw}`;
+    }
+
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const isInternal = normalized.startsWith("/") || normalized.startsWith("#") || (origin ? normalized.startsWith(origin) : false);
+
+    if (!isInternal || isProtocol || page.openInNewTab) {
       return (
-        <a 
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
+        <a
+          href={normalized}
+          target={page.openInNewTab || !isInternal ? "_blank" : undefined}
+          rel={page.openInNewTab || !isInternal ? "noopener noreferrer" : undefined}
           className="hover:text-primary transition-colors"
         >
           {page.title}
         </a>
       );
     }
-    return (
-      <Link href={url} onClick={scrollToTop} className="hover:text-primary transition-colors">
-        {page.title}
-      </Link>
-    );
+
+    const href = origin && normalized.startsWith(origin) ? normalized.replace(origin, "") : normalized;
+
+    return renderInternalLink(href, page.title);
   };
 
   // Trust bar items from footer pages (group: trust_bar) OR defaults
@@ -333,14 +359,14 @@ export default function Footer() {
               ) : (
                 /* Default links when no admin pages exist */
                 <>
-                  <li><Link href="/" onClick={scrollToTop} className="hover:text-primary transition-colors">Home</Link></li>
-                  <li><Link href="/products" onClick={scrollToTop} className="hover:text-primary transition-colors">All Products</Link></li>
+                  <li>{renderInternalLink("/", "Home")}</li>
+                  <li>{renderInternalLink("/products", "All Products")}</li>
                   {isMultiVendor && (
                     <>
-                      <li><Link href="/stores" onClick={scrollToTop} className="hover:text-primary transition-colors">Browse Stores</Link></li>
-                      <li><Link href="/become-seller" onClick={scrollToTop} className="hover:text-primary transition-colors">Become a Seller</Link></li>
+                      <li>{renderInternalLink("/stores", "Browse Stores")}</li>
+                      <li>{renderInternalLink("/become-seller", "Become a Seller")}</li>
                       {settings?.allowRiderRegistration && !isExternalRiderSystemEnabled && (
-                        <li><Link href="/become-rider" onClick={scrollToTop} className="hover:text-primary transition-colors">Become a Rider</Link></li>
+                        <li>{renderInternalLink("/become-rider", "Become a Rider")}</li>
                       )}
                     </>
                   )}
@@ -361,15 +387,15 @@ export default function Footer() {
               ) : (
                 /* Default links when no admin pages exist */
                 <>
-                  <li><Link href="/support" onClick={scrollToTop} className="hover:text-primary transition-colors">Customer Support</Link></li>
-                  <li><Link href="/orders" onClick={scrollToTop} className="hover:text-primary transition-colors">Track My Order</Link></li>
-                  <li><Link href="/wishlist" onClick={scrollToTop} className="hover:text-primary transition-colors">My Wishlist</Link></li>
-                  <li><Link href="/profile" onClick={scrollToTop} className="hover:text-primary transition-colors">My Account</Link></li>
+                  <li>{renderInternalLink("/support", "Customer Support")}</li>
+                  <li>{renderInternalLink("/orders", "Track My Order")}</li>
+                  <li>{renderInternalLink("/wishlist", "My Wishlist")}</li>
+                  <li>{renderInternalLink("/profile", "My Account")}</li>
                 </>
               )}
 
               {/* General pages overflow into customer service if present */}
-              {generalPages.map(page => (
+                {generalPages.map(page => (
                 <li key={page.id}>{renderPageLink(page)}</li>
               ))}
             </ul>
@@ -396,18 +422,30 @@ export default function Footer() {
             <div className="mt-6">
               <h5 className="font-bold text-sm mb-2 text-foreground">Quick Access</h5>
               <div className="flex flex-col gap-2">
-                <Link href={isMultiVendor ? "/products" : "/"} onClick={scrollToTop}>
+                <a
+                  href={isMultiVendor ? "/products" : "/"}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    navigateInternal(isMultiVendor ? "/products" : "/");
+                  }}
+                >
                   <Button variant="outline" size="sm" className="w-full text-xs justify-start">
                     <ShieldCheck className="h-3.5 w-3.5 mr-2" />
                     {isMultiVendor ? "Browse All Products" : "Browse Our Products"}
                   </Button>
-                </Link>
+                </a>
                 {!isAuthenticated && (
-                  <Link href="/auth" onClick={scrollToTop}>
+                  <a
+                    href="/auth"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigateInternal("/auth");
+                    }}
+                  >
                     <Button variant="default" size="sm" className="w-full text-xs">
                       Sign Up / Log In
                     </Button>
-                  </Link>
+                  </a>
                 )}
               </div>
             </div>

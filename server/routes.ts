@@ -4882,17 +4882,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Import needed schema and db helpers here so the scope is clear
       const { db } = await import("../db/index");
-      const { sellerPayouts } = await import("@shared/schema");
+      const { sellerPayouts, commissions } = await import("@shared/schema");
       const { eq, sql } = await import("drizzle-orm");
 
       for (const s of sellers) {
         // Aggregates for payouts (use sql templates instead of db.raw)
         const totals = await db.select({
-          totalPaid: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'completed' THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
-          pending: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} IN ('pending', 'processing') THEN ${sellerPayouts.amount} ELSE 0 END), 0)`,
+          totalPaid: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'completed' THEN ${sellerPayouts.amount}::numeric ELSE 0 END), 0)`,
+          pending: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} IN ('pending', 'processing') THEN ${sellerPayouts.amount}::numeric ELSE 0 END), 0)`,
           count: sql`COALESCE(COUNT(*), 0)`,
           lastPayoutAt: sql`MAX(${sellerPayouts.processedAt})`
         }).from(sellerPayouts).where(eq(sellerPayouts.sellerId, s.id));
+
+        const commissionTotals = await db.select({
+          totalPaid: sql`COALESCE(SUM(CASE WHEN ${commissions.status} = 'processed' THEN ${commissions.sellerAmount}::numeric ELSE 0 END), 0)`,
+          pending: sql`COALESCE(SUM(CASE WHEN ${commissions.status} IN ('pending', 'processing') THEN ${commissions.sellerAmount}::numeric ELSE 0 END), 0)`,
+          count: sql`COALESCE(SUM(CASE WHEN ${commissions.status} = 'processed' THEN 1 ELSE 0 END), 0)`,
+          lastPayoutAt: sql`MAX(${commissions.processedAt})`,
+        }).from(commissions).where(eq(commissions.sellerId, s.id));
+
+        const payoutTotalPaid = Number(totals[0]?.totalPaid ?? 0);
+        const payoutPending = Number(totals[0]?.pending ?? 0);
+        const payoutCount = Number(totals[0]?.count ?? 0);
+        const commissionTotalPaid = Number(commissionTotals[0]?.totalPaid ?? 0);
+        const commissionPending = Number(commissionTotals[0]?.pending ?? 0);
+        const commissionCount = Number(commissionTotals[0]?.count ?? 0);
 
         results.push({
           id: s.id,
@@ -4900,10 +4914,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: s.email,
           phone: s.phone,
           isApproved: s.isApproved,
-          totalPaid: (totals[0]?.totalPaid as any) || '0.00',
-          pendingAmount: (totals[0]?.pending as any) || '0.00',
-          payoutCount: (totals[0]?.count as any) || 0,
-          lastPayoutAt: totals[0]?.lastPayoutAt || null
+          totalPaid: Math.max(payoutTotalPaid, commissionTotalPaid).toFixed(2),
+          pendingAmount: Math.max(payoutPending, commissionPending).toFixed(2),
+          payoutCount: Math.max(payoutCount, commissionCount),
+          lastPayoutAt: totals[0]?.lastPayoutAt || commissionTotals[0]?.lastPayoutAt || null
         });
       }
       res.json(results);
@@ -8577,6 +8591,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const actorRole = req.user!.role;
       const actorId = req.user!.id;
       const isAdminActor = actorRole === "admin" || actorRole === "super_admin";
+      const adminBlockedManualStatuses = new Set([
+        "confirmed",
+        "processing",
+        "ready",
+        "packaged",
+        "searching_rider",
+      ]);
+      const externalManualFlowStatuses = new Set([
+        "external_dispatch_arranged",
+        "en_route",
+        "delivered",
+        "completed",
+      ]);
       if (!isAdminActor) {
         const isStakeholder =
           (actorRole === "buyer" && order.buyerId === actorId) ||
@@ -8585,6 +8612,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!isStakeholder) {
           return res.status(403).json({ error: "Unauthorized to update this order status" });
         }
+      }
+
+      if (isAdminActor && adminBlockedManualStatuses.has(normalizedStatus)) {
+        return res.status(409).json({
+          error: "Admin users cannot manually set seller or payment-gated workflow statuses. Use payment verification, seller actions, or the dedicated delivery actions instead.",
+        });
+      }
+
+      if (isAdminActor && externalRiderSystemEnabled && externalManualFlowStatuses.has(normalizedStatus)) {
+        return res.status(409).json({
+          error: "External rider workflow statuses must use the dedicated admin delivery actions, not the generic status updater.",
+        });
       }
 
       if (isBusDelivery && (normalizedStatus === "completed" || normalizedStatus === "delivered")) {

@@ -2,7 +2,7 @@
 setlocal
 
 call "%~dp0resolve-safe-drive.cmd" || exit /b 1
-cd /d %KIYUMART_SAFE_ROOT% || exit /b 1
+cd /d "%KIYUMART_SAFE_ROOT%" || exit /b 1
 
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$conn = Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if ($conn) { $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue; if ($proc -and $proc.ProcessName -eq 'node') { Write-Output 'RUNNING' } }"`) do set "BACKEND_ALREADY_RUNNING=%%I"
 if /i "%BACKEND_ALREADY_RUNNING%"=="RUNNING" (
@@ -10,6 +10,10 @@ if /i "%BACKEND_ALREADY_RUNNING%"=="RUNNING" (
   exit /b 0
 )
 
+echo [SAFE-RUN] Building frontend for stable port-5000 serving...
+call "%~dp0build-frontend-safe.cmd" || exit /b 1
+
 set "NODE_ENV=development"
+set "KIYUMART_USE_EMBEDDED_VITE=false"
 node --preserve-symlinks --preserve-symlinks-main "%KIYUMART_SAFE_ROOT%\node_modules\tsx\dist\cli.mjs" "%KIYUMART_SAFE_ROOT%\server\index.ts"
 exit /b %ERRORLEVEL%

@@ -263,6 +263,7 @@ export default function AdminAnalytics() {
   const [methodFilter, setMethodFilter] = useState<"all" | Method>("all");
   const [zoneFilter, setZoneFilter] = useState("all");
   const [exporting, setExporting] = useState<"none" | "csv" | "pdf">("none");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || !canView)) navigate("/auth");
@@ -348,7 +349,7 @@ export default function AdminAnalytics() {
     refetchInterval: 20000,
   });
 
-  const { data: zones = [] } = useQuery<Zone[]>({
+  const { data: zones = [], refetch: refetchZones } = useQuery<Zone[]>({
     queryKey: ["/api/delivery-zones", "analytics"],
     queryFn: async () => {
       const r = await fetch("/api/delivery-zones", { credentials: "include" });
@@ -387,10 +388,10 @@ export default function AdminAnalytics() {
   const admins = adminsQuery.data || [];
   const superAdmins = superAdminsQuery.data || [];
 
-  const { data: support } = useQuery<SupportAnalytics>({ queryKey: ["/api/support/analytics"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
-  const { data: health } = useQuery<SystemHealth>({ queryKey: ["/api/admin/system-health"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
-  const { data: messaging } = useQuery<MessagingStats>({ queryKey: ["/api/admin/messaging-stats"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
-  const { data: revenueViews } = useQuery<any>({ queryKey: ["/api/admin/revenue/views/summary"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
+  const { data: support, refetch: refetchSupport } = useQuery<SupportAnalytics>({ queryKey: ["/api/support/analytics"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
+  const { data: health, refetch: refetchHealth } = useQuery<SystemHealth>({ queryKey: ["/api/admin/system-health"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
+  const { data: messaging, refetch: refetchMessaging } = useQuery<MessagingStats>({ queryKey: ["/api/admin/messaging-stats"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
+  const { data: revenueViews, refetch: refetchRevenueViews } = useQuery<any>({ queryKey: ["/api/admin/revenue/views/summary"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
   const { data: reportActivity = [], refetch: refetchReportActivity } = useQuery<ReportActivityRow[]>({
     queryKey: ["/api/reports/activity", "admin-analytics"],
     queryFn: async () => {
@@ -701,6 +702,7 @@ export default function AdminAnalytics() {
   });
 
   const refreshAll = async () => {
+    setIsRefreshing(true);
     void logReportActivity({
       action: "request",
       reportType: currentReportType,
@@ -709,49 +711,65 @@ export default function AdminAnalytics() {
       status: "success",
     }).catch(() => undefined);
 
-    await Promise.allSettled([
-      refetchAnalytics(),
-      refetchOrders(),
-      refetchOrderLedger(),
-      refetchReportActivity(),
-      queryClient.invalidateQueries({
-        predicate: (query) => {
-          const key = query.queryKey?.[0];
-          if (typeof key !== "string") return false;
-          return [
-            "/api/support/analytics",
-            "/api/admin/system-health",
-            "/api/admin/messaging-stats",
-            "/api/admin/revenue/views/summary",
-            "/api/reports/activity",
-            "/api/delivery-zones",
-            "/api/users",
-            "/api/orders",
-            "/api/analytics",
-            "/api/admin/revenue/views/order-ledger",
-          ].some((prefix) => key.startsWith(prefix));
-        },
-        refetchType: "active",
-      }),
-      queryClient.refetchQueries({
-        predicate: (query) => {
-          const key = query.queryKey?.[0];
-          if (typeof key !== "string") return false;
-          return [
-            "/api/support/analytics",
-            "/api/admin/system-health",
-            "/api/admin/messaging-stats",
-            "/api/admin/revenue/views/summary",
-            "/api/reports/activity",
-            "/api/delivery-zones",
-            "/api/users",
-            "/api/orders",
-            "/api/analytics",
-            "/api/admin/revenue/views/order-ledger",
-          ].some((prefix) => key.startsWith(prefix));
-        },
-      }),
-    ]);
+    try {
+      await Promise.allSettled([
+        refetchAnalytics(),
+        refetchOrders(),
+        refetchOrderLedger(),
+        refetchZones(),
+        ridersQuery.refetch(),
+        sellersQuery.refetch(),
+        buyersQuery.refetch(),
+        agentsQuery.refetch(),
+        pickupAgentsQuery.refetch(),
+        adminsQuery.refetch(),
+        superAdminsQuery.refetch(),
+        refetchSupport(),
+        refetchHealth(),
+        refetchMessaging(),
+        refetchRevenueViews(),
+        refetchReportActivity(),
+        queryClient.invalidateQueries({
+          predicate: (query) => {
+            const key = query.queryKey?.[0];
+            if (typeof key !== "string") return false;
+            return [
+              "/api/support/analytics",
+              "/api/admin/system-health",
+              "/api/admin/messaging-stats",
+              "/api/admin/revenue/views/summary",
+              "/api/reports/activity",
+              "/api/delivery-zones",
+              "/api/users",
+              "/api/orders",
+              "/api/analytics",
+              "/api/admin/revenue/views/order-ledger",
+            ].some((prefix) => key.startsWith(prefix));
+          },
+          refetchType: "active",
+        }),
+        queryClient.refetchQueries({
+          predicate: (query) => {
+            const key = query.queryKey?.[0];
+            if (typeof key !== "string") return false;
+            return [
+              "/api/support/analytics",
+              "/api/admin/system-health",
+              "/api/admin/messaging-stats",
+              "/api/admin/revenue/views/summary",
+              "/api/reports/activity",
+              "/api/delivery-zones",
+              "/api/users",
+              "/api/orders",
+              "/api/analytics",
+              "/api/admin/revenue/views/order-ledger",
+            ].some((prefix) => key.startsWith(prefix));
+          },
+        }),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const exportCsv = async () => {
@@ -872,9 +890,9 @@ export default function AdminAnalytics() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void refreshAll()} disabled={exporting !== "none"}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh
+                <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void refreshAll()} disabled={exporting !== "none" || isRefreshing}>
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+                  {isRefreshing ? "Refreshing..." : "Refresh"}
                 </Button>
                 <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void exportCsv()} disabled={exporting !== "none"}>
                   <Download className="h-4 w-4 mr-2" />

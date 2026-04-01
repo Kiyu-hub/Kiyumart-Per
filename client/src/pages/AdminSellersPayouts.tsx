@@ -84,6 +84,7 @@ export default function AdminSellersPayouts() {
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const toNumber = (value: unknown): number => {
     if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -121,20 +122,27 @@ export default function AdminSellersPayouts() {
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/admin/sellers");
       const payload = await res.json();
-      return Array.isArray(payload) ? payload : [];
+      if (!Array.isArray(payload)) {
+        throw new Error("Invalid seller payout summary response");
+      }
+      return payload;
     },
     refetchInterval: 15000,
   });
 
   const {
     data: pendingPayouts = [],
+    isError: pendingPayoutsError,
     refetch: refetchPendingPayouts,
   } = useQuery<Payout[]>({
     queryKey: ["/api/admin/payouts/pending"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/admin/payouts/pending");
       const payload = await res.json();
-      return Array.isArray(payload) ? payload : [];
+      if (!Array.isArray(payload)) {
+        throw new Error("Invalid pending payout response");
+      }
+      return payload;
     },
     refetchInterval: 15000,
   });
@@ -142,6 +150,7 @@ export default function AdminSellersPayouts() {
   const {
     data: sellerPayouts = [],
     isLoading: payoutsLoading,
+    isError: sellerPayoutsError,
     refetch: refetchSellerPayouts,
   } = useQuery<Payout[]>({
     queryKey: ["/api/admin/sellers", selectedSeller?.id, "payouts"],
@@ -149,20 +158,27 @@ export default function AdminSellersPayouts() {
       if (!selectedSeller) return [];
       const res = await apiRequest("GET", `/api/admin/sellers/${selectedSeller.id}/payouts`);
       const payload = await res.json();
-      return Array.isArray(payload) ? payload : [];
+      if (!Array.isArray(payload)) {
+        throw new Error("Invalid seller payout history response");
+      }
+      return payload;
     },
     enabled: !!selectedSeller,
     refetchInterval: 15000,
   });
 
+  const sellerRows = Array.isArray(sellers) ? sellers : [];
+  const pendingPayoutRows = Array.isArray(pendingPayouts) ? pendingPayouts : [];
+  const sellerPayoutRows = Array.isArray(sellerPayouts) ? sellerPayouts : [];
+
   const stats = useMemo(() => {
-    const totalPaid = sellers.reduce((sum, seller) => sum + toNumber(seller.totalPaid), 0);
-    const totalPending = sellers.reduce((sum, seller) => sum + toNumber(seller.pendingAmount), 0);
-    const activeSellers = sellers.filter((seller) => seller.isApproved).length;
-    const totalPayouts = sellers.reduce((sum, seller) => sum + (seller.payoutCount || 0), 0);
+    const totalPaid = sellerRows.reduce((sum, seller) => sum + toNumber(seller.totalPaid), 0);
+    const totalPending = sellerRows.reduce((sum, seller) => sum + toNumber(seller.pendingAmount), 0);
+    const activeSellers = sellerRows.filter((seller) => seller.isApproved).length;
+    const totalPayouts = sellerRows.reduce((sum, seller) => sum + (seller.payoutCount || 0), 0);
     const avgPayout = totalPayouts > 0 ? totalPaid / totalPayouts : 0;
 
-    const mostExposedSeller = [...sellers]
+    const mostExposedSeller = [...sellerRows]
       .sort((a, b) => toNumber(b.pendingAmount) - toNumber(a.pendingAmount))[0];
 
     return {
@@ -174,12 +190,12 @@ export default function AdminSellersPayouts() {
       mostExposedSellerName: mostExposedSeller?.name || "No seller data",
       mostExposedSellerAmount: toNumber(mostExposedSeller?.pendingAmount),
     };
-  }, [sellers]);
+  }, [sellerRows]);
 
   const filteredSellers = useMemo(() => {
-    let rows = sellers;
+    let rows = sellerRows;
     const processingSellerIds = new Set(
-      pendingPayouts
+      pendingPayoutRows
         .filter((payout) => payout.status === "processing")
         .map((payout) => payout.sellerId)
         .filter(Boolean)
@@ -203,26 +219,31 @@ export default function AdminSellersPayouts() {
     }
 
     return rows;
-  }, [activeTab, pendingPayouts, searchQuery, sellers]);
+  }, [activeTab, pendingPayoutRows, searchQuery, sellerRows]);
 
   const tabCounts = useMemo(() => ({
-    all: sellers.length,
-    pending: sellers.filter((seller) => toNumber(seller.pendingAmount) > 0).length,
-    processing: pendingPayouts.filter((payout) => payout.status === "processing").length,
-    completed: sellers.filter((seller) => toNumber(seller.totalPaid) > 0).length,
-  }), [pendingPayouts, sellers]);
+    all: sellerRows.length,
+    pending: sellerRows.filter((seller) => toNumber(seller.pendingAmount) > 0).length,
+    processing: pendingPayoutRows.filter((payout) => payout.status === "processing").length,
+    completed: sellerRows.filter((seller) => toNumber(seller.totalPaid) > 0).length,
+  }), [pendingPayoutRows, sellerRows]);
 
   const filteredPayouts = useMemo(() => {
-    if (activeTab === "all") return sellerPayouts;
-    return sellerPayouts.filter((payout) => payout.status === activeTab);
-  }, [activeTab, sellerPayouts]);
+    if (activeTab === "all") return sellerPayoutRows;
+    return sellerPayoutRows.filter((payout) => payout.status === activeTab);
+  }, [activeTab, sellerPayoutRows]);
 
   const refreshAll = async () => {
-    await Promise.all([
-      refetchSellers(),
-      refetchPendingPayouts(),
-      selectedSeller ? refetchSellerPayouts() : Promise.resolve(),
-    ]);
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        refetchSellers(),
+        refetchPendingPayouts(),
+        selectedSeller ? refetchSellerPayouts() : Promise.resolve(),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   if (selectedSeller) {
@@ -234,9 +255,9 @@ export default function AdminSellersPayouts() {
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Sellers
             </Button>
-            <Button variant="outline" size="sm" onClick={refreshAll}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh History
+            <Button variant="outline" size="sm" onClick={refreshAll} disabled={isRefreshing}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+              {isRefreshing ? "Refreshing..." : "Refresh History"}
             </Button>
           </div>
 
@@ -307,6 +328,15 @@ export default function AdminSellersPayouts() {
               {payoutsLoading ? (
                 <div className="flex items-center justify-center py-16">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : sellerPayoutsError ? (
+                <div className="py-16 text-center text-muted-foreground">
+                  <XCircle className="mx-auto mb-4 h-12 w-12 text-destructive" />
+                  <p className="mb-4">Failed to load payout history for this seller.</p>
+                  <Button variant="outline" onClick={refreshAll} disabled={isRefreshing}>
+                    <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                    {isRefreshing ? "Retrying..." : "Retry"}
+                  </Button>
                 </div>
               ) : filteredPayouts.length === 0 ? (
                 <div className="py-16 text-center text-muted-foreground">
@@ -396,9 +426,9 @@ export default function AdminSellersPayouts() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" className="border-border/70 text-foreground hover:bg-muted dark:border-white/30 dark:text-white dark:hover:bg-white/10" onClick={refreshAll}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Refresh
+                <Button variant="outline" size="sm" className="border-border/70 text-foreground hover:bg-muted dark:border-white/30 dark:text-white dark:hover:bg-white/10" onClick={refreshAll} disabled={isRefreshing}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                  {isRefreshing ? "Refreshing..." : "Refresh"}
                 </Button>
               </div>
             </div>
@@ -489,12 +519,13 @@ export default function AdminSellersPayouts() {
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-            ) : sellersError ? (
+            ) : sellersError || pendingPayoutsError ? (
               <div className="py-16 text-center text-muted-foreground">
                 <XCircle className="mx-auto mb-4 h-12 w-12 text-destructive" />
                 <p className="mb-4">Failed to load seller payout data.</p>
-                <Button variant="outline" onClick={refreshAll}>
-                  Retry
+                <Button variant="outline" onClick={refreshAll} disabled={isRefreshing}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                  {isRefreshing ? "Retrying..." : "Retry"}
                 </Button>
               </div>
             ) : filteredSellers.length === 0 ? (

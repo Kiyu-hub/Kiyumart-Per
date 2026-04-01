@@ -701,7 +701,9 @@ app.use(cookieParser());
   // doesn't interfere with the other routes.
   // We start listening first so API/health endpoints stay responsive
   // even if the frontend dev middleware takes time to initialize.
-  if (app.get("env") === "development") {
+  const useEmbeddedVite = app.get("env") === "development" && process.env.KIYUMART_USE_EMBEDDED_VITE === "true";
+
+  if (useEmbeddedVite) {
     try {
       await setupVite(app, server);
       frontendReady = true;

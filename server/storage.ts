@@ -1989,10 +1989,94 @@ export class DbStorage implements IStorage {
   // Get seller payouts
   async getSellerPayouts(sellerId: string): Promise<SellerPayout[]> {
     await this.backfillMissingCommissionEarnings(50);
-    return await db.select()
+    const payoutRows = await db.select()
       .from(sellerPayouts)
       .where(eq(sellerPayouts.sellerId, sellerId))
       .orderBy(desc(sellerPayouts.createdAt));
+
+    const coveredCommissionIds = new Set(
+      payoutRows.flatMap((payout) => Array.isArray(payout.commissionIds) ? payout.commissionIds.filter(Boolean) : []),
+    );
+
+    const store = await this.getStoreByPrimarySeller(sellerId).catch(() => null);
+    const payoutMethod = store?.payoutType === "mobile_money" ? "mobile_money" : "bank_account";
+    const settlementMode = payoutMethod === "mobile_money" ? "transfer" : "split";
+    const transferFee = payoutMethod === "mobile_money" ? "1.00" : "0.00";
+    const payoutDetails =
+      payoutMethod === "mobile_money"
+        ? {
+            mobileNumber: store?.payoutDetails?.mobileNumber,
+            provider: store?.payoutDetails?.provider,
+            transferFee,
+            settlementMode,
+          }
+        : {
+            accountName: store?.payoutDetails?.accountName || store?.payoutDetails?.fullName || store?.name,
+            accountNumber: store?.payoutDetails?.accountNumber,
+            bankCode: store?.payoutDetails?.bankCode,
+            bankName: store?.payoutDetails?.bankName,
+            transferFee,
+            settlementMode,
+          };
+
+    const commissionRows = await db
+      .select({
+        id: commissions.id,
+        orderId: commissions.orderId,
+        sellerAmount: commissions.sellerAmount,
+        status: commissions.status,
+        createdAt: commissions.createdAt,
+        processedAt: commissions.processedAt,
+        orderNumber: orders.orderNumber,
+      })
+      .from(commissions)
+      .leftJoin(orders, eq(orders.id, commissions.orderId))
+      .where(eq(commissions.sellerId, sellerId))
+      .orderBy(desc(commissions.createdAt));
+
+    const syntheticPayouts = commissionRows
+      .filter((commission) => !coveredCommissionIds.has(commission.id))
+      .map((commission) => {
+        const normalizedStatus = String(commission.status || "").toLowerCase().trim();
+        const payoutStatus: SellerPayout["status"] =
+          normalizedStatus === "processed"
+            ? "completed"
+            : normalizedStatus === "processing"
+              ? "processing"
+              : normalizedStatus === "failed"
+                ? "failed"
+                : "pending";
+
+        const orderLabel = commission.orderNumber || String(commission.orderId || "").slice(0, 8) || "N/A";
+        const notes =
+          payoutStatus === "completed"
+            ? `Automatic seller settlement for order #${orderLabel} completed through finance reconciliation`
+            : payoutStatus === "processing"
+              ? `Automatic seller settlement for order #${orderLabel} is currently processing`
+              : `Seller settlement for order #${orderLabel} is pending payout completion`;
+
+        return {
+          id: `commission-${commission.id}`,
+          sellerId,
+          amount: commission.sellerAmount,
+          currency: "GHS",
+          method: payoutMethod,
+          status: payoutStatus,
+          reference: `auto_seller_settlement_${commission.id}`,
+          bankDetails: payoutDetails,
+          commissionIds: [commission.id],
+          notes,
+          processedBy: null,
+          processedAt: payoutStatus === "completed" ? (commission.processedAt || commission.createdAt) : commission.processedAt,
+          createdAt: commission.createdAt,
+        } as SellerPayout;
+      });
+
+    return [...payoutRows, ...syntheticPayouts].sort((a, b) => {
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
   }
 
   // Get all pending payouts (for admin)

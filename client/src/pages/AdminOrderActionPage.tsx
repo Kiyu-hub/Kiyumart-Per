@@ -105,17 +105,12 @@ const getAllowedStatusOptions = ({
   switch (current) {
     case "created":
     case "pending":
-      add("confirmed");
-      add("processing");
       add("cancelled");
       break;
     case "confirmed":
-      add("ready");
-      add("processing");
       add("cancelled");
       break;
     case "processing":
-      add("ready");
       if (!isExternalRiderSystemEnabled) {
         add("assigned");
         add("en_route");
@@ -123,20 +118,15 @@ const getAllowedStatusOptions = ({
       add("cancelled");
       break;
     case "ready":
-      if (isExternalRiderSystemEnabled) {
-        if (actorRole === "super_admin" || actorRole === "admin") add("external_dispatch_arranged");
-      } else {
-        add("processing");
+      if (!isExternalRiderSystemEnabled) {
         add("searching_rider");
       }
       add("cancelled");
       break;
     case "external_dispatch_arranged":
-      if (actorRole === "super_admin") add("completed");
       add("cancelled");
       break;
     case "en_route":
-      if (isExternalRiderSystemEnabled && actorRole === "super_admin") add("completed");
       add("cancelled");
       break;
     case "assigned":
@@ -154,7 +144,6 @@ const getAllowedStatusOptions = ({
       add("en_route");
       break;
     case "delivered":
-      if (actorRole === "super_admin") add("completed");
       break;
     case "disputed":
       add("delivered");
