@@ -3,15 +3,13 @@ import MetricCard from "@/components/MetricCard";
 import ProductCard from "@/components/ProductCard";
 import ThemeToggle from "@/components/ThemeToggle";
 import StoreModeToggle from "@/components/StoreModeToggle";
-import { DollarSign, Package, ShoppingBag, TrendingUp, Eye, Plus } from "lucide-react";
+import { DollarSign, Package, ShoppingBag, TrendingUp, Eye, Plus, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-
-import handbagImage from "@assets/stock_images/Designer_handbag_product_photo_d9f11f99.png";
-import sneakersImage from "@assets/stock_images/Men's_sneakers_product_photo_2c87b833.png";
-import dressImage from "@assets/stock_images/Summer_dress_product_photo_9f6f8356.png";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { apiRequest } from "@/lib/queryClient";
 
 interface Store {
   id: string;
@@ -23,9 +21,43 @@ interface PlatformSettings {
   isMultiVendor: boolean;
 }
 
+interface Analytics {
+  totalOrders: number;
+  totalRevenue: number;
+}
+
+interface Product {
+  id: string;
+  name: string;
+  price: string;
+  images: string[];
+  discount?: number | null;
+  sellerId: string;
+  isActive: boolean;
+  rating?: number;
+  reviewCount?: number;
+}
+
+interface Order {
+  id: string;
+  status: string;
+  sellerId: string;
+}
+
+function safeNumber(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeOrderStatus(status?: string): string {
+  if (!status) return "";
+  return String(status).toLowerCase().trim();
+}
+
 export default function SellerDashboard() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
+  const { formatPrice } = useLanguage();
 
   // Fetch platform settings to check if multi-vendor mode is enabled
   const { data: platformSettings } = useQuery<PlatformSettings>({
@@ -48,6 +80,34 @@ export default function SellerDashboard() {
       }
       return res.json();
     },
+  });
+
+  // Fetch real analytics data instead of using hardcoded values
+  const { data: analytics = { totalOrders: 0, totalRevenue: 0 }, isLoading: analyticsLoading } = useQuery<Analytics>({
+    queryKey: ["/api/analytics", user?.id, user?.role],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/analytics");
+      const data = await res.json();
+      return data && typeof data === "object" ? data : { totalOrders: 0, totalRevenue: 0 };
+    },
+    enabled: !!user?.id && user?.role === "seller" && user?.isApproved === true,
+  });
+
+  // Fetch real products instead of hardcoded mock data
+  const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
+    queryKey: ["/api/products", user?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/products?sellerId=${user?.id}`);
+      const data = await res.json();
+      return Array.isArray(data) ? data.slice(0, 4) : []; // Show max 4 products on dashboard
+    },
+    enabled: !!user?.id && user?.role === "seller" && user?.isApproved === true,
+  });
+
+  // Fetch real orders to count pending orders
+  const { data: orders = [] } = useQuery<Order[]>({
+    queryKey: ["/api/orders"],
+    enabled: !!user?.id && user?.role === "seller" && user?.isApproved === true,
   });
 
   // Show pending approval message if seller is not approved
@@ -94,87 +154,95 @@ export default function SellerDashboard() {
     }
   };
 
-  const myProducts = [
-    {
-      id: "1",
-      name: "Designer Leather Handbag",
-      price: 299.99,
-      image: handbagImage,
-      discount: 15,
-      rating: 4.5,
-      reviewCount: 128,
-    },
-    {
-      id: "2",
-      name: "Men's Casual Sneakers",
-      price: 89.99,
-      image: sneakersImage,
-      rating: 4.8,
-      reviewCount: 256,
-    },
-    {
-      id: "3",
-      name: "Summer Floral Dress",
-      price: 129.99,
-      image: dressImage,
-      discount: 20,
-      rating: 4.6,
-      reviewCount: 89,
-    },
-  ];
+  // Calculate metrics from real data
+  const safeProducts = Array.isArray(products) ? products : [];
+  const safeOrders = Array.isArray(orders) ? orders : [];
+  const safeAnalytics: Analytics = {
+    totalOrders: safeNumber((analytics as any)?.totalOrders),
+    totalRevenue: safeNumber((analytics as any)?.totalRevenue),
+  };
+
+  const pendingOrders = safeOrders.filter((o) =>
+    o?.sellerId === user?.id &&
+    ["pending", "processing", "ready", "confirmed", "assigned"].includes(normalizeOrderStatus(o?.status))
+  ).length;
+
+  const activeProducts = safeProducts.filter((p) => !!p?.isActive).length;
 
   return (
     <DashboardLayout role="seller">
       <div className="p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-2xl font-bold">Seller Dashboard</h1>
-              <Button 
-                variant="outline" 
-                onClick={handlePreviewStore}
-                data-testid="button-preview-store"
-              >
-                <Eye className="h-4 w-4 mr-2" />
-                Preview Store
-              </Button>
-            </div>
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Header with Preview Store button */}
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-2xl font-bold">Seller Dashboard</h1>
+            <Button 
+              variant="outline" 
+              onClick={handlePreviewStore}
+              data-testid="button-preview-store"
+              disabled={storeLoading}
+            >
+              <Eye className="h-4 w-4 mr-2" />
+              Preview Store
+            </Button>
+          </div>
 
+          {/* Metrics Grid - with loading state */}
+          {analyticsLoading ? (
+            <div className="flex justify-center p-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <MetricCard
                 title="Total Sales"
-                value="GHS 12,450"
+                value={formatPrice(safeAnalytics.totalRevenue)}
                 icon={DollarSign}
-                change={18.2}
               />
               <MetricCard
-                title="Products Sold"
-                value="234"
+                title="Total Orders"
+                value={safeAnalytics.totalOrders.toString()}
                 icon={Package}
-                change={12.5}
               />
               <MetricCard
                 title="Pending Orders"
-                value="12"
+                value={pendingOrders.toString()}
                 icon={ShoppingBag}
               />
               <MetricCard
-                title="Conversion Rate"
-                value="3.2%"
+                title="Active Products"
+                value={activeProducts.toString()}
                 icon={TrendingUp}
-                change={5.4}
               />
             </div>
+          )}
 
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold">My Products</h2>
-                <Button onClick={() => navigate("/seller/products")} data-testid="button-add-product">
+          {/* Products Section */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">My Products</h2>
+              <Button onClick={() => navigate("/seller/products")} data-testid="button-add-product">
+                <Plus className="h-4 w-4 mr-2" />
+                Add New Product
+              </Button>
+            </div>
+
+            {productsLoading ? (
+              <div className="flex justify-center p-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : safeProducts.length === 0 ? (
+              <div className="border border-dashed rounded-lg p-8 text-center">
+                <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+                <p className="text-muted-foreground mb-4">No products yet. Start by adding your first product.</p>
+                <Button onClick={() => navigate("/seller/products")}>
                   <Plus className="h-4 w-4 mr-2" />
-                  Add New Product
+                  Add First Product
                 </Button>
               </div>
+            ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {myProducts.map((product) => (
+                {safeProducts.map((product) => (
                   <ProductCard
                     key={product.id}
                     {...product}
@@ -182,9 +250,10 @@ export default function SellerDashboard() {
                   />
                 ))}
               </div>
-            </div>
+            )}
           </div>
         </div>
+      </div>
     </DashboardLayout>
   );
 }
