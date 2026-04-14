@@ -20,6 +20,7 @@ interface Notification {
   message: string;
   isRead: boolean;
   createdAt: string;
+  metadata?: Record<string, any>;
 }
 
 export default function AgentNotifications() {
@@ -78,6 +79,33 @@ export default function AgentNotifications() {
     },
   });
 
+  const handleNotificationClick = (notification: Notification) => {
+    if (!notification.isRead) {
+      markAsReadMutation.mutate(notification.id);
+    }
+
+    const metadata = notification.metadata || {};
+    if (metadata.link) {
+      navigate(metadata.link);
+      return;
+    }
+
+    if (metadata.conversationId) {
+      navigate(`/agent/tickets?conversationId=${encodeURIComponent(String(metadata.conversationId))}`);
+      return;
+    }
+
+    if (metadata.orderId) {
+      navigate(`/agent/tickets?orderId=${encodeURIComponent(String(metadata.orderId))}`);
+      return;
+    }
+
+    if (metadata.senderId) {
+      navigate(`/agent/messages?userId=${encodeURIComponent(String(metadata.senderId))}`);
+      return;
+    }
+  };
+
   if (authLoading || !isAuthenticated || user?.role !== "agent") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -99,7 +127,11 @@ export default function AgentNotifications() {
   };
 
   const NotificationCard = ({ notification }: { notification: Notification }) => (
-    <Card className={`${!notification.isRead ? "border-primary" : ""}`} data-testid={`notification-${notification.id}`}>
+    <Card
+      className={`${!notification.isRead ? "border-primary" : ""} cursor-pointer transition-colors hover:border-primary/30 hover:bg-primary/5`}
+      data-testid={`notification-${notification.id}`}
+      onClick={() => handleNotificationClick(notification)}
+    >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           <div className="mt-1">
@@ -124,7 +156,10 @@ export default function AgentNotifications() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => markAsReadMutation.mutate(notification.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  markAsReadMutation.mutate(notification.id);
+                }}
                 data-testid={`button-mark-read-${notification.id}`}
               >
                 <Check className="h-4 w-4" />
@@ -133,7 +168,10 @@ export default function AgentNotifications() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => deleteNotificationMutation.mutate(notification.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteNotificationMutation.mutate(notification.id);
+              }}
               data-testid={`button-delete-${notification.id}`}
             >
               <Trash2 className="h-4 w-4" />

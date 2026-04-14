@@ -1,6 +1,69 @@
 import axios from 'axios';
 
 const PAYSTACK_BASE_URL = 'https://api.paystack.co';
+const GHANA_MOBILE_MONEY_PROVIDER_MAP: Record<string, string> = {
+  mtn: 'mtn',
+  mtn_mobile_money: 'mtn',
+  vod: 'vod',
+  vodafone: 'vod',
+  telecel: 'vod',
+  telecel_cash: 'vod',
+  vodafone_cash: 'vod',
+  atl: 'atl',
+  atm: 'atl',
+  airteltigo: 'atl',
+  airtel_tigo: 'atl',
+  airteltigo_money: 'atl',
+};
+const GHANA_MOBILE_MONEY_BANK_CODES: Record<string, string> = {
+  mtn: 'MTN',
+  vod: 'TVL',
+  atl: 'ATL',
+};
+const GHANA_MOBILE_MONEY_PREFIXES: Record<string, string[]> = {
+  mtn: ['024', '025', '053', '054', '055', '059'],
+  vod: ['020', '050'],
+  atl: ['026', '027', '056', '057'],
+};
+
+export function normalizeGhanaMobileMoneyProvider(provider?: string | null): string {
+  const normalized = String(provider || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return GHANA_MOBILE_MONEY_PROVIDER_MAP[normalized] || '';
+}
+
+export function resolveGhanaMobileMoneyBankCode(provider?: string | null): string {
+  const normalizedProvider = normalizeGhanaMobileMoneyProvider(provider);
+  return GHANA_MOBILE_MONEY_BANK_CODES[normalizedProvider] || '';
+}
+
+export function normalizeGhanaMobileMoneyNumber(mobileNumber?: string | null): string {
+  const digits = String(mobileNumber || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.length === 9) return `0${digits}`;
+  if (digits.length === 10 && digits.startsWith('0')) return digits;
+  if (digits.length === 12 && digits.startsWith('233')) return `0${digits.slice(3)}`;
+  if (digits.length === 13 && digits.startsWith('2330')) return `0${digits.slice(4)}`;
+  return digits;
+}
+
+export function isValidGhanaMobileMoneyNumber(mobileNumber?: string | null, provider?: string | null): boolean {
+  const normalizedNumber = normalizeGhanaMobileMoneyNumber(mobileNumber);
+  if (!/^0\d{9}$/.test(normalizedNumber)) {
+    return false;
+  }
+
+  const normalizedProvider = normalizeGhanaMobileMoneyProvider(provider);
+  if (!normalizedProvider) {
+    return false;
+  }
+
+  const validPrefixes = GHANA_MOBILE_MONEY_PREFIXES[normalizedProvider];
+  if (!validPrefixes?.length) {
+    return false;
+  }
+
+  return validPrefixes.includes(normalizedNumber.slice(0, 3));
+}
 
 interface PaystackSubaccountData {
   business_name: string;
@@ -211,8 +274,8 @@ export class PaystackService {
         payload.bank_code = data.bank_code;
       }
       if (data.type === 'mobile_money') {
-        payload.mobile = data.mobile;
-        payload.provider = data.provider;
+        payload.account_number = data.account_number || data.mobile;
+        payload.bank_code = data.bank_code || data.provider;
       }
 
       const response = await axios.post(`${PAYSTACK_BASE_URL}/transferrecipient`, payload, { headers: buildHeaders(secret), timeout: 20000 });

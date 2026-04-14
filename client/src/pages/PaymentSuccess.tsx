@@ -12,6 +12,8 @@ import Footer from "@/components/Footer";
 import QRCodeDisplay from "@/components/QRCodeDisplay";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
+import { clearAllPersistedCheckoutCoupons } from "@/lib/checkoutCoupon";
+import { queryClient } from "@/lib/queryClient";
 
 interface Order {
   id: string;
@@ -84,6 +86,14 @@ export default function PaymentSuccess() {
 
   useEffect(() => {
     if (order) {
+      clearAllPersistedCheckoutCoupons();
+      queryClient.setQueryData(["/api/cart"], []);
+      void fetch("/api/cart", {
+        method: "DELETE",
+        credentials: "include",
+      }).catch(() => {});
+      void queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
+      void queryClient.refetchQueries({ queryKey: ["/api/cart"], type: "active" });
       // Show in-app notification
       toast({
         title: "Payment Successful! 🎉",

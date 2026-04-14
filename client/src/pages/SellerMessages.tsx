@@ -5,13 +5,13 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, MessageSquare, Send, ArrowLeft, Headphones } from "lucide-react";
+import { Loader2, MessageSquare, Send, ArrowLeft } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { useSocket } from "@/contexts/NotificationContext";
@@ -20,6 +20,7 @@ import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 import MessageAttachmentContent from "@/components/MessageAttachmentContent";
 import { buildChatAttachmentMessage } from "@/lib/chatAttachments";
 import UserAvatar from "@/components/UserAvatar";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface UserData {
   id: string;
@@ -46,11 +47,11 @@ interface Message {
 }
 
 export default function SellerMessages() {
-  const [searchQuery, setSearchQuery] = useState("");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { allowSellerDirectSupportMessages, hasResolvedSettings } = usePlatformSettings();
   const { toast } = useToast();
   const socket = useSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -68,6 +69,13 @@ export default function SellerMessages() {
       navigate("/auth");
     }
   }, [isAuthenticated, authLoading, user, navigate]);
+
+  useEffect(() => {
+    if (authLoading || user?.role !== "seller" || !hasResolvedSettings) return;
+    if (allowSellerDirectSupportMessages === false) {
+      navigate("/support");
+    }
+  }, [allowSellerDirectSupportMessages, authLoading, hasResolvedSettings, navigate, user?.role]);
 
   // Listen for real-time messages
   useEffect(() => {
@@ -158,22 +166,25 @@ export default function SellerMessages() {
     refetchInterval: 10000,
   });
 
+  const supportUsers = users.filter(
+    (u) => String(u.role || "").toLowerCase() === "support_agent",
+  );
+
   // Default to unified support contact first
   useEffect(() => {
-    if (!users.length || selectedUserId) return;
-    const support = users.find((u) => String(u.role || "").toLowerCase() === "support_agent");
-    setSelectedUserId(support?.id || users[0].id);
-  }, [users, selectedUserId]);
+    if (!supportUsers.length || selectedUserId) return;
+    setSelectedUserId(supportUsers[0].id);
+  }, [supportUsers, selectedUserId]);
 
   // Auto-select user when coming from notification with userId
   useEffect(() => {
     if (userIdFilter && users.length > 0 && !selectedUserId) {
-      const targetUser = users.find(u => u.id === userIdFilter);
+      const targetUser = supportUsers.find(u => u.id === userIdFilter);
       if (targetUser) {
         setSelectedUserId(targetUser.id);
       }
     }
-  }, [userIdFilter, users, selectedUserId]);
+  }, [userIdFilter, supportUsers, selectedUserId]);
 
   const { data: messages = [], isLoading: messagesLoading } = useQuery<Message[]>({
     queryKey: ["/api/messages", selectedUserId],
@@ -283,15 +294,10 @@ export default function SellerMessages() {
     }
   };
 
-  const filteredUsers = users.filter(u => 
-    u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    u.email?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const selectedUser = users.find(u => u.id === selectedUserId);
+  const selectedUser = supportUsers.find(u => u.id === selectedUserId) || supportUsers[0];
   const selectedUserPresence = usePresence(selectedUserId || undefined);
-  const userIds = filteredUsers.map((u) => u.id);
-  const batchPresence = useBatchPresence(userIds);
+  const userIds = supportUsers.map((u) => u.id);
+  useBatchPresence(userIds);
 
   const handleTypingChange = (value: string) => {
     setMessage(value);
@@ -329,23 +335,6 @@ export default function SellerMessages() {
       }
     };
   }, [socket, selectedUserId]);
-
-  const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case "support_agent":
-        return "bg-emerald-600 text-white";
-      case "admin":
-      case "super_admin":
-      case "agent":
-        return "bg-emerald-700 text-white";
-      case "buyer":
-        return "bg-blue-500 text-white";
-      case "rider":
-        return "bg-orange-500 text-white";
-      default:
-        return "bg-gray-500 text-white";
-    }
-  };
 
   const getPresenceMeta = (presence: { status?: "online" | "offline" | "away"; lastSeen?: string | null } | null | undefined) => {
     const status = presence?.status ?? "offline";
@@ -396,80 +385,23 @@ export default function SellerMessages() {
           </div>
         </div>
 
-        {/* Mobile: Show user list or chat */}
-        <div className="md:hidden flex-1 min-h-0 flex flex-col p-4 pt-0">
-          {!selectedUserId ? (
-            <Card className="flex-1 min-h-0 p-4 flex flex-col overflow-hidden">
-              <div className="mb-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search contacts..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              <ScrollArea className="flex-1">
-                {usersLoading ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
-                  </div>
-                ) : filteredUsers.length === 0 ? (
-                  <div className="text-center py-12">
-                    <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                    <p className="text-sm text-muted-foreground">No conversations yet</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {filteredUsers.map((userData) => (
-                      <div
-                        key={userData.id}
-                        onClick={() => setSelectedUserId(userData.id)}
-                        className="p-3 rounded-lg cursor-pointer hover:bg-muted/70 flex items-center gap-3"
-                      >
-                        {(() => {
-                          const presenceMeta = getPresenceMeta(batchPresence.getPresence(userData.id));
-                          return (
-                            <>
-                              <div className="relative">
-                                <Avatar className="h-10 w-10">
-                                  <AvatarImage src={userData.profileImage || undefined} alt={userData.name || userData.email} />
-                                  <AvatarFallback>
-                                    {(userData.name || "U").charAt(0).toUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${presenceMeta.dotClass}`} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
-                                <div className="flex items-center gap-2">
-                                  <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
-                                    {userData.role === "support_agent" ? "support" : userData.role}
-                                  </Badge>
-                                  <span className={`text-[10px] ${presenceMeta.textClass}`}>
-                                    {presenceMeta.label}
-                                  </span>
-                                </div>
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </ScrollArea>
-            </Card>
-          ) : (
-            <Card className="h-full flex flex-col">
+        <div className="flex flex-1 min-h-0 flex-col p-4 pt-0 md:hidden md:p-6 md:pt-0">
+          <Card className="h-full flex flex-col">
               <div className="flex items-center gap-3 p-3 border-b">
-                <Button variant="ghost" size="icon" onClick={() => setSelectedUserId(null)}>
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
+                <div className="relative">
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage src={selectedUser?.profileImage || undefined} alt={selectedUser?.name || "Support"} />
+                    <AvatarFallback>
+                      {(selectedUser?.name || "S").charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${getPresenceMeta(selectedUserPresence.presence).dotClass}`} />
+                </div>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-sm">{selectedUser?.name || "Support Agent"}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-sm">{selectedUser?.name || "Support Agent"}</h3>
+                    <Badge className="bg-emerald-600 text-white text-[10px] px-1.5 py-0">support</Badge>
+                  </div>
                   <p className={`text-xs ${isPeerTyping ? "text-primary" : getPresenceMeta(selectedUserPresence.presence).textClass}`}>
                     {isPeerTyping
                       ? "typing..."
@@ -553,82 +485,9 @@ export default function SellerMessages() {
                 )}
               </div>
             </Card>
-          )}
         </div>
-
-        {/* Desktop: Side-by-side layout */}
         <div className="hidden md:flex md:flex-col flex-1 min-h-0 p-6 pt-0">
-          <div className="grid grid-cols-3 gap-4 flex-1 min-h-0 overflow-hidden">
-            <Card className="col-span-1 p-4 flex flex-col overflow-hidden">
-              <div className="mb-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search contacts..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-
-              <ScrollArea className="flex-1">
-                {usersLoading ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
-                  </div>
-                ) : filteredUsers.length === 0 ? (
-                  <div className="text-center py-12">
-                    <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                    <p className="text-sm text-muted-foreground">No conversations yet</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {filteredUsers.map((userData) => (
-                      <div
-                        key={userData.id}
-                        onClick={() => setSelectedUserId(userData.id)}
-                        className={`p-3 rounded-lg cursor-pointer ${
-                          selectedUserId === userData.id
-                            ? "bg-muted border border-border"
-                            : "hover:bg-muted/70"
-                        }`}
-                      >
-                        {(() => {
-                          const presenceMeta = getPresenceMeta(batchPresence.getPresence(userData.id));
-                          return (
-                            <div className="flex items-center gap-3">
-                              <div className="relative">
-                                <Avatar className="h-10 w-10">
-                                  <AvatarImage src={userData.profileImage || undefined} alt={userData.name || userData.email} />
-                                  <AvatarFallback>
-                                    {(userData.name || "U").charAt(0).toUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${presenceMeta.dotClass}`} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-sm truncate">{userData.name || userData.email}</p>
-                                <div className="flex items-center gap-2">
-                                  <Badge className={`${getRoleBadgeColor(userData.role)} text-[10px] px-1.5 py-0`}>
-                                    {userData.role === "support_agent" ? "support" : userData.role}
-                                  </Badge>
-                                  <span className={`text-[10px] ${presenceMeta.textClass}`}>
-                                    {presenceMeta.label}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </ScrollArea>
-            </Card>
-
-            <Card className="col-span-2 p-4 flex flex-col overflow-hidden">
+            <Card className="p-4 flex flex-col flex-1 overflow-hidden">
               {selectedUser || selectedUserId ? (
                 <>
                   <div className="flex items-center gap-3 pb-4 border-b mb-4">
@@ -743,7 +602,6 @@ export default function SellerMessages() {
                 </div>
               )}
             </Card>
-          </div>
         </div>
       </div>
     </DashboardLayout>

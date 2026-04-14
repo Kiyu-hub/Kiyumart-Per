@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Loader2, Search, Edit, Ban, MessageSquare, Trash2, ArrowLeft, CheckCircle, XCircle, UserCog, Phone, Video } from "lucide-react";
+import { Loader2, Search, Edit, Ban, MessageSquare, Trash2, ArrowLeft, CheckCircle, XCircle, UserCog, Phone, Video, KeyRound } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
@@ -46,6 +46,9 @@ export default function AdminUsers() {
   const [confirmBanUser, setConfirmBanUser] = useState<{ id: string; name: string; isActive: boolean } | null>(null);
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<{ id: string; name: string } | null>(null);
   const [activeCallTarget, setActiveCallTarget] = useState<{ id: string; name: string } | null>(null);
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<UserData | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
   const jitsiCall = useJitsiCall(user?.id || "");
 
   useEffect(() => {
@@ -198,6 +201,29 @@ export default function AdminUsers() {
       toast({
         title: "Error",
         description: error.message || "Failed to update user role",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ userId, password }: { userId: string; password: string }) => {
+      return apiRequest("POST", `/api/users/${userId}/reset-password`, { password });
+    },
+    onSuccess: (_data, variables) => {
+      toast({
+        title: "Password reset",
+        description: `Password updated for ${resetPasswordTarget?.name || resetPasswordTarget?.username || "the user"}.`,
+      });
+      setResetPasswordTarget(null);
+      setResetPasswordValue("");
+      setResetPasswordConfirm("");
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reset password",
         variant: "destructive",
       });
     },
@@ -376,6 +402,21 @@ export default function AdminUsers() {
           >
             <Edit className="h-4 w-4" />
           </Button>
+          {user?.role === "super_admin" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                setResetPasswordTarget(userData);
+                setResetPasswordValue("");
+                setResetPasswordConfirm("");
+              }}
+              data-testid={`button-reset-password-${userData.id}`}
+              title="Reset password"
+            >
+              <KeyRound className="h-4 w-4 text-primary" />
+            </Button>
+          )}
           <Button 
             variant="ghost" 
             size="icon"
@@ -628,6 +669,80 @@ export default function AdminUsers() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={!!resetPasswordTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setResetPasswordTarget(null);
+            setResetPasswordValue("");
+            setResetPasswordConfirm("");
+          }
+        }}
+      >
+        <DialogContent data-testid="dialog-reset-password">
+          <DialogHeader>
+            <DialogTitle>Reset User Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for {resetPasswordTarget?.name || resetPasswordTarget?.username || "this user"}.
+              The user will be notified of the reset.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground" htmlFor="reset-password-input">
+                New password
+              </label>
+              <Input
+                id="reset-password-input"
+                type="password"
+                value={resetPasswordValue}
+                onChange={(e) => setResetPasswordValue(e.target.value)}
+                placeholder="Enter a strong password"
+                data-testid="input-reset-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground" htmlFor="reset-password-confirm">
+                Confirm new password
+              </label>
+              <Input
+                id="reset-password-confirm"
+                type="password"
+                value={resetPasswordConfirm}
+                onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                placeholder="Re-enter the password"
+                data-testid="input-reset-password-confirm"
+              />
+            </div>
+            {resetPasswordValue && resetPasswordConfirm && resetPasswordValue !== resetPasswordConfirm && (
+              <p className="text-sm text-destructive">Passwords do not match.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetPasswordTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!resetPasswordTarget) return;
+                if (!resetPasswordValue || resetPasswordValue !== resetPasswordConfirm) return;
+                resetPasswordMutation.mutate({ userId: resetPasswordTarget.id, password: resetPasswordValue });
+              }}
+              disabled={
+                !resetPasswordTarget ||
+                !resetPasswordValue ||
+                resetPasswordValue !== resetPasswordConfirm ||
+                resetPasswordMutation.isPending
+              }
+              data-testid="button-confirm-reset-password"
+            >
+              {resetPasswordMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Reset Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <JitsiCallDialog
         isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}

@@ -23,6 +23,63 @@ interface CachedConfig {
 const CONFIG_CACHE_TTL_MS = 3600000; // 1 hour
 let configCache: CachedConfig | null = null;
 
+const isMaskedCloudinaryValue = (value?: string | null) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return true;
+  const bulletOnly = normalized.replace(/[\u2022\u00B7*\s]/g, "");
+  return bulletOnly.length === 0;
+};
+
+const resolveCloudinaryConfig = (settings: {
+  cloudinaryCloudName?: string | null;
+  cloudinaryApiKey?: string | null;
+  cloudinaryApiSecret?: string | null;
+} | null | undefined) => {
+  const configuredCloudName = String(settings?.cloudinaryCloudName || "").trim();
+  const configuredApiKey = String(settings?.cloudinaryApiKey || "").trim();
+  const configuredApiSecret = String(settings?.cloudinaryApiSecret || "").trim();
+
+  const envCloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim();
+  const envApiKey = String(process.env.CLOUDINARY_API_KEY || "").trim();
+  const envApiSecret = String(process.env.CLOUDINARY_API_SECRET || "").trim();
+
+  const settingsValid =
+    configuredCloudName &&
+    configuredApiKey &&
+    configuredApiSecret &&
+    !isMaskedCloudinaryValue(configuredCloudName) &&
+    !isMaskedCloudinaryValue(configuredApiKey) &&
+    !isMaskedCloudinaryValue(configuredApiSecret);
+
+  if (settingsValid) {
+    return {
+      cloud_name: configuredCloudName,
+      api_key: configuredApiKey,
+      api_secret: configuredApiSecret,
+    };
+  }
+
+  return {
+    cloud_name: envCloudName,
+    api_key: envApiKey,
+    api_secret: envApiSecret,
+  };
+};
+
+export function resetCloudinaryConfigCache() {
+  configCache = null;
+}
+
+function useEnvCloudinaryConfig() {
+  const config = {
+    cloud_name: String(process.env.CLOUDINARY_CLOUD_NAME || "").trim(),
+    api_key: String(process.env.CLOUDINARY_API_KEY || "").trim(),
+    api_secret: String(process.env.CLOUDINARY_API_SECRET || "").trim(),
+  };
+  cloudinary.config(config);
+  return config;
+}
+
 // Helper function to configure cloudinary with database settings or env vars
 async function ensureCloudinaryConfig() {
   const now = Date.now();
@@ -35,13 +92,7 @@ async function ensureCloudinaryConfig() {
   
   try {
     const settings = await storage.getPlatformSettings();
-    
-    // Use database settings if available, otherwise keep env vars
-    const config = {
-      cloud_name: settings.cloudinaryCloudName || process.env.CLOUDINARY_CLOUD_NAME || "",
-      api_key: settings.cloudinaryApiKey || process.env.CLOUDINARY_API_KEY || "",
-      api_secret: settings.cloudinaryApiSecret || process.env.CLOUDINARY_API_SECRET || "",
-    };
+    const config = resolveCloudinaryConfig(settings);
     
     // Update cache
     configCache = {
@@ -132,7 +183,7 @@ export async function uploadToCloudinary(
   // Compress only large images to preserve visual quality.
   const compressedBuffer = await compressImageBuffer(buffer);
   
-  return new Promise((resolve, reject) => {
+  const performUpload = () => new Promise<string>((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder,
@@ -149,6 +200,17 @@ export async function uploadToCloudinary(
     readableStream.push(null);
     readableStream.pipe(uploadStream);
   });
+
+  try {
+    return await performUpload();
+  } catch (error: any) {
+    if (/invalid signature/i.test(String(error?.message || ""))) {
+      resetCloudinaryConfigCache();
+      useEnvCloudinaryConfig();
+      return await performUpload();
+    }
+    throw error;
+  }
 }
 
 // Upload with full metadata (for videos)
@@ -158,7 +220,7 @@ export async function uploadWithMetadata(
 ): Promise<{ url: string; duration?: number; format?: string; resource_type?: string }> {
   await ensureCloudinaryConfig();
   
-  return new Promise((resolve, reject) => {
+  const performUpload = () => new Promise<{ url: string; duration?: number; format?: string; resource_type?: string }>((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder,
@@ -180,6 +242,30 @@ export async function uploadWithMetadata(
     readableStream.push(null);
     readableStream.pipe(uploadStream);
   });
+
+  try {
+    return await performUpload();
+  } catch (error: any) {
+    if (/invalid signature/i.test(String(error?.message || ""))) {
+      resetCloudinaryConfigCache();
+      useEnvCloudinaryConfig();
+      return await performUpload();
+    }
+    throw error;
+  }
+}
+
+export function buildTrimmedCloudinaryVideoUrl(url: string | undefined, maxDurationSeconds: number = 30): string {
+  const normalized = String(url || "").trim();
+  if (!normalized || !normalized.includes("cloudinary.com")) return normalized;
+  const duration = Math.max(1, Math.floor(maxDurationSeconds));
+  if (normalized.includes("/upload/")) {
+    return normalized.replace(
+      "/upload/",
+      `/upload/f_auto,q_auto,vc_auto,so_0,du_${duration}/`,
+    );
+  }
+  return normalized;
 }
 
 export async function deleteFromCloudinary(publicId: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -67,9 +67,14 @@ const settingsSchema = z.object({
   isMultiVendor: z.boolean(),
   allowSellerRegistration: z.boolean(),
   allowRiderRegistration: z.boolean(),
+  allowSellerBankPayouts: z.boolean(),
+  allowSharedVariantColorStock: z.boolean(),
+  showHomepageFeaturedSection: z.boolean(),
+  showHomepageNewArrivalSection: z.boolean(),
   isExternalRiderSystemEnabled: z.boolean(),
   showCheckoutDeliveryMap: z.boolean(),
   allowPickupAgentAdminChat: z.boolean(),
+  allowSellerDirectSupportMessages: z.boolean(),
   shopDisplayMode: z.enum(["by-store", "by-category"]).optional(),
   showShopBySection: z.boolean().optional(),
   primaryStoreId: z.string().optional().nullable(),
@@ -80,6 +85,13 @@ const settingsSchema = z.object({
   paystackSecretKey: z.string().optional(),
   processingFeePercent: z.string().min(0),
   defaultCommissionRate: z.string().min(0).max(100),
+  smtpHost: z.string().optional().or(z.literal("")),
+  smtpPort: z.coerce.number().int().positive().optional(),
+  smtpUser: z.string().optional().or(z.literal("")),
+  smtpPass: z.string().optional().or(z.literal("")),
+  smtpSecure: z.boolean().optional(),
+  smtpFromEmail: z.string().email("Must be a valid email").optional().or(z.literal("")),
+  smtpFromName: z.string().optional().or(z.literal("")),
   cloudinaryCloudName: z.string().optional(),
   cloudinaryApiKey: z.string().optional(),
   cloudinaryApiSecret: z.string().optional(),
@@ -126,6 +138,37 @@ const settingsSchema = z.object({
 
 type SettingsFormData = z.infer<typeof settingsSchema>;
 
+function CollapsibleDashboardSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+  className = "",
+}: {
+  title: string;
+  summary: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Card className={className}>
+      <details open={defaultOpen}>
+        <summary className="cursor-pointer list-none px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-base font-semibold">{title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
+            </div>
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+          </div>
+        </summary>
+        <CardContent className="pt-0">{children}</CardContent>
+      </details>
+    </Card>
+  );
+}
+
 interface PlatformSettings extends SettingsFormData {
   id: string;
   logo?: string;
@@ -133,6 +176,12 @@ interface PlatformSettings extends SettingsFormData {
   updatedAt: string;
   paystackPublicKeySource?: string;
   paystackSecretKeySource?: string;
+  smtpHostSource?: string;
+  smtpPortSource?: string;
+  smtpUserSource?: string;
+  smtpPassSource?: string;
+  smtpFromEmailSource?: string;
+  smtpFromNameSource?: string;
   cloudinaryApiKeySource?: string;
   cloudinaryApiSecretSource?: string;
   mapboxPublicTokenSource?: string;
@@ -162,6 +211,8 @@ export default function AdminSettings() {
   // Import dialogs state
   const [showImportPaystackDialog, setShowImportPaystackDialog] = useState(false);
   const [isImportingPaystack, setIsImportingPaystack] = useState(false);
+  const [showImportSmtpDialog, setShowImportSmtpDialog] = useState(false);
+  const [isImportingSmtp, setIsImportingSmtp] = useState(false);
   const [showImportCloudinaryDialog, setShowImportCloudinaryDialog] = useState(false);
   const [isImportingCloudinary, setIsImportingCloudinary] = useState(false);
   const [showImportMapDialog, setShowImportMapDialog] = useState(false);
@@ -525,9 +576,14 @@ export default function AdminSettings() {
       isMultiVendor: false,
       allowSellerRegistration: false,
       allowRiderRegistration: false,
+      allowSellerBankPayouts: true,
+      allowSharedVariantColorStock: false,
+      showHomepageFeaturedSection: true,
+      showHomepageNewArrivalSection: true,
       isExternalRiderSystemEnabled: false,
       showCheckoutDeliveryMap: true,
       allowPickupAgentAdminChat: true,
+      allowSellerDirectSupportMessages: true,
       shopDisplayMode: "by-store",
       showShopBySection: true,
       primaryStoreId: null,
@@ -538,6 +594,13 @@ export default function AdminSettings() {
       paystackSecretKey: "",
       processingFeePercent: "1.95",
       defaultCommissionRate: "1",
+      smtpHost: "",
+      smtpPort: 587,
+      smtpUser: "",
+      smtpPass: "",
+      smtpSecure: false,
+      smtpFromEmail: "",
+      smtpFromName: "KiyuMart",
       cloudinaryCloudName: "",
       cloudinaryApiKey: "",
       cloudinaryApiSecret: "",
@@ -618,6 +681,7 @@ export default function AdminSettings() {
         isExternalRiderSystemEnabled: (data as any).isExternalRiderSystemEnabled === true,
         showCheckoutDeliveryMap: (data as any).showCheckoutDeliveryMap !== false,
         allowPickupAgentAdminChat: (data as any).allowPickupAgentAdminChat !== false,
+        allowSellerDirectSupportMessages: (data as any).allowSellerDirectSupportMessages !== false,
       };
       // Replace cache with authoritative server response and refetch other keys
       queryClient.setQueryData(["/api/settings"], mergedData);
@@ -627,6 +691,8 @@ export default function AdminSettings() {
       queryClient.invalidateQueries({ queryKey: ["/api/platform-settings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/public/platform-settings"] });
       await queryClient.refetchQueries({ queryKey: ["/api/public/platform-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/featured-products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/homepage/new-arrivals"] });
       
       // Invalidate hero banners so they refetch with new store mode
       queryClient.invalidateQueries({ queryKey: ["/api/hero-banners"] });
@@ -640,9 +706,14 @@ export default function AdminSettings() {
         isMultiVendor: mergedData.isMultiVendor,
         allowSellerRegistration: mergedData.allowSellerRegistration || false,
         allowRiderRegistration: mergedData.allowRiderRegistration || false,
+        allowSellerBankPayouts: mergedData.allowSellerBankPayouts !== false,
+        allowSharedVariantColorStock: mergedData.allowSharedVariantColorStock === true,
+        showHomepageFeaturedSection: mergedData.showHomepageFeaturedSection !== false,
+        showHomepageNewArrivalSection: mergedData.showHomepageNewArrivalSection !== false,
         isExternalRiderSystemEnabled: mergedData.isExternalRiderSystemEnabled || false,
         showCheckoutDeliveryMap: mergedData.showCheckoutDeliveryMap !== false,
         allowPickupAgentAdminChat: mergedData.allowPickupAgentAdminChat !== false,
+        allowSellerDirectSupportMessages: mergedData.allowSellerDirectSupportMessages !== false,
         shopDisplayMode: mergedData.shopDisplayMode || "by-store",
         showShopBySection: mergedData.showShopBySection ?? true,
         primaryStoreId: mergedData.primaryStoreId || null,
@@ -653,6 +724,13 @@ export default function AdminSettings() {
         paystackSecretKey: mergedData.paystackSecretKey || "",
         processingFeePercent: mergedData.processingFeePercent,
         defaultCommissionRate: mergedData.defaultCommissionRate || "1",
+        smtpHost: mergedData.smtpHost || "",
+        smtpPort: Number(mergedData.smtpPort || 587),
+        smtpUser: mergedData.smtpUser || "",
+        smtpPass: mergedData.smtpPass || "",
+        smtpSecure: mergedData.smtpSecure === true,
+        smtpFromEmail: mergedData.smtpFromEmail || "",
+        smtpFromName: mergedData.smtpFromName || "KiyuMart",
         cloudinaryCloudName: mergedData.cloudinaryCloudName || "",
         cloudinaryApiKey: mergedData.cloudinaryApiKey || "",
         cloudinaryApiSecret: mergedData.cloudinaryApiSecret || "",
@@ -735,6 +813,10 @@ export default function AdminSettings() {
   const onSubmit = (_data: SettingsFormData) => {
     // Use getValues to ensure controlled switches and all values are included
     const payload: any = { ...form.getValues() };
+    if ((settings as any)?.id === "default") {
+      delete payload.allowSellerBankPayouts;
+      delete payload.allowSharedVariantColorStock;
+    }
     const mapKeys = ["mapboxPublicToken", "mapboxStyleUrl", "mapboxGlVersion"] as const;
     for (const key of mapKeys) {
       const raw = payload[key];
@@ -753,6 +835,12 @@ export default function AdminSettings() {
       }
       payload[key] = trimmed;
     }
+    const smtpTextKeys = ["smtpHost", "smtpUser", "smtpPass", "smtpFromEmail", "smtpFromName"] as const;
+    for (const key of smtpTextKeys) {
+      const raw = payload[key];
+      if (typeof raw !== "string") continue;
+      payload[key] = raw.trim();
+    }
     updateSettingsMutation.mutate(payload as SettingsFormData);
   };
 
@@ -764,9 +852,14 @@ export default function AdminSettings() {
         isMultiVendor: settings.isMultiVendor,
         allowSellerRegistration: (settings as any).allowSellerRegistration || false,
         allowRiderRegistration: (settings as any).allowRiderRegistration || false,
+        allowSellerBankPayouts: (settings as any).allowSellerBankPayouts !== false,
+        allowSharedVariantColorStock: (settings as any).allowSharedVariantColorStock === true,
+        showHomepageFeaturedSection: (settings as any).showHomepageFeaturedSection !== false,
+        showHomepageNewArrivalSection: (settings as any).showHomepageNewArrivalSection !== false,
         isExternalRiderSystemEnabled: (settings as any).isExternalRiderSystemEnabled || false,
         showCheckoutDeliveryMap: (settings as any).showCheckoutDeliveryMap !== false,
         allowPickupAgentAdminChat: (settings as any).allowPickupAgentAdminChat !== false,
+        allowSellerDirectSupportMessages: (settings as any).allowSellerDirectSupportMessages !== false,
         shopDisplayMode: (settings as any).shopDisplayMode || "by-store",
         showShopBySection: (settings as any).showShopBySection ?? true,
         primaryStoreId: (settings as any).primaryStoreId || null,
@@ -777,6 +870,13 @@ export default function AdminSettings() {
         paystackSecretKey: settings.paystackSecretKey || "",
         processingFeePercent: settings.processingFeePercent,
         defaultCommissionRate: (settings as any).defaultCommissionRate || "1",
+        smtpHost: (settings as any).smtpHost || "",
+        smtpPort: Number((settings as any).smtpPort || 587),
+        smtpUser: (settings as any).smtpUser || "",
+        smtpPass: (settings as any).smtpPass || "",
+        smtpSecure: (settings as any).smtpSecure === true,
+        smtpFromEmail: (settings as any).smtpFromEmail || "",
+        smtpFromName: (settings as any).smtpFromName || "KiyuMart",
         cloudinaryCloudName: (settings as any).cloudinaryCloudName || "",
         cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
         cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
@@ -857,7 +957,7 @@ export default function AdminSettings() {
                     <Badge className="border-primary/20 bg-primary/10 text-primary">Super Admin Control</Badge>
                     <Badge variant="outline">{form.watch("isMultiVendor") ? "Multi-Vendor" : "Single Store"}</Badge>
                     <Badge variant="outline">
-                      {form.watch("isExternalRiderSystemEnabled") ? "External Delivery Mode" : "Internal Rider Mode"}
+                      {form.watch("isExternalRiderSystemEnabled") ? "External Delivery Enabled" : "Rider Features Off"}
                     </Badge>
                     <Badge variant="outline">{activeTab.replace(/-/g, " ")}</Badge>
                   </div>
@@ -874,7 +974,7 @@ export default function AdminSettings() {
                 <div className="min-h-[132px] rounded-2xl border border-border/70 bg-background p-4 shadow-sm dark:bg-background/80 dark:backdrop-blur">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Delivery Flow</p>
                   <p className="mt-2 text-base font-semibold">
-                    {form.watch("isExternalRiderSystemEnabled") ? "Manual / External" : "Internal Rider"}
+                    {form.watch("isExternalRiderSystemEnabled") ? "Manual / External" : "Rider Features Off"}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {form.watch("showCheckoutDeliveryMap") ? "Checkout map visible." : "Checkout map hidden."}
@@ -902,7 +1002,13 @@ export default function AdminSettings() {
             </div>
           </div>
 
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSubmit(form.getValues() as SettingsFormData);
+            }}
+            className="space-y-6"
+          >
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <div className="overflow-hidden rounded-[26px] border border-border/70 bg-card/60 shadow-sm">
             <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-none bg-transparent p-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -1058,6 +1164,40 @@ export default function AdminSettings() {
                       data-testid="switch-allow-seller-registration"
                     />
                   </div>
+
+                  {user?.role === "super_admin" && (
+                    <>
+                      <div className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="showHomepageFeaturedSection">Show Featured Products On Homepage</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Turn the homepage featured products section on or off.
+                          </p>
+                        </div>
+                        <Switch
+                          id="showHomepageFeaturedSection"
+                          checked={form.watch("showHomepageFeaturedSection")}
+                          onCheckedChange={(checked) => form.setValue("showHomepageFeaturedSection", checked)}
+                          data-testid="switch-show-homepage-featured-section"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="showHomepageNewArrivalSection">Show New Arrivals On Homepage</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Turn the homepage new arrivals section on or off.
+                          </p>
+                        </div>
+                        <Switch
+                          id="showHomepageNewArrivalSection"
+                          checked={form.watch("showHomepageNewArrivalSection")}
+                          onCheckedChange={(checked) => form.setValue("showHomepageNewArrivalSection", checked)}
+                          data-testid="switch-show-homepage-new-arrival-section"
+                        />
+                      </div>
+                    </>
+                  )}
 
                   {!form.watch("isExternalRiderSystemEnabled") ? (
                     <div className="flex items-center justify-between p-3 border rounded-lg">
@@ -1279,6 +1419,126 @@ export default function AdminSettings() {
             </TabsContent>
 
             <TabsContent value="payments" className="space-y-4">
+              {user?.role === "super_admin" && (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <Mail className="h-5 w-5 text-primary" />
+                      <CardTitle>Email Delivery</CardTitle>
+                    </div>
+                    <CardDescription>
+                      Update the sender email, app password, and SMTP details used for password reset emails and platform mail delivery.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/30">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">SMTP configuration</h4>
+                          <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                            This controls reset-password emails and any other transactional email sent by the platform.
+                          </p>
+                        </div>
+                        <div className="space-y-2 text-right">
+                          <div className="text-xs text-muted-foreground">
+                            Source: <span className="font-medium">{settings?.smtpUserSource || "none"}</span>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowImportSmtpDialog(true)}
+                            data-testid="button-import-smtp"
+                          >
+                            Import from Environment
+                          </Button>
+                        </div>
+                      </div>
+
+                      <AlertDialog open={showImportSmtpDialog} onOpenChange={setShowImportSmtpDialog}>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Import SMTP Settings?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This copies the current SMTP environment values into platform settings so you can manage them in the dashboard.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setShowImportSmtpDialog(false)}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={async () => {
+                                try {
+                                  setIsImportingSmtp(true);
+                                  await apiRequest("POST", "/api/settings/import-smtp", {});
+                                  await queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+                                  await queryClient.refetchQueries({ queryKey: ["/api/settings"] });
+                                  toast({ title: "Imported", description: "SMTP settings have been imported into platform settings." });
+                                  setShowImportSmtpDialog(false);
+                                } catch (e: any) {
+                                  toast({ title: "Import failed", description: e.message || "Failed to import SMTP settings", variant: "destructive" });
+                                } finally {
+                                  setIsImportingSmtp(false);
+                                }
+                              }}
+                              disabled={isImportingSmtp}
+                            >
+                              {isImportingSmtp ? "Importing..." : "Import"}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpHost">SMTP Host</Label>
+                        <Input id="smtpHost" {...form.register("smtpHost")} placeholder="smtp.gmail.com" data-testid="input-smtp-host" />
+                        <p className="text-xs text-muted-foreground">Source: <span className="font-medium">{settings?.smtpHostSource || "none"}</span></p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpPort">SMTP Port</Label>
+                        <Input id="smtpPort" type="number" {...form.register("smtpPort", { valueAsNumber: true })} placeholder="587" data-testid="input-smtp-port" />
+                        <p className="text-xs text-muted-foreground">Source: <span className="font-medium">{settings?.smtpPortSource || "none"}</span></p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpUser">Sender Email</Label>
+                        <Input id="smtpUser" type="email" {...form.register("smtpUser")} placeholder="kiyumartofficial@gmail.com" data-testid="input-smtp-user" />
+                        <p className="text-xs text-muted-foreground">Source: <span className="font-medium">{settings?.smtpUserSource || "none"}</span></p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpPass">App Password</Label>
+                        <Input id="smtpPass" type="password" {...form.register("smtpPass")} placeholder="********************************" data-testid="input-smtp-pass" />
+                        <p className="text-xs text-muted-foreground">Source: <span className="font-medium">{settings?.smtpPassSource || "none"}</span></p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpFromEmail">From Email</Label>
+                        <Input id="smtpFromEmail" type="email" {...form.register("smtpFromEmail")} placeholder="kiyumartofficial@gmail.com" data-testid="input-smtp-from-email" />
+                        <p className="text-xs text-muted-foreground">Source: <span className="font-medium">{settings?.smtpFromEmailSource || "none"}</span></p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="smtpFromName">From Name</Label>
+                        <Input id="smtpFromName" {...form.register("smtpFromName")} placeholder="KiyuMart" data-testid="input-smtp-from-name" />
+                        <p className="text-xs text-muted-foreground">Source: <span className="font-medium">{settings?.smtpFromNameSource || "none"}</span></p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-lg border p-3">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="smtpSecure">Use secure SMTP connection</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Turn this on for SSL ports like `465`. Leave it off for TLS ports like `587`.
+                        </p>
+                      </div>
+                      <Switch
+                        id="smtpSecure"
+                        checked={form.watch("smtpSecure") === true}
+                        onCheckedChange={(checked) => form.setValue("smtpSecure", checked)}
+                        data-testid="switch-smtp-secure"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <Card>
                 <CardHeader>
                   <div className="flex items-center gap-3">
@@ -1354,11 +1614,14 @@ export default function AdminSettings() {
                       </div>
                     </div>
 
-                    <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-4">
+                    <CollapsibleDashboardSection
+                      title="How Payments Are Handled"
+                      summary="Expand to view the full checkout, commission, delivery, and payout-cost explanation."
+                      className="border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30"
+                    >
                       <div className="flex items-start gap-3">
-                        <Wallet className="h-5 w-5 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                        <Wallet className="mt-0.5 h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                         <div className="space-y-2 text-sm">
-                          <h4 className="font-medium text-emerald-900 dark:text-emerald-100">How payments are handled</h4>
                           <p className="text-emerald-800 dark:text-emerald-200">
                             Customers pay the order subtotal, any delivery fee, and the Paystack processing fee at checkout.
                             The processing fee is collected from the customer as the exact Paystack checkout charge and is recorded separately from platform commission.
@@ -1381,7 +1644,7 @@ export default function AdminSettings() {
                           </p>
                         </div>
                       </div>
-                    </div>
+                    </CollapsibleDashboardSection>
 
                     <div className="flex items-start justify-between mb-2">
                       <div>
@@ -1473,7 +1736,6 @@ export default function AdminSettings() {
                     </p>
                   </div>
 
-                  
                 </CardContent>
               </Card>
 
@@ -1621,6 +1883,34 @@ export default function AdminSettings() {
                     </div>
                     <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
                       <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="allowSellerBankPayouts">Allow Bank Payouts For Sellers</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Disable this to force sellers to use mobile money only. Existing bank payout setups stay preserved, but new payout setup and routing will follow the current toggle.
+                        </p>
+                      </div>
+                      <Switch
+                        id="allowSellerBankPayouts"
+                        checked={form.watch("allowSellerBankPayouts")}
+                        onCheckedChange={(checked) => form.setValue("allowSellerBankPayouts", checked)}
+                        data-testid="switch-allow-seller-bank-payouts"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="allowSharedVariantColorStock">Show Shared Stock Option For Variants</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Keep this off to make sellers use separate stock for each size only. Turn it on only if you want sellers to choose one shared stock number for a whole color.
+                        </p>
+                      </div>
+                      <Switch
+                        id="allowSharedVariantColorStock"
+                        checked={form.watch("allowSharedVariantColorStock")}
+                        onCheckedChange={(checked) => form.setValue("allowSharedVariantColorStock", checked)}
+                        data-testid="switch-allow-shared-variant-color-stock"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
                         <Label htmlFor="showCheckoutDeliveryMap">Show Checkout Delivery Map</Label>
                         <p className="text-sm text-muted-foreground">
                           Control whether the live delivery map appears on checkout for customers entering a delivery address.
@@ -1645,6 +1935,20 @@ export default function AdminSettings() {
                         checked={form.watch("allowPickupAgentAdminChat")}
                         onCheckedChange={(checked) => form.setValue("allowPickupAgentAdminChat", checked)}
                         data-testid="switch-allow-pickup-agent-admin-chat"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="allowSellerDirectSupportMessages">Allow Direct Seller And Support Messages</Label>
+                        <p className="text-sm text-muted-foreground">
+                          When this is off, sellers must use the Support page first instead of direct live support messaging.
+                        </p>
+                      </div>
+                      <Switch
+                        id="allowSellerDirectSupportMessages"
+                        checked={form.watch("allowSellerDirectSupportMessages")}
+                        onCheckedChange={(checked) => form.setValue("allowSellerDirectSupportMessages", checked)}
+                        data-testid="switch-allow-seller-direct-support-messages"
                       />
                     </div>
                   </CardContent>

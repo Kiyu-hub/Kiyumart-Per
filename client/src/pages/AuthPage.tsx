@@ -11,6 +11,8 @@ export default function AuthPage() {
   const { login, signup, isAuthenticated, user } = useAuth();
   const { toast } = useToast();
   const [isNewSignup, setIsNewSignup] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isSigningUp, setIsSigningUp] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -21,6 +23,7 @@ export default function AuthPage() {
   }, [isAuthenticated, user, navigate]);
 
   const handleLogin = async (email: string, password: string) => {
+    setIsLoggingIn(true);
     try {
       await login(email, password);
       toast({
@@ -33,10 +36,13 @@ export default function AuthPage() {
         description: error.message || "Invalid email or password",
         variant: "destructive",
       });
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
   const handleSignup = async (name: string, email: string, password: string, location?: { latitude: number; longitude: number }) => {
+    setIsSigningUp(true);
     try {
       setIsNewSignup(true);
       await signup({ name, email, password, role: "buyer" });
@@ -51,6 +57,8 @@ export default function AuthPage() {
         description: error.message || "Failed to create account",
         variant: "destructive",
       });
+    } finally {
+      setIsSigningUp(false);
     }
   };
 
@@ -81,6 +89,8 @@ export default function AuthPage() {
           <AuthForm
             onLogin={handleLogin}
             onSignup={handleSignup}
+            isLoginLoading={isLoggingIn}
+            isSignupLoading={isSigningUp}
           />
         </div>
       </div>

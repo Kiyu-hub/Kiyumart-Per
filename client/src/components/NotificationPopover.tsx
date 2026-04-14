@@ -202,15 +202,17 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
     switch (notification.type) {
       case "order":
         if (isBuyer) {
-          navigate(metadata?.orderId ? `/track?orderId=${metadata.orderId}` : "/orders");
+          navigate(metadata?.orderId ? `/track/${encodeURIComponent(String(metadata.orderId))}` : "/orders");
         } else if ((user?.role === "admin" || user?.role === "super_admin") && metadata?.orderId) {
           navigate(`/admin/orders/${metadata.orderId}/action`);
         } else if (user?.role === "seller" && metadata?.orderId) {
-          navigate(`/seller/orders?orderId=${metadata.orderId}`);
+          navigate(`/seller/orders/${metadata.orderId}?context=seller`);
         } else if (user?.role === "rider" && metadata?.orderId) {
           navigate(`/rider/deliveries?orderId=${metadata.orderId}`);
         } else if (user?.role === "pickup_agent" && metadata?.orderId) {
           navigate(`/pickup-agent?orderId=${metadata.orderId}`);
+        } else if (user?.role === "agent" && metadata?.orderId) {
+          navigate(`/agent/tickets?orderId=${metadata.orderId}`);
         } else {
           navigate(`${rolePrefix}/orders`);
         }
@@ -248,6 +250,8 @@ export default function NotificationPopover({ className }: NotificationPopoverPr
             navigate(`/admin/live-support?conversationId=${metadata.conversationId}`);
           } else if (user?.role === "agent") {
             navigate(`/agent/tickets?conversationId=${metadata.conversationId}`);
+          } else if (user?.role === "seller") {
+            navigate(`/seller/messages?conversationId=${metadata.conversationId}`);
           } else {
             navigate(`/support?conversationId=${metadata.conversationId}`);
           }

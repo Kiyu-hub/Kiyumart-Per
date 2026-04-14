@@ -120,7 +120,7 @@ export default function SellerDeliveries() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => navigate(`/track?orderId=${delivery.id}`)}
+                    onClick={() => navigate(`/track/${encodeURIComponent(delivery.id)}`)}
                     data-testid={`button-track-${delivery.id}`}
                   >
                     Track

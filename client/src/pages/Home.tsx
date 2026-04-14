@@ -151,6 +151,7 @@ export default function Home() {
   };
 
   const showShopBySection = (platformSettings as any)?.showShopBySection !== false;
+  const showHomepageFeaturedSection = (platformSettings as any)?.showHomepageFeaturedSection !== false;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -214,6 +215,7 @@ export default function Home() {
         </section>
         )}
 
+        {showHomepageFeaturedSection && (
         <section className="max-w-7xl mx-auto px-4 py-12">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-3xl font-bold">{t("featuredProducts")}</h2>
@@ -254,6 +256,7 @@ export default function Home() {
             </div>
           )}
         </section>
+        )}
 
         {/* All Products Section */}
         {dbProducts.length > 0 && (

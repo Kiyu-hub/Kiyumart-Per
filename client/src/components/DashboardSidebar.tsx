@@ -36,7 +36,7 @@ interface MenuItem {
   icon: React.ElementType;
   label: string;
   id: string;
-  badge?: number | "dynamic" | "applications_dynamic" | "assignments_dynamic";
+  badge?: number | "dynamic" | "applications_dynamic" | "assignments_dynamic" | "issues_dynamic";
   separator?: boolean;
 }
 
@@ -79,6 +79,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: Activity, label: "Live Support", id: "live-support" },
+    { icon: Shield, label: "System Activities", id: "system-activities", badge: "issues_dynamic" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
     { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
     { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts" },
@@ -103,6 +104,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: Activity, label: "Live Support", id: "live-support" },
+    { icon: Shield, label: "System Activities", id: "system-activities", badge: "issues_dynamic" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
     { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
     { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts" },
@@ -126,7 +128,6 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: Headphones, label: "Support", id: "support" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
-    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
   rider: [
@@ -176,10 +177,13 @@ export default function DashboardSidebar({
   userName = "User",
   userProfileImage,
 }: DashboardSidebarProps) {
-  // Normalize incoming role variants (some tokens may be "superadmin")
-  const normalizedRole = (role as string) === "superadmin" ? "super_admin" : role;
-  const items = menuItems[normalizedRole];
-  const { isExternalRiderSystemEnabled, hasResolvedSettings } = usePlatformSettings();
+  const normalizedRole = String(role || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, "_")
+    .replace(/^superadmin$/, "super_admin") as DashboardSidebarProps["role"];
+  const items = Array.isArray(menuItems[normalizedRole]) ? menuItems[normalizedRole] : [];
+  const { isExternalRiderSystemEnabled, hasResolvedSettings, isMultiVendor, allowSellerDirectSupportMessages } = usePlatformSettings();
   const showInternalRiderFeatures = hasResolvedSettings ? !isExternalRiderSystemEnabled : false;
 
   // Ensure we have the current user available for the avatar and user-scoped caches.
@@ -260,6 +264,34 @@ export default function DashboardSidebar({
 
   const pendingAssignmentsCount = assignmentBadgeData?.count || 0;
 
+  const { data: systemActivitySummary } = useQuery<{
+    totalActivities: number;
+    activeIssues: number;
+    criticalErrors: number;
+  }>({
+    queryKey: ["/api/admin/system-activities/summary"],
+    queryFn: async () => {
+      if (normalizedRole !== "admin" && normalizedRole !== "super_admin") {
+        return { totalActivities: 0, activeIssues: 0, criticalErrors: 0 };
+      }
+      const res = await fetch("/api/admin/system-activities/summary", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        return { totalActivities: 0, activeIssues: 0, criticalErrors: 0 };
+      }
+      return res.json();
+    },
+    enabled: normalizedRole === "admin" || normalizedRole === "super_admin",
+    refetchInterval: 15000,
+    staleTime: 5000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+  });
+
+  const activeSystemIssuesCount = Number(systemActivitySummary?.activeIssues || 0);
+
   const visibleItems = (() => {
     const isRestrictedInactiveAccount =
       (normalizedRole === "seller" || normalizedRole === "rider") &&
@@ -293,10 +325,18 @@ export default function DashboardSidebar({
       }
       if (!canViewMaps) {
         if (item.id === "delivery-tracking") return false;
-        if (item.id === "deliveries" && normalizedRole === "seller") return false;
+      }
+      if (normalizedRole === "seller" && item.id === "deliveries" && !showInternalRiderFeatures) {
+        return false;
+      }
+      if (normalizedRole === "seller" && item.id === "messages") {
+        return canViewMessages && allowSellerDirectSupportMessages;
+      }
+      if (normalizedRole === "seller" && item.id === "support") {
+        return !allowSellerDirectSupportMessages;
       }
       if (item.id === "messages") return canViewMessages;
-      if (normalizedRole === "seller" && item.id === "promotions") return canManagePromotions;
+      if (normalizedRole === "seller" && item.id === "promotions") return canManagePromotions && isMultiVendor;
       return true;
     });
   })();
@@ -329,6 +369,8 @@ export default function DashboardSidebar({
               ? (pendingApplicationsCount > 0 ? (pendingApplicationsCount > 99 ? "99+" : String(pendingApplicationsCount)) : null)
               : item.badge === "assignments_dynamic"
                 ? (pendingAssignmentsCount > 0 ? (pendingAssignmentsCount > 99 ? "99+" : String(pendingAssignmentsCount)) : null)
+              : item.badge === "issues_dynamic"
+                ? (activeSystemIssuesCount > 0 ? (activeSystemIssuesCount > 99 ? "99+" : String(activeSystemIssuesCount)) : null)
               : typeof item.badge === "number"
                 ? String(item.badge)
                 : null;

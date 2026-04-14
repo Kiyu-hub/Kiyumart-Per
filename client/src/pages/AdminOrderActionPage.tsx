@@ -391,7 +391,7 @@ export default function AdminOrderActionPage() {
                       <h1 className="text-3xl font-semibold tracking-tight">Order #{orderDetails.orderNumber}</h1>
                       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{actionNote}</p>
                       <div className="mt-4 flex flex-wrap gap-3">
-                        <Button variant="outline" onClick={() => navigate(`/track?orderId=${orderDetails.id}`)}>
+                        <Button variant="outline" onClick={() => navigate(`/track/${encodeURIComponent(orderDetails.id)}`)}>
                           <Truck className="mr-2 h-4 w-4" />
                           Open Tracking
                         </Button>

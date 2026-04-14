@@ -11,8 +11,7 @@ export default function TrackOrder() {
       navigate("/orders");
       return;
     }
-    // Canonical tracking flow uses /track with query-based order selection.
-    navigate(`/track?orderId=${id}`, { replace: true });
+    navigate(`/track/${encodeURIComponent(id)}`, { replace: true });
   }, [id, navigate]);
 
   return (

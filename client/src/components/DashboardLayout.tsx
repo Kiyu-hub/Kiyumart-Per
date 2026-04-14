@@ -58,6 +58,7 @@ const routeToMenuId: Record<string, string> = {
   "/admin/notifications": "notifications",
   "/admin/messages": "messages",
   "/admin/live-support": "live-support",
+  "/admin/system-activities": "system-activities",
   "/admin/analytics": "analytics",
   "/admin/platform-earnings": "platform-earnings",
   "/admin/settings": "settings",
@@ -239,7 +240,16 @@ export default function DashboardLayout({
 
   const handleItemClick = (id: string) => {
     const basePath = roleBasePaths[normalizedRole];
-    
+
+    if (id === "__back__") {
+      if (typeof window !== "undefined" && window.history.length > 1) {
+        window.history.back();
+      } else {
+        setLocation(basePath);
+      }
+      return;
+    }
+
     if (id === "dashboard") {
       setLocation(basePath);
     } else if (id === "shop-mode") {

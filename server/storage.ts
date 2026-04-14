@@ -20,7 +20,160 @@ import {
   type RiderPayout, type InsertRiderPayout,
   type OrderStatusHistory, type InsertOrderStatusHistory
 } from "@shared/schema";
-import { eq, and, desc, sql, lte, gte, or, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, asc, desc, sql, lte, gte, or, isNull, isNotNull, inArray } from "drizzle-orm";
+import { promises as fs } from "fs";
+import path from "path";
+import {
+  isValidGhanaMobileMoneyNumber,
+  normalizeGhanaMobileMoneyNumber,
+  normalizeGhanaMobileMoneyProvider,
+} from "./paystack";
+
+const platformSettingsCompatPath = path.join(process.cwd(), "server", "data", "platform-settings-compat.json");
+let platformSettingsSchemaReady: Promise<void> | null = null;
+let productVariantsSchemaReady: Promise<void> | null = null;
+let orderItemsSchemaReady: Promise<void> | null = null;
+
+function normalizeOrderStatusForDatabase(status?: string | null): string | undefined {
+  const normalized = String(status || "").toLowerCase().trim();
+  if (!normalized) return undefined;
+  if (normalized === "created") return "pending";
+  if (normalized === "ready_for_pickup") return "ready";
+  if (normalized === "assigned_to_rider") return "assigned";
+  if (normalized === "out_for_delivery") return "en_route";
+  if (normalized === "delivering") return "en_route";
+  return normalized;
+}
+
+async function readPlatformSettingsCompat(): Promise<Partial<PlatformSettings>> {
+  try {
+    const raw = await fs.readFile(platformSettingsCompatPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writePlatformSettingsCompat(data: Partial<PlatformSettings>) {
+  const existing = await readPlatformSettingsCompat();
+  const next = { ...existing, ...data };
+  await fs.mkdir(path.dirname(platformSettingsCompatPath), { recursive: true });
+  await fs.writeFile(platformSettingsCompatPath, JSON.stringify(next, null, 2), "utf8");
+}
+
+async function ensurePlatformSettingsSchemaCompat() {
+  if (!platformSettingsSchemaReady) {
+    platformSettingsSchemaReady = (async () => {
+      try {
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS is_external_rider_system_enabled boolean DEFAULT false`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_checkout_delivery_map boolean DEFAULT true`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_pickup_agent_admin_chat boolean DEFAULT true`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_seller_direct_support_messages boolean DEFAULT true`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_seller_bank_payouts boolean DEFAULT true`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_shared_variant_color_stock boolean DEFAULT false`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_homepage_featured_section boolean DEFAULT true`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_homepage_new_arrival_section boolean DEFAULT true`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_host text`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_port integer`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_user text`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_pass text`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_secure boolean DEFAULT false`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_from_email text`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_from_name text`
+        );
+      } catch (error: any) {
+        console.warn(
+          "[STORAGE] Could not auto-add newer platform_settings feature columns:",
+          error?.message || error,
+        );
+      }
+    })();
+  }
+
+  await platformSettingsSchemaReady;
+}
+
+async function ensureProductVariantsSchemaCompat() {
+  if (!productVariantsSchemaReady) {
+    productVariantsSchemaReady = (async () => {
+      try {
+        await db.execute(
+          sql`ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS original_stock integer DEFAULT 0`
+        );
+        await db.execute(
+          sql`UPDATE product_variants
+              SET original_stock = COALESCE(original_stock, stock, 0)
+              WHERE original_stock IS NULL OR original_stock = 0`
+        );
+      } catch (error: any) {
+        console.warn(
+          "[STORAGE] Could not auto-add original_stock to product_variants:",
+          error?.message || error,
+        );
+      }
+    })();
+  }
+
+  await productVariantsSchemaReady;
+}
+
+async function ensureOrderItemsSchemaCompat() {
+  if (!orderItemsSchemaReady) {
+    orderItemsSchemaReady = (async () => {
+      try {
+        await db.execute(
+          sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS variant_id varchar`
+        );
+        await db.execute(
+          sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS selected_color varchar`
+        );
+        await db.execute(
+          sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS selected_size varchar`
+        );
+        await db.execute(
+          sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS selected_image_index integer DEFAULT 0`
+        );
+      } catch (error: any) {
+        console.warn(
+          "[STORAGE] Could not auto-add variant columns to order_items:",
+          error?.message || error,
+        );
+      }
+    })();
+  }
+
+  await orderItemsSchemaReady;
+}
 
 const generateNumericOtp = (): string => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -29,7 +182,81 @@ const normalizeRequestedQuantity = (value: unknown) => {
   return Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0;
 };
 
+type CheckoutStockItem = {
+  productId: string;
+  quantity: number;
+  variantId?: string | null;
+  selectedColor?: string | null;
+  selectedSize?: string | null;
+  selectedImageIndex?: number | null;
+};
+
+const buildVariantSummarySnapshotForStorage = (variants: Array<any> = []) =>
+  variants.map((variant) => {
+    const normalizedImages = Array.isArray(variant?.images)
+      ? variant.images.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+      : [];
+    return {
+      id: variant.id,
+      color: String(variant?.color || "").trim(),
+      size: String(variant?.size || "").trim(),
+      images: normalizedImages,
+      image: normalizedImages[0] || String(variant?.image || "").trim() || null,
+      stock: Math.max(0, Number(variant?.stock) || 0),
+      originalStock: Math.max(0, Number(variant?.originalStock ?? variant?.stock) || 0),
+    };
+  });
+
+const syncProductVariantState = async (tx: any, productId: string) => {
+  await ensureProductVariantsSchemaCompat();
+
+  const variantRows = await tx
+    .select()
+    .from(productVariants)
+    .where(eq(productVariants.productId, productId));
+
+  if (!variantRows.length) {
+    return;
+  }
+
+  const [productRow] = await tx
+    .select({
+      id: products.id,
+      images: products.images,
+      dynamicFields: products.dynamicFields,
+    })
+    .from(products)
+    .where(eq(products.id, productId))
+    .limit(1);
+
+  if (!productRow) {
+    return;
+  }
+
+  const variantSummary = buildVariantSummarySnapshotForStorage(variantRows);
+  const productImages = Array.from(
+    new Set(
+      variantSummary.flatMap((variant) => Array.isArray(variant.images) ? variant.images : [])
+    )
+  ).filter(Boolean).slice(0, 8);
+  const productStock = variantSummary.reduce((sum, variant) => sum + Math.max(0, Number(variant.stock) || 0), 0);
+
+  await tx
+    .update(products)
+    .set({
+      stock: productStock,
+      images: productImages.length > 0 ? productImages : Array.isArray(productRow.images) ? productRow.images : [],
+      dynamicFields: {
+        ...((productRow.dynamicFields as Record<string, any> | null) || {}),
+        variantSummary,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, productId));
+};
+
 const productInventoryReconciliationInFlight = new Set<string>();
+const ABANDONED_CHECKOUT_GRACE_MS = 60 * 60 * 1000;
 
 const reconcileProductInventory = async (tx: any, productId: string) => {
   const [productRow] = await tx
@@ -127,19 +354,72 @@ const scheduleProductInventoryReconciliation = (productIds: string[]) => {
 
 const reserveProductStock = async (
   tx: any,
-  items: Array<{ productId: string; quantity: number }>,
+  items: CheckoutStockItem[],
 ) => {
+  await ensureProductVariantsSchemaCompat();
+  await ensureOrderItemsSchemaCompat();
+
   const quantityByProduct = new Map<string, number>();
+  const quantityByVariant = new Map<string, { productId: string; quantity: number }>();
+  const touchedVariantProductIds = new Set<string>();
 
   for (const item of items) {
     const productId = String(item.productId || "").trim();
     const quantity = normalizeRequestedQuantity(item.quantity);
+    const variantId = String(item.variantId || "").trim();
     if (!productId || quantity <= 0) continue;
+
+    if (variantId) {
+      const current = quantityByVariant.get(variantId);
+      quantityByVariant.set(variantId, {
+        productId,
+        quantity: (current?.quantity || 0) + quantity,
+      });
+      touchedVariantProductIds.add(productId);
+      continue;
+    }
+
     quantityByProduct.set(productId, (quantityByProduct.get(productId) || 0) + quantity);
   }
 
+  for (const [variantId, reservation] of Array.from(quantityByVariant.entries())) {
+    const currentRows = await tx
+      .select({
+        id: productVariants.id,
+        productId: productVariants.productId,
+        color: productVariants.color,
+        size: productVariants.size,
+        stock: productVariants.stock,
+      })
+      .from(productVariants)
+      .where(eq(productVariants.id, variantId))
+      .for("update");
+
+    const currentVariant = currentRows[0];
+    if (!currentVariant) {
+      throw new Error(`Variant not found for stock reservation: ${variantId}`);
+    }
+
+    const availableStock = Number(currentVariant.stock || 0);
+    if (availableStock < reservation.quantity) {
+      const variantLabel = [currentVariant.color, currentVariant.size]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .join(" / ");
+      throw new Error(
+        `${variantLabel || "Selected option"} has only ${availableStock} item(s) left. Please refresh and try again.`,
+      );
+    }
+
+    await tx
+      .update(productVariants)
+      .set({
+        stock: availableStock - reservation.quantity,
+      })
+      .where(eq(productVariants.id, variantId));
+  }
+
   for (const [productId, requestedQuantity] of Array.from(quantityByProduct.entries())) {
-    await reconcileProductInventory(tx, productId);
     const currentRows = await tx
       .select({
         id: products.id,
@@ -169,6 +449,10 @@ const reserveProductStock = async (
         updatedAt: new Date(),
       })
       .where(eq(products.id, productId));
+  }
+
+  for (const productId of Array.from(touchedVariantProductIds)) {
+    await syncProductVariantState(tx, productId);
   }
 };
 
@@ -210,7 +494,14 @@ export interface IStorage {
   getOrder(id: string): Promise<Order | undefined>;
   getAllOrders(): Promise<Order[]>;
   getOrdersByUser(userId: string, role: "buyer" | "seller" | "rider"): Promise<Order[]>;
-  getOrderItems(orderId: string): Promise<Array<{ productId: string; productName: string; quantity: number; price: string }>>;
+  getOrderItems(orderId: string): Promise<Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    price: string;
+    selectedColor: string | null;
+    selectedSize: string | null;
+  }>>;
   updateOrderStatus(id: string, status: string): Promise<Order | undefined>;
   applyOrderStatusTransition(orderId: string, toStatus: string, changedBy: string, changedByRole: string, reason?: string, sideEffects?: Partial<Order>): Promise<Order | undefined>;
   createOrderStatusHistory(data: InsertOrderStatusHistory): Promise<OrderStatusHistory>;
@@ -253,13 +544,29 @@ export interface IStorage {
   createPlatformEarning(data: InsertPlatformEarning): Promise<PlatformEarning>;
   createCommissionWithEarning(orderId: string): Promise<{commission: Commission, earning: PlatformEarning}>;
   ensureAutomaticSellerPayoutForCommission(commissionId: string): Promise<SellerPayout | undefined>;
+  repairUnsafeSellerPayoutRecords(limit?: number): Promise<number>;
   backfillMissingCommissionEarnings(limit?: number): Promise<number>;
   getSellerAvailableBalance(sellerId: string): Promise<number>;
   getSellerCommissions(sellerId: string, status?: string): Promise<Commission[]>;
   
   // Seller Payout operations
   createSellerPayout(data: InsertSellerPayout): Promise<SellerPayout>;
+  getAdminSellerPayoutSummaries(): Promise<Array<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    isApproved: boolean;
+    hasPayoutSetup: boolean;
+    payoutType: string | null;
+    totalPaid: string;
+    pendingAmount: string;
+    payoutCount: number;
+    completedPayoutCount: number;
+    lastPayoutAt: Date | null;
+  }>>;
   getSellerPayouts(sellerId: string): Promise<SellerPayout[]>;
+  activateEligibleSellerPayoutsForSeller(sellerId: string): Promise<{ releasedCount: number; releasedAmount: number }>;
   getAllPendingPayouts(): Promise<SellerPayout[]>;
   updateSellerPayoutDetails(payoutId: string, bankDetailsPatch: Record<string, any>, notes?: string): Promise<SellerPayout | undefined>;
   updatePayoutStatus(payoutId: string, status: string, processedBy?: string): Promise<SellerPayout | undefined>;
@@ -278,10 +585,12 @@ export interface IStorage {
   
   // Cart operations
   addToCart(userId: string, productId: string, quantity: number, variantId?: string, selectedColor?: string, selectedSize?: string, selectedImageIndex?: number): Promise<Cart>;
-  getCart(userId: string): Promise<Array<{ id: string; productId: string; productName: string; productImage: string; quantity: number; price: string; variantId: string | null; selectedColor: string | null; selectedSize: string | null; selectedImageIndex: number | null }>>;
+  getCart(userId: string): Promise<Array<{ id: string; productId: string; productName: string; productImage: string; quantity: number; price: string; variantId: string | null; selectedColor: string | null; selectedSize: string | null; selectedImageIndex: number | null; availableStock: number; requiresVariantSelection?: boolean }>>;
   updateCartItem(id: string, quantity: number): Promise<Cart | undefined>;
   removeFromCart(id: string): Promise<boolean>;
   clearCart(userId: string): Promise<void>;
+  reassignCartVariantReferences(sourceVariantIds: string[], targetVariantId: string): Promise<void>;
+  clearCartVariantReferences(variantIds: string[]): Promise<void>;
   
   // Wishlist operations
   addToWishlist(userId: string, productId: string): Promise<Wishlist>;
@@ -394,9 +703,13 @@ export interface IStorage {
 export class DbStorage implements IStorage {
   // FREE TIER OPTIMIZATION: Query result caching (saves 44 DB calls/day)
   private queryCache = new Map<string, { timestamp: number; data: any }>();
+  private buyerOrderResolutionInFlight = new Map<string, Promise<number>>();
   private readonly CACHE_TTL = {
     getAllOrders: 5 * 60 * 1000,      // 5 minutes
     getProducts: 15 * 1000,            // 15 seconds
+    getProduct: 60 * 1000,             // 1 minute
+    getProductVariants: 60 * 1000,     // 1 minute
+    getProductReviews: 30 * 1000,      // 30 seconds
     getPlatformSettings: 60 * 60 * 1000, // 1 hour
     getDeliveryZones: 30 * 60 * 1000,  // 30 minutes
   };
@@ -415,6 +728,324 @@ export class DbStorage implements IStorage {
     this.queryCache.set(key, { timestamp: Date.now(), data });
   }
 
+  private scheduleBuyerOrderResolution(userId: string): void {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) return;
+    if (this.buyerOrderResolutionInFlight.has(normalizedUserId)) return;
+
+    const task = this.resolveBuyerUnpaidOrders(normalizedUserId)
+      .catch((error) => {
+        console.warn("Background unpaid-order resolution failed:", error instanceof Error ? error.message : String(error));
+        return 0;
+      })
+      .finally(() => {
+        this.buyerOrderResolutionInFlight.delete(normalizedUserId);
+      });
+
+    this.buyerOrderResolutionInFlight.set(normalizedUserId, task);
+  }
+
+  private buildCartSelectionKey(row: {
+    productId?: string | null;
+    variantId?: string | null;
+    selectedColor?: string | null;
+    selectedSize?: string | null;
+  }) {
+    return [
+      String(row.productId || "").trim(),
+      String(row.variantId || "").trim(),
+      String(row.selectedColor || "").trim().toLowerCase(),
+      String(row.selectedSize || "").trim().toLowerCase(),
+    ].join("::");
+  }
+
+  private async mergeDuplicateCartSelections(userId: string): Promise<void> {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) return;
+
+    const rows = await db
+      .select({
+        id: cart.id,
+        productId: cart.productId,
+        variantId: cart.variantId,
+        selectedColor: cart.selectedColor,
+        selectedSize: cart.selectedSize,
+        selectedImageIndex: cart.selectedImageIndex,
+        quantity: cart.quantity,
+        updatedAt: cart.updatedAt,
+        createdAt: cart.createdAt,
+      })
+      .from(cart)
+      .where(eq(cart.userId, normalizedUserId))
+      .orderBy(desc(cart.updatedAt), desc(cart.createdAt));
+
+    if (rows.length < 2) return;
+
+    const groups = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const key = this.buildCartSelectionKey(row);
+      const list = groups.get(key) || [];
+      list.push(row);
+      groups.set(key, list);
+    }
+
+    for (const groupRows of Array.from(groups.values())) {
+      if (groupRows.length < 2) continue;
+
+      const primary = groupRows[0];
+      const duplicates = groupRows.slice(1);
+      const mergedQuantity = groupRows.reduce(
+        (sum, row) => sum + Math.max(0, Number(row.quantity || 0)),
+        0,
+      );
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(cart)
+          .set({
+            quantity: mergedQuantity,
+            selectedImageIndex: primary.selectedImageIndex ?? 0,
+            updatedAt: new Date(),
+          })
+          .where(eq(cart.id, primary.id));
+
+        await tx
+          .delete(cart)
+          .where(inArray(cart.id, duplicates.map((row) => row.id)));
+      });
+    }
+  }
+
+  async resolveBuyerUnpaidOrders(
+    userId: string,
+    options?: {
+      orderIds?: string[];
+      force?: boolean;
+      maxAgeMs?: number;
+    },
+  ): Promise<number> {
+    await ensureOrderItemsSchemaCompat();
+    await ensureProductVariantsSchemaCompat();
+
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) {
+      return 0;
+    }
+
+    const normalizedOrderIds = Array.from(
+      new Set((options?.orderIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
+    );
+    const shouldForce = options?.force === true;
+    const cutoff = new Date(Date.now() - (options?.maxAgeMs ?? ABANDONED_CHECKOUT_GRACE_MS));
+
+    const pendingOrders = await db
+      .select({
+        id: orders.id,
+        buyerId: orders.buyerId,
+        couponCode: orders.couponCode,
+        status: orders.status,
+        paymentStatus: orders.paymentStatus,
+      })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.buyerId, normalizedUserId),
+          eq(orders.paymentStatus, "pending"),
+          or(
+            eq(orders.status, "pending"),
+            eq(orders.status, "processing"),
+            sql`${orders.status}::text = 'created'`,
+          ),
+          normalizedOrderIds.length > 0 ? inArray(orders.id, normalizedOrderIds) : sql`true`,
+          shouldForce ? sql`true` : lte(orders.createdAt, cutoff),
+        ),
+      );
+
+    if (!pendingOrders.length) {
+      return 0;
+    }
+
+    const touchedProductIds = new Set<string>();
+
+    await db.transaction(async (tx) => {
+      const currentCartRows = await tx
+        .select({
+          productId: cart.productId,
+          variantId: cart.variantId,
+          selectedColor: cart.selectedColor,
+          selectedSize: cart.selectedSize,
+          selectedImageIndex: cart.selectedImageIndex,
+        })
+        .from(cart)
+        .where(eq(cart.userId, normalizedUserId));
+
+      const cartKeys = new Set(
+        currentCartRows.map((row) =>
+          [
+            String(row.productId || ""),
+            String(row.variantId || ""),
+            String(row.selectedColor || ""),
+            String(row.selectedSize || ""),
+            String(row.selectedImageIndex ?? 0),
+          ].join("::"),
+        ),
+      );
+
+      for (const orderRow of pendingOrders) {
+        const [freshOrderState] = await tx
+          .select({
+            id: orders.id,
+            couponCode: orders.couponCode,
+            status: orders.status,
+            paymentStatus: orders.paymentStatus,
+          })
+          .from(orders)
+          .where(eq(orders.id, orderRow.id))
+          .for("update");
+
+        if (!freshOrderState) {
+          continue;
+        }
+
+        const normalizedPaymentStatus = String(freshOrderState.paymentStatus || "").toLowerCase().trim();
+        const normalizedOrderStatus = String(freshOrderState.status || "").toLowerCase().trim();
+        if (
+          ["completed", "paid", "success"].includes(normalizedPaymentStatus) ||
+          !["pending", "processing", "created"].includes(normalizedOrderStatus)
+        ) {
+          continue;
+        }
+
+        const items = await tx
+          .select({
+            productId: orderItems.productId,
+            variantId: orderItems.variantId,
+            selectedColor: orderItems.selectedColor,
+            selectedSize: orderItems.selectedSize,
+            selectedImageIndex: orderItems.selectedImageIndex,
+            quantity: orderItems.quantity,
+          })
+          .from(orderItems)
+          .where(eq(orderItems.orderId, orderRow.id));
+
+        const quantityByProduct = new Map<string, number>();
+        const quantityByVariant = new Map<string, { productId: string; quantity: number }>();
+        const touchedVariantProductIds = new Set<string>();
+        for (const item of items) {
+          const productId = String(item.productId || "").trim();
+          const variantId = String(item.variantId || "").trim();
+          const quantity = normalizeRequestedQuantity(item.quantity);
+          if (!productId || quantity <= 0) continue;
+          touchedProductIds.add(productId);
+          if (variantId) {
+            const current = quantityByVariant.get(variantId);
+            quantityByVariant.set(variantId, {
+              productId,
+              quantity: (current?.quantity || 0) + quantity,
+            });
+            touchedVariantProductIds.add(productId);
+            continue;
+          }
+          quantityByProduct.set(productId, (quantityByProduct.get(productId) || 0) + quantity);
+        }
+
+        for (const [variantId, variantRow] of Array.from(quantityByVariant.entries())) {
+          await tx
+            .update(productVariants)
+            .set({
+              stock: sql`${productVariants.stock} + ${variantRow.quantity}`,
+            })
+            .where(eq(productVariants.id, variantId));
+        }
+
+        for (const [productId, quantity] of Array.from(quantityByProduct.entries())) {
+          await tx
+            .update(products)
+            .set({
+              stock: sql`${products.stock} + ${quantity}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(products.id, productId));
+        }
+
+        for (const productId of Array.from(touchedVariantProductIds)) {
+          await syncProductVariantState(tx, productId);
+        }
+
+        for (const item of items) {
+          const productId = String(item.productId || "").trim();
+          const variantId = String(item.variantId || "").trim() || null;
+          const selectedColor = String(item.selectedColor || "").trim() || null;
+          const selectedSize = String(item.selectedSize || "").trim() || null;
+          const selectedImageIndex = Number.isFinite(Number(item.selectedImageIndex))
+            ? Math.max(0, Number(item.selectedImageIndex) || 0)
+            : 0;
+          const quantity = normalizeRequestedQuantity(item.quantity);
+          if (!productId || quantity <= 0) continue;
+
+          const cartKey = [
+            productId,
+            variantId || "",
+            selectedColor || "",
+            selectedSize || "",
+            String(selectedImageIndex),
+          ].join("::");
+          if (cartKeys.has(cartKey)) {
+            continue;
+          }
+
+          await tx.insert(cart).values({
+            userId: normalizedUserId,
+            productId,
+            quantity,
+            variantId,
+            selectedColor,
+            selectedSize,
+            selectedImageIndex,
+            updatedAt: new Date(),
+          });
+          cartKeys.add(cartKey);
+        }
+
+        if (freshOrderState.couponCode) {
+          await tx
+            .update(coupons)
+            .set({
+              usedCount: sql`GREATEST(COALESCE(${coupons.usedCount}, 0) - 1, 0)`,
+            })
+            .where(eq(coupons.code, freshOrderState.couponCode));
+        }
+
+        await tx
+          .update(orders)
+          .set({
+            paymentStatus: "failed",
+            status: "cancelled",
+            updatedAt: new Date(),
+          })
+          .where(eq(orders.id, orderRow.id));
+
+        await tx.insert(orderStatusHistory).values({
+          orderId: orderRow.id,
+          fromStatus: (normalizeOrderStatusForDatabase(freshOrderState.status as any) || "pending") as any,
+          toStatus: "cancelled" as any,
+          changedBy: normalizedUserId,
+          changedByRole: "buyer" as any,
+          reason: "payment_abandoned_restored",
+          metadata: {
+            paymentStatus: freshOrderState.paymentStatus,
+            restoredToCart: true,
+            restoredItems: items.length,
+          } as any,
+        });
+      }
+    });
+
+    this.invalidateOrderCache();
+    this.invalidateProductInventoryCaches(touchedProductIds);
+    return pendingOrders.length;
+  }
+
   private invalidateCache(pattern?: string): void {
     if (!pattern) {
       this.queryCache.clear();
@@ -430,6 +1061,27 @@ export class DbStorage implements IStorage {
 
   private invalidateOrderCache(): void {
     this.invalidateCache("getAllOrders");
+  }
+
+  private invalidateProductInventoryCaches(productIds: Iterable<string>): void {
+    const normalizedIds = Array.from(
+      new Set(
+        Array.from(productIds)
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (normalizedIds.length === 0) {
+      return;
+    }
+
+    for (const productId of normalizedIds) {
+      this.invalidateCache(`getProduct:${productId}`);
+      this.invalidateCache(`getProductVariants:${productId}`);
+    }
+
+    this.invalidateCache("getProducts");
   }
 
   // Helper method for database operations with retry logic
@@ -503,15 +1155,25 @@ export class DbStorage implements IStorage {
   // Product operations
   async createProduct(product: InsertProduct & { sellerId: string }): Promise<Product> {
     const result = await db.insert(products).values(product).returning();
+    this.invalidateCache("getProducts");
     return result[0];
   }
 
   async getProduct(id: string): Promise<Product | undefined> {
-    return await db.transaction(async (tx) => {
-      await reconcileProductInventory(tx, id);
-      const result = await tx.select().from(products).where(eq(products.id, id)).limit(1);
-      return result[0];
-    });
+    const cacheKey = `getProduct:${id}`;
+    const cached = this.getCachedResult(cacheKey, this.CACHE_TTL.getProduct);
+    if (cached) {
+      return cached;
+    }
+
+    const result = await db.select().from(products).where(eq(products.id, id)).limit(1);
+    const product = result[0];
+
+    if (product) {
+      this.setCachedResult(cacheKey, product);
+    }
+
+    return product;
   }
 
   async getProducts(filters?: { sellerId?: string; storeId?: string; category?: string; isActive?: boolean }): Promise<Product[]> {
@@ -534,25 +1196,36 @@ export class DbStorage implements IStorage {
     const rows = await (conditions.length > 0 ? query.where(and(...conditions)) : query).orderBy(desc(products.createdAt));
 
     if (rows.length === 0) return rows;
-    scheduleProductInventoryReconciliation(rows.map((row) => row.id));
     return rows;
   }
 
   async updateProduct(id: string, data: Partial<Product>): Promise<Product | undefined> {
     const result = await db.update(products).set({ ...data, updatedAt: new Date() }).where(eq(products.id, id)).returning();
+    this.invalidateCache(`getProduct:${id}`);
+    this.invalidateCache("getProducts");
     return result[0];
   }
 
   async deleteProduct(id: string): Promise<boolean> {
     const result = await db.delete(products).where(eq(products.id, id));
+    this.invalidateCache(`getProduct:${id}`);
+    this.invalidateCache("getProducts");
+    this.invalidateCache(`getProductVariants:${id}`);
+    this.invalidateCache(`getProductReviews:${id}`);
     return true;
   }
 
   // Order operations
   async createOrder(
     order: InsertOrder, 
-    items: Array<{ productId: string; quantity: number; price: string; total: string }>
+    items: Array<CheckoutStockItem & { price: string; total: string }>
   ): Promise<Order> {
+    await ensureOrderItemsSchemaCompat();
+    const touchedProductIds = new Set(
+      items
+        .map((item) => String(item.productId || "").trim())
+        .filter(Boolean),
+    );
     const createdOrder = await db.transaction(async (tx) => {
       await reserveProductStock(tx, items);
 
@@ -560,20 +1233,31 @@ export class DbStorage implements IStorage {
       const qrCode = `${orderNumber}-${order.buyerId}`;
       const deliveryOtp = generateNumericOtp();
       const pickupOtp = generateNumericOtp();
+      const normalizedStatus = normalizeOrderStatusForDatabase((order as any).status);
       
       const [newOrder] = await tx.insert(orders).values({
         ...order,
+        ...(normalizedStatus ? { status: normalizedStatus as any } : {}),
         orderNumber,
         qrCode,
         deliveryOtp,
         pickupOtp,
       }).returning();
 
-      for (const item of items) {
-        await tx.insert(orderItems).values({
+      if (items.length > 0) {
+        await tx.insert(orderItems).values(items.map((item) => ({
           orderId: newOrder.id,
-          ...item,
-        });
+          productId: item.productId,
+          variantId: String(item.variantId || "").trim() || null,
+          selectedColor: String(item.selectedColor || "").trim() || null,
+          selectedSize: String(item.selectedSize || "").trim() || null,
+          selectedImageIndex: Number.isFinite(Number(item.selectedImageIndex))
+            ? Math.max(0, Number(item.selectedImageIndex) || 0)
+            : 0,
+          quantity: item.quantity,
+          price: item.price,
+          total: item.total,
+        })));
       }
 
       if (order.couponCode) {
@@ -582,11 +1266,10 @@ export class DbStorage implements IStorage {
           .where(eq(coupons.code, order.couponCode));
       }
 
-      await tx.delete(cart).where(eq(cart.userId, order.buyerId));
-
       return newOrder;
     });
     this.invalidateOrderCache();
+    this.invalidateProductInventoryCaches(touchedProductIds);
     return createdOrder;
   }
 
@@ -595,7 +1278,7 @@ export class DbStorage implements IStorage {
     itemsBySeller: Array<{
       sellerId: string;
       storeId: string | null;
-      items: Array<{ productId: string; quantity: number; price: string; total: string }>;
+      items: Array<CheckoutStockItem & { price: string; total: string }>;
       subtotal: number;
       deliveryFee: number;
       processingFee: number;
@@ -603,6 +1286,13 @@ export class DbStorage implements IStorage {
       total: number;
     }>
   ): Promise<{ sessionId: string; orders: Order[] }> {
+    await ensureOrderItemsSchemaCompat();
+    const touchedProductIds = new Set(
+      itemsBySeller
+        .flatMap((sellerGroup) => sellerGroup.items)
+        .map((item) => String(item.productId || "").trim())
+        .filter(Boolean),
+    );
     const createdOrderBatch = await db.transaction(async (tx) => {
       await reserveProductStock(
         tx,
@@ -617,9 +1307,11 @@ export class DbStorage implements IStorage {
         const qrCode = `${orderNumber}-${baseOrderData.buyerId}`;
         const deliveryOtp = generateNumericOtp();
         const pickupOtp = generateNumericOtp();
+        const normalizedStatus = normalizeOrderStatusForDatabase((baseOrderData as any).status);
 
         const [newOrder] = await tx.insert(orders).values({
           ...baseOrderData,
+          ...(normalizedStatus ? { status: normalizedStatus as any } : {}),
           sellerId: sellerGroup.sellerId,
           storeId: sellerGroup.storeId,
           checkoutSessionId: sessionId,
@@ -634,11 +1326,20 @@ export class DbStorage implements IStorage {
           total: sellerGroup.total.toFixed(2),
         }).returning();
 
-        for (const item of sellerGroup.items) {
-          await tx.insert(orderItems).values({
+        if (sellerGroup.items.length > 0) {
+          await tx.insert(orderItems).values(sellerGroup.items.map((item) => ({
             orderId: newOrder.id,
-            ...item,
-          });
+            productId: item.productId,
+            variantId: String(item.variantId || "").trim() || null,
+            selectedColor: String(item.selectedColor || "").trim() || null,
+            selectedSize: String(item.selectedSize || "").trim() || null,
+            selectedImageIndex: Number.isFinite(Number(item.selectedImageIndex))
+              ? Math.max(0, Number(item.selectedImageIndex) || 0)
+              : 0,
+            quantity: item.quantity,
+            price: item.price,
+            total: item.total,
+          })));
         }
 
         createdOrders.push(newOrder);
@@ -651,12 +1352,10 @@ export class DbStorage implements IStorage {
           .where(eq(coupons.code, baseOrderData.couponCode));
       }
 
-      // Clear cart once after all orders created
-      await tx.delete(cart).where(eq(cart.userId, baseOrderData.buyerId));
-
       return { sessionId, orders: createdOrders };
     });
     this.invalidateOrderCache();
+    this.invalidateProductInventoryCaches(touchedProductIds);
     return createdOrderBatch;
   }
 
@@ -686,13 +1385,23 @@ export class DbStorage implements IStorage {
     }
   }
 
-  async getOrderItems(orderId: string): Promise<Array<{ productId: string; productName: string; quantity: number; price: string }>> {
+  async getOrderItems(orderId: string): Promise<Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    price: string;
+    selectedColor: string | null;
+    selectedSize: string | null;
+  }>> {
+    await ensureOrderItemsSchemaCompat();
     const items = await db
       .select({
         productId: orderItems.productId,
         productName: products.name,
         quantity: orderItems.quantity,
         price: orderItems.price,
+        selectedColor: orderItems.selectedColor,
+        selectedSize: orderItems.selectedSize,
       })
       .from(orderItems)
       .leftJoin(products, eq(orderItems.productId, products.id))
@@ -789,7 +1498,7 @@ export class DbStorage implements IStorage {
         // Create audit trail entry (inside same transaction)
         await tx.insert(orderStatusHistory).values({
           orderId,
-          fromStatus: fromStatus as any,
+          fromStatus: (normalizeOrderStatusForDatabase(fromStatus as any) || "pending") as any,
           toStatus: storageStatus as any,
           changedBy,
           changedByRole: changedByRole as any,
@@ -810,7 +1519,15 @@ export class DbStorage implements IStorage {
   }
 
   async createOrderStatusHistory(data: InsertOrderStatusHistory): Promise<OrderStatusHistory> {
-    const result = await db.insert(orderStatusHistory).values(data).returning();
+    const normalizedFromStatus = data.fromStatus
+      ? normalizeOrderStatusForDatabase(data.fromStatus as any)
+      : null;
+    const normalizedToStatus = normalizeOrderStatusForDatabase(data.toStatus as any) || "pending";
+    const result = await db.insert(orderStatusHistory).values({
+      ...data,
+      fromStatus: normalizedFromStatus as any,
+      toStatus: normalizedToStatus as any,
+    }).returning();
     return result[0];
   }
 
@@ -822,8 +1539,14 @@ export class DbStorage implements IStorage {
   }
 
   async updateOrder(orderId: string, data: Partial<Order>): Promise<Order | undefined> {
+    const normalizedStatus = Object.prototype.hasOwnProperty.call(data, "status")
+      ? normalizeOrderStatusForDatabase((data as any).status)
+      : undefined;
     const result = await db.update(orders).set({ 
       ...data,
+      ...(Object.prototype.hasOwnProperty.call(data, "status")
+        ? { status: (normalizedStatus || "pending") as any }
+        : {}),
       updatedAt: new Date()
     }).where(eq(orders.id, orderId)).returning();
     if (result[0]) this.invalidateOrderCache();
@@ -1517,6 +2240,102 @@ export class DbStorage implements IStorage {
     });
   }
 
+  private getSellerPayoutSetupState(store: any) {
+    const payoutDetails = ((store?.payoutDetails as Record<string, any> | null) || {}) as Record<string, any>;
+    const payoutType =
+      store?.payoutType === "mobile_money"
+        ? "mobile_money"
+        : store?.payoutType === "bank_account"
+          ? "bank_account"
+          : null;
+    const normalizedPayoutDetails =
+      payoutType === "mobile_money"
+        ? {
+            ...payoutDetails,
+            provider: normalizeGhanaMobileMoneyProvider(payoutDetails.provider),
+            mobileNumber: normalizeGhanaMobileMoneyNumber(payoutDetails.mobileNumber),
+          }
+        : payoutDetails;
+    const isVerified = Boolean(store?.isPayoutVerified);
+    const hasVerifiedBankSetup = Boolean(
+      payoutType === "bank_account" &&
+      String(store?.paystackSubaccountId || "").trim() &&
+      String(normalizedPayoutDetails.bankCode || "").trim() &&
+      String(normalizedPayoutDetails.accountNumber || "").trim() &&
+      String(normalizedPayoutDetails.accountName || normalizedPayoutDetails.fullName || "").trim() &&
+      String(normalizedPayoutDetails.bankName || "").trim() &&
+      isVerified,
+    );
+    const hasVerifiedMobileSetup = Boolean(
+      payoutType === "mobile_money" &&
+      String(store?.paystackSubaccountId || "").trim() &&
+      String(normalizedPayoutDetails.provider || "").trim() &&
+      String(normalizedPayoutDetails.mobileNumber || "").trim() &&
+      isValidGhanaMobileMoneyNumber(normalizedPayoutDetails.mobileNumber, normalizedPayoutDetails.provider) &&
+      isVerified,
+    );
+
+    return {
+      payoutType,
+      payoutDetails: normalizedPayoutDetails,
+      hasVerifiedBankSetup,
+      hasVerifiedMobileSetup,
+      hasVerifiedSetup: hasVerifiedBankSetup || hasVerifiedMobileSetup,
+    };
+  }
+
+  private hasVerifiedSellerPayoutEvidence(
+    payout: Pick<SellerPayout, "status" | "bankDetails">,
+    setupState: {
+      hasVerifiedBankSetup: boolean;
+      hasVerifiedMobileSetup: boolean;
+      hasVerifiedSetup: boolean;
+    },
+  ) {
+    const payoutBankDetails = ((payout.bankDetails as Record<string, any> | null) || {}) as Record<string, any>;
+    const settlementMode = String(payoutBankDetails.settlementMode || "").toLowerCase().trim();
+    const transferStatus = String(payoutBankDetails.transferStatus || "").toLowerCase().trim();
+    const hasTransferEvidence = Boolean(
+      String(payoutBankDetails.transferReference || "").trim() ||
+      String(payoutBankDetails.transferCode || "").trim() ||
+      ["success", "successful", "completed"].includes(transferStatus),
+    );
+    const hasVerifiedSplitEvidence = settlementMode === "split" && setupState.hasVerifiedBankSetup;
+
+    return hasTransferEvidence || hasVerifiedSplitEvidence;
+  }
+
+  private normalizeSellerPayoutForDisplay(
+    payout: SellerPayout,
+    setupState: {
+      hasVerifiedBankSetup: boolean;
+      hasVerifiedMobileSetup: boolean;
+      hasVerifiedSetup: boolean;
+    },
+  ): SellerPayout {
+    if (String(payout.status || "").toLowerCase() !== "completed") {
+      return payout;
+    }
+
+    if (this.hasVerifiedSellerPayoutEvidence(payout, setupState)) {
+      return payout;
+    }
+
+    const payoutBankDetails = ((payout.bankDetails as Record<string, any> | null) || {}) as Record<string, any>;
+    return {
+      ...payout,
+      status: setupState.hasVerifiedSetup ? "processing" : "pending",
+      processedAt: null,
+      bankDetails: {
+        ...payoutBankDetails,
+        settlementMode: "transfer",
+        needsAudit: true,
+        auditReason: "Payout marked completed without verified transfer or valid split evidence",
+        setupRequired: setupState.hasVerifiedSetup ? undefined : true,
+      },
+    } as SellerPayout;
+  }
+
   async ensureAutomaticSellerPayoutForCommission(commissionId: string): Promise<SellerPayout | undefined> {
     const [commission] = await db.select()
       .from(commissions)
@@ -1533,30 +2352,42 @@ export class DbStorage implements IStorage {
     if (!order || !commission.sellerId) return undefined;
 
     const store = await this.getStoreByPrimarySeller(commission.sellerId);
-    const payoutMethod = store?.payoutType === "mobile_money" ? "mobile_money" : "bank_account";
-    const settlementMode = payoutMethod === "mobile_money" ? "transfer" : "split";
+    const setupState = this.getSellerPayoutSetupState(store);
+    const payoutMethod = setupState.payoutType ?? "bank_account";
+    const settlementMode: "transfer" | "split" =
+      setupState.hasVerifiedBankSetup && payoutMethod === "bank_account" ? "split" : "transfer";
     const transferFee = payoutMethod === "mobile_money" ? "1.00" : "0.00";
     const payoutDetails = payoutMethod === "mobile_money"
       ? {
-          mobileNumber: store?.payoutDetails?.mobileNumber,
-          provider: store?.payoutDetails?.provider,
+          mobileNumber: setupState.payoutDetails?.mobileNumber,
+          provider: setupState.payoutDetails?.provider,
           transferFee,
           settlementMode,
+          setupRequired: !setupState.hasVerifiedMobileSetup,
         }
       : {
-          accountName: store?.payoutDetails?.accountName || store?.payoutDetails?.fullName || store?.name,
-          accountNumber: store?.payoutDetails?.accountNumber,
-          bankCode: store?.payoutDetails?.bankCode,
-          bankName: store?.payoutDetails?.bankName,
+          accountName: setupState.payoutDetails?.accountName || setupState.payoutDetails?.fullName || store?.name,
+          accountNumber: setupState.payoutDetails?.accountNumber,
+          bankCode: setupState.payoutDetails?.bankCode,
+          bankName: setupState.payoutDetails?.bankName,
           transferFee,
           settlementMode,
+          setupRequired: !setupState.hasVerifiedBankSetup,
         };
 
     const settlementReference = `auto_seller_settlement_${commission.id}`;
-    const desiredStatus = payoutMethod === "mobile_money" ? "processing" : "completed";
-    const desiredCommissionStatus = desiredStatus === "completed" ? "processed" : "processing";
+    const desiredStatus: SellerPayout["status"] =
+      !setupState.hasVerifiedSetup ? "pending" : settlementMode === "split" ? "completed" : "processing";
+    const desiredCommissionStatus =
+      desiredStatus === "completed"
+        ? "processed"
+        : desiredStatus === "processing"
+          ? "processing"
+          : "pending";
     const settlementNotes =
-      payoutMethod === "mobile_money"
+      !setupState.hasVerifiedSetup
+        ? `Automatic seller settlement for order #${order.orderNumber} is awaiting verified payout setup`
+        : payoutMethod === "mobile_money"
         ? `Automatic seller settlement for order #${order.orderNumber} queued for Paystack mobile money transfer`
         : `Automatic seller settlement for order #${order.orderNumber} completed through Paystack split routing`;
 
@@ -1575,15 +2406,20 @@ export class DbStorage implements IStorage {
       let payout = existingPayout;
       if (
         payoutMethod === "bank_account" &&
+        setupState.hasVerifiedBankSetup &&
         existingPayout.status !== "completed" &&
         existingPayout.status !== "failed"
       ) {
         payout = (await this.updatePayoutStatus(existingPayout.id, "completed", undefined)) || existingPayout;
       } else if (
-        payoutMethod === "mobile_money" &&
+        setupState.hasVerifiedSetup &&
         existingPayout.status === "pending"
       ) {
-        payout = (await this.updatePayoutStatus(existingPayout.id, "processing", undefined)) || existingPayout;
+        payout = (await this.updatePayoutStatus(
+          existingPayout.id,
+          settlementMode === "split" ? "completed" : "processing",
+          undefined,
+        )) || existingPayout;
       }
 
       if (commission.status !== desiredCommissionStatus) {
@@ -1622,6 +2458,27 @@ export class DbStorage implements IStorage {
 
         return [insertedPayout];
       });
+
+      if (desiredStatus === "pending") {
+        try {
+          await this.createNotification({
+            userId: commission.sellerId,
+            type: "payout",
+            title: "Complete Payout Setup To Receive Funds",
+            message: `You have ${commission.sellerAmount} waiting from order #${order.orderNumber}. Complete your ${payoutMethod === "mobile_money" ? "mobile money" : "bank"} payout setup so we can transfer your settlement.`,
+            metadata: {
+              link: "/seller/payment-setup",
+              payoutId: createdPayout.id,
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              sellerId: commission.sellerId,
+              setupRequired: true,
+            },
+          } as any);
+        } catch (notifyError: any) {
+          console.error("[PAYOUT] Failed to create seller payout-setup notification:", notifyError?.message || notifyError);
+        }
+      }
 
       return createdPayout;
     } catch (error: any) {
@@ -1987,8 +2844,206 @@ export class DbStorage implements IStorage {
   }
 
   // Get seller payouts
+  async repairUnsafeSellerPayoutRecords(limit = 200): Promise<number> {
+    const payoutRows = await db.select()
+      .from(sellerPayouts)
+      .where(or(
+        eq(sellerPayouts.status, "completed"),
+        eq(sellerPayouts.status, "processing"),
+      ))
+      .orderBy(desc(sellerPayouts.createdAt))
+      .limit(limit);
+
+    let repairedCount = 0;
+
+    for (const payout of payoutRows) {
+      const store = await this.getStoreByPrimarySeller(payout.sellerId).catch(() => null);
+      const setupState = this.getSellerPayoutSetupState(store);
+      const payoutBankDetails = ((payout.bankDetails as Record<string, any> | null) || {}) as Record<string, any>;
+      const hasTransferEvidence = Boolean(
+        String(payoutBankDetails.transferReference || "").trim() ||
+        String(payoutBankDetails.transferCode || "").trim() ||
+        String(payoutBankDetails.transferStatus || "").trim() ||
+        String(payoutBankDetails.recipientCode || "").trim(),
+      );
+
+      if (payout.status === "processing" && !setupState.hasVerifiedSetup && !hasTransferEvidence) {
+        await db.transaction(async (tx) => {
+          await tx.update(sellerPayouts)
+            .set({
+              status: "pending",
+              processedAt: null,
+              bankDetails: {
+                ...(setupState.payoutType === "mobile_money"
+                  ? {
+                      provider: setupState.payoutDetails?.provider,
+                      mobileNumber: setupState.payoutDetails?.mobileNumber,
+                    }
+                  : {
+                      bankCode: setupState.payoutDetails?.bankCode,
+                      bankName: setupState.payoutDetails?.bankName,
+                      accountNumber: setupState.payoutDetails?.accountNumber,
+                      accountName: setupState.payoutDetails?.accountName || setupState.payoutDetails?.fullName,
+                    }),
+                ...payoutBankDetails,
+                settlementMode: "transfer",
+                needsAudit: true,
+                setupRequired: true,
+                auditReason: "Moved back to pending because payout setup is incomplete or invalid for transfer processing",
+              },
+            } as any)
+            .where(eq(sellerPayouts.id, payout.id));
+
+          if (Array.isArray(payout.commissionIds) && payout.commissionIds.length > 0) {
+            for (const commissionId of payout.commissionIds.filter(Boolean)) {
+              await tx.update(commissions)
+                .set({
+                  status: "pending",
+                  processedAt: null,
+                } as any)
+                .where(eq(commissions.id, commissionId));
+            }
+          }
+        });
+        repairedCount += 1;
+        continue;
+      }
+
+      if (this.hasVerifiedSellerPayoutEvidence(payout, setupState)) {
+        continue;
+      }
+
+      const nextStatus: SellerPayout["status"] = setupState.hasVerifiedSetup ? "processing" : "pending";
+      const nextCommissionStatus = nextStatus === "processing" ? "processing" : "pending";
+
+      await db.transaction(async (tx) => {
+        await tx.update(sellerPayouts)
+          .set({
+            status: nextStatus,
+            processedAt: null,
+            bankDetails: {
+              ...(setupState.payoutType === "mobile_money"
+                ? {
+                    provider: setupState.payoutDetails?.provider,
+                    mobileNumber: setupState.payoutDetails?.mobileNumber,
+                  }
+                : {
+                    bankCode: setupState.payoutDetails?.bankCode,
+                    bankName: setupState.payoutDetails?.bankName,
+                    accountNumber: setupState.payoutDetails?.accountNumber,
+                    accountName: setupState.payoutDetails?.accountName || setupState.payoutDetails?.fullName,
+                  }),
+              ...payoutBankDetails,
+              settlementMode: "transfer",
+              needsAudit: true,
+              setupRequired: setupState.hasVerifiedSetup ? undefined : true,
+              auditReason: "Reclassified because payout completion had no verified transfer or valid split evidence",
+            },
+          } as any)
+          .where(eq(sellerPayouts.id, payout.id));
+
+        if (Array.isArray(payout.commissionIds) && payout.commissionIds.length > 0) {
+          for (const commissionId of payout.commissionIds.filter(Boolean)) {
+            await tx.update(commissions)
+              .set({
+                status: nextCommissionStatus,
+                processedAt: null,
+              } as any)
+              .where(eq(commissions.id, commissionId));
+          }
+        }
+      });
+
+      repairedCount += 1;
+    }
+
+    return repairedCount;
+  }
+
+  async getAdminSellerPayoutSummaries(): Promise<Array<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    isApproved: boolean;
+    hasPayoutSetup: boolean;
+    payoutType: string | null;
+    totalPaid: string;
+    pendingAmount: string;
+    payoutCount: number;
+    completedPayoutCount: number;
+    lastPayoutAt: Date | null;
+  }>> {
+    await this.repairUnsafeSellerPayoutRecords(500);
+
+    const sellerRows = await db.select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      phone: users.phone,
+      isApproved: users.isApproved,
+      payoutType: stores.payoutType,
+      paystackSubaccountId: stores.paystackSubaccountId,
+      payoutDetails: stores.payoutDetails,
+      isPayoutVerified: stores.isPayoutVerified,
+    })
+      .from(users)
+      .leftJoin(stores, eq(stores.primarySellerId, users.id))
+      .where(eq(users.role, "seller"))
+      .orderBy(asc(users.name));
+
+    const payoutRows = await db.select().from(sellerPayouts);
+    const commissionRows = await db.select({
+      id: commissions.id,
+      sellerId: commissions.sellerId,
+      sellerAmount: commissions.sellerAmount,
+      status: commissions.status,
+    }).from(commissions);
+
+    return sellerRows.map((seller) => {
+      const setupState = this.getSellerPayoutSetupState(seller);
+      const sellerPayoutRows = payoutRows
+        .filter((payout) => payout.sellerId === seller.id)
+        .map((payout) => this.normalizeSellerPayoutForDisplay(payout, setupState));
+      const coveredCommissionIds = new Set(
+        sellerPayoutRows.flatMap((payout) => Array.isArray(payout.commissionIds) ? payout.commissionIds.filter(Boolean) : []),
+      );
+      const uncoveredCommissionRows = commissionRows.filter((commission) =>
+        commission.sellerId === seller.id &&
+        !coveredCommissionIds.has(commission.id) &&
+        ["pending", "processing", "processed"].includes(String(commission.status || "").toLowerCase().trim()),
+      );
+      const verifiedCompletedPayouts = sellerPayoutRows.filter((payout) => String(payout.status || "").toLowerCase().trim() === "completed");
+      const openPayoutAmount = sellerPayoutRows
+        .filter((payout) => ["pending", "processing"].includes(String(payout.status || "").toLowerCase().trim()))
+        .reduce((sum, payout) => sum + (parseFloat(String(payout.amount || "0")) || 0), 0);
+      const uncoveredCommissionAmount = uncoveredCommissionRows
+        .reduce((sum, commission) => sum + (parseFloat(String(commission.sellerAmount || "0")) || 0), 0);
+      const lastPayoutAt = verifiedCompletedPayouts
+        .map((payout) => payout.processedAt ? new Date(payout.processedAt) : null)
+        .filter((value): value is Date => value instanceof Date && !Number.isNaN(value.getTime()))
+        .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+
+      return {
+        id: seller.id,
+        name: seller.name,
+        email: seller.email,
+        phone: seller.phone,
+        isApproved: Boolean(seller.isApproved),
+        hasPayoutSetup: setupState.hasVerifiedSetup,
+        payoutType: setupState.payoutType,
+        totalPaid: verifiedCompletedPayouts.reduce((sum, payout) => sum + (parseFloat(String(payout.amount || "0")) || 0), 0).toFixed(2),
+        pendingAmount: (openPayoutAmount + uncoveredCommissionAmount).toFixed(2),
+        payoutCount: sellerPayoutRows.length,
+        completedPayoutCount: verifiedCompletedPayouts.length,
+        lastPayoutAt,
+      };
+    });
+  }
+
   async getSellerPayouts(sellerId: string): Promise<SellerPayout[]> {
     await this.backfillMissingCommissionEarnings(50);
+    await this.repairUnsafeSellerPayoutRecords(500);
     const payoutRows = await db.select()
       .from(sellerPayouts)
       .where(eq(sellerPayouts.sellerId, sellerId))
@@ -1999,24 +3054,27 @@ export class DbStorage implements IStorage {
     );
 
     const store = await this.getStoreByPrimarySeller(sellerId).catch(() => null);
-    const payoutMethod = store?.payoutType === "mobile_money" ? "mobile_money" : "bank_account";
-    const settlementMode = payoutMethod === "mobile_money" ? "transfer" : "split";
+    const setupState = this.getSellerPayoutSetupState(store);
+    const payoutMethod = setupState.payoutType ?? "bank_account";
+    const settlementMode = payoutMethod === "mobile_money" ? "transfer" : setupState.hasVerifiedBankSetup ? "split" : "transfer";
     const transferFee = payoutMethod === "mobile_money" ? "1.00" : "0.00";
     const payoutDetails =
       payoutMethod === "mobile_money"
         ? {
-            mobileNumber: store?.payoutDetails?.mobileNumber,
-            provider: store?.payoutDetails?.provider,
+            mobileNumber: setupState.payoutDetails?.mobileNumber,
+            provider: setupState.payoutDetails?.provider,
             transferFee,
             settlementMode,
+            setupRequired: !setupState.hasVerifiedMobileSetup,
           }
         : {
-            accountName: store?.payoutDetails?.accountName || store?.payoutDetails?.fullName || store?.name,
-            accountNumber: store?.payoutDetails?.accountNumber,
-            bankCode: store?.payoutDetails?.bankCode,
-            bankName: store?.payoutDetails?.bankName,
+            accountName: setupState.payoutDetails?.accountName || setupState.payoutDetails?.fullName || store?.name,
+            accountNumber: setupState.payoutDetails?.accountNumber,
+            bankCode: setupState.payoutDetails?.bankCode,
+            bankName: setupState.payoutDetails?.bankName,
             transferFee,
             settlementMode,
+            setupRequired: !setupState.hasVerifiedBankSetup,
           };
 
     const commissionRows = await db
@@ -2039,20 +3097,18 @@ export class DbStorage implements IStorage {
       .map((commission) => {
         const normalizedStatus = String(commission.status || "").toLowerCase().trim();
         const payoutStatus: SellerPayout["status"] =
-          normalizedStatus === "processed"
-            ? "completed"
-            : normalizedStatus === "processing"
-              ? "processing"
-              : normalizedStatus === "failed"
+          normalizedStatus === "processing"
+            ? "processing"
+            : normalizedStatus === "failed"
                 ? "failed"
                 : "pending";
 
         const orderLabel = commission.orderNumber || String(commission.orderId || "").slice(0, 8) || "N/A";
         const notes =
-          payoutStatus === "completed"
-            ? `Automatic seller settlement for order #${orderLabel} completed through finance reconciliation`
-            : payoutStatus === "processing"
+          payoutStatus === "processing"
               ? `Automatic seller settlement for order #${orderLabel} is currently processing`
+              : normalizedStatus === "processed"
+                ? `Commission for order #${orderLabel} is processed, but payout evidence is still being verified`
               : `Seller settlement for order #${orderLabel} is pending payout completion`;
 
         return {
@@ -2067,16 +3123,100 @@ export class DbStorage implements IStorage {
           commissionIds: [commission.id],
           notes,
           processedBy: null,
-          processedAt: payoutStatus === "completed" ? (commission.processedAt || commission.createdAt) : commission.processedAt,
+          processedAt: null,
           createdAt: commission.createdAt,
         } as SellerPayout;
       });
 
-    return [...payoutRows, ...syntheticPayouts].sort((a, b) => {
-      const aTime = new Date(a.createdAt || 0).getTime();
-      const bTime = new Date(b.createdAt || 0).getTime();
-      return bTime - aTime;
-    });
+    return [...payoutRows, ...syntheticPayouts]
+      .map((payout) => this.normalizeSellerPayoutForDisplay(payout, setupState))
+      .sort((a, b) => {
+        const aTime = new Date(a.createdAt || 0).getTime();
+        const bTime = new Date(b.createdAt || 0).getTime();
+        return bTime - aTime;
+      });
+  }
+
+  async activateEligibleSellerPayoutsForSeller(sellerId: string): Promise<{ releasedCount: number; releasedAmount: number }> {
+    const store = await this.getStoreByPrimarySeller(sellerId).catch(() => null);
+    const setupState = this.getSellerPayoutSetupState(store);
+    if (!setupState.hasVerifiedSetup) {
+      return { releasedCount: 0, releasedAmount: 0 };
+    }
+
+    const payoutMethod = setupState.payoutType ?? "bank_account";
+    const settlementMode = payoutMethod === "mobile_money" ? "transfer" : setupState.hasVerifiedBankSetup ? "split" : "transfer";
+    const payoutDetails =
+      payoutMethod === "mobile_money"
+        ? {
+            mobileNumber: setupState.payoutDetails?.mobileNumber,
+            provider: setupState.payoutDetails?.provider,
+            transferFee: "1.00",
+            settlementMode,
+            setupRequired: false,
+            needsAudit: false,
+            auditReason: null,
+          }
+        : {
+            accountName: setupState.payoutDetails?.accountName || setupState.payoutDetails?.fullName || store?.name,
+            accountNumber: setupState.payoutDetails?.accountNumber,
+            bankCode: setupState.payoutDetails?.bankCode,
+            bankName: setupState.payoutDetails?.bankName,
+            transferFee: "0.00",
+            settlementMode,
+            setupRequired: false,
+            needsAudit: false,
+            auditReason: null,
+          };
+
+    const blockedPayouts = await db.select()
+      .from(sellerPayouts)
+      .where(and(
+        eq(sellerPayouts.sellerId, sellerId),
+        or(
+          eq(sellerPayouts.status, "pending"),
+          eq(sellerPayouts.status, "processing"),
+        ),
+      ))
+      .orderBy(desc(sellerPayouts.createdAt));
+
+    let releasedCount = 0;
+    let releasedAmount = 0;
+
+    for (const payout of blockedPayouts) {
+      const currentBankDetails = ((payout.bankDetails as Record<string, any> | null) || {}) as Record<string, any>;
+      const requiresSetup = Boolean(currentBankDetails.setupRequired);
+      const hasTransferEvidence = Boolean(
+        String(currentBankDetails.transferReference || "").trim() ||
+        String(currentBankDetails.transferCode || "").trim() ||
+        String(currentBankDetails.transferStatus || "").trim() ||
+        String(currentBankDetails.recipientCode || "").trim(),
+      );
+
+      if (!requiresSetup && payout.status !== "pending") {
+        continue;
+      }
+
+      await this.updateSellerPayoutDetails(
+        payout.id,
+        {
+          ...payoutDetails,
+          ...currentBankDetails,
+          ...payoutDetails,
+        },
+        settlementMode === "split"
+          ? "Seller payout setup verified. Held settlement released through split payout."
+          : "Seller payout setup verified. Held settlement released to transfer processing.",
+      );
+
+      const nextStatus: SellerPayout["status"] =
+        settlementMode === "split" ? "completed" : hasTransferEvidence ? "processing" : "processing";
+      await this.updatePayoutStatus(payout.id, nextStatus, "system");
+      releasedCount += 1;
+      releasedAmount += parseFloat(String(payout.amount || "0")) || 0;
+    }
+
+    return { releasedCount, releasedAmount: Number(releasedAmount.toFixed(2)) };
   }
 
   // Get all pending payouts (for admin)
@@ -2153,6 +3293,29 @@ export class DbStorage implements IStorage {
 
       if (!payout) {
         return undefined;
+      }
+
+      const payoutBankDetails = ((payout.bankDetails as Record<string, any> | null) || {}) as Record<string, any>;
+      const settlementMode = String(payoutBankDetails.settlementMode || "").toLowerCase().trim();
+      const transferStatus = String(payoutBankDetails.transferStatus || "").toLowerCase().trim();
+      const hasManualTransferEvidence = Boolean(
+        String(payoutBankDetails.transferReference || "").trim() ||
+        String(payoutBankDetails.transferCode || "").trim(),
+      );
+      const hasSuccessfulProcessorStatus = ["success", "successful", "completed"].includes(transferStatus);
+      const store = await this.getStoreByPrimarySeller(payout.sellerId).catch(() => null);
+      const setupState = this.getSellerPayoutSetupState(store);
+      const hasVerifiedSplitEvidence = settlementMode === "split" && setupState.hasVerifiedBankSetup;
+
+      if (
+        status === "completed" &&
+        !hasVerifiedSplitEvidence &&
+        !hasManualTransferEvidence &&
+        !hasSuccessfulProcessorStatus
+      ) {
+        const verificationError = new Error("Payout completion requires a verified transfer reference, transfer code, or successful processor status.");
+        (verificationError as any).code = "PAYOUT_VERIFICATION_REQUIRED";
+        throw verificationError;
       }
 
       // Update payout status
@@ -2256,12 +3419,14 @@ export class DbStorage implements IStorage {
     if (cached) return cached;
 
     try {
+      await ensurePlatformSettingsSchemaCompat();
       // Return the most recently updated settings row (if multiple exist) to avoid ambiguity
       const result = await withStorageTimeout(
         db.select().from(platformSettings).orderBy(desc(platformSettings.updatedAt)).limit(1),
         10000,
         "Platform settings lookup",
       );
+      const compatOverrides = await readPlatformSettingsCompat();
       if (result.length === 0) {
         // Ensure reasonable defaults on first creation: Single-store by default and GHS currency
         const [settings] = await withStorageTimeout(
@@ -2276,12 +3441,18 @@ export class DbStorage implements IStorage {
             isExternalRiderSystemEnabled: false,
             showCheckoutDeliveryMap: true,
             allowRiderRegistration: false,
+            allowSellerDirectSupportMessages: true,
+            allowSellerBankPayouts: true,
+            allowSharedVariantColorStock: false,
+            showHomepageFeaturedSection: true,
+            showHomepageNewArrivalSection: true,
           }).returning(),
           10000,
           "Platform settings bootstrap",
         );
-        this.setCachedResult(cacheKey, settings);
-        return settings;
+        const mergedSettings = { ...settings, ...compatOverrides };
+        this.setCachedResult(cacheKey, mergedSettings);
+        return mergedSettings;
       }
       // Sanitize social URLs: convert '__CLEAR__' to null
       const socialKeys = [
@@ -2291,8 +3462,9 @@ export class DbStorage implements IStorage {
       for (const key of socialKeys) {
         if (settings[key] === '__CLEAR__') settings[key] = null;
       }
-      this.setCachedResult(cacheKey, settings);
-      return settings;
+      const mergedSettings = { ...settings, ...compatOverrides };
+      this.setCachedResult(cacheKey, mergedSettings);
+      return mergedSettings;
     } catch (err: any) {
       const msg = err?.message || String(err);
       console.error('ERROR getPlatformSettings query failed:', msg);
@@ -2326,6 +3498,13 @@ export class DbStorage implements IStorage {
           mapboxPublicToken: null,
           mapboxStyleUrl: 'mapbox://styles/mapbox/navigation-night-v1',
           mapboxGlVersion: 'v3.4.0',
+          smtpHost: null,
+          smtpPort: null,
+          smtpUser: null,
+          smtpPass: null,
+          smtpSecure: false,
+          smtpFromEmail: null,
+          smtpFromName: null,
           paystackPublicKey: null,
           paystackSecretKey: null,
           processingFeePercent: '1.95',
@@ -2353,6 +3532,8 @@ export class DbStorage implements IStorage {
           showPinterest: true,
           showWhatsapp: true,
           showShopBySection: true,
+          showHomepageFeaturedSection: true,
+          showHomepageNewArrivalSection: true,
           footerDescription: null,
           footerLinks: [],
           footerPaymentIcons: [],
@@ -2378,14 +3559,17 @@ export class DbStorage implements IStorage {
           isExternalRiderSystemEnabled: false,
           showCheckoutDeliveryMap: true,
           allowPickupAgentAdminChat: true,
+          allowSellerDirectSupportMessages: true,
           allowSellerRegistration: true,
           allowRiderRegistration: false,
+          allowSellerBankPayouts: true,
+          allowSharedVariantColorStock: false,
           primaryStoreId: null,
           defaultCommissionRate: '1',
           frontendUrl: null,
           updatedAt: new Date(),
         };
-        return defaults;
+        return { ...defaults, ...(await readPlatformSettingsCompat()) };
       }
       throw err;
     }
@@ -2394,16 +3578,90 @@ export class DbStorage implements IStorage {
   async updatePlatformSettings(data: Partial<PlatformSettings>): Promise<PlatformSettings> {
     // Invalidate cache when settings change
     this.invalidateCache("getPlatformSettings");
+    await ensurePlatformSettingsSchemaCompat();
 
     const existing = await this.getPlatformSettings();
-    const result = await db.update(platformSettings)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(platformSettings.id, existing.id))
-      .returning();
+    const payload = { ...data, updatedAt: new Date() } as Record<string, any>;
+
+    const runUpdate = async (updatePayload: Record<string, any>) =>
+      db.update(platformSettings)
+        .set(updatePayload)
+        .where(eq(platformSettings.id, existing.id))
+        .returning();
+
+    if (data.allowSellerBankPayouts !== undefined) {
+      await writePlatformSettingsCompat({ allowSellerBankPayouts: data.allowSellerBankPayouts });
+    }
+    if (data.isExternalRiderSystemEnabled !== undefined) {
+      await writePlatformSettingsCompat({ isExternalRiderSystemEnabled: data.isExternalRiderSystemEnabled });
+    }
+    if (data.showCheckoutDeliveryMap !== undefined) {
+      await writePlatformSettingsCompat({ showCheckoutDeliveryMap: data.showCheckoutDeliveryMap });
+    }
+    if (data.allowPickupAgentAdminChat !== undefined) {
+      await writePlatformSettingsCompat({ allowPickupAgentAdminChat: data.allowPickupAgentAdminChat });
+    }
+    if (data.allowSellerDirectSupportMessages !== undefined) {
+      await writePlatformSettingsCompat({ allowSellerDirectSupportMessages: data.allowSellerDirectSupportMessages });
+    }
+    if (data.allowSharedVariantColorStock !== undefined) {
+      await writePlatformSettingsCompat({ allowSharedVariantColorStock: data.allowSharedVariantColorStock });
+    }
+
+    let result;
+    try {
+      result = await runUpdate(payload);
+    } catch (err: any) {
+      const message = String(err?.message || "");
+      const missingBankPayoutColumn =
+        message.includes("allow_seller_bank_payouts") &&
+        message.toLowerCase().includes("does not exist");
+      const missingExternalRiderColumn =
+        message.includes("is_external_rider_system_enabled") &&
+        message.toLowerCase().includes("does not exist");
+      const missingCheckoutMapColumn =
+        message.includes("show_checkout_delivery_map") &&
+        message.toLowerCase().includes("does not exist");
+      const missingPickupAgentChatColumn =
+        message.includes("allow_pickup_agent_admin_chat") &&
+        message.toLowerCase().includes("does not exist");
+      const missingSellerDirectSupportMessagesColumn =
+        message.includes("allow_seller_direct_support_messages") &&
+        message.toLowerCase().includes("does not exist");
+      const missingSharedVariantStockColumn =
+        message.includes("allow_shared_variant_color_stock") &&
+        message.toLowerCase().includes("does not exist");
+
+      if (
+        !missingBankPayoutColumn &&
+        !missingExternalRiderColumn &&
+        !missingCheckoutMapColumn &&
+        !missingPickupAgentChatColumn &&
+        !missingSellerDirectSupportMessagesColumn &&
+        !missingSharedVariantStockColumn
+      ) {
+        throw err;
+      }
+
+      console.warn(
+        "[STORAGE] platform_settings is missing a newer feature column; retrying update without unsupported fields",
+      );
+
+      delete payload.allowSellerBankPayouts;
+      delete payload.isExternalRiderSystemEnabled;
+      delete payload.showCheckoutDeliveryMap;
+      delete payload.allowPickupAgentAdminChat;
+      delete payload.allowSellerDirectSupportMessages;
+      delete payload.allowSharedVariantColorStock;
+      result = await runUpdate(payload);
+    }
 
     // Invalidate cache again after update
     this.invalidateCache("getPlatformSettings");
-    return result[0];
+    return {
+      ...result[0],
+      ...(await readPlatformSettingsCompat()),
+    };
   }
 
   // Promotional Ads management
@@ -2574,9 +3832,97 @@ export class DbStorage implements IStorage {
   }
 
   // Cart operations
+  private async productHasVariants(productId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: productVariants.id })
+      .from(productVariants)
+      .where(eq(productVariants.productId, productId))
+      .limit(1);
+
+    return Boolean(row?.id);
+  }
+
+  private async getAvailableCartStock(productId: string, variantId?: string | null): Promise<number> {
+    if (variantId) {
+      const [variant] = await db
+        .select({ stock: productVariants.stock })
+        .from(productVariants)
+        .where(eq(productVariants.id, variantId))
+        .limit(1);
+
+      if (variant) {
+        return Math.max(0, Number(variant.stock) || 0);
+      }
+    }
+
+    if (await this.productHasVariants(productId)) {
+      return 0;
+    }
+
+    const [product] = await db
+      .select({ stock: products.stock })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+
+    return Math.max(0, Number(product?.stock) || 0);
+  }
+
+  private async getCartSelectionQuantity(
+    userId: string,
+    productId: string,
+    variantId?: string | null,
+    selectedColor?: string | null,
+    selectedSize?: string | null,
+    excludeCartId?: string | null,
+  ): Promise<number> {
+    const rows = await db
+      .select({ quantity: cart.quantity })
+      .from(cart)
+      .where(
+        and(
+          eq(cart.userId, userId),
+          eq(cart.productId, productId),
+          variantId ? eq(cart.variantId, variantId) : sql`${cart.variantId} IS NULL`,
+          selectedColor ? eq(cart.selectedColor, selectedColor) : sql`${cart.selectedColor} IS NULL`,
+          selectedSize ? eq(cart.selectedSize, selectedSize) : sql`${cart.selectedSize} IS NULL`,
+          excludeCartId ? sql`${cart.id} <> ${excludeCartId}` : sql`true`,
+        ),
+      );
+
+    return rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 0)), 0);
+  }
+
   async addToCart(userId: string, productId: string, quantity: number, variantId?: string, selectedColor?: string, selectedSize?: string, selectedImageIndex?: number): Promise<Cart> {
-    // FIXED: Different images from same product should be separate cart items
-    // Each combination of product + variant + color + size + imageIndex is unique
+    await this.mergeDuplicateCartSelections(userId);
+    const normalizedQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+    const productRecord = await this.getProduct(productId);
+    if (!productRecord) {
+      throw new Error("Product not found");
+    }
+    if (String(productRecord.sellerId || "").trim() === String(userId || "").trim()) {
+      throw new Error("You cannot add your own product to cart");
+    }
+    const productRequiresVariantSelection = await this.productHasVariants(productId);
+    if (productRequiresVariantSelection && !variantId) {
+      throw new Error("Please choose the product option before adding it to cart");
+    }
+    if (productRequiresVariantSelection) {
+      await db
+        .delete(cart)
+        .where(
+          and(
+            eq(cart.userId, userId),
+            eq(cart.productId, productId),
+            sql`${cart.variantId} IS NULL`,
+          ),
+        );
+    }
+    const availableStock = await this.getAvailableCartStock(productId, variantId || null);
+    if (availableStock <= 0) {
+      throw new Error("This product is out of stock");
+    }
+
     const imageIdx = selectedImageIndex ?? 0;
     
     const existing = await db.select().from(cart)
@@ -2585,16 +3931,28 @@ export class DbStorage implements IStorage {
         eq(cart.productId, productId),
         variantId ? eq(cart.variantId, variantId) : sql`${cart.variantId} IS NULL`,
         selectedColor ? eq(cart.selectedColor, selectedColor) : sql`${cart.selectedColor} IS NULL`,
-        selectedSize ? eq(cart.selectedSize, selectedSize) : sql`${cart.selectedSize} IS NULL`,
-        eq(cart.selectedImageIndex, imageIdx)
+        selectedSize ? eq(cart.selectedSize, selectedSize) : sql`${cart.selectedSize} IS NULL`
       ))
       .limit(1);
 
+    const selectionQuantityInCart = await this.getCartSelectionQuantity(
+      userId,
+      productId,
+      variantId || null,
+      selectedColor || null,
+      selectedSize || null,
+    );
+    const remainingSelectionStock = Math.max(availableStock - selectionQuantityInCart, 0);
+
     if (existing.length > 0) {
+      if (remainingSelectionStock <= 0) {
+        return existing[0];
+      }
+      const nextQuantity = Math.min(existing[0].quantity + normalizedQuantity, availableStock);
       // Exact match - update quantity and ensure image index is preserved
       const [updated] = await db.update(cart)
         .set({ 
-          quantity: existing[0].quantity + quantity,
+          quantity: nextQuantity,
           selectedImageIndex: imageIdx,
           updatedAt: new Date() 
         })
@@ -2604,10 +3962,13 @@ export class DbStorage implements IStorage {
     }
 
     // New unique combination - create separate cart item
+    if (remainingSelectionStock <= 0) {
+      throw new Error("This selection is already fully reserved in your cart");
+    }
     const [newItem] = await db.insert(cart).values({ 
       userId, 
       productId, 
-      quantity,
+      quantity: Math.min(normalizedQuantity, remainingSelectionStock),
       variantId,
       selectedColor,
       selectedSize,
@@ -2616,13 +3977,18 @@ export class DbStorage implements IStorage {
     return newItem;
   }
 
-  async getCart(userId: string): Promise<Array<{ id: string; productId: string; productName: string; productImage: string; quantity: number; price: string; variantId: string | null; selectedColor: string | null; selectedSize: string | null; selectedImageIndex: number | null }>> {
+  async getCart(userId: string): Promise<Array<{ id: string; productId: string; productName: string; productImage: string; quantity: number; price: string; variantId: string | null; selectedColor: string | null; selectedSize: string | null; selectedImageIndex: number | null; availableStock: number; requiresVariantSelection?: boolean }>> {
+    this.scheduleBuyerOrderResolution(userId);
+    await this.mergeDuplicateCartSelections(userId);
+
     const items = await db
       .select({
         id: cart.id,
         productId: cart.productId,
         productName: products.name,
         productImages: products.images,
+        variantImages: productVariants.images,
+        variantImage: productVariants.image,
         quantity: cart.quantity,
         price: products.price,
         variantId: cart.variantId,
@@ -2632,37 +3998,114 @@ export class DbStorage implements IStorage {
       })
       .from(cart)
       .leftJoin(products, eq(cart.productId, products.id))
+      .leftJoin(productVariants, eq(cart.variantId, productVariants.id))
       .where(eq(cart.userId, userId))
       .orderBy(desc(cart.createdAt));
-    
-    return items.map(item => {
-      const imageIndex = item.selectedImageIndex ?? 0;
-      const productImage = item.productImages && Array.isArray(item.productImages) && item.productImages.length > imageIndex
-        ? item.productImages[imageIndex]
-        : (item.productImages && Array.isArray(item.productImages) && item.productImages.length > 0 ? item.productImages[0] : "");
-      
-      return {
-        id: item.id,
-        productId: item.productId,
-        productName: item.productName || "Unknown Product",
-        productImage,
-        quantity: item.quantity,
-        price: item.price || "0",
-        variantId: item.variantId,
-        selectedColor: item.selectedColor,
-        selectedSize: item.selectedSize,
-        selectedImageIndex: item.selectedImageIndex
-      };
-    });
+
+    const invalidLegacyIds: string[] = [];
+    const resolvedItems = await Promise.all(
+      items.map(async (item) => {
+        const imageIndex = item.selectedImageIndex ?? 0;
+        const requiresVariantSelection = !item.variantId && await this.productHasVariants(item.productId);
+        if (requiresVariantSelection) {
+          invalidLegacyIds.push(item.id);
+          return null;
+        }
+
+        const variantImages =
+          item.variantImages && Array.isArray(item.variantImages)
+            ? item.variantImages.filter(Boolean)
+            : item.variantImage
+              ? [item.variantImage]
+              : [];
+        const productImage =
+          variantImages.length > imageIndex
+            ? variantImages[imageIndex]
+            : variantImages.length > 0
+              ? variantImages[0]
+              : item.productImages && Array.isArray(item.productImages) && item.productImages.length > imageIndex
+                ? item.productImages[imageIndex]
+                : item.productImages && Array.isArray(item.productImages) && item.productImages.length > 0
+                  ? item.productImages[0]
+                  : "";
+        const siblingSelectionQuantity = await this.getCartSelectionQuantity(
+          userId,
+          item.productId,
+          item.variantId,
+          item.selectedColor,
+          item.selectedSize,
+          item.id,
+        );
+        const rawAvailableStock = await this.getAvailableCartStock(item.productId, item.variantId);
+
+        return {
+          id: item.id,
+          productId: item.productId,
+          productName: item.productName || "Unknown Product",
+          productImage,
+          quantity: item.quantity,
+          price: item.price || "0",
+          variantId: item.variantId,
+          selectedColor: item.selectedColor,
+          selectedSize: item.selectedSize,
+          selectedImageIndex: item.selectedImageIndex,
+          availableStock: Math.max(rawAvailableStock - siblingSelectionQuantity, 0),
+          requiresVariantSelection: false,
+        };
+      }),
+    );
+
+    if (invalidLegacyIds.length > 0) {
+      await db.delete(cart).where(inArray(cart.id, invalidLegacyIds));
+    }
+
+    return resolvedItems.filter((item): item is NonNullable<typeof item> => Boolean(item));
   }
 
   async updateCartItem(id: string, quantity: number): Promise<Cart | undefined> {
-    if (quantity <= 0) {
+    const normalizedQuantity = Math.max(0, Math.floor(Number(quantity) || 0));
+    if (normalizedQuantity <= 0) {
       await db.delete(cart).where(eq(cart.id, id));
       return undefined;
     }
+
+    const [existingItem] = await db
+      .select({
+        id: cart.id,
+        userId: cart.userId,
+        productId: cart.productId,
+        variantId: cart.variantId,
+        selectedColor: cart.selectedColor,
+        selectedSize: cart.selectedSize,
+        currentQuantity: cart.quantity,
+      })
+      .from(cart)
+      .where(eq(cart.id, id))
+      .limit(1);
+
+    if (!existingItem) {
+      return undefined;
+    }
+
+    const availableStock = await this.getAvailableCartStock(existingItem.productId, existingItem.variantId);
+    const siblingSelectionQuantity = await this.getCartSelectionQuantity(
+      existingItem.userId,
+      existingItem.productId,
+      existingItem.variantId,
+      existingItem.selectedColor,
+      existingItem.selectedSize,
+      existingItem.id,
+    );
+    const maxQuantityForLine = Math.max(availableStock - siblingSelectionQuantity, 0);
+    const safeQuantity =
+      normalizedQuantity > maxQuantityForLine
+        ? maxQuantityForLine > 0
+          ? maxQuantityForLine
+          : Math.max(1, Number(existingItem.currentQuantity || 1))
+        : normalizedQuantity;
+
     const [updated] = await db.update(cart)
-      .set({ quantity, updatedAt: new Date() })
+      .set({ quantity: safeQuantity, updatedAt: new Date() })
       .where(eq(cart.id, id))
       .returning();
     return updated;
@@ -2675,6 +4118,33 @@ export class DbStorage implements IStorage {
 
   async clearCart(userId: string): Promise<void> {
     await db.delete(cart).where(eq(cart.userId, userId));
+  }
+
+  async clearCartThroughCheckoutTime(userId: string, checkoutStartedAt: Date): Promise<void> {
+    await db
+      .delete(cart)
+      .where(and(eq(cart.userId, userId), lte(cart.updatedAt, checkoutStartedAt)));
+  }
+
+  async reassignCartVariantReferences(sourceVariantIds: string[], targetVariantId: string): Promise<void> {
+    const normalizedIds = Array.from(new Set(sourceVariantIds.map((id) => String(id || "").trim()).filter(Boolean)));
+    if (!normalizedIds.length) {
+      return;
+    }
+
+    await db
+      .update(cart)
+      .set({ variantId: targetVariantId, updatedAt: new Date() })
+      .where(inArray(cart.variantId, normalizedIds));
+  }
+
+  async clearCartVariantReferences(variantIds: string[]): Promise<void> {
+    const normalizedIds = Array.from(new Set(variantIds.map((id) => String(id || "").trim()).filter(Boolean)));
+    if (!normalizedIds.length) {
+      return;
+    }
+
+    await db.delete(cart).where(inArray(cart.variantId, normalizedIds));
   }
 
   // Wishlist operations
@@ -2704,10 +4174,19 @@ export class DbStorage implements IStorage {
   // Review operations
   async createReview(review: InsertReview & { userId: string }): Promise<Review> {
     const [newReview] = await db.insert(reviews).values(review).returning();
+    this.invalidateCache(`getProductReviews:${review.productId}`);
+    this.invalidateCache(`getProduct:${review.productId}`);
+    this.invalidateCache("getProducts");
     return newReview;
   }
 
   async getProductReviews(productId: string): Promise<Array<Review & { userName: string; profileImage: string | null }>> {
+    const cacheKey = `getProductReviews:${productId}`;
+    const cached = this.getCachedResult(cacheKey, this.CACHE_TTL.getProductReviews);
+    if (cached) {
+      return cached;
+    }
+
     const result = await db.select({
       id: reviews.id,
       productId: reviews.productId,
@@ -2722,7 +4201,9 @@ export class DbStorage implements IStorage {
       .leftJoin(users, eq(reviews.userId, users.id))
       .where(eq(reviews.productId, productId))
       .orderBy(desc(reviews.createdAt));
-    return result as Array<Review & { userName: string; profileImage: string | null }>;
+    const typedResult = result as Array<Review & { userName: string; profileImage: string | null }>;
+    this.setCachedResult(cacheKey, typedResult);
+    return typedResult;
   }
 
   async createRiderReview(review: InsertRiderReview & { userId: string }): Promise<RiderReview> {
@@ -2758,10 +4239,14 @@ export class DbStorage implements IStorage {
   }
 
   async addSellerReply(reviewId: string, reply: string): Promise<Review | undefined> {
+    const [existing] = await db.select({ productId: reviews.productId }).from(reviews).where(eq(reviews.id, reviewId)).limit(1);
     const [updated] = await db.update(reviews)
       .set({ sellerReply: reply, sellerReplyAt: new Date() })
       .where(eq(reviews.id, reviewId))
       .returning();
+    if (existing?.productId) {
+      this.invalidateCache(`getProductReviews:${existing.productId}`);
+    }
     return updated;
   }
 
@@ -2834,25 +4319,84 @@ export class DbStorage implements IStorage {
 
   // Product Variant operations
   async getProductVariants(productId: string): Promise<ProductVariant[]> {
-    return await db.select().from(productVariants).where(eq(productVariants.productId, productId));
+    await ensureProductVariantsSchemaCompat();
+    const cacheKey = `getProductVariants:${productId}`;
+    const cached = this.getCachedResult(cacheKey, this.CACHE_TTL.getProductVariants);
+    if (cached) {
+      return cached;
+    }
+
+    const variants = await db.select().from(productVariants).where(eq(productVariants.productId, productId));
+    this.setCachedResult(cacheKey, variants);
+    return variants;
   }
 
   async createProductVariant(variant: InsertProductVariant): Promise<ProductVariant> {
-    const [newVariant] = await db.insert(productVariants).values(variant).returning();
+    await ensureProductVariantsSchemaCompat();
+    const [newVariant] = await db.insert(productVariants).values({
+      ...variant,
+      originalStock: Number(variant.originalStock ?? variant.stock ?? 0) || 0,
+    }).returning();
+    this.invalidateCache(`getProductVariants:${variant.productId}`);
+    this.invalidateCache(`getProduct:${variant.productId}`);
+    this.invalidateCache("getProducts");
     return newVariant;
   }
 
   async updateProductVariant(variantId: string, updates: Partial<InsertProductVariant>): Promise<ProductVariant> {
+    await ensureProductVariantsSchemaCompat();
+    const [existing] = await db
+      .select({
+        productId: productVariants.productId,
+        stock: productVariants.stock,
+        originalStock: productVariants.originalStock,
+      })
+      .from(productVariants)
+      .where(eq(productVariants.id, variantId))
+      .limit(1);
+
+    const nextStock =
+      updates.stock !== undefined
+        ? Math.max(0, Number(updates.stock) || 0)
+        : Math.max(0, Number(existing?.stock) || 0);
+    const existingOriginalStock = Math.max(
+      0,
+      Number(existing?.originalStock ?? existing?.stock ?? 0) || 0,
+    );
+    const nextOriginalStock =
+      updates.originalStock !== undefined
+        ? Math.max(0, Number(updates.originalStock) || 0)
+        : nextStock > existingOriginalStock
+          ? nextStock
+          : existingOriginalStock;
+
     const [updatedVariant] = await db
       .update(productVariants)
-      .set(updates)
+      .set({
+        ...updates,
+        stock: nextStock,
+        originalStock: nextOriginalStock,
+      })
       .where(eq(productVariants.id, variantId))
       .returning();
+    const productId = updatedVariant?.productId || existing?.productId;
+    if (productId) {
+      this.invalidateCache(`getProductVariants:${productId}`);
+      this.invalidateCache(`getProduct:${productId}`);
+      this.invalidateCache("getProducts");
+    }
     return updatedVariant;
   }
 
   async deleteProductVariant(variantId: string): Promise<void> {
+    const [existing] = await db.select({ productId: productVariants.productId }).from(productVariants).where(eq(productVariants.id, variantId)).limit(1);
+    await this.clearCartVariantReferences([variantId]);
     await db.delete(productVariants).where(eq(productVariants.id, variantId));
+    if (existing?.productId) {
+      this.invalidateCache(`getProductVariants:${existing.productId}`);
+      this.invalidateCache(`getProduct:${existing.productId}`);
+      this.invalidateCache("getProducts");
+    }
   }
 
   // Hero Banner operations
@@ -3097,27 +4641,78 @@ export class DbStorage implements IStorage {
           paidStatusFilter
         ));
 
+      const sellerPaidRevenue = await db.select({ sum: sql<number>`sum(${orders.total})` })
+        .from(orders)
+        .where(and(
+          eq(orders.sellerId, userId),
+          paidStatusFilter
+        ));
+
       const sellerProcessingFees = await db.select({ sum: sql<number>`sum(${orders.processingFee})` })
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
           paidStatusFilter
         ));
+
+      const deliveryMethodCounts = await db.select({
+        deliveryMethod: orders.deliveryMethod,
+        count: sql<number>`count(*)`,
+      })
+        .from(orders)
+        .where(eq(orders.sellerId, userId))
+        .groupBy(orders.deliveryMethod);
+
+      const pendingSellerPayouts = await db.select({
+        sum: sql<number>`coalesce(sum(${sellerPayouts.amount}), 0)`,
+      })
+        .from(sellerPayouts)
+        .where(and(
+          eq(sellerPayouts.sellerId, userId),
+          or(
+            eq(sellerPayouts.status, "pending"),
+            eq(sellerPayouts.status, "processing"),
+          ),
+        ));
+
+      const completedSellerPayouts = await db.select({
+        sum: sql<number>`coalesce(sum(${sellerPayouts.amount}), 0)`,
+      })
+        .from(sellerPayouts)
+        .where(and(
+          eq(sellerPayouts.sellerId, userId),
+          eq(sellerPayouts.status, "completed"),
+        ));
+
       const sellerCommissionTotals = await db.select({
         commission: sql<number>`coalesce(sum(${commissions.commissionAmount}), 0)`,
         settlement: sql<number>`coalesce(sum(${commissions.sellerAmount}), 0)`,
       })
         .from(commissions)
         .where(eq(commissions.sellerId, userId));
+
+      const availableBalance = await this.getSellerAvailableBalance(userId);
+      const totalPickups = deliveryMethodCounts
+        .filter((entry: any) => String(entry.deliveryMethod || "").toLowerCase().trim() === "pickup")
+        .reduce((sum: number, entry: any) => sum + Number(entry.count || 0), 0);
+      const totalDeliveries = deliveryMethodCounts
+        .filter((entry: any) => String(entry.deliveryMethod || "").toLowerCase().trim() !== "pickup")
+        .reduce((sum: number, entry: any) => sum + Number(entry.count || 0), 0);
       
       result.totalOrders = Number(totalSellerOrders[0]?.count ?? 0);
       result.paidOrders = Number(completedSellerOrders[0]?.count ?? 0);
       result.completedOrders = Number(completedSellerOrders[0]?.count ?? 0);
-      result.totalRevenue = Number(sellerRevenue[0]?.sum ?? 0);
+      result.totalRevenue = Number(sellerPaidRevenue[0]?.sum ?? 0);
+      result.completedRevenue = Number(sellerRevenue[0]?.sum ?? 0);
       result.totalReceivedMoney = Number(sellerCommissionTotals[0]?.settlement ?? 0);
       result.sellerSettlementTotal = Number(sellerCommissionTotals[0]?.settlement ?? 0);
       result.platformCommissionTotal = Number(sellerCommissionTotals[0]?.commission ?? 0);
       result.processingFeesTotal = Number(sellerProcessingFees[0]?.sum ?? 0);
+      result.pendingPayoutValue = Number(pendingSellerPayouts[0]?.sum ?? 0);
+      result.availableBalance = Number(availableBalance ?? 0);
+      result.completedPayoutValue = Number(completedSellerPayouts[0]?.sum ?? 0);
+      result.totalPickups = totalPickups;
+      result.totalDeliveries = totalDeliveries;
     }
     
     return result;
@@ -3393,8 +4988,49 @@ export class DbStorage implements IStorage {
   }
 
   async updateStore(id: string, data: any): Promise<Store | undefined> {
+    const nextPayoutType = data?.payoutType;
+    const nextPayoutDetails = data?.payoutDetails;
+    let normalizedData = { ...data };
+
+    if (nextPayoutType !== undefined || nextPayoutDetails !== undefined) {
+      const existingStore = await this.getStore(id);
+      if (!existingStore) return undefined;
+
+      const resolvedPayoutType = nextPayoutType ?? existingStore.payoutType;
+      const resolvedPayoutDetails = { ...(nextPayoutDetails ?? existingStore.payoutDetails ?? {}) };
+
+      if (resolvedPayoutType === "mobile_money") {
+        resolvedPayoutDetails.provider = normalizeGhanaMobileMoneyProvider(resolvedPayoutDetails.provider);
+        resolvedPayoutDetails.mobileNumber = normalizeGhanaMobileMoneyNumber(resolvedPayoutDetails.mobileNumber);
+      }
+
+      if (resolvedPayoutType === "bank_account") {
+        if (
+          !resolvedPayoutDetails?.bankCode ||
+          !resolvedPayoutDetails?.bankName ||
+          !resolvedPayoutDetails?.accountNumber ||
+          !resolvedPayoutDetails?.accountName
+        ) {
+          throw new Error("Incomplete bank payout setup. Bank code, bank name, account number, and account name are required.");
+        }
+      } else if (resolvedPayoutType === "mobile_money") {
+        if (
+          !resolvedPayoutDetails?.provider ||
+          !resolvedPayoutDetails?.mobileNumber ||
+          !isValidGhanaMobileMoneyNumber(resolvedPayoutDetails.mobileNumber, resolvedPayoutDetails.provider)
+        ) {
+          throw new Error("Incomplete mobile money payout setup. A valid Ghana mobile money number matching the selected provider is required.");
+        }
+      }
+
+      normalizedData = {
+        ...normalizedData,
+        payoutDetails: resolvedPayoutDetails,
+      };
+    }
+
     const [updated] = await db.update(stores)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...normalizedData, updatedAt: new Date() })
       .where(eq(stores.id, id))
       .returning();
     return updated;

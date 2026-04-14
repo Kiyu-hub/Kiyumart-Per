@@ -104,6 +104,8 @@ export default function MultiVendorHome() {
   const heroBannerEnabled = (settings as any)?.heroBannerEnabled ?? false;
   const sidebarAdEnabled = (settings as any)?.sidebarAdEnabled ?? false;
   const footerAdEnabled = (settings as any)?.footerAdEnabled ?? false;
+  const showHomepageFeaturedSection = (settings as any)?.showHomepageFeaturedSection !== false;
+  const showHomepageNewArrivalSection = (settings as any)?.showHomepageNewArrivalSection !== false;
 
   const hasMultiplePromotions = promos && promos.length > 1;
   const hasExactlyOnePromotion = promos && promos.length === 1;
@@ -363,7 +365,7 @@ export default function MultiVendorHome() {
             {/* Products column — expand to full width when no sidebar */}
             <div className={hasSidebarContent ? 'lg:col-span-8' : 'lg:col-span-12'}>
               {/* Featured Products */}
-              {(productsLoading || filteredFeaturedProducts.length > 0 || Boolean(searchQuery)) && (
+              {showHomepageFeaturedSection && (productsLoading || filteredFeaturedProducts.length > 0 || Boolean(searchQuery)) && (
               <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6 mb-8">
                 <div className="flex items-center gap-3">
                   <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white" data-testid="heading-featured">
@@ -404,7 +406,7 @@ export default function MultiVendorHome() {
               </section>
               )}
 
-              {filteredNewArrivalProducts.length > 0 && (
+              {showHomepageNewArrivalSection && filteredNewArrivalProducts.length > 0 && (
                 <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6 mb-8">
                   <div className="flex items-center gap-3">
                     <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">

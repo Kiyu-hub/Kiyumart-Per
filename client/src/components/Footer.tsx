@@ -84,7 +84,7 @@ export default function Footer() {
   );
   
   const { data: settings } = useQuery<PlatformSettings>({
-    queryKey: ["/api/settings"],
+    queryKey: ["/api/platform-settings"],
   });
   
   const { data: sellerStore } = useQuery<Store>({
@@ -113,6 +113,15 @@ export default function Footer() {
   // Determine current store mode
   const isMultiVendor = settings?.isMultiVendor ?? false;
   const currentMode = isMultiVendor ? "multivendor" : "single";
+  const shouldHideRiderLink = (value?: string | null) => {
+    const normalized = String(value || "").toLowerCase().trim();
+    if (!normalized) return false;
+    const mentionsRider =
+      normalized.includes("become-rider") ||
+      normalized.includes("become rider") ||
+      normalized.includes("rider");
+    return mentionsRider && (!settings?.allowRiderRegistration || isExternalRiderSystemEnabled);
+  };
   
   // Group all pages first, then apply mode filtering per section:
   // - legal: always show all items regardless of store mode
@@ -134,7 +143,7 @@ export default function Footer() {
       // All other groups: strict mode filtering
       groupedPages[group] = pages.filter(page => {
         const mode = page.storeMode || "both";
-        return mode === "both" || mode === currentMode;
+        return (mode === "both" || mode === currentMode) && !shouldHideRiderLink(page.url || page.slug || page.title);
       });
     }
   }

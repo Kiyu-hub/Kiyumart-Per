@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -7,7 +7,7 @@ import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import TrackingMetricsPanel from "@/components/TrackingMetricsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DollarSign, ShoppingBag, Users, Truck, Loader2, AlertCircle, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin } from "lucide-react";
+import { DollarSign, ShoppingBag, Users, Truck, Loader2, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +48,13 @@ interface DashboardSummary {
   totalReceivedMoney?: number;
   deliveries?: number;
   successfulPickups?: number;
+}
+
+interface SellerPayoutSummary {
+  id: string;
+  name: string;
+  totalPaid: number | string;
+  pendingAmount: number | string;
 }
 
 interface Order {
@@ -174,6 +181,37 @@ function RecentOrdersSkeletonGrid({ count = 3 }: { count?: number }) {
   );
 }
 
+function CollapsibleDashboardSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+  className = "",
+}: {
+  title: string;
+  summary: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Card className={`border-border/70 bg-card/95 ${className}`.trim()}>
+      <details open={defaultOpen}>
+        <summary className="cursor-pointer list-none px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-base font-semibold">{title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
+            </div>
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+          </div>
+        </summary>
+        <CardContent className="pt-0">{children}</CardContent>
+      </details>
+    </Card>
+  );
+}
+
 export default function AdminDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
   const [location, navigate] = useLocation();
@@ -239,6 +277,8 @@ export default function AdminDashboardConnected() {
       setActiveItem("messages");
     } else if (path.includes("/admin/live-support")) {
       setActiveItem("live-support");
+    } else if (path.includes("/admin/system-activities")) {
+      setActiveItem("system-activities");
     } else if (path.includes("/admin/analytics")) {
       setActiveItem("analytics");
     } else if (path.includes("/admin/platform-earnings")) {
@@ -282,6 +322,7 @@ export default function AdminDashboardConnected() {
       id === "notifications" ? "/admin/notifications" :
       id === "messages" ? "/admin/messages" :
       id === "live-support" ? "/admin/live-support" :
+      id === "system-activities" ? "/admin/system-activities" :
       id === "analytics" ? "/admin/analytics" :
       id === "platform-earnings" ? "/admin/platform-earnings" :
       id === "sellers-payouts" ? "/admin/sellers-payouts" :
@@ -328,6 +369,19 @@ export default function AdminDashboardConnected() {
     staleTime: 0,
   });
 
+  const { data: sellerPayoutSummary = [] } = useQuery<SellerPayoutSummary[]>({
+    queryKey: ["/api/admin/sellers", "dashboard-reconciliation"],
+    queryFn: async () =>
+      fetchApiJson<SellerPayoutSummary[]>("/api/admin/sellers", {
+        credentials: "include",
+        cache: "no-store",
+      }),
+    enabled: isAuthenticated && isSuperAdmin,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+
   const { data: dashboardSummary, isLoading: dashboardSummaryLoading } = useQuery<DashboardSummary>({
     queryKey: ["/api/admin/dashboard-summary"],
     queryFn: async () =>
@@ -342,7 +396,12 @@ export default function AdminDashboardConnected() {
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
-    queryKey: ["/api/orders", user?.id],
+    queryKey: ["/api/orders", "admin-dashboard", user?.id],
+    queryFn: async () =>
+      fetchApiJson<Order[]>("/api/orders?context=admin&includeItems=false", {
+        credentials: "include",
+        cache: "no-store",
+      }),
     enabled: isAuthenticated && isAdminViewer,
     refetchInterval: 10000,
     refetchOnWindowFocus: true,
@@ -644,6 +703,31 @@ export default function AdminDashboardConnected() {
     : typeof dashboardSummary?.totalReceivedMoney === "number"
       ? dashboardSummary.totalReceivedMoney
     : paidMoneyFromOrders;
+  const sellerShareOwed = sellerPayoutSummary.reduce((sum, seller) => {
+    return sum + Number.parseFloat(String(seller.totalPaid ?? "0") || "0") + Number.parseFloat(String(seller.pendingAmount ?? "0") || "0");
+  }, 0);
+  const verifiedPaidTotal = sellerPayoutSummary.reduce((sum, seller) => {
+    return sum + Number.parseFloat(String(seller.totalPaid ?? "0") || "0");
+  }, 0);
+  const stillPendingTotal = sellerPayoutSummary.reduce((sum, seller) => {
+    return sum + Number.parseFloat(String(seller.pendingAmount ?? "0") || "0");
+  }, 0);
+  const platformCommissionTotal =
+    typeof analytics?.platformCommissionTotal === "number"
+      ? analytics.platformCommissionTotal
+      : typeof dashboardSummary?.platformCommissionTotal === "number"
+        ? dashboardSummary.platformCommissionTotal
+        : financeSummary?.byType?.commission
+          ? Number(financeSummary.byType.commission)
+          : 0;
+  const processingFeesTotal =
+    typeof analytics?.processingFeesTotal === "number"
+      ? analytics.processingFeesTotal
+      : orders.reduce((sum, order: any) => sum + Number.parseFloat(order.processingFee || "0"), 0);
+  const deliveryFeesTotal =
+    typeof analytics?.deliveryReserveTotal === "number"
+      ? analytics.deliveryReserveTotal
+      : orders.reduce((sum, order: any) => sum + Number.parseFloat(order.deliveryFee || "0"), 0);
   const getExternalDeliveryTypeLabel = (orderLike?: { externalDeliveryType?: string | null; externalDeliveryByBus?: boolean | null }) => {
     const normalizedType = String(orderLike?.externalDeliveryType || "").toLowerCase().trim();
     if (normalizedType === "bus" || orderLike?.externalDeliveryByBus) return "VIP Bus Delivery";
@@ -880,31 +964,58 @@ export default function AdminDashboardConnected() {
                     change={11.2}
                   />
                 </div>
+                <CollapsibleDashboardSection
+                  title="Money Reconciliation"
+                  summary="Expand for the full money-flow breakdown from gross checkout collections to verified seller payout."
+                >
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Gross Submitted</p><p className="mt-2 text-2xl font-semibold">{formatPrice(totalReceivedMoney || 0)}</p></CardContent></Card>
+                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Seller Share Owed</p><p className="mt-2 text-2xl font-semibold">{formatPrice(sellerShareOwed || 0)}</p></CardContent></Card>
+                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Platform Commission</p><p className="mt-2 text-2xl font-semibold">{formatPrice(platformCommissionTotal || 0)}</p></CardContent></Card>
+                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Processing Fees</p><p className="mt-2 text-2xl font-semibold">{formatPrice(processingFeesTotal || 0)}</p></CardContent></Card>
+                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Delivery Fees</p><p className="mt-2 text-2xl font-semibold">{formatPrice(deliveryFeesTotal || 0)}</p></CardContent></Card>
+                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Verified Paid</p><p className="mt-2 text-2xl font-semibold">{formatPrice(verifiedPaidTotal || 0)}</p></CardContent></Card>
+                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Still Pending</p><p className="mt-2 text-2xl font-semibold">{formatPrice(stillPendingTotal || 0)}</p></CardContent></Card>
+                    </div>
+                    <div className="rounded-lg border border-dashed border-border/70 bg-background/60 p-3 text-sm text-muted-foreground">
+                      Gross Submitted = Seller Share Owed + Platform Commission + Processing Fees + Delivery Fees +/- discounts or operational adjustments.
+                    </div>
+                  </div>
+                </CollapsibleDashboardSection>
                 </div>
               )
             )}
 
             {isSuperAdmin && showInternalRiderFeatures && (
-              <div className="flex flex-wrap items-center justify-end gap-3 rounded-lg border bg-card p-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Admin Operations Panels</p>
-                  <p className="text-xs text-muted-foreground">
-                    Toggle fleet control, AI ETA, and rider risk together. This stays saved until you change it.
-                  </p>
+              <CollapsibleDashboardSection
+                title="Admin Operations Panels"
+                summary="Expand for the operational note and the visibility control for fleet, ETA, and rider risk panels."
+                className="bg-card"
+              >
+                <div className="space-y-4">
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    <p>
+                      Toggle fleet control, AI ETA, and rider risk together. This stays saved until you change it.
+                    </p>
+                    <p>
+                      If you hide these panels, the underlying operational systems keep running. This only changes dashboard visibility.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-3">
+                    <Badge variant={showAdminOperationsPanels ? "default" : "outline"}>
+                      {showAdminOperationsPanels ? "Visible" : "Hidden"}
+                    </Badge>
+                    <Switch
+                      checked={showAdminOperationsPanels}
+                      disabled={updateAdminOperationsPanelsMutation.isPending}
+                      onCheckedChange={(checked) => updateAdminOperationsPanelsMutation.mutate(checked)}
+                      data-testid="switch-admin-operations-panels"
+                      aria-label="Toggle admin operations panels"
+                    />
+                  </div>
                 </div>
-                <div className="ml-auto flex items-center gap-3">
-                  <Badge variant={showAdminOperationsPanels ? "default" : "outline"}>
-                    {showAdminOperationsPanels ? "Visible" : "Hidden"}
-                  </Badge>
-                  <Switch
-                    checked={showAdminOperationsPanels}
-                    disabled={updateAdminOperationsPanelsMutation.isPending}
-                    onCheckedChange={(checked) => updateAdminOperationsPanelsMutation.mutate(checked)}
-                    data-testid="switch-admin-operations-panels"
-                    aria-label="Toggle admin operations panels"
-                  />
-                </div>
-              </div>
+              </CollapsibleDashboardSection>
             )}
 
             {showAdminOperationsPanels && showInternalRiderFeatures && (
@@ -915,12 +1026,15 @@ export default function AdminDashboardConnected() {
             )}
 
             {isSuperAdmin && showAdminOperationsPanels && showInternalRiderFeatures && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">AI ETA Control Center</CardTitle>
-                  <CardDescription>Global and role-level control for AI-assisted ETA predictions. Super Admin is always enabled.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
+              <CollapsibleDashboardSection
+                title="AI ETA Control Center"
+                summary="Expand for the ETA-control explanation and the role-level AI ETA controls."
+              >
+                <div className="space-y-3">
+                  <CardDescription className="text-sm">
+                    Global and role-level control for AI-assisted ETA predictions. Super Admin is always enabled.
+                  </CardDescription>
+                  <p className="text-sm text-muted-foreground">Changing these controls affects visibility and prediction behavior, but it does not edit historic order timelines.</p>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={etaControls?.aiEnabledGlobal ? "default" : "outline"}>
                       AI ETA {etaControls?.aiEnabledGlobal ? "Enabled" : "Disabled"}
@@ -965,17 +1079,20 @@ export default function AdminDashboardConnected() {
                       );
                     })}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </CollapsibleDashboardSection>
             )}
 
             {isSuperAdmin && showAdminOperationsPanels && showInternalRiderFeatures && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Rider Risk Overlay</CardTitle>
-                  <CardDescription>Silent fraud/anomaly score feed for manual intervention.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
+              <CollapsibleDashboardSection
+                title="Rider Risk Overlay"
+                summary="Expand for the fraud-signal explanation and the current rider risk feed."
+              >
+                <div className="space-y-2">
+                  <CardDescription className="text-sm">
+                    Silent fraud/anomaly score feed for manual intervention.
+                  </CardDescription>
+                  <p className="text-sm text-muted-foreground">High scores are review signals, not automatic guilt. Use them to inspect routes, proof, and payout activity before acting.</p>
                   {riderRiskScores.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No active risk signals.</p>
                   ) : (
@@ -993,28 +1110,38 @@ export default function AdminDashboardConnected() {
                       </div>
                     ))
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </CollapsibleDashboardSection>
             )}
 
             {/* Pending Payouts Widget - Super Admin Only, only show when there are pending payouts */}
             {isSuperAdmin && showInternalRiderFeatures && pendingPayouts.length > 0 && (
-              <Card className="border-orange-200 dark:border-orange-800">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <div className="flex items-center gap-2">
-                    <Wallet className="h-5 w-5 text-orange-500" />
-                    <CardTitle>Pending Rider Payouts</CardTitle>
-                    <Badge variant="destructive" className="ml-2">{pendingPayouts.length}</Badge>
+              <CollapsibleDashboardSection
+                title="Pending Rider Payouts"
+                summary="Expand for the rider-payout note and the current pending rider payout queue."
+                className="border-orange-200 dark:border-orange-800"
+              >
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="h-5 w-5 text-orange-500" />
+                        <p className="text-base font-semibold">Pending Rider Payouts</p>
+                        <Badge variant="destructive" className="ml-2">{pendingPayouts.length}</Badge>
+                      </div>
+                      <div className="space-y-1 text-sm text-muted-foreground">
+                        <p>These rider payouts still need operational review and should not be confused with seller settlement status.</p>
+                        <p>Use this widget to jump into rider payout approval, not seller payout verification.</p>
+                      </div>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => navigate("/admin/riders-payouts")}
+                    >
+                      View All
+                    </Button>
                   </div>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => navigate("/admin/riders-payouts")}
-                  >
-                    View All
-                  </Button>
-                </CardHeader>
-                <CardContent>
                   {payoutsLoading ? (
                     <div className="flex justify-center py-4">
                       <Loader2 className="h-5 w-5 animate-spin" />
@@ -1107,8 +1234,8 @@ export default function AdminDashboardConnected() {
                       </div>
                     </ScrollArea>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </CollapsibleDashboardSection>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

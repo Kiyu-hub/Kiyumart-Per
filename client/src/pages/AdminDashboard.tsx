@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { fetchApiJson } from "@/lib/queryClient";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -154,6 +155,8 @@ export default function AdminDashboard() {
       setActiveItem("messages");
     } else if (path.includes("/admin/live-support")) {
       setActiveItem("live-support");
+    } else if (path.includes("/admin/system-activities")) {
+      setActiveItem("system-activities");
     } else if (path.includes("/admin/analytics")) {
       setActiveItem("analytics");
     } else if (path.includes("/admin/promotions")) {
@@ -185,6 +188,7 @@ export default function AdminDashboard() {
       id === "notifications" ? "/admin/notifications" :
       id === "messages" ? "/admin/messages" :
       id === "live-support" ? "/admin/live-support" :
+      id === "system-activities" ? "/admin/system-activities" :
       id === "analytics" ? "/admin/analytics" :
       id === "promotions" ? "/admin/promotions" :
       id === "platform-earnings" ? "/admin/platform-earnings" :
@@ -214,8 +218,13 @@ export default function AdminDashboard() {
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
-    queryKey: ["/api/orders"],
+    queryKey: ["/api/orders", "admin-dashboard", user?.id],
+    queryFn: async () =>
+      fetchApiJson<Order[]>("/api/orders?context=admin&includeItems=false"),
     enabled: isAuthenticated && (normalizedRole === "admin" || normalizedRole === "super_admin"),
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const { data: deliveryZones = [] } = useQuery<DeliveryZone[]>({

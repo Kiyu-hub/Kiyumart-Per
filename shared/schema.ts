@@ -211,6 +211,13 @@ export const platformSettings = pgTable("platform_settings", {
   mapboxPublicToken: text("mapbox_public_token"),
   mapboxStyleUrl: text("mapbox_style_url").default("mapbox://styles/mapbox/navigation-night-v1"),
   mapboxGlVersion: text("mapbox_gl_version").default("v3.4.0"),
+  smtpHost: text("smtp_host"),
+  smtpPort: integer("smtp_port"),
+  smtpUser: text("smtp_user"),
+  smtpPass: text("smtp_pass"),
+  smtpSecure: boolean("smtp_secure").default(false),
+  smtpFromEmail: text("smtp_from_email"),
+  smtpFromName: text("smtp_from_name"),
   paystackPublicKey: text("paystack_public_key"),
   paystackSecretKey: text("paystack_secret_key"),
   processingFeePercent: decimal("processing_fee_percent", { precision: 4, scale: 2 }).default("1.95"),
@@ -255,6 +262,8 @@ export const platformSettings = pgTable("platform_settings", {
   sidebarAdUrl: text("sidebar_ad_url"),
   shopDisplayMode: text("shop_display_mode").default("by-store"), // "by-store" or "by-category"
   showShopBySection: boolean("show_shop_by_section").default(true), // Toggle visibility of Shop by section per store mode
+  showHomepageFeaturedSection: boolean("show_homepage_featured_section").default(true),
+  showHomepageNewArrivalSection: boolean("show_homepage_new_arrival_section").default(true),
   footerAdImage: text("footer_ad_image"),
   footerAdUrl: text("footer_ad_url"),
   productPageAdImage: text("product_page_ad_image"),
@@ -263,8 +272,11 @@ export const platformSettings = pgTable("platform_settings", {
   isExternalRiderSystemEnabled: boolean("is_external_rider_system_enabled").default(false),
   showCheckoutDeliveryMap: boolean("show_checkout_delivery_map").default(true),
   allowPickupAgentAdminChat: boolean("allow_pickup_agent_admin_chat").default(true),
+  allowSellerDirectSupportMessages: boolean("allow_seller_direct_support_messages").default(true),
   allowSellerRegistration: boolean("allow_seller_registration").default(false),
   allowRiderRegistration: boolean("allow_rider_registration").default(false),
+  allowSellerBankPayouts: boolean("allow_seller_bank_payouts").default(true),
+  allowSharedVariantColorStock: boolean("allow_shared_variant_color_stock").default(false),
   primaryStoreId: varchar("primary_store_id"),
   defaultCommissionRate: decimal("default_commission_rate", { precision: 5, scale: 2 }).default("1.00"), // 1% default
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -436,6 +448,10 @@ export const orderItems = pgTable("order_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   orderId: varchar("order_id").notNull().references(() => orders.id),
   productId: varchar("product_id").notNull().references(() => products.id),
+  variantId: varchar("variant_id").references(() => productVariants.id),
+  selectedColor: varchar("selected_color"),
+  selectedSize: varchar("selected_size"),
+  selectedImageIndex: integer("selected_image_index").default(0),
   quantity: integer("quantity").notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
@@ -605,6 +621,39 @@ export const reportActivityLogs = pgTable("report_activity_logs", {
   createdAtIdx: index("report_activity_logs_created_at_idx").on(table.createdAt),
 }));
 
+export const systemActivityLogs = pgTable("system_activity_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  category: text("category").notNull(),
+  severity: text("severity").notNull().default("info"),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  humanExplanation: text("human_explanation"),
+  rootCause: text("root_cause"),
+  suggestedFix: text("suggested_fix"),
+  preventiveAction: text("preventive_action"),
+  source: text("source"),
+  entityType: text("entity_type"),
+  entityId: text("entity_id"),
+  actorId: varchar("actor_id").references(() => users.id, { onDelete: "set null" }),
+  actorRole: userRoleEnum("actor_role"),
+  fingerprint: text("fingerprint"),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  isResolved: boolean("is_resolved").notNull().default(false),
+  firstSeenAt: timestamp("first_seen_at").defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+  metadata: jsonb("metadata").$type<Record<string, any>>().default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  categoryIdx: index("system_activity_logs_category_idx").on(table.category),
+  severityIdx: index("system_activity_logs_severity_idx").on(table.severity),
+  isResolvedIdx: index("system_activity_logs_is_resolved_idx").on(table.isResolved),
+  fingerprintIdx: index("system_activity_logs_fingerprint_idx").on(table.fingerprint),
+  lastSeenAtIdx: index("system_activity_logs_last_seen_at_idx").on(table.lastSeenAt),
+  createdAtIdx: index("system_activity_logs_created_at_idx").on(table.createdAt),
+}));
+
 export const receipts = pgTable("receipts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   receiptNumber: text("receipt_number").notNull().unique(),
@@ -627,9 +676,11 @@ export const productVariants = pgTable("product_variants", {
   productId: varchar("product_id").notNull().references(() => products.id),
   color: text("color"),
   size: text("size"),
+  images: text("images").array(),
   sku: text("sku"),
   image: text("image"),
   stock: integer("stock").default(0),
+  originalStock: integer("original_stock").default(0),
   priceAdjustment: decimal("price_adjustment", { precision: 10, scale: 2 }).default("0"),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -961,7 +1012,7 @@ export const insertProductSchema = createInsertSchema(products).pick({
   storeId: true,
 }).extend({
   images: z.array(z.string().url()).min(3, "Minimum 3 product images are required").max(8, "Maximum 8 images allowed"),
-  video: z.string().url("Product video is required").min(1, "Product video is required"),
+  video: z.string().url("Invalid video URL").optional().or(z.literal("")).nullable(),
 });
 
 export const insertDeliveryZoneSchema = createInsertSchema(deliveryZones).pick({
@@ -1072,6 +1123,29 @@ export const insertReportActivityLogSchema = createInsertSchema(reportActivityLo
   metadata: true,
 });
 
+export const insertSystemActivityLogSchema = createInsertSchema(systemActivityLogs).pick({
+  category: true,
+  severity: true,
+  title: true,
+  message: true,
+  humanExplanation: true,
+  rootCause: true,
+  suggestedFix: true,
+  preventiveAction: true,
+  source: true,
+  entityType: true,
+  entityId: true,
+  actorId: true,
+  actorRole: true,
+  fingerprint: true,
+  occurrenceCount: true,
+  isResolved: true,
+  firstSeenAt: true,
+  lastSeenAt: true,
+  resolvedAt: true,
+  metadata: true,
+});
+
 export const insertReceiptSchema = createInsertSchema(receipts).pick({
   receiptNumber: true,
   orderId: true,
@@ -1086,9 +1160,11 @@ export const insertProductVariantSchema = createInsertSchema(productVariants).pi
   productId: true,
   color: true,
   size: true,
+  images: true,
   sku: true,
   image: true,
   stock: true,
+  originalStock: true,
   priceAdjustment: true,
 });
 
@@ -1218,6 +1294,8 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type Notification = typeof notifications.$inferSelect;
 export type InsertReportActivityLog = z.infer<typeof insertReportActivityLogSchema>;
 export type ReportActivityLog = typeof reportActivityLogs.$inferSelect;
+export type InsertSystemActivityLog = z.infer<typeof insertSystemActivityLogSchema>;
+export type SystemActivityLog = typeof systemActivityLogs.$inferSelect;
 export type InsertReceipt = z.infer<typeof insertReceiptSchema>;
 export type Receipt = typeof receipts.$inferSelect;
 

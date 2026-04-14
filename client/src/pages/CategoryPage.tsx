@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { fetchSameOriginJson } from "@/lib/queryClient";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
@@ -30,29 +31,36 @@ interface CategoryRecord {
   name: string;
   slug: string;
   description?: string | null;
+  image?: string | null;
 }
 
 export default function CategoryPage() {
   const { id } = useParams();
   const [, navigate] = useLocation();
   const { currencySymbol, t } = useLanguage();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, ensureAuthenticated } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
     queryKey: ["/api/products", "active", "category-page"],
-    queryFn: async () => {
-      const res = await fetch("/api/products?isActive=true");
-      return res.json();
-    },
+    queryFn: async () =>
+      fetchSameOriginJson<Product[]>("/api/products?isActive=true", {
+        cache: "no-store",
+      }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
   });
 
   const { data: category } = useQuery<CategoryRecord | null>({
     queryKey: ["/api/categories/by-slug", id],
     queryFn: async () => {
       if (!id) return null;
-      const res = await fetch(`/api/categories/by-slug/${id}`);
+      const res = await fetch(`/api/categories/by-slug/${id}`, {
+        credentials: "include",
+      });
       if (!res.ok) return null;
       return res.json();
     },
@@ -62,42 +70,64 @@ export default function CategoryPage() {
   const { data: wishlistItems = [] } = useQuery<{ productId: string }[]>({
     queryKey: ["/api/wishlist"],
     enabled: isAuthenticated,
+    queryFn: async () =>
+      fetchSameOriginJson<{ productId: string }[]>("/api/wishlist", {
+        cache: "no-store",
+      }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const addToWishlistMutation = useMutation({
     mutationFn: async (productId: string) => {
-      const res = await fetch("/api/wishlist", {
+      return fetchSameOriginJson("/api/wishlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId }),
-        credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to add to wishlist");
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
       toast({ title: "Added to wishlist" });
     },
+    onError: (error: any) => {
+      const message = String(error?.message || "").trim();
+      toast({
+        title: "Error",
+        description: /401|authentication|login/i.test(message)
+          ? "Please login to use wishlist"
+          : message || "Could not add to wishlist",
+        variant: "destructive",
+      });
+    },
   });
 
   const removeFromWishlistMutation = useMutation({
     mutationFn: async (productId: string) => {
-      const res = await fetch(`/api/wishlist/${productId}`, {
+      return fetchSameOriginJson(`/api/wishlist/${productId}`, {
         method: "DELETE",
-        credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to remove from wishlist");
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
       toast({ title: "Removed from wishlist" });
     },
+    onError: (error: any) => {
+      const message = String(error?.message || "").trim();
+      toast({
+        title: "Error",
+        description: /401|authentication|login/i.test(message)
+          ? "Please login to use wishlist"
+          : message || "Could not remove from wishlist",
+        variant: "destructive",
+      });
+    },
   });
 
-  const handleToggleWishlist = (productId: string) => {
-    if (!isAuthenticated) {
+  const handleToggleWishlist = async (productId: string) => {
+    const activeUser = await ensureAuthenticated();
+    if (!activeUser) {
       navigate("/auth");
       return;
     }
@@ -126,21 +156,34 @@ export default function CategoryPage() {
       <main className="flex-1">
         <div className="bg-muted py-12 mb-8">
           <div className="max-w-7xl mx-auto px-4">
-            <h1
-              className="text-4xl font-bold mb-2"
-              data-testid="text-category-title"
-            >
-              {categoryTitle}
-            </h1>
-            <p
-              className="text-lg text-muted-foreground"
-              data-testid="text-category-description"
-            >
-              {categoryDescription}
-            </p>
-            <p className="text-sm text-muted-foreground mt-2">
-              {categoryProducts.length} products
-            </p>
+            <div className="grid gap-6 md:grid-cols-[180px_minmax(0,1fr)] md:items-center">
+              {category?.image ? (
+                <div className="overflow-hidden rounded-2xl border bg-background shadow-sm">
+                  <img
+                    src={category.image}
+                    alt={categoryTitle}
+                    className="aspect-[4/3] h-full w-full object-cover"
+                  />
+                </div>
+              ) : null}
+              <div>
+                <h1
+                  className="text-4xl font-bold mb-2"
+                  data-testid="text-category-title"
+                >
+                  {categoryTitle}
+                </h1>
+                <p
+                  className="text-lg text-muted-foreground"
+                  data-testid="text-category-description"
+                >
+                  {categoryDescription}
+                </p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  {categoryProducts.length} products
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -191,6 +234,7 @@ export default function CategoryPage() {
                     rating={parseFloat(product.ratings) || 0}
                     reviewCount={product.totalRatings}
                     inStock={(product.stock || 0) > 0}
+                    isWishlisted={wishlistItems.some((item) => item.productId === product.id)}
                     onToggleWishlist={handleToggleWishlist}
                   />
                 );

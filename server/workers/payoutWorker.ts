@@ -1,5 +1,11 @@
 import { storage } from '../storage';
-import { paystackService } from '../paystack';
+import {
+  isValidGhanaMobileMoneyNumber,
+  normalizeGhanaMobileMoneyNumber,
+  normalizeGhanaMobileMoneyProvider,
+  paystackService,
+  resolveGhanaMobileMoneyBankCode,
+} from '../paystack';
 import { notifySellerSettlementSuccess } from '../payments';
 
 const POLL_INTERVAL = parseInt(process.env.PAYOUT_WORKER_INTERVAL_MS || '15000', 10); // 15s
@@ -119,11 +125,49 @@ export async function runPayoutWorker(io?: any) {
             }, secret);
             recipientCode = recipientRes.data?.recipient_code || recipientRes.data?.transfer_recipient_code || recipientRes.data?.recipient?.recipient_code;
           } else if (store.payoutType === 'mobile_money') {
+            const normalizedProvider = normalizeGhanaMobileMoneyProvider(store.payoutDetails?.provider);
+            const normalizedMobileNumber = normalizeGhanaMobileMoneyNumber(store.payoutDetails?.mobileNumber);
+            const bankCode = resolveGhanaMobileMoneyBankCode(normalizedProvider);
+
+            if (!normalizedProvider || !normalizedMobileNumber || !bankCode || !isValidGhanaMobileMoneyNumber(normalizedMobileNumber, normalizedProvider)) {
+              console.warn('[PAYOUT-WORKER] Invalid mobile money setup for payout', payout.id, {
+                sellerId: payout.sellerId,
+                provider: store.payoutDetails?.provider,
+                mobileNumber: store.payoutDetails?.mobileNumber,
+              });
+              await storage.updatePayoutStatus(payout.id, 'pending', 'system');
+              await storage.updateSellerPayoutDetails(payout.id, {
+                needsAudit: true,
+                setupRequired: true,
+                auditReason: 'Payout setup is incomplete or the saved mobile money number does not match the selected provider',
+                provider: normalizedProvider,
+                mobileNumber: normalizedMobileNumber,
+              } as any);
+              try {
+                await storage.createNotification({
+                  userId: payout.sellerId,
+                  type: 'payout',
+                  title: 'Complete Payout Setup To Receive Funds',
+                  message: `We could not transfer your seller settlement because your mobile money setup is incomplete or invalid. Update your payout setup so ${payout.amount} can be transferred.`,
+                  metadata: {
+                    link: '/seller/payment-setup',
+                    payoutId: payout.id,
+                    sellerId: payout.sellerId,
+                    setupRequired: true,
+                    reason: 'invalid_mobile_money_setup',
+                  },
+                } as any);
+              } catch (notifyError: any) {
+                console.error('[PAYOUT-WORKER] Could not notify seller about invalid payout setup', payout.id, notifyError?.message || notifyError);
+              }
+              continue;
+            }
+
             const recipientRes = await paystackService.createTransferRecipient({
               type: 'mobile_money',
               name: store.payoutDetails?.fullName || store.name,
-              mobile: store.payoutDetails?.mobileNumber,
-              provider: store.payoutDetails?.provider,
+              account_number: normalizedMobileNumber,
+              bank_code: bankCode,
               currency: 'GHS',
             }, secret);
             recipientCode = recipientRes.data?.recipient_code || recipientRes.data?.transfer_recipient_code || recipientRes.data?.recipient?.recipient_code;

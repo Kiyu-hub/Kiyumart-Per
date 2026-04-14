@@ -1,6 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const API_CANDIDATE_TIMEOUT_MS = 4000;
+const API_CANDIDATE_TIMEOUT_MS = 6000;
+const SAME_ORIGIN_TIMEOUT_MS = 12000;
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -21,6 +22,10 @@ function getApiCandidates(url: string): string[] {
   const base = String((import.meta.env as any).VITE_API_URL || "").trim().replace(/\/$/, "");
   const normalizedPath = url.startsWith("/") ? url : `/${url}`;
   const candidates: string[] = [];
+
+  // Always prefer the current origin first so auth cookies/session stay aligned
+  // with the page the user is already on.
+  addUniqueCandidate(candidates, normalizedPath);
 
   if (base) {
     addUniqueCandidate(candidates, `${base}${normalizedPath}`);
@@ -44,7 +49,6 @@ function getApiCandidates(url: string): string[] {
     addUniqueCandidate(candidates, `http://127.0.0.1:5001${normalizedPath}`);
   }
 
-  addUniqueCandidate(candidates, normalizedPath);
   return candidates;
 }
 
@@ -93,13 +97,52 @@ async function fetchWithApiFallback(url: string, init?: RequestInit): Promise<Re
   throw lastError || new Error(`API request failed for ${url}`);
 }
 
+export async function fetchSameOrigin(url: string, init?: RequestInit): Promise<Response> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), SAME_ORIGIN_TIMEOUT_MS);
+    const signal =
+      init?.signal && typeof AbortSignal !== "undefined" && "any" in AbortSignal
+        ? AbortSignal.any([init.signal, controller.signal])
+        : (init?.signal ?? controller.signal);
+
+    return await fetch(url, {
+      credentials: "include",
+      signal,
+      ...init,
+    });
+  } catch (error: any) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Request timed out after ${SAME_ORIGIN_TIMEOUT_MS}ms for ${url}`);
+    }
+    throw error instanceof Error ? error : new Error(String(error));
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+export async function fetchSameOriginJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetchSameOrigin(url, init);
+  const text = await res.text();
+  const parsed = text ? JSON.parse(text) : null;
+
+  if (!res.ok) {
+    const message = parsed?.userMessage || parsed?.error || text || res.statusText;
+    throw new Error(`${res.status}: ${message}`);
+  }
+
+  return parsed as T;
+}
+
 export async function fetchApiJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetchWithApiFallback(url, init);
   const text = await res.text();
   const parsed = text ? JSON.parse(text) : null;
 
   if (!res.ok) {
-    const message = parsed?.error || text || res.statusText;
+    const message = parsed?.userMessage || parsed?.error || text || res.statusText;
     throw new Error(`${res.status}: ${message}`);
   }
 

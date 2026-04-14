@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,24 +10,37 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowLeft, Package, Bike, Building2, CreditCard, Info, Landmark, MapPin, Smartphone, Tag, X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowLeft, Package, Bike, Building2, CreditCard, Landmark, Loader2, LockKeyhole, MapPin, ShieldCheck, Smartphone, Tag } from "lucide-react";
 import AddressMap from "@/components/AddressMap";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { ensureMapboxRuntimeConfig, resolveMapboxAccessToken } from "@/tracking/mapbox/mapboxLoader";
+import {
+  clearPersistedCheckoutCoupon,
+  readPersistedCheckoutCoupon,
+  writePersistedCheckoutCoupon,
+} from "@/lib/checkoutCoupon";
+import { loadPaystackInlineScript, PaystackInlineService } from "@/lib/paystackInline";
+import { calculateProductPricingSummary, getCurrentSellingPrice, getOriginalDisplayPrice } from "@/lib/pricing";
 
 interface CartItem {
   id: string;
   productId: string;
   quantity: number;
+  variantId?: string | null;
+  selectedColor?: string | null;
+  selectedSize?: string | null;
+  selectedImageIndex?: number | null;
 }
 
 interface Product {
   id: string;
   name: string;
   price: string;
+  costPrice?: string | null;
   images: string[];
   sellerId: string;
   discount: number | null;
@@ -37,6 +50,8 @@ interface DeliveryZone {
   id: string;
   name: string;
   fee: string;
+  city?: string | null;
+  region?: string | null;
 }
 
 interface Coupon {
@@ -51,51 +66,42 @@ interface PlatformSettings {
   processingFeePercent?: string;
 }
 
+interface CheckoutProfile {
+  phone?: string | null;
+  businessAddress?: string | null;
+}
+
 interface AddressSuggestion {
   label: string;
   lat: number;
   lng: number;
 }
 
-const ACCRA_REFERENCE: [number, number] = [5.6037, -0.187];
-const VIP_BUS_KEYWORDS = [
-  "ashanti",
-  "kumasi",
-  "northern",
-  "tamale",
-  "upper east",
-  "bolgatanga",
-  "upper west",
-  "wa",
-  "savannah",
-  "damongo",
-  "north east",
-  "northeast",
-  "volta",
-  "ho",
-  "oti",
-  "sunyani",
-  "bono",
-  "bono east",
-  "ahafo",
-];
-
-function toRadians(value: number) {
-  return (value * Math.PI) / 180;
+interface InlinePaymentInitializeResponse {
+  reference: string;
+  access_code?: string;
+  authorization_url?: string;
+  inline?: {
+    publicKey: string;
+    email: string;
+    amount: number;
+    currency: string;
+    reference: string;
+    accessCode?: string;
+    channels?: string[];
+  };
 }
 
-function distanceFromAccraKm(lat: number, lng: number) {
-  const earthRadiusKm = 6371;
-  const dLat = toRadians(lat - ACCRA_REFERENCE[0]);
-  const dLng = toRadians(lng - ACCRA_REFERENCE[1]);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRadians(ACCRA_REFERENCE[0])) *
-      Math.cos(toRadians(lat)) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return earthRadiusKm * c;
+interface PaymentVerificationResult {
+  verified: boolean;
+  message: string;
+  orderId?: string;
+  transaction?: {
+    id: string;
+    orderId: string;
+    amount: string;
+    status: string;
+  };
 }
 
 function isInGhana(lat: number, lng: number) {
@@ -108,20 +114,9 @@ function computeExactProcessingFee(chargeableBase: number, feeRate: number) {
   return normalizedBase * feeRate / (1 - feeRate);
 }
 
-function inferExternalDeliveryType(address: string, lat: number | null, lng: number | null): "third_party" | "bus" {
-  const normalizedAddress = String(address || "").toLowerCase();
-  if (VIP_BUS_KEYWORDS.some((keyword) => normalizedAddress.includes(keyword))) {
-    return "bus";
-  }
-  if (lat != null && lng != null) {
-    return distanceFromAccraKm(lat, lng) >= 120 ? "bus" : "third_party";
-  }
-  return "third_party";
-}
-
 export default function CheckoutConnected() {
   const [, navigate] = useLocation();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, ensureAuthenticated } = useAuth();
   const { toast } = useToast();
   const { formatPrice, currency } = useLanguage();
   const { isExternalRiderSystemEnabled, showCheckoutDeliveryMap, hasResolvedSettings } = usePlatformSettings();
@@ -135,12 +130,18 @@ export default function CheckoutConnected() {
   const [isAddressSuggesting, setIsAddressSuggesting] = useState(false);
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
   const [selectedZoneId, setSelectedZoneId] = useState("");
+  const [selectedPickupStationId, setSelectedPickupStationId] = useState("");
   const [couponCode, setCouponCode] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
+  const [isRestoringCoupon, setIsRestoringCoupon] = useState(false);
+  const [isPaymentReviewOpen, setIsPaymentReviewOpen] = useState(false);
+  const [isLaunchingInlinePayment, setIsLaunchingInlinePayment] = useState(false);
+  const [isVerifyingInlinePayment, setIsVerifyingInlinePayment] = useState(false);
   const previousExternalModeRef = useRef<boolean | null>(null);
   const suggestionDebounceRef = useRef<number | null>(null);
   const activeSuggestionRequestRef = useRef(0);
   const suppressNextSuggestionLookupRef = useRef(false);
+  const hasAttemptedCouponRestoreRef = useRef(false);
 
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
@@ -148,14 +149,50 @@ export default function CheckoutConnected() {
     }
   }, [isAuthenticated, authLoading, navigate]);
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void loadPaystackInlineScript().catch(() => {
+      // Keep checkout usable even if preloading the payment tools fails.
+    });
+  }, [isAuthenticated]);
+
   const { data: cartItems = [] } = useQuery<CartItem[]>({
     queryKey: ["/api/cart"],
     enabled: isAuthenticated,
+    queryFn: () =>
+      fetchSameOriginJson<CartItem[]>("/api/cart", {
+        cache: "no-store",
+      }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
   });
 
   const { data: deliveryZones = [] } = useQuery<DeliveryZone[]>({
     queryKey: ["/api/delivery-zones"],
     enabled: hasResolvedSettings && !isExternalRiderSystemEnabled,
+    queryFn: () =>
+      fetchSameOriginJson<DeliveryZone[]>("/api/delivery-zones", {
+        cache: "no-store",
+      }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
+  });
+
+  const { data: pickupStations = [] } = useQuery<DeliveryZone[]>({
+    queryKey: ["/api/pickup-stations"],
+    enabled: hasResolvedSettings,
+    queryFn: () =>
+      fetchSameOriginJson<DeliveryZone[]>("/api/pickup-stations", {
+        cache: "no-store",
+      }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
   });
 
   const { data: cartProducts = [], isLoading: productsLoading } = useQuery<Product[]>({
@@ -163,19 +200,58 @@ export default function CheckoutConnected() {
     queryFn: async () => {
       if (!cartItems.length) return [];
       const productsData = await Promise.all(
-        cartItems.map(async (item) => {
-          const res = await fetch(`/api/products/${item.productId}`);
-          return res.json();
-        })
+        cartItems.map((item) =>
+          fetchSameOriginJson<Product>(`/api/products/${item.productId}`, {
+            cache: "no-store",
+          })
+        )
       );
       return productsData;
     },
     enabled: cartItems.length > 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
   });
 
   const { data: settings } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
+    queryFn: () =>
+      fetchSameOriginJson<PlatformSettings>("/api/settings", {
+        cache: "no-store",
+      }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
   });
+
+  const { data: profile } = useQuery<CheckoutProfile>({
+    queryKey: ["/api/profile"],
+    enabled: isAuthenticated,
+    queryFn: () =>
+      fetchSameOriginJson<CheckoutProfile>("/api/profile", {
+        cache: "no-store",
+      }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    const savedPhone = String(profile?.phone || user?.phone || "").trim();
+    const savedAddress = String(profile?.businessAddress || "").trim();
+
+    if (savedPhone && !String(deliveryPhone || "").trim()) {
+      setDeliveryPhone(savedPhone);
+    }
+
+    if (savedAddress && !String(deliveryAddress || "").trim()) {
+      setDeliveryAddress(savedAddress);
+    }
+  }, [profile?.businessAddress, profile?.phone, user?.phone]);
 
   useEffect(() => {
     if (!hasResolvedSettings) return;
@@ -195,11 +271,6 @@ export default function CheckoutConnected() {
       }
     }
   }, [deliveryMethod, hasResolvedSettings, isExternalRiderSystemEnabled]);
-
-  useEffect(() => {
-    if (!hasResolvedSettings || !isExternalRiderSystemEnabled || deliveryMethod !== "rider") return;
-    setExternalDeliveryType(inferExternalDeliveryType(deliveryAddress, deliveryLat, deliveryLng));
-  }, [deliveryAddress, deliveryLat, deliveryLng, deliveryMethod, hasResolvedSettings, isExternalRiderSystemEnabled]);
 
   useEffect(() => {
     const query = deliveryAddress.trim();
@@ -301,18 +372,29 @@ export default function CheckoutConnected() {
   }
 
   const validateCouponMutation = useMutation({
-    mutationFn: async (data: { code: string; sellerId: string; orderTotal: string }) => {
-      const res = await apiRequest("POST", "/api/coupons/validate", data);
-      return res.json();
-    },
+    mutationFn: (data: { code: string; sellerId: string; orderTotal: string }) =>
+      fetchSameOriginJson<any>("/api/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
     onSuccess: (data) => {
       if (data.valid && data.coupon) {
         setAppliedCoupon(data.coupon);
+        const restoredCode = String(data.coupon.code || couponCode || "").trim().toUpperCase();
+        setCouponCode(restoredCode);
+        writePersistedCheckoutCoupon(user?.id, {
+          code: restoredCode,
+          sellerId: itemsWithProducts[0]?.product?.sellerId || null,
+          savedAt: Date.now(),
+        });
         toast({
           title: "Coupon Applied",
           description: `${data.coupon.discountType === "percentage" ? `${data.coupon.discountValue}%` : formatPrice(parseFloat(data.coupon.discountValue))} discount applied successfully!`,
         });
       } else {
+        setAppliedCoupon(null);
+        clearPersistedCheckoutCoupon(user?.id);
         toast({
           title: "Invalid Coupon",
           description: data.message || "This coupon code is not valid",
@@ -330,39 +412,126 @@ export default function CheckoutConnected() {
   });
 
   const createOrderMutation = useMutation({
-    mutationFn: async (orderData: any) => {
-      const res = await apiRequest("POST", "/api/orders", orderData);
-      return res.json();
-    },
+    mutationFn: (orderData: any) =>
+      fetchSameOriginJson<any>("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderData),
+      }),
     onSuccess: async (data) => {
       try {
-        // Detect multi-vendor checkout and use appropriate payment initialization
         const paymentPayload = data.isMultiVendor && data.checkoutSessionId
-          ? { checkoutSessionId: data.checkoutSessionId }
-          : { orderId: data.id };
-        
-        const paymentRes = await apiRequest("POST", "/api/payments/initialize", paymentPayload);
-        const paymentData = await paymentRes.json();
-        
-        if (paymentData.authorization_url) {
-          // Clear cart before redirecting to payment
-          await queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
-          window.location.href = paymentData.authorization_url;
-        } else {
-          throw new Error("Failed to initialize payment");
-        }
-      } catch (error: any) {
-        toast({
-          title: "Payment Initialization Failed",
-          description: error.message || "Failed to initialize payment. Please try again.",
-          variant: "destructive",
+          ? { checkoutSessionId: data.checkoutSessionId, inline: true }
+          : { orderId: data.id, inline: true };
+
+        const paymentData = await fetchSameOriginJson<InlinePaymentInitializeResponse>("/api/payments/initialize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(paymentPayload),
         });
+
+        const inline = paymentData.inline;
+        if (!inline?.publicKey || !inline.reference || !inline.amount) {
+          throw new Error("Payment system returned incomplete payment details. Please try again.");
+        }
+
+        setIsLaunchingInlinePayment(true);
+        await Promise.resolve();
+
+        let reference: string;
+        try {
+          reference = await PaystackInlineService.pay({
+            publicKey: inline.publicKey,
+            email: inline.email,
+            amount: inline.amount,
+            currency: inline.currency || "GHS",
+            reference: inline.reference,
+            accessCode: inline.accessCode,
+            channels: inline.channels,
+            onOpen: () => {
+              setIsPaymentReviewOpen(false);
+            },
+          });
+        } catch (inlineError: any) {
+          const inlineMessage = String(inlineError?.message || "");
+          const canFallbackToHostedCheckout =
+            /could not load paystack payment tools|paystack payment tools took too long to load/i.test(
+              inlineMessage,
+            ) && paymentData.authorization_url;
+          if (canFallbackToHostedCheckout) {
+            window.location.assign(paymentData.authorization_url!);
+            return;
+          }
+          throw inlineError;
+        }
+
+        setIsLaunchingInlinePayment(false);
+        setIsVerifyingInlinePayment(true);
+
+        let verification: PaymentVerificationResult;
+        try {
+          verification = await fetchSameOriginJson<PaymentVerificationResult>(
+            `/api/payments/verify/${encodeURIComponent(reference)}`,
+            { cache: "no-store" }
+          );
+        } catch (verifyError: any) {
+          const verifyMessage = String(verifyError?.message || "");
+          if (!verifyMessage.startsWith("401:")) {
+            throw verifyError;
+          }
+
+          verification = await fetchSameOriginJson<PaymentVerificationResult>(
+            `/api/payments/verify-public/${encodeURIComponent(reference)}`,
+            { cache: "no-store" }
+          );
+        }
+
+        const resolvedOrderId = verification.orderId || verification.transaction?.orderId;
+
+        if (!verification.verified || !resolvedOrderId) {
+          throw new Error(verification.message || "Payment could not be confirmed.");
+        }
+
+        clearPersistedCheckoutCoupon(user?.id);
+        setIsPaymentReviewOpen(false);
+        queryClient.setQueryData(["/api/cart"], []);
+        await queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+        navigate(`/payment/success?orderId=${resolvedOrderId}`);
+      } catch (error: any) {
+        const rawMessage = String(error?.message || "");
+        const normalizedMessage = rawMessage.replace(/^\d+:\s*/, "").trim();
+        const wasCancelled = /cancelled/i.test(normalizedMessage);
+        const isPaystackLoadIssue =
+          /could not load paystack payment tools|paystack payment tools took too long to load/i.test(
+            normalizedMessage,
+          );
+        const friendlyMessage = rawMessage.startsWith("401:")
+          ? "Your session expired while preparing payment. Please log in again and retry checkout."
+          : wasCancelled
+            ? "Payment was cancelled. Your order is still pending and you can try again from checkout or your orders page."
+            : isPaystackLoadIssue
+              ? "Secure payment is taking longer than expected to open. Please try again in a moment."
+              : normalizedMessage || "Failed to initialize payment. Please try again.";
+        setIsPaymentReviewOpen(true);
+        toast({
+          title: wasCancelled ? "Payment Cancelled" : "Payment Initialization Failed",
+          description: friendlyMessage,
+          variant: wasCancelled ? "default" : "destructive",
+        });
+      } finally {
+        setIsLaunchingInlinePayment(false);
+        setIsVerifyingInlinePayment(false);
       }
     },
     onError: (error: any) => {
+      const rawMessage = String(error?.message || "");
+      const friendlyMessage = rawMessage.startsWith("401:")
+        ? "Your session expired. Please log in again before placing the order."
+        : rawMessage.replace(/^\d+:\s*/, "") || "Failed to create order";
       toast({
         title: "Order Failed",
-        description: error.message || "Failed to create order",
+        description: friendlyMessage,
         variant: "destructive",
       });
     },
@@ -391,26 +560,18 @@ export default function CheckoutConnected() {
     return { ...item, product };
   }).filter(item => item.product);
 
-  const calculateItemPrice = (product: Product) => {
-    const originalPrice = parseFloat(product.price);
-    if (product.discount && product.discount > 0) {
-      return originalPrice * (1 - product.discount / 100);
-    }
-    return originalPrice;
-  };
-
-  const subtotal = itemsWithProducts.reduce((sum, item) => {
-    const discountedPrice = calculateItemPrice(item.product!);
-    return sum + (discountedPrice * item.quantity);
-  }, 0);
-
-  const productSavings = itemsWithProducts.reduce((sum, item) => {
-    const originalPrice = parseFloat(item.product!.price);
-    const discountedPrice = calculateItemPrice(item.product!);
-    return sum + ((originalPrice - discountedPrice) * item.quantity);
-  }, 0);
+  const pricingSummary = calculateProductPricingSummary(
+    itemsWithProducts.map((item) => ({
+      ...item.product!,
+      quantity: item.quantity,
+    })),
+  );
+  const subtotal = pricingSummary.subtotal;
+  const originalSubtotal = pricingSummary.originalSubtotal;
+  const productSavings = pricingSummary.productSavings;
 
   const selectedZone = deliveryZones.find(z => z.id === selectedZoneId);
+  const selectedPickupStation = pickupStations.find((station) => station.id === selectedPickupStationId);
   const usingExternalDeliveryFlow = isExternalRiderSystemEnabled && deliveryMethod !== "pickup";
   const deliveryFee =
     deliveryMethod === "pickup"
@@ -433,10 +594,72 @@ export default function CheckoutConnected() {
   };
 
   const couponDiscount = calculateCouponDiscount();
+  const discountedSubtotal = Math.max(0, subtotal - couponDiscount);
   const processingFeePercent = Number(settings?.processingFeePercent ?? "1.95");
   const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
-  const processingFee = computeExactProcessingFee(subtotal - couponDiscount + deliveryFee, processingFeeRate);
-  const total = subtotal - couponDiscount + deliveryFee + processingFee;
+  const processingFee = computeExactProcessingFee(discountedSubtotal + deliveryFee, processingFeeRate);
+  const total = discountedSubtotal + deliveryFee + processingFee;
+  const checkoutSellerId = itemsWithProducts[0]?.product?.sellerId || user?.id || null;
+  const isInlinePaymentBusy =
+    createOrderMutation.isPending || isLaunchingInlinePayment || isVerifyingInlinePayment;
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (hasAttemptedCouponRestoreRef.current) return;
+    if (!itemsWithProducts.length || !checkoutSellerId || subtotal <= 0) return;
+
+    hasAttemptedCouponRestoreRef.current = true;
+    const persistedCoupon = readPersistedCheckoutCoupon(user.id);
+    if (!persistedCoupon?.code) return;
+
+    if (persistedCoupon.sellerId && persistedCoupon.sellerId !== checkoutSellerId) {
+      clearPersistedCheckoutCoupon(user.id);
+      return;
+    }
+
+    setCouponCode(persistedCoupon.code);
+    setIsRestoringCoupon(true);
+
+    void fetchSameOriginJson<any>("/api/coupons/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code: persistedCoupon.code,
+        sellerId: checkoutSellerId,
+        orderTotal: subtotal.toFixed(2),
+      }),
+    })
+      .then((data) => {
+        if (data?.valid && data?.coupon) {
+          setAppliedCoupon(data.coupon);
+          writePersistedCheckoutCoupon(user.id, {
+            code: String(data.coupon.code || persistedCoupon.code).trim().toUpperCase(),
+            sellerId: checkoutSellerId,
+            savedAt: Date.now(),
+          });
+        } else {
+          setAppliedCoupon(null);
+          clearPersistedCheckoutCoupon(user.id);
+        }
+      })
+      .catch(() => {
+        // Keep the coupon persisted for the next retry if checkout temporarily fails.
+      })
+      .finally(() => {
+        setIsRestoringCoupon(false);
+      });
+  }, [checkoutSellerId, itemsWithProducts.length, subtotal, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (!appliedCoupon) return;
+
+    writePersistedCheckoutCoupon(user.id, {
+      code: String(appliedCoupon.code || couponCode).trim().toUpperCase(),
+      sellerId: checkoutSellerId,
+      savedAt: Date.now(),
+    });
+  }, [appliedCoupon, checkoutSellerId, couponCode, user?.id]);
 
   const handleApplyCoupon = () => {
     if (!couponCode.trim()) {
@@ -465,23 +688,62 @@ export default function CheckoutConnected() {
     });
   };
 
-  const handleRemoveCoupon = () => {
-    setAppliedCoupon(null);
-    setCouponCode("");
-    toast({
-      title: "Coupon Removed",
-      description: "The coupon has been removed from your order",
+  const syncCheckoutDetailsToProfile = async () => {
+    const trimmedPhone = String(deliveryPhone || "").trim();
+    const trimmedAddress = String(deliveryAddress || "").trim();
+    const currentPhone = String(profile?.phone || user?.phone || "").trim();
+    const currentAddress = String(profile?.businessAddress || "").trim();
+
+    const updatePayload: Record<string, string> = {};
+
+    if (trimmedPhone && trimmedPhone !== currentPhone) {
+      updatePayload.phone = trimmedPhone;
+    }
+
+    if (deliveryMethod !== "pickup" && trimmedAddress && trimmedAddress !== currentAddress) {
+      updatePayload.businessAddress = trimmedAddress;
+    }
+
+    if (!Object.keys(updatePayload).length) return;
+
+    await fetchSameOriginJson("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatePayload),
     });
+
+    await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    await queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
   };
 
-  const handlePlaceOrder = async () => {
+  const validateCheckoutBeforePayment = async () => {
+    const authenticated = await ensureAuthenticated();
+    if (!authenticated) {
+      toast({
+        title: "Session expired",
+        description: "Please log in again to continue with checkout.",
+        variant: "destructive",
+      });
+      navigate("/auth");
+      return;
+    }
+
+    if (!deliveryPhone.trim()) {
+      toast({
+        title: "Missing Information",
+        description: "Please provide a contact phone number before checkout.",
+        variant: "destructive",
+      });
+      return false;
+    }
+
     if (deliveryMethod !== "pickup" && !deliveryAddress) {
       toast({
         title: "Missing Information",
         description: "Please provide a delivery address",
         variant: "destructive",
       });
-      return;
+      return false;
     }
 
     if (!usingExternalDeliveryFlow && deliveryMethod !== "pickup" && !selectedZoneId) {
@@ -490,7 +752,7 @@ export default function CheckoutConnected() {
         description: "Please select a delivery zone",
         variant: "destructive",
       });
-      return;
+      return false;
     }
     if (deliveryMethod !== "pickup" && (deliveryLat == null || deliveryLng == null)) {
       toast({
@@ -500,7 +762,7 @@ export default function CheckoutConnected() {
           : "Pin your exact delivery location on the map so rider navigation works.",
         variant: "destructive",
       });
-      return;
+      return false;
     }
     if (
       deliveryMethod !== "pickup" &&
@@ -511,16 +773,48 @@ export default function CheckoutConnected() {
         description: "Selected map coordinates are invalid. Please choose location again.",
         variant: "destructive",
       });
-      return;
+      return false;
+    }
+
+    if (deliveryMethod === "pickup" && pickupStations.length > 0 && !selectedPickupStationId) {
+      toast({
+        title: "Missing Information",
+        description: "Please choose a pickup station",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  const submitCheckoutForInlinePayment = async () => {
+    const isValid = await validateCheckoutBeforePayment();
+    if (!isValid) return;
+
+    try {
+      await syncCheckoutDetailsToProfile();
+    } catch {
+      toast({
+        title: "Profile update skipped",
+        description: "Your order can continue, but we could not save your checkout details to your profile right now.",
+        variant: "destructive",
+      });
     }
 
     const sellerId = itemsWithProducts[0]?.product?.sellerId || user?.id;
 
     const orderData = {
       items: itemsWithProducts.map(item => {
-        const discountedPrice = calculateItemPrice(item.product!);
+        const discountedPrice = getCurrentSellingPrice(item.product!);
         return {
           productId: item.productId,
+          variantId: item.variantId || null,
+          selectedColor: item.selectedColor || null,
+          selectedSize: item.selectedSize || null,
+          selectedImageIndex: Number.isFinite(Number(item.selectedImageIndex))
+            ? Math.max(0, Number(item.selectedImageIndex) || 0)
+            : 0,
           quantity: item.quantity,
           price: discountedPrice.toFixed(2),
           total: (discountedPrice * item.quantity).toFixed(2),
@@ -530,9 +824,14 @@ export default function CheckoutConnected() {
       deliveryMethod: usingExternalDeliveryFlow ? "rider" : deliveryMethod,
       externalDeliveryByBus: usingExternalDeliveryFlow ? externalDeliveryType === "bus" : false,
       externalDeliveryType: usingExternalDeliveryFlow ? externalDeliveryType : null,
-      deliveryZoneId: usingExternalDeliveryFlow ? null : selectedZoneId || null,
+      deliveryZoneId:
+        deliveryMethod === "pickup"
+          ? selectedPickupStationId || null
+          : usingExternalDeliveryFlow
+            ? null
+            : selectedZoneId || null,
       deliveryAddress: deliveryAddress || null,
-      deliveryPhone: deliveryPhone || null,
+      deliveryPhone: deliveryPhone.trim() || null,
       deliveryLatitude: deliveryLat,
       deliveryLongitude: deliveryLng,
       deliveryFee: deliveryFee.toFixed(2),
@@ -542,9 +841,16 @@ export default function CheckoutConnected() {
       processingFee: processingFee.toFixed(2),
       total: total.toFixed(2),
       currency: currency,
+      status: "pending",
     };
 
     createOrderMutation.mutate(orderData);
+  };
+
+  const handlePlaceOrder = async () => {
+    const isValid = await validateCheckoutBeforePayment();
+    if (!isValid) return;
+    setIsPaymentReviewOpen(true);
   };
 
   return (
@@ -581,7 +887,7 @@ export default function CheckoutConnected() {
                   onValueChange={(value) => setDeliveryMethod(value as any)}
                   className="space-y-3"
                 >
-                  <div className="flex items-center space-x-3 p-4 border rounded-lg hover-elevate">
+                  <div className="flex items-center space-x-3 rounded-lg border px-4 py-4">
                     <RadioGroupItem value="pickup" id="pickup" data-testid="radio-pickup" />
                     <Label htmlFor="pickup" className="flex-1 cursor-pointer flex items-center gap-3">
                       <Package className="h-5 w-5 text-muted-foreground" />
@@ -592,93 +898,98 @@ export default function CheckoutConnected() {
                     </Label>
                   </div>
 
+                  {deliveryMethod === "pickup" && (
+                    <div className="space-y-2 rounded-lg border border-border px-4 py-4">
+                      <Label htmlFor="pickup-station" className="text-sm font-medium">
+                        Pickup location
+                      </Label>
+                      {pickupStations.length > 0 ? (
+                        <Select
+                          value={selectedPickupStationId || undefined}
+                          onValueChange={setSelectedPickupStationId}
+                        >
+                          <SelectTrigger id="pickup-station" data-testid="select-pickup-station">
+                            <SelectValue placeholder="Select a pickup location" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {pickupStations.map((station) => {
+                              const locationBits = [station.name, station.city, station.region]
+                                .map((value) => String(value || "").trim())
+                                .filter(Boolean);
+                              return (
+                                <SelectItem key={station.id} value={station.id}>
+                                  {locationBits.join(", ")}
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No pickup locations are available at the moment.
+                        </p>
+                      )}
+                      <div className="space-y-2 pt-2">
+                        <Label htmlFor="pickup-phone" className="text-sm font-medium">
+                          Contact phone number
+                        </Label>
+                        <Input
+                          id="pickup-phone"
+                          type="tel"
+                          placeholder="Enter your phone number"
+                          value={deliveryPhone}
+                          onChange={(e) => setDeliveryPhone(e.target.value)}
+                          data-testid="input-pickup-phone"
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {isExternalRiderSystemEnabled ? (
                     <>
-                      <div className="flex items-center space-x-3 p-4 border rounded-lg hover-elevate">
+                      <div className="flex items-center space-x-3 rounded-lg border px-4 py-4">
                         <RadioGroupItem value="rider" id="external-delivery" data-testid="radio-external-delivery" />
                         <Label htmlFor="external-delivery" className="flex-1 cursor-pointer flex items-center gap-3">
                           <Bike className="h-5 w-5 text-muted-foreground" />
                           <div>
                             <div className="font-medium">Delivery</div>
-                            <div className="text-sm text-muted-foreground">Customer support will coordinate the delivery arrangement</div>
+                            <div className="text-sm text-muted-foreground">
+                              {externalDeliveryType === "bus"
+                                ? "Long-distance regional delivery support"
+                                : "Yango, Uber, Bolt and similar services"}
+                            </div>
                           </div>
                         </Label>
                       </div>
 
                       {deliveryMethod === "rider" && (
-                        <div className="rounded-2xl border border-emerald-200 bg-card p-4 space-y-4 dark:border-emerald-500/20 dark:bg-[linear-gradient(180deg,rgba(12,18,20,0.96),rgba(9,14,16,0.98))]">
-                          <div className="space-y-1">
-                            <div className="font-medium">External Delivery</div>
-                            <div className="text-sm text-muted-foreground">
-                              Select how our customer support team should coordinate delivery after checkout.
-                            </div>
-                          </div>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <button
-                              type="button"
-                              onClick={() => setExternalDeliveryType("third_party")}
-                              className={`group rounded-2xl border p-4 text-left transition-all duration-200 ${
-                                externalDeliveryType === "third_party"
-                                  ? "border-emerald-500 bg-emerald-50 shadow-sm dark:border-emerald-400/70 dark:bg-[linear-gradient(180deg,rgba(11,77,64,0.88),rgba(8,46,38,0.94))] dark:shadow-[0_12px_30px_rgba(4,120,87,0.28)]"
-                                  : "border-border bg-background hover:border-emerald-300 hover:bg-emerald-50/50 dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(24,29,31,0.92),rgba(18,22,24,0.96))] dark:hover:border-emerald-300/35 dark:hover:bg-[linear-gradient(180deg,rgba(27,35,37,0.96),rgba(20,24,26,0.98))]"
-                              }`}
-                              data-testid="card-external-third-party-top"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="rounded-xl bg-emerald-100 p-2 ring-1 ring-emerald-200 dark:bg-emerald-400/10 dark:ring-emerald-400/20">
-                                    <Bike className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
-                                  </div>
-                                  <div>
-                                    <div className="font-semibold text-base text-foreground dark:text-white">Third-Party Delivery</div>
-                                    <div className="text-xs text-emerald-700 dark:text-emerald-200/80">Yango, Uber, Bolt and similar services</div>
-                                  </div>
-                                </div>
-                                <Checkbox
-                                  checked={externalDeliveryType === "third_party"}
-                                  className="pointer-events-none border-emerald-300 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 dark:border-white/35"
-                                />
-                              </div>
-                              <p className="mt-3 text-sm leading-6 text-muted-foreground dark:text-slate-200/85">
-                                Suitable for Accra and nearby destinations. We will arrange a trusted third-party delivery service such as Yango, Uber, or Bolt and confirm the delivery charge with you before dispatch.
-                              </p>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setExternalDeliveryType("bus")}
-                              className={`group rounded-2xl border p-4 text-left transition-all duration-200 ${
-                                externalDeliveryType === "bus"
-                                  ? "border-lime-500 bg-lime-50 shadow-sm dark:border-emerald-400/70 dark:bg-[linear-gradient(180deg,rgba(61,77,19,0.88),rgba(30,43,10,0.94))] dark:shadow-[0_12px_30px_rgba(101,163,13,0.22)]"
-                                  : "border-border bg-background hover:border-lime-300 hover:bg-lime-50/50 dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(24,29,31,0.92),rgba(18,22,24,0.96))] dark:hover:border-emerald-300/35 dark:hover:bg-[linear-gradient(180deg,rgba(27,35,37,0.96),rgba(20,24,26,0.98))]"
-                              }`}
-                              data-testid="card-external-bus-top"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="rounded-xl bg-lime-100 p-2 ring-1 ring-lime-200 dark:bg-lime-300/10 dark:ring-lime-300/20">
-                                    <Building2 className="h-5 w-5 text-lime-700 dark:text-lime-200" />
-                                  </div>
-                                  <div>
-                                    <div className="font-semibold text-base text-foreground dark:text-white">VIP Bus Delivery</div>
-                                    <div className="text-xs text-lime-700 dark:text-lime-100/80">Long-distance regional delivery support</div>
-                                  </div>
-                                </div>
-                                <Checkbox
-                                  checked={externalDeliveryType === "bus"}
-                                  className="pointer-events-none border-lime-300 data-[state=checked]:bg-lime-500 data-[state=checked]:border-lime-500 dark:border-white/35"
-                                />
-                              </div>
-                              <p className="mt-3 text-sm leading-6 text-muted-foreground dark:text-slate-200/85">
-                                Suitable for deliveries from Accra to regions such as Ashanti, Northern, Upper East, Upper West, Volta, and other distant areas. We will confirm the station details, handover process, and final delivery cost with you before dispatch.
-                              </p>
-                            </button>
-                          </div>
+                        <div className="space-y-2 rounded-lg border border-border px-4 py-4">
+                          <Label htmlFor="external-delivery-type" className="text-sm font-medium">
+                            Delivery arrangement
+                          </Label>
+                          <Select
+                            value={externalDeliveryType}
+                            onValueChange={(value) => setExternalDeliveryType(value as "third_party" | "bus")}
+                          >
+                            <SelectTrigger id="external-delivery-type" data-testid="select-external-delivery-type">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="third_party">Third-party delivery</SelectItem>
+                              <SelectItem value="bus">VIP bus delivery</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-sm text-muted-foreground">
+                            {externalDeliveryType === "bus"
+                              ? "Suitable for deliveries from Accra to regions such as Ashanti, Northern, Upper East, Upper West, Volta, and other distant areas. We will confirm the bus station details, handover process, and delivery cost with you before dispatch."
+                              : "Suitable for Accra and nearby destinations. We will arrange a trusted third-party delivery service such as Yango, Uber, Bolt and similar services, and confirm the delivery charge with you before dispatch."}
+                          </p>
                         </div>
                       )}
                     </>
                   ) : (
                     <>
-                      <div className="flex items-center space-x-3 p-4 border rounded-lg hover-elevate">
+                      <div className="flex items-center space-x-3 rounded-lg border px-4 py-4">
                         <RadioGroupItem value="bus" id="bus" data-testid="radio-bus" />
                         <Label htmlFor="bus" className="flex-1 cursor-pointer flex items-center gap-3">
                           <Building2 className="h-5 w-5 text-muted-foreground" />
@@ -689,7 +1000,7 @@ export default function CheckoutConnected() {
                         </Label>
                       </div>
 
-                      <div className="flex items-center space-x-3 p-4 border rounded-lg hover-elevate">
+                      <div className="flex items-center space-x-3 rounded-lg border px-4 py-4">
                         <RadioGroupItem value="rider" id="rider" data-testid="radio-rider" />
                         <Label htmlFor="rider" className="flex-1 cursor-pointer flex items-center gap-3">
                           <Bike className="h-5 w-5 text-muted-foreground" />
@@ -717,31 +1028,14 @@ export default function CheckoutConnected() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {usingExternalDeliveryFlow && (
-                    <div
-                      className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm space-y-4 dark:border-amber-500/30 dark:bg-[linear-gradient(135deg,rgba(120,84,32,0.18),rgba(29,22,12,0.62))] dark:shadow-[0_18px_45px_rgba(0,0,0,0.18)]"
+                    <p
+                      className="text-sm leading-6 text-muted-foreground"
                       data-testid="external-delivery-notice"
                     >
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 ring-1 ring-amber-200 dark:bg-amber-400/15 dark:ring-amber-400/25">
-                          <Info className="h-5 w-5 text-amber-700 dark:text-amber-300" />
-                        </div>
-                        <div className="space-y-3 flex-1">
-                          <div className="max-w-3xl space-y-1">
-                            <p className="text-sm font-semibold text-amber-900 dark:text-amber-50">
-                              Delivery will be arranged after checkout.
-                            </p>
-                            <p className="max-w-3xl text-sm leading-relaxed text-amber-800 dark:text-amber-100/85">
-                              Once your order is placed, our customer support team will contact you to confirm the most suitable delivery arrangement and share the final delivery cost before dispatch.
-                            </p>
-                          </div>
-                          <div className="max-w-3xl rounded-xl border border-amber-200 bg-white/70 p-3 text-sm text-amber-900 dark:border-white/10 dark:bg-black/15 dark:text-amber-50/90">
-                            {externalDeliveryType === "bus"
-                              ? "VIP bus delivery has been selected. Our team will guide you on the station details, handover plan, and final delivery cost."
-                              : "Third-party delivery has been selected. Our team will arrange a suitable delivery service and confirm the final delivery cost with you."}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                      {externalDeliveryType === "bus"
+                        ? "Suitable for deliveries from Accra to regions such as Ashanti, Northern, Upper East, Upper West, Volta, and other distant areas. We will confirm the bus station details, handover process, and delivery cost with you before dispatch."
+                        : "Suitable for Accra and nearby destinations. We will arrange a trusted third-party delivery service such as Yango, Uber, Bolt and similar services, and confirm the delivery charge with you before dispatch."}
+                    </p>
                   )}
 
                   <div className="relative space-y-2">
@@ -752,6 +1046,8 @@ export default function CheckoutConnected() {
                       value={deliveryAddress}
                       onChange={(e) => {
                         setDeliveryAddress(e.target.value);
+                        setDeliveryLat(null);
+                        setDeliveryLng(null);
                         setShowAddressSuggestions(true);
                       }}
                       onFocus={() => {
@@ -824,20 +1120,21 @@ export default function CheckoutConnected() {
                   {!usingExternalDeliveryFlow && (
                     <div className="space-y-2">
                       <Label htmlFor="zone">Delivery Zone</Label>
-                      <select
-                        id="zone"
-                        className="w-full h-10 px-3 rounded-md border border-input bg-background"
-                        value={selectedZoneId}
-                        onChange={(e) => setSelectedZoneId(e.target.value)}
-                        data-testid="select-zone"
+                      <Select
+                        value={selectedZoneId || undefined}
+                        onValueChange={setSelectedZoneId}
                       >
-                        <option value="">Select a zone</option>
+                        <SelectTrigger id="zone" data-testid="select-zone">
+                          <SelectValue placeholder="Select a zone" />
+                        </SelectTrigger>
+                        <SelectContent>
                         {deliveryZones.map((zone) => (
-                          <option key={zone.id} value={zone.id}>
+                          <SelectItem key={zone.id} value={zone.id}>
                             {zone.name} ({formatPrice(parseFloat(zone.fee))})
-                          </option>
+                          </SelectItem>
                         ))}
-                      </select>
+                        </SelectContent>
+                      </Select>
                     </div>
                   )}
                 </CardContent>
@@ -860,15 +1157,15 @@ export default function CheckoutConnected() {
                       value={couponCode}
                       onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
                       onKeyPress={(e) => e.key === 'Enter' && handleApplyCoupon()}
-                      disabled={validateCouponMutation.isPending}
+                      disabled={validateCouponMutation.isPending || isRestoringCoupon}
                       data-testid="input-coupon"
                     />
                     <Button
                       onClick={handleApplyCoupon}
-                      disabled={validateCouponMutation.isPending || !couponCode.trim()}
+                      disabled={validateCouponMutation.isPending || isRestoringCoupon || !couponCode.trim()}
                       data-testid="button-apply-coupon"
                     >
-                      {validateCouponMutation.isPending ? "Validating..." : "Apply"}
+                      {validateCouponMutation.isPending || isRestoringCoupon ? "Validating..." : "Apply"}
                     </Button>
                   </div>
                 ) : (
@@ -888,15 +1185,6 @@ export default function CheckoutConnected() {
                           -{formatPrice(couponDiscount)}
                         </div>
                       )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleRemoveCoupon}
-                      className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
-                      data-testid="button-remove-coupon"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
                   </div>
                 )}
               </CardContent>
@@ -911,9 +1199,13 @@ export default function CheckoutConnected() {
               <CardContent className="space-y-4">
                 <div className="space-y-3">
                   {itemsWithProducts.map((item) => {
-                    const originalPrice = parseFloat(item.product!.price);
-                    const discountedPrice = calculateItemPrice(item.product!);
-                    const discount = item.product!.discount || 0;
+                    const originalPrice = getOriginalDisplayPrice(item.product!);
+                    const discountedPrice = getCurrentSellingPrice(item.product!);
+                    const computedDiscount =
+                      originalPrice > discountedPrice
+                        ? Math.round(((originalPrice - discountedPrice) / originalPrice) * 100)
+                        : 0;
+                    const discount = computedDiscount > 0 ? computedDiscount : (item.product!.discount || 0);
                     const hasDiscount = discount > 0;
                     
                     return (
@@ -946,8 +1238,8 @@ export default function CheckoutConnected() {
 
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span data-testid="text-checkout-subtotal">{formatPrice(subtotal)}</span>
+                    <span className="text-muted-foreground">Items Total</span>
+                    <span data-testid="text-checkout-original-subtotal">{formatPrice(originalSubtotal)}</span>
                   </div>
                   {productSavings > 0 && (
                     <div className="flex justify-between text-green-600 dark:text-green-400">
@@ -955,13 +1247,24 @@ export default function CheckoutConnected() {
                       <span data-testid="text-product-discounts">-{formatPrice(productSavings)}</span>
                     </div>
                   )}
-                  {/* Coupon discount is shown inline with the coupon code card only */}
+                  {couponDiscount > 0 && (
+                    <div className="flex justify-between text-green-600 dark:text-green-400">
+                      <span className="font-medium">Coupon Discount</span>
+                      <span data-testid="text-coupon-discount-summary">-{formatPrice(couponDiscount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Delivery Fee</span>
-                    <span data-testid="text-checkout-delivery">
-                      {usingExternalDeliveryFlow ? "To be communicated" : formatPrice(deliveryFee)}
-                    </span>
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span data-testid="text-checkout-subtotal">{formatPrice(discountedSubtotal)}</span>
                   </div>
+                  {deliveryMethod !== "pickup" && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Delivery Fee</span>
+                      <span data-testid="text-checkout-delivery">
+                        {usingExternalDeliveryFlow ? "To be communicated" : formatPrice(deliveryFee)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Processing Fee (Paystack {processingFeePercent.toFixed(2)}%)</span>
                     <span data-testid="text-checkout-processing">{formatPrice(processingFee)}</span>
@@ -997,10 +1300,10 @@ export default function CheckoutConnected() {
                   className="w-full"
                   size="lg"
                   onClick={handlePlaceOrder}
-                  disabled={createOrderMutation.isPending}
+                  disabled={isInlinePaymentBusy}
                   data-testid="button-pay"
                 >
-                  {createOrderMutation.isPending ? "Processing..." : "Pay"}
+                  {isInlinePaymentBusy ? "Preparing secure payment..." : "Review & Pay"}
                 </Button>
 
                 <p className="text-xs text-center text-muted-foreground">
@@ -1011,6 +1314,164 @@ export default function CheckoutConnected() {
           </div>
         </div>
       </div>
+
+      <Dialog open={isPaymentReviewOpen} onOpenChange={(open) => !isInlinePaymentBusy && setIsPaymentReviewOpen(open)}>
+          <DialogContent className="w-[min(96vw,34rem)] overflow-hidden border-border bg-background p-0 shadow-2xl">
+          <div className="border-b border-primary/20 bg-primary/10 px-6 py-5 dark:bg-primary/12">
+            <DialogHeader className="space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <DialogTitle className="text-2xl font-semibold tracking-tight">Confirm Secure Payment</DialogTitle>
+                  <DialogDescription className="max-w-md text-sm leading-6 text-muted-foreground">
+                    Review your order total and continue with your checkout.
+                  </DialogDescription>
+                </div>
+                <div className="rounded-2xl border border-border bg-card p-3 text-muted-foreground dark:text-foreground">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+              </div>
+            </DialogHeader>
+          </div>
+
+          <div className="space-y-5 px-6 py-5">
+            <div className="rounded-2xl border border-border/70 bg-card/70 p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Paying now</p>
+                  <p className="mt-2 text-3xl font-semibold text-foreground">{formatPrice(total)}</p>
+                </div>
+                <div className="text-right text-sm text-muted-foreground">
+                  <p>{itemsWithProducts.length} item{itemsWithProducts.length === 1 ? "" : "s"}</p>
+                  <p>{user?.email || "Signed-in customer"}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-card/50 p-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Items subtotal</span>
+                <span className="font-medium">{formatPrice(subtotal)}</span>
+              </div>
+              {couponDiscount > 0 && (
+                <div className="flex items-center justify-between text-sm text-primary">
+                  <span>Coupon discount</span>
+                  <span className="font-medium">-{formatPrice(couponDiscount)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span className="font-medium">{formatPrice(discountedSubtotal)}</span>
+              </div>
+              {deliveryMethod !== "pickup" && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Delivery</span>
+                  <span className="font-medium">
+                    {usingExternalDeliveryFlow ? "Confirmed after checkout" : formatPrice(deliveryFee)}
+                  </span>
+                </div>
+              )}
+
+              {deliveryMethod === "pickup" && selectedPickupStation ? (
+                <div className="flex items-start justify-between gap-4 text-sm">
+                  <span className="text-muted-foreground">Pickup location</span>
+                  <div className="text-right">
+                    <div className="font-medium">{selectedPickupStation.name}</div>
+                    <div className="text-muted-foreground">
+                      {[selectedPickupStation.city, selectedPickupStation.region].filter(Boolean).join(", ")}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Paystack checkout fee</span>
+                <span className="font-medium">{formatPrice(processingFee)}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+              <LockKeyhole className="h-4 w-4 shrink-0 text-primary" />
+              <span>Secure payment powered by Paystack</span>
+            </div>
+
+            <div className="flex justify-center pt-1">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 200 40"
+                className="h-8 w-auto"
+                role="img"
+                aria-label="Paystack"
+              >
+                <rect width="200" height="40" rx="6" fill="#00B14F" />
+                <text
+                  x="100"
+                  y="26"
+                  fill="#FFFFFF"
+                  fontFamily="Inter, Arial, sans-serif"
+                  fontWeight="700"
+                  fontSize="18"
+                  textAnchor="middle"
+                >
+                  Paystack
+                </text>
+              </svg>
+            </div>
+          </div>
+
+          <DialogFooter className="border-t border-border/70 bg-muted/20 px-6 py-4 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsPaymentReviewOpen(false)}
+              disabled={isInlinePaymentBusy}
+              className="sm:min-w-[9rem]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void submitCheckoutForInlinePayment()}
+              disabled={isInlinePaymentBusy}
+              className="sm:min-w-[12rem]"
+            >
+              {createOrderMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Preparing payment...
+                </>
+              ) : isLaunchingInlinePayment ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Opening Paystack...
+                </>
+              ) : isVerifyingInlinePayment ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Confirming payment...
+                </>
+              ) : (
+                <>
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Pay {formatPrice(total)}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {isLaunchingInlinePayment && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-[min(92vw,24rem)] rounded-3xl border border-white/10 bg-background/95 p-6 text-center shadow-2xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+            <h3 className="mt-4 text-xl font-semibold">Opening secure payment</h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Paystack is loading inside the app. Please complete your payment in the popup window that just opened.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

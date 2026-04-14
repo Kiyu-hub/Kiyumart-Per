@@ -78,9 +78,13 @@ export default function Profile() {
       setIsEditing(false);
     },
     onError: (error: any) => {
+      const rawMessage = String(error?.message || "");
+      const friendlyMessage = rawMessage.includes("Invalid store type")
+        ? "Your profile could not be updated right now. Please refresh the page and try again."
+        : rawMessage || "Failed to update profile. Please try again.";
       toast({
         title: "Error",
-        description: error.message || "Failed to update profile. Please try again.",
+        description: friendlyMessage,
         variant: "destructive",
       });
     },
@@ -135,8 +139,44 @@ export default function Profile() {
     }));
   };
 
+  const buildProfileUpdatePayload = (data: Partial<UserProfile>) => {
+    const role = String(profile?.role || user?.role || "").toLowerCase();
+    const payload: Partial<UserProfile> = {
+      name: String(data.name || "").trim(),
+      email: String(data.email || "").trim(),
+      phone: String(data.phone || "").trim(),
+      businessAddress: String(data.businessAddress || "").trim(),
+    };
+
+    if (role === "seller") {
+      payload.storeName = String(data.storeName || "").trim();
+      payload.storeDescription = String(data.storeDescription || "").trim();
+      payload.storeBanner = String(data.storeBanner || "").trim();
+
+      const normalizedStoreType = String(data.storeType || "").trim();
+      if (normalizedStoreType) {
+        payload.storeType = normalizedStoreType;
+      }
+    }
+
+    if (role === "rider") {
+      payload.riderCity = String(data.riderCity || "").trim();
+      payload.riderRegion = String(data.riderRegion || "").trim();
+      payload.nationalIdCard = String(data.nationalIdCard || "").trim();
+      if (data.vehicleInfo) {
+        payload.vehicleInfo = {
+          type: String(data.vehicleInfo.type || "").trim(),
+          plateNumber: String(data.vehicleInfo.plateNumber || "").trim(),
+          license: String(data.vehicleInfo.license || "").trim(),
+        };
+      }
+    }
+
+    return payload;
+  };
+
   const handleSaveProfile = () => {
-    updateProfileMutation.mutate(formData);
+    updateProfileMutation.mutate(buildProfileUpdatePayload(formData));
   };
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -611,7 +651,7 @@ export default function Profile() {
                           <Button 
                             variant="outline" 
                             size="sm"
-                            onClick={() => navigate(`/track?orderId=${order.id}`)}
+                            onClick={() => navigate(`/track/${encodeURIComponent(order.id)}`)}
                             data-testid={`button-view-order-${order.id}`}
                           >
                             View Details

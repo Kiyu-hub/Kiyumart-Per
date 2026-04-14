@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "./queryClient";
+import { fetchSameOrigin, fetchSameOriginJson, queryClient } from "./queryClient";
 
 interface User {
   id: string;
@@ -38,6 +38,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   signup: (data: { email: string; password: string; name: string; role?: string }) => Promise<void>;
   logout: () => Promise<void>;
+  ensureAuthenticated: (options?: { force?: boolean }) => Promise<User | null>;
   isAuthenticated: boolean;
 }
 
@@ -45,19 +46,22 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [lastVerifiedAt, setLastVerifiedAt] = useState(0);
+
+  const fetchCurrentUser = async (): Promise<User | null> => {
+    const res = await fetchSameOrigin("/api/auth/me", { cache: "no-store" });
+    if (res.status === 401) {
+      return null;
+    }
+    if (!res.ok) {
+      throw new Error(`${res.status}: ${res.statusText}`);
+    }
+    return res.json();
+  };
 
   const { data: currentUser, isLoading, isError } = useQuery<User | null>({
     queryKey: ["/api/auth/me"],
-    queryFn: async () => {
-      const res = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
-      if (res.status === 401) {
-        return null;
-      }
-      if (!res.ok) {
-        throw new Error(`${res.status}: ${res.statusText}`);
-      }
-      return res.json();
-    },
+    queryFn: fetchCurrentUser,
     retry: false,
     staleTime: 0,
     refetchOnMount: "always",
@@ -69,16 +73,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (currentUser) {
       setUser(normalizeUser(currentUser));
+      setLastVerifiedAt(Date.now());
     } else if ((currentUser === null && !isLoading) || isError) {
       setUser(null);
+      setLastVerifiedAt(Date.now());
       queryClient.setQueryData(["/api/auth/me"], null);
     }
   }, [currentUser, isLoading, isError]);
 
+  const ensureAuthenticated = async (options?: { force?: boolean }) => {
+    const shouldUseCurrentUser =
+      !options?.force &&
+      user &&
+      Date.now() - lastVerifiedAt < 30_000;
+
+    if (shouldUseCurrentUser) {
+      return user;
+    }
+
+    try {
+      const refreshed = await queryClient.fetchQuery<User | null>({
+        queryKey: ["/api/auth/me"],
+        queryFn: fetchCurrentUser,
+        staleTime: 0,
+      });
+
+      if (refreshed) {
+        const normalized = normalizeUser(refreshed);
+        setUser(normalized);
+        setLastVerifiedAt(Date.now());
+        return normalized;
+      }
+
+      setUser(null);
+      setLastVerifiedAt(Date.now());
+      queryClient.setQueryData(["/api/auth/me"], null);
+      return null;
+    } catch {
+      setUser(null);
+      setLastVerifiedAt(Date.now());
+      queryClient.setQueryData(["/api/auth/me"], null);
+      return null;
+    }
+  };
+
   const loginMutation = useMutation({
     mutationFn: async ({ email, password }: { email: string; password: string }) => {
-      const res = await apiRequest("POST", "/api/auth/login", { email, password });
-      return res.json();
+      return fetchSameOriginJson<{ user: User }>("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
     },
     onSuccess: (data) => {
       setUser(normalizeUser(data.user));
@@ -88,8 +135,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signupMutation = useMutation({
     mutationFn: async (data: { email: string; password: string; name: string; role?: string }) => {
-      const res = await apiRequest("POST", "/api/auth/signup", data);
-      return res.json();
+      return fetchSameOriginJson<{ user: User }>("/api/auth/signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
     },
     onSuccess: (data) => {
       setUser(normalizeUser(data.user));
@@ -99,7 +151,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/auth/logout", {});
+      await fetchSameOriginJson<{ success: boolean }>("/api/auth/logout", {
+        method: "POST",
+      });
     },
     onSuccess: () => {
       setUser(null);
@@ -128,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         signup,
         logout,
+        ensureAuthenticated,
         isAuthenticated: !!user,
       }}
     >

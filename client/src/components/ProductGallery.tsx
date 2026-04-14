@@ -13,12 +13,12 @@ interface ProductGalleryProps {
   description?: string;
 }
 
-export default function ProductGallery({ 
-  images, 
-  onChange, 
+export default function ProductGallery({
+  images,
+  onChange,
   maxImages = 5,
   required = false,
-  description = "Capture product from all angles - front, back, sides, and detailed shots"
+  description = "Add clear images from different angles so customers can see this item well",
 }: ProductGalleryProps) {
   const handleAddImage = (url: string) => {
     if (url && images.length < maxImages) {
@@ -32,7 +32,7 @@ export default function ProductGallery({
   };
 
   const handleSetPrimary = (index: number) => {
-    if (index === 0) return; // Already primary
+    if (index === 0) return;
     const newImages = [...images];
     const [primaryImage] = newImages.splice(index, 1);
     newImages.unshift(primaryImage);
@@ -54,17 +54,16 @@ export default function ProductGallery({
             </p>
           )}
         </div>
-        <span className="text-sm text-muted-foreground font-medium">
+        <span className="text-sm font-medium text-muted-foreground">
           {images.length}/{maxImages}
         </span>
       </div>
 
-      {/* Upload Area */}
       {images.length === 0 && (
-        <Card 
+        <Card
           className={cn(
             "border-2 border-dashed p-8 text-center transition-colors",
-            "hover:border-primary/50 hover:bg-accent/5"
+            "hover:border-primary/50 hover:bg-accent/5",
           )}
         >
           <div className="flex flex-col items-center justify-center space-y-3">
@@ -74,10 +73,10 @@ export default function ProductGallery({
                 Drop your images here, or browse
               </p>
               <p className="text-xs text-muted-foreground">
-                Upload up to {maxImages} images • jpeg, png are allowed
+                Upload up to {maxImages} images using URL, Upload, or Library
               </p>
-              <p className="text-xs text-primary font-medium mt-2">
-                📸 Capture from all angles: front, back, sides, details
+              <p className="mt-2 text-xs font-medium text-primary">
+                Add front, back, side, and close-up images
               </p>
             </div>
             <MediaUploadInput
@@ -92,26 +91,24 @@ export default function ProductGallery({
         </Card>
       )}
 
-      {/* Image Gallery Grid */}
       {images.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           {images.map((image, index) => (
-            <Card 
+            <Card
               key={index}
               className={cn(
-                "relative group overflow-hidden aspect-square",
-                index === 0 && "ring-2 ring-primary"
+                "group relative aspect-square overflow-hidden",
+                index === 0 && "ring-2 ring-primary",
               )}
               data-testid={`image-preview-${index}`}
             >
-              <img 
-                src={image} 
+              <img
+                src={image}
                 alt={`Product ${index + 1}`}
-                className="w-full h-full object-cover"
+                className="h-full w-full object-cover"
               />
-              
-              {/* Overlay on hover */}
-              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+
+              <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
                 {index !== 0 && (
                   <Button
                     type="button"
@@ -134,38 +131,36 @@ export default function ProductGallery({
                 </Button>
               </div>
 
-              {/* Primary Badge */}
               {index === 0 && (
-                <div className="absolute top-2 left-2 bg-primary text-primary-foreground text-xs font-medium px-2 py-1 rounded">
+                <div className="absolute left-2 top-2 rounded bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">
                   Primary
                 </div>
               )}
             </Card>
           ))}
 
-          {/* Add More Button */}
           {canAddMore && (
-            <Card 
-              className="border-2 border-dashed flex flex-col items-center justify-center aspect-square hover:border-primary/50 hover:bg-accent/5 transition-colors p-4"
+            <Card
+              className="flex aspect-square flex-col items-center justify-center border-2 border-dashed p-4 transition-colors hover:border-primary/50 hover:bg-accent/5"
               data-testid="card-add-more-image"
             >
-              <Upload className="h-8 w-8 text-muted-foreground mb-2" />
-              <p className="text-xs text-muted-foreground text-center mb-3">
+              <Upload className="mb-2 h-8 w-8 text-muted-foreground" />
+              <p className="mb-3 text-center text-xs text-muted-foreground">
                 Add More Images
               </p>
               <MediaUploadInput
                 id={`gallery-upload-${images.length}`}
-                label={`Image ${images.length + 1}`}
+                label=""
                 value=""
                 onChange={handleAddImage}
                 accept="image"
                 placeholder="Upload or enter URL"
+                compact={true}
               />
             </Card>
           )}
         </div>
       )}
-
     </div>
   );
 }

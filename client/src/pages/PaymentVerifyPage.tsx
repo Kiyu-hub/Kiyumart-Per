@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { clearAllPersistedCheckoutCoupons } from "@/lib/checkoutCoupon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
@@ -54,8 +55,15 @@ export default function PaymentVerifyPage() {
         throw new Error("Payment verification returned unexpected result. Please contact support.");
       }
       
-      if (result.verified && result.transaction) {
-        queryClient.invalidateQueries({ queryKey: ["/api/orders", result.transaction.orderId] });
+      const resolvedOrderId = result.orderId || result.transaction?.orderId;
+
+      if (result.verified && resolvedOrderId) {
+        queryClient.setQueryData(["/api/cart"], []);
+        void fetch("/api/cart", {
+          method: "DELETE",
+          credentials: "include",
+        }).catch(() => {});
+        queryClient.invalidateQueries({ queryKey: ["/api/orders", resolvedOrderId] });
         queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
         queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
       }
@@ -63,7 +71,7 @@ export default function PaymentVerifyPage() {
       // eslint-disable-next-line no-console
       console.log('PaymentVerifyPage: fetched verification', result);
       
-      return result;
+      return resolvedOrderId ? { ...result, orderId: resolvedOrderId } : result;
     },
     enabled: !!reference,
     retry: 2, // Retry up to 2 times for network errors
@@ -72,13 +80,15 @@ export default function PaymentVerifyPage() {
 
   useEffect(() => {
     if (verification) {
+      const resolvedOrderId = verification.orderId || verification.transaction?.orderId;
       // eslint-disable-next-line no-console
       console.log('PaymentVerifyPage: verification result', verification);
-      if (verification.verified && verification.orderId) {
+      if (verification.verified && resolvedOrderId) {
+        clearAllPersistedCheckoutCoupons();
         const timer = setTimeout(() => {
           // eslint-disable-next-line no-console
-          console.log('PaymentVerifyPage: navigating to success', verification.orderId);
-          navigate(`/payment/success?orderId=${verification.orderId}`);
+          console.log('PaymentVerifyPage: navigating to success', resolvedOrderId);
+          navigate(`/payment/success?orderId=${resolvedOrderId}`);
         }, 500);
         return () => clearTimeout(timer);
       } else {

@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { format } from "date-fns";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { fetchSameOriginJson } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -210,6 +211,14 @@ const formatDateTime = (value?: string | null) => {
 
 const moneyValue = (value: unknown) => Number.parseFloat(String(value ?? "0")) || 0;
 
+const SELLER_LOADING_MESSAGES = [
+  "Loading seller overview and approval status.",
+  "Checking product catalog, stock levels, and active listings.",
+  "Reviewing paid orders, payouts, and finance performance.",
+  "Preparing revenue, commission, and seller balance insights.",
+  "Syncing recent seller activity so the page opens with fresh data.",
+];
+
 const statusTone = (status?: string | null) => {
   const normalized = String(status || "").toLowerCase();
   if (["completed", "approved", "active", "paid", "success"].includes(normalized)) return "default";
@@ -222,6 +231,8 @@ export default function SellerDetailsPage() {
   const [, navigate] = useLocation();
   const params = useParams<{ id: string }>();
   const sellerId = params.id;
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+  const [displayedLoadingMessage, setDisplayedLoadingMessage] = useState("");
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
@@ -233,10 +244,71 @@ export default function SellerDetailsPage() {
     }
   }, [authLoading, isAuthenticated, navigate, user]);
 
-  const { data, isLoading } = useQuery<SellerDashboardData>({
-    queryKey: [`/api/admin/sellers/${sellerId}/dashboard`],
-    enabled: !!sellerId && isAuthenticated,
+  const {
+    data,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<SellerDashboardData>({
+    queryKey: [`/api/admin/sellers/${sellerId}/dashboard`, "lite"],
+    queryFn: async () => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 25_000);
+
+      try {
+        return await fetchSameOriginJson<SellerDashboardData>(
+          `/api/admin/sellers/${sellerId}/dashboard?lite=1`,
+          { signal: controller.signal },
+        );
+      } catch (queryError) {
+        if (queryError instanceof Error && queryError.message.includes("timed out")) {
+          throw new Error("This seller page is taking longer than expected. Please try again in a moment.");
+        }
+        throw queryError;
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    },
+    enabled:
+      !!sellerId &&
+      !authLoading &&
+      isAuthenticated &&
+      (user?.role === "admin" || user?.role === "super_admin"),
+    retry: 1,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    if (!sellerId || !isLoading) return;
+    setLoadingMessageIndex(0);
+    const intervalId = window.setInterval(() => {
+      setLoadingMessageIndex((current) => (current + 1) % SELLER_LOADING_MESSAGES.length);
+    }, 2200);
+
+    return () => window.clearInterval(intervalId);
+  }, [isLoading, sellerId]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setDisplayedLoadingMessage("");
+      return;
+    }
+
+    const currentMessage = SELLER_LOADING_MESSAGES[loadingMessageIndex];
+    setDisplayedLoadingMessage("");
+
+    let characterIndex = 0;
+    const intervalId = window.setInterval(() => {
+      characterIndex += 1;
+      setDisplayedLoadingMessage(currentMessage.slice(0, characterIndex));
+      if (characterIndex >= currentMessage.length) {
+        window.clearInterval(intervalId);
+      }
+    }, 28);
+
+    return () => window.clearInterval(intervalId);
+  }, [isLoading, loadingMessageIndex]);
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
@@ -246,11 +318,94 @@ export default function SellerDetailsPage() {
     );
   }
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
+      <DashboardLayout role={user?.role as any}>
+        <div className="flex min-h-[70vh] items-center justify-center p-6 md:p-10">
+          <Card className="w-full max-w-3xl overflow-hidden border-border/70 shadow-sm">
+            <CardContent className="p-0">
+              <div className="border-b border-border/70 bg-gradient-to-r from-primary/12 via-background to-primary/5 px-6 py-6 text-center">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+                  <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                </div>
+                <h2 className="text-2xl font-semibold">Opening seller command view</h2>
+                <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">
+                  We are pulling seller profile, finance, catalog, and order intelligence into one place.
+                </p>
+              </div>
+
+              <div className="space-y-6 px-6 py-6">
+                <div className="rounded-2xl border border-primary/15 bg-primary/5 px-5 py-4 text-center">
+                  <p className="text-xs font-semibold uppercase tracking-[0.26em] text-primary/80">
+                    Live Load Status
+                  </p>
+                  <p
+                    key={loadingMessageIndex}
+                    className="mt-3 animate-in fade-in-0 slide-in-from-bottom-1 text-base font-medium text-foreground duration-500"
+                  >
+                    {displayedLoadingMessage}
+                    <span className="ml-0.5 inline-block h-5 w-[1px] animate-pulse bg-primary align-[-2px]" />
+                  </p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Seller Page</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Profile, store status, approval, and compliance records are being prepared.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Finance</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Revenue, paid volume, payouts, and commission values are being reconciled.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Operations</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Product counts, stock movement, and recent commercial activity are being loaded.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!sellerId || error || !data) {
+    return (
+      <DashboardLayout role={user?.role as any}>
+        <div className="flex min-h-[60vh] items-center justify-center p-6">
+          <Card className="w-full max-w-xl">
+            <CardContent className="space-y-4 p-6 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <Store className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold">Seller page could not be loaded</h2>
+                <p className="text-sm text-muted-foreground">
+                  {error instanceof Error && !/api\/admin\/sellers\//i.test(error.message)
+                    ? error.message
+                    : "We could not load this seller profile right now. Please retry shortly."}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Button variant="outline" onClick={() => navigate("/admin/sellers")}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back to Sellers
+                </Button>
+                <Button onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
     );
   }
 

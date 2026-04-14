@@ -10,10 +10,8 @@ if /i "%BACKEND_ALREADY_RUNNING%"=="RUNNING" (
   exit /b 0
 )
 
-echo [SAFE-RUN] Building frontend for stable port-5000 serving...
-call "%~dp0build-frontend-safe.cmd" || exit /b 1
-
 set "NODE_ENV=development"
-set "KIYUMART_USE_EMBEDDED_VITE=false"
+set "KIYUMART_USE_EMBEDDED_VITE=true"
+echo [SAFE-RUN] Starting live dev server on port 5000 with embedded Vite...
 node --preserve-symlinks --preserve-symlinks-main "%KIYUMART_SAFE_ROOT%\node_modules\tsx\dist\cli.mjs" "%KIYUMART_SAFE_ROOT%\server\index.ts"
 exit /b %ERRORLEVEL%

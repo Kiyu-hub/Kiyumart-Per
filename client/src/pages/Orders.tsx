@@ -30,6 +30,8 @@ interface Order {
     productName: string;
     quantity: number;
     price: string;
+    selectedColor?: string | null;
+    selectedSize?: string | null;
   }>;
   verificationSummary?: {
     sellerToRider?: string | null;
@@ -113,8 +115,24 @@ export default function Orders() {
 
   // Always fetch orders where the user is the buyer (their purchases)
   const { data: orders = [], isLoading } = useQuery<Order[]>({
-    queryKey: ["/api/orders?context=buyer"],
+    queryKey: ["/api/orders", "buyer-orders"],
+    queryFn: async () => {
+      const response = await fetch("/api/orders?context=buyer", { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to load orders");
+      return response.json();
+    },
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
+
+  const formatItemSelection = (item?: { selectedColor?: string | null; selectedSize?: string | null }) => {
+    const parts = [
+      item?.selectedColor ? `Color: ${item.selectedColor}` : null,
+      item?.selectedSize ? `Size: ${item.selectedSize}` : null,
+    ].filter(Boolean);
+    return parts.join(" • ");
+  };
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -200,6 +218,25 @@ export default function Orders() {
     return orders.filter((order) => getEffectiveOrderStatus(order) === status.toLowerCase());
   };
 
+  const getOrderFlowLabel = (status: string) => {
+    switch (status) {
+      case "all":
+        return "All";
+      case "pending":
+        return "Pending";
+      case "processing":
+        return "Preparing";
+      case "en_route":
+        return isExternalRiderSystemEnabled ? "Delivery In Progress" : "In Progress";
+      case "delivered":
+        return "Completed";
+      case "cancelled":
+        return "Cancelled";
+      default:
+        return status;
+    }
+  };
+
   const getPaymentButtonConfig = (order: Order) => {
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const orderStatus = getEffectiveOrderStatus(order);
@@ -217,7 +254,7 @@ export default function Orders() {
         label: isPickup ? "View Order" : "Track Order",
         variant: "outline" as const,
         disabled: false,
-        onClick: () => navigate(`/track?orderId=${order.id}`),
+        onClick: () => navigate(`/track/${encodeURIComponent(order.id)}`),
         title: isPickup ? "View order updates" : "View order status and tracking information",
       };
     }
@@ -236,7 +273,7 @@ export default function Orders() {
       label: isPickup ? "View Order" : "Track Order",
       variant: "outline" as const,
       disabled: false,
-      onClick: () => navigate(`/track?orderId=${order.id}`),
+      onClick: () => navigate(`/track/${encodeURIComponent(order.id)}`),
       title: isPickup ? "View order updates" : "View order status and tracking information",
     };
   };
@@ -320,6 +357,35 @@ export default function Orders() {
               <span className="text-muted-foreground">Items:</span>
               <span className="font-medium">{order.items?.length || 0} items</span>
             </div>
+            {(order.items?.length || 0) > 0 && (
+              <div className="rounded-md border border-border/60 bg-muted/20 p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Ordered Items
+                </p>
+                <div className="space-y-1.5">
+                  {order.items.map((item, index) => (
+                    <div
+                      key={`${order.id}-${item.productId}-${index}`}
+                      className="flex items-start justify-between gap-3 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate" title={item.productName}>
+                          {item.productName}
+                        </span>
+                        {!!formatItemSelection(item) && (
+                          <span className="block truncate text-xs text-muted-foreground" title={formatItemSelection(item)}>
+                            {formatItemSelection(item)}
+                          </span>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-muted-foreground">
+                        Qty: {item.quantity}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Total:</span>
               <span className="font-bold text-primary">
@@ -479,22 +545,22 @@ export default function Orders() {
           <Tabs defaultValue="all" className="w-full">
             <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger value="all" data-testid="tab-all">
-                All ({orders.length})
+                {getOrderFlowLabel("all")} ({orders.length})
               </TabsTrigger>
               <TabsTrigger value="pending" data-testid="tab-pending">
-                Pending ({filterOrdersByStatus("pending").length})
+                {getOrderFlowLabel("pending")} ({filterOrdersByStatus("pending").length})
               </TabsTrigger>
               <TabsTrigger value="processing" data-testid="tab-processing">
-                Processing ({filterOrdersByStatus("processing").length})
+                {getOrderFlowLabel("processing")} ({filterOrdersByStatus("processing").length})
               </TabsTrigger>
               <TabsTrigger value="en_route" data-testid="tab-delivering">
-                Out for Delivery ({filterOrdersByStatus("en_route").length})
+                {getOrderFlowLabel("en_route")} ({filterOrdersByStatus("en_route").length})
               </TabsTrigger>
               <TabsTrigger value="delivered" data-testid="tab-delivered">
-                Delivered ({filterOrdersByStatus("delivered").length})
+                {getOrderFlowLabel("delivered")} ({filterOrdersByStatus("delivered").length})
               </TabsTrigger>
               <TabsTrigger value="cancelled" data-testid="tab-cancelled">
-                Cancelled ({filterOrdersByStatus("cancelled").length})
+                {getOrderFlowLabel("cancelled")} ({filterOrdersByStatus("cancelled").length})
               </TabsTrigger>
             </TabsList>
 
@@ -504,12 +570,12 @@ export default function Orders() {
                   <div className="text-center py-12">
                     <Package className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
                     <h3 className="text-lg font-semibold mb-2">
-                      No {status === "all" ? "" : status} orders
+                      No {status === "all" ? "" : getOrderFlowLabel(status).toLowerCase()} orders
                     </h3>
                     <p className="text-muted-foreground mb-6">
                       {status === "all"
                         ? "You haven't placed any orders yet"
-                        : `You don't have any ${status} orders`}
+                        : `You don't have any ${getOrderFlowLabel(status).toLowerCase()} orders`}
                     </p>
                     <Button onClick={() => navigate("/")} data-testid="button-shop-now">
                       Start Shopping

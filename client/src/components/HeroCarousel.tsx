@@ -26,6 +26,10 @@ interface HeroBanner {
 
 interface PlatformSettings {
   isMultiVendor: boolean;
+  adsEnabled?: boolean;
+  heroBannerEnabled?: boolean;
+  heroBannerAdImage?: string | null;
+  heroBannerAdUrl?: string | null;
 }
 
 export default function HeroCarousel() {
@@ -34,7 +38,7 @@ export default function HeroCarousel() {
 
   // Fetch platform settings to determine store mode
   const { data: platformSettings } = useQuery<PlatformSettings>({
-    queryKey: ["/api/settings"],
+    queryKey: ["/api/platform-settings"],
     refetchOnMount: "always",
     staleTime: 0,
   });
@@ -57,7 +61,32 @@ export default function HeroCarousel() {
   });
   const banners = Array.isArray(bannerResponse) ? bannerResponse : [];
 
-  if (isLoading || !platformSettings || banners.length === 0) {
+  const heroAdFallback =
+    platformSettings?.adsEnabled !== false &&
+    platformSettings?.heroBannerEnabled === true &&
+    String(platformSettings?.heroBannerAdImage || "").trim()
+      ? {
+          id: "platform-settings-hero-ad",
+          title: "",
+          subtitle: null,
+          image: String(platformSettings.heroBannerAdImage || "").trim(),
+          ctaText: null,
+          ctaLink: String(platformSettings.heroBannerAdUrl || "").trim() || null,
+          storeMode: "both" as const,
+          isActive: true,
+          displayOrder: 0,
+        }
+      : null;
+
+  const effectiveBanners = banners.length > 0 ? banners : heroAdFallback ? [heroAdFallback] : [];
+
+  if (!platformSettings) {
+    return (
+      <div className="relative h-[400px] md:h-[500px] w-full bg-gradient-to-r from-primary/20 to-primary/10 rounded-lg" />
+    );
+  }
+
+  if (isLoading || effectiveBanners.length === 0) {
     return (
       <div className="relative h-[400px] md:h-[500px] w-full bg-gradient-to-r from-primary/20 to-primary/10 rounded-lg" />
     );
@@ -78,7 +107,7 @@ export default function HeroCarousel() {
       className="w-full"
     >
       <CarouselContent>
-        {banners.map((banner) => (
+        {effectiveBanners.map((banner) => (
           <CarouselItem key={banner.id}>
             <Card className="overflow-hidden border-0">
               <div className="relative h-[400px] md:h-[500px] w-full">
@@ -100,13 +129,13 @@ export default function HeroCarousel() {
                           {banner.subtitle}
                         </p>
                       )}
-                      {banner.ctaText && banner.ctaLink && (
+                      {banner.ctaLink && (
                         <Button
                           size="lg"
                           onClick={() => navigate(banner.ctaLink || "/")}
                           data-testid={`button-hero-cta-${banner.id}`}
                         >
-                          {banner.ctaText}
+                          {banner.ctaText || t("shopNow")}
                         </Button>
                       )}
                     </div>

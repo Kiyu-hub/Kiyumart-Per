@@ -55,11 +55,12 @@ export default function Notifications() {
         if (metadata.productId) return `/product/${metadata.productId}`;
         return isBuyer ? "/products" : `${rolePrefix}/products`;
       case "order":
-        if (metadata.orderId && isBuyer) return `/track?orderId=${encodeURIComponent(String(metadata.orderId))}`;
+        if (metadata.orderId && isBuyer) return `/track/${encodeURIComponent(String(metadata.orderId))}`;
         if (metadata.orderId && isAdmin) return `/admin/orders/${metadata.orderId}/action`;
-        if (metadata.orderId && isSeller) return `/seller/orders?orderId=${encodeURIComponent(String(metadata.orderId))}`;
+        if (metadata.orderId && isSeller) return `/seller/orders/${encodeURIComponent(String(metadata.orderId))}?context=seller`;
         if (metadata.orderId && isRider) return `/rider/deliveries?orderId=${encodeURIComponent(String(metadata.orderId))}`;
         if (metadata.orderId && isPickupAgent) return `/pickup-agent?orderId=${encodeURIComponent(String(metadata.orderId))}`;
+        if (metadata.orderId && isAgent) return `/agent/tickets?orderId=${encodeURIComponent(String(metadata.orderId))}`;
         return isBuyer ? "/orders" : `${rolePrefix}/orders`;
       case "user":
         if (metadata.userId && isAdmin) {
@@ -138,6 +139,12 @@ export default function Notifications() {
       markAsReadMutation.mutate(notification.id);
     }
 
+    const target = resolveNotificationTarget(notification);
+    if (target) {
+      navigate(target);
+      return;
+    }
+
     // Redirect based on notification type and metadata
     const { metadata } = notification;
     // super_admin uses the same /admin routes
@@ -167,7 +174,7 @@ export default function Notifications() {
           if (isBuyer) {
             // Buyers track specific orders through the public tracking route
             if (metadata.orderId) {
-              navigate(`/track?orderId=${metadata.orderId}`);
+              navigate(`/track/${encodeURIComponent(String(metadata.orderId))}`);
             } else {
               navigate("/orders");
             }

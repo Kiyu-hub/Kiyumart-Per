@@ -119,7 +119,7 @@ export default function SellerNotifications() {
     switch (type) {
       case "order":
         if (metadata?.orderId) {
-          navigate(`/seller/orders?orderId=${encodeURIComponent(String(metadata.orderId))}`);
+          navigate(`/seller/orders/${encodeURIComponent(String(metadata.orderId))}?context=seller`);
         } else if (metadata?.link) {
           navigate(metadata.link);
         } else {
@@ -154,7 +154,7 @@ export default function SellerNotifications() {
         } else if (metadata?.productId) {
           navigate(`/seller/products?productId=${encodeURIComponent(String(metadata.productId))}`);
         } else if (metadata?.orderId) {
-          navigate(`/seller/orders?orderId=${encodeURIComponent(String(metadata.orderId))}`);
+          navigate(`/seller/orders/${encodeURIComponent(String(metadata.orderId))}?context=seller`);
         } else if (metadata?.link) {
           navigate(metadata.link);
         }
@@ -166,7 +166,7 @@ export default function SellerNotifications() {
         if (metadata?.productId) {
           navigate(`/seller/products?productId=${encodeURIComponent(String(metadata.productId))}`);
         } else if (metadata?.orderId) {
-          navigate(`/seller/orders?orderId=${encodeURIComponent(String(metadata.orderId))}`);
+          navigate(`/seller/orders/${encodeURIComponent(String(metadata.orderId))}?context=seller`);
         } else if (metadata?.promotionApplicationId) {
           navigate(`/seller/promotions?applicationId=${encodeURIComponent(String(metadata.promotionApplicationId))}`);
         } else if (metadata?.link) {

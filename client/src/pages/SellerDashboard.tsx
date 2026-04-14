@@ -106,8 +106,16 @@ export default function SellerDashboard() {
 
   // Fetch real orders to count pending orders
   const { data: orders = [] } = useQuery<Order[]>({
-    queryKey: ["/api/orders"],
+    queryKey: ["/api/orders", "seller-dashboard", user?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/orders?context=seller&includeItems=false");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
     enabled: !!user?.id && user?.role === "seller" && user?.isApproved === true,
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   // Show pending approval message if seller is not approved
@@ -246,6 +254,8 @@ export default function SellerDashboard() {
                   <ProductCard
                     key={product.id}
                     {...product}
+                    image={product.images?.[0] || ""}
+                    discount={product.discount ?? undefined}
                     onToggleWishlist={(id) => navigate(`/seller/products`)}
                   />
                 ))}

@@ -199,7 +199,7 @@ export default function LiveTracking() {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-background p-6">
         <p className="text-lg text-muted-foreground mb-2">Live map is available for rider delivery orders only</p>
-        <Button onClick={() => navigate(`/track?orderId=${order.id}`)} data-testid="button-back-track-order-non-rider">
+        <Button onClick={() => navigate(`/track/${encodeURIComponent(order.id)}`)} data-testid="button-back-track-order-non-rider">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Order Tracking
         </Button>
@@ -211,7 +211,7 @@ export default function LiveTracking() {
       <div className="h-screen flex flex-col items-center justify-center bg-background p-6">
         <p className="text-lg text-muted-foreground mb-2">Live tracking starts when your rider is on the way</p>
         <p className="text-sm text-muted-foreground mb-4">Current status: {order.status}</p>
-        <Button onClick={() => navigate(`/track?orderId=${order.id}`)} data-testid="button-back-track-order">
+        <Button onClick={() => navigate(`/track/${encodeURIComponent(order.id)}`)} data-testid="button-back-track-order">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Order Tracking
         </Button>

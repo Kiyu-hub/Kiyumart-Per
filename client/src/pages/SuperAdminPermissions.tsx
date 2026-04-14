@@ -124,7 +124,6 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "messages.view": true,
     "messages.send": true,
     "support.view": true,
-    "support.manage": true,
     "store.manage": true,
     "payouts.request": true,
     "promotions.manage": true,
@@ -140,7 +139,6 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "messages.view": true,
     "messages.send": true,
     "support.view": true,
-    "support.manage": true,
     "earnings.view": true,
     "profile.manage": true,
     "maps.view": true,
@@ -158,7 +156,6 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
   pickup_agent: {
     "orders.view": true,
     "support.view": true,
-    "support.manage": true,
     "profile.manage": true,
   },
   buyer: {
@@ -167,7 +164,6 @@ const DEFAULT_FEATURES: Record<string, Record<string, boolean>> = {
     "messages.view": true,
     "messages.send": true,
     "support.view": true,
-    "support.manage": true,
     "wishlist.manage": true,
     "profile.manage": true,
     "maps.view": true,
@@ -180,6 +176,12 @@ const INTERNAL_RIDER_ONLY_FEATURE_KEYS = new Set([
   "deliveries.manage",
   "tracking.update",
 ]);
+const ROLE_DISALLOWED_FEATURES: Record<string, string[]> = {
+  seller: ["support.manage"],
+  buyer: ["support.manage"],
+  rider: ["support.manage"],
+  pickup_agent: ["support.manage"],
+};
 
 const ABSOLUTE_SUPER_ADMIN_KEYS = Array.from(
   new Set([
@@ -201,6 +203,14 @@ const ABSOLUTE_SUPER_ADMIN_KEYS = Array.from(
 );
 
 const roleLabel = (role: string) => getRoleDisplayName(role);
+
+const sanitizeFeaturesForRole = (role: string, features: Record<string, boolean>) => {
+  const sanitized = { ...features };
+  for (const key of ROLE_DISALLOWED_FEATURES[role] || []) {
+    delete sanitized[key];
+  }
+  return sanitized;
+};
 
 export default function SuperAdminPermissions() {
   const [, navigate] = useLocation();
@@ -265,7 +275,10 @@ export default function SuperAdminPermissions() {
 
   useEffect(() => {
     const currentRole = roleFeatures.find((rf) => rf.role === selectedRole);
-    const base = { ...(DEFAULT_FEATURES[selectedRole] || {}), ...(currentRole?.features || {}) };
+    const base = sanitizeFeaturesForRole(selectedRole, {
+      ...(DEFAULT_FEATURES[selectedRole] || {}),
+      ...(currentRole?.features || {}),
+    });
     if (selectedRole === "super_admin") {
       const locked = { ...base };
       Array.from(new Set([...ABSOLUTE_SUPER_ADMIN_KEYS, ...Object.keys(base)])).forEach((key) => {
@@ -324,6 +337,7 @@ export default function SuperAdminPermissions() {
     );
 
     for (const key of allKeys) {
+      if ((ROLE_DISALLOWED_FEATURES[selectedRole] || []).includes(key)) continue;
       const feature = mergedFeatureManifest[key];
       const haystack = `${key} ${feature.label} ${feature.description}`.toLowerCase();
       if (query && !haystack.includes(query)) continue;
@@ -367,7 +381,7 @@ export default function SuperAdminPermissions() {
         ? Object.fromEntries(
             Array.from(new Set([...ABSOLUTE_SUPER_ADMIN_KEYS, ...Object.keys(localFeatures)])).map((key) => [key, true]),
           )
-        : localFeatures;
+        : sanitizeFeaturesForRole(selectedRole, localFeatures);
 
     updateFeaturesMutation.mutate({
       role: selectedRole,
@@ -377,7 +391,10 @@ export default function SuperAdminPermissions() {
 
   const handleReset = () => {
     const currentRole = roleFeatures.find((rf) => rf.role === selectedRole);
-    const base = { ...(DEFAULT_FEATURES[selectedRole] || {}), ...(currentRole?.features || {}) };
+    const base = sanitizeFeaturesForRole(selectedRole, {
+      ...(DEFAULT_FEATURES[selectedRole] || {}),
+      ...(currentRole?.features || {}),
+    });
     if (selectedRole === "super_admin") {
       const locked = { ...base };
       Array.from(new Set([...ABSOLUTE_SUPER_ADMIN_KEYS, ...Object.keys(base)])).forEach((key) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageLoadingState } from "@/components/ui/loading-state";
-import { Loader2, DollarSign, CheckCircle2, ArrowLeft, Smartphone, Building2 } from "lucide-react";
+import { Loader2, DollarSign, CheckCircle2, ArrowLeft, Smartphone, Building2, Wallet, ShieldCheck } from "lucide-react";
 
 const paymentSetupSchema = z.object({
   payoutType: z.enum(["bank_account", "mobile_money"]),
@@ -52,6 +52,65 @@ interface Store {
   name: string;
   primarySellerId: string;
   paystackSubaccountId?: string;
+  payoutType?: "bank_account" | "mobile_money";
+  payoutDetails?: {
+    accountName?: string;
+    accountNumber?: string;
+    bankCode?: string;
+    bankName?: string;
+    mobileNumber?: string;
+    provider?: string;
+  };
+  isPayoutVerified?: boolean;
+}
+
+interface PublicPlatformSettings {
+  allowSellerBankPayouts?: boolean;
+}
+
+function CollapsibleDashboardSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Card className="border-border/70 bg-card shadow-sm">
+      <details open={defaultOpen}>
+        <summary className="cursor-pointer list-none px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-base font-semibold">{title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
+            </div>
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+          </div>
+        </summary>
+        <CardContent className="pt-0">{children}</CardContent>
+      </details>
+    </Card>
+  );
+}
+
+function hasCompletePayoutSetup(store?: Store | null) {
+  if (!store?.paystackSubaccountId || !store?.isPayoutVerified) return false;
+  if (store.payoutType === "bank_account") {
+    return Boolean(
+      store.payoutDetails?.bankCode &&
+      store.payoutDetails?.bankName &&
+      store.payoutDetails?.accountNumber &&
+      store.payoutDetails?.accountName,
+    );
+  }
+  if (store.payoutType === "mobile_money") {
+    return Boolean(store.payoutDetails?.provider && store.payoutDetails?.mobileNumber);
+  }
+  return false;
 }
 
 export default function SellerPaymentSetup() {
@@ -59,7 +118,6 @@ export default function SellerPaymentSetup() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [payoutType, setPayoutType] = useState<"bank_account" | "mobile_money">("bank_account");
-  const [verifying, setVerifying] = useState(false);
   const [verified, setVerified] = useState(false);
 
   useEffect(() => {
@@ -72,6 +130,19 @@ export default function SellerPaymentSetup() {
     queryKey: ["/api/stores/my-store"],
     enabled: isAuthenticated && user?.role === "seller",
   });
+
+  const { data: publicSettings } = useQuery<PublicPlatformSettings>({
+    queryKey: ["/api/public/platform-settings", "seller-payout-options"],
+    queryFn: async () => {
+      const res = await fetch("/api/public/platform-settings", { credentials: "include" });
+      if (!res.ok) {
+        return {};
+      }
+      return res.json();
+    },
+  });
+
+  const bankPayoutsAllowed = publicSettings?.allowSellerBankPayouts !== false;
 
   const { data: banks = [] } = useQuery<Bank[]>({
     queryKey: ["/api/paystack/banks"],
@@ -89,6 +160,38 @@ export default function SellerPaymentSetup() {
       mobileNumber: "",
     },
   });
+
+  useEffect(() => {
+    if (!store) return;
+
+    const nextPayoutType =
+      store.payoutType === "mobile_money"
+        ? "mobile_money"
+        : store.payoutType === "bank_account"
+          ? "bank_account"
+          : bankPayoutsAllowed
+            ? "bank_account"
+            : "mobile_money";
+
+    setPayoutType(nextPayoutType);
+    setVerified(Boolean(store.isPayoutVerified));
+    form.reset({
+      payoutType: nextPayoutType,
+      bankCode: store.payoutDetails?.bankCode || "",
+      accountNumber: store.payoutDetails?.accountNumber || "",
+      accountName: store.payoutDetails?.accountName || "",
+      mobileProvider: store.payoutDetails?.provider || "",
+      mobileNumber: store.payoutDetails?.mobileNumber || "",
+    });
+  }, [store, bankPayoutsAllowed, form]);
+
+  useEffect(() => {
+    if (!bankPayoutsAllowed && payoutType === "bank_account") {
+      setPayoutType("mobile_money");
+      form.setValue("payoutType", "mobile_money");
+      setVerified(false);
+    }
+  }, [bankPayoutsAllowed, payoutType, form]);
 
   const verifyAccountMutation = useMutation({
     mutationFn: async (data: { accountNumber: string; bankCode: string }) => {
@@ -183,6 +286,9 @@ export default function SellerPaymentSetup() {
       } else if (errorMsg.includes('authentication failed') || errorMsg.includes('contact support')) {
         title = "System Error";
         description = `${errorMsg} Our team has been notified and will resolve this soon.`;
+      } else if (errorMsg.includes("malformed array literal")) {
+        title = "Setup Saved Partially";
+        description = "Your payout details were received, but the payout release step could not complete automatically. Please try again shortly.";
       }
       
       toast({
@@ -206,9 +312,7 @@ export default function SellerPaymentSetup() {
       return;
     }
 
-    setVerifying(true);
     verifyAccountMutation.mutate({ accountNumber, bankCode });
-    setVerifying(false);
   };
 
   const onSubmit = (data: PaymentSetupFormData) => {
@@ -225,6 +329,15 @@ export default function SellerPaymentSetup() {
       toast({
         title: "Store Not Found",
         description: "Unable to find your store. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (data.payoutType === "bank_account" && !bankPayoutsAllowed) {
+      toast({
+        title: "Bank Payouts Disabled",
+        description: "Super admin has disabled bank account payouts. Please use mobile money.",
         variant: "destructive",
       });
       return;
@@ -260,59 +373,107 @@ export default function SellerPaymentSetup() {
     );
   }
 
-  if (store.paystackSubaccountId) {
-    return (
+  return (
       <DashboardLayout role="seller">
-        <div className="p-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Payment Setup Complete</CardTitle>
+      <div className="p-6 md:p-8" data-testid="page-seller-payment-setup">
+        <div className="mx-auto max-w-4xl space-y-6">
+          <div className="rounded-3xl border border-border/70 bg-card px-6 py-7 shadow-sm">
+            <div className="flex items-start gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Wallet className="h-7 w-7" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-3xl font-bold flex items-center gap-2" data-testid="heading-payment-setup">
+                  <DollarSign className="h-8 w-8" />
+                  Payment Setup
+                </h1>
+                <p className="mt-1 text-muted-foreground">
+                  Choose how you want to receive your money.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {hasCompletePayoutSetup(store) && (
+            <Card className="border-border/70 bg-card shadow-sm">
+              <CardHeader className="pb-4">
+                <CardTitle>Current Payout Setup</CardTitle>
+                <CardDescription>
+                  Your saved payout method is active and ready for settlement.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Method</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">
+                    {store.payoutType === "mobile_money" ? "Mobile Money" : "Bank Account"}
+                  </p>
+                </div>
+                {store.payoutType === "mobile_money" ? (
+                  <>
+                    <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Provider</p>
+                      <p className="mt-2 text-lg font-semibold text-foreground">{store.payoutDetails?.provider || "Not set"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/50 p-4 sm:col-span-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Number</p>
+                      <p className="mt-2 text-lg font-semibold text-foreground">{store.payoutDetails?.mobileNumber || "Not set"}</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Bank</p>
+                      <p className="mt-2 text-lg font-semibold text-foreground">{store.payoutDetails?.bankName || "Not set"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Account</p>
+                      <p className="mt-2 text-lg font-semibold text-foreground">{store.payoutDetails?.accountNumber || "Not set"}</p>
+                    </div>
+                  </>
+                )}
+                {!bankPayoutsAllowed && (
+                  <div className="sm:col-span-2 rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                    Bank payouts are currently unavailable for new updates. Mobile money is active on this platform right now.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <Card className="border-border/70 bg-card shadow-sm">
+            <CardHeader className="pb-4">
+              <CardTitle>Choose Payment Method</CardTitle>
               <CardDescription>
-                Your payment details are already configured
+                Pick the payout option you want to use.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button onClick={() => navigate("/seller")} data-testid="button-back-dashboard">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Dashboard
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  return (
-    <DashboardLayout role="seller">
-      <div className="p-8" data-testid="page-seller-payment-setup">
-        <div className="max-w-2xl mx-auto">
-          <div className="mb-6">
-            <h1 className="text-3xl font-bold flex items-center gap-2" data-testid="heading-payment-setup">
-              <DollarSign className="h-8 w-8" />
-              Payment Setup
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Configure your payment details to receive earnings from sales
-            </p>
-          </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Choose Payment Method</CardTitle>
-                <CardDescription>
-                  Select how you want to receive payments for your sales
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                  <div className="rounded-xl border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
-                    Checkout processing fees are charged separately to the customer as the Paystack payment fee. Seller settlement remains separate, and Paystack payout cost references are GHS 1 for mobile money and GHS 8 for bank transfers.
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <CollapsibleDashboardSection
+                  title="How Seller Payout Setup Works"
+                  summary="Expand to see the difference between checkout fees and your seller payout."
+                >
+                  <div className="flex items-start gap-3 rounded-2xl border border-border/70 bg-background/50 p-4 text-sm text-muted-foreground">
+                    <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                    <div>
+                      The Paystack checkout fee is charged during customer payment. Your seller payout is calculated separately from your order earnings.
+                      {bankPayoutsAllowed
+                        ? " Mobile money and bank payout options are both available when your details are valid."
+                        : " Only mobile money payouts are currently enabled on this platform."}
+                    </div>
                   </div>
+                </CollapsibleDashboardSection>
 
-                  <div className="space-y-3">
-                    <Label>Payment Method</Label>
-                    <RadioGroup
+                {!bankPayoutsAllowed && (
+                  <div className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                    Bank transfer is currently disabled. Please use mobile money for payout.
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <Label>Payment Method</Label>
+                  <RadioGroup
                     value={payoutType}
                     onValueChange={(value) => {
                       setPayoutType(value as "bank_account" | "mobile_money");
@@ -320,24 +481,37 @@ export default function SellerPaymentSetup() {
                       setVerified(false);
                     }}
                     data-testid="radio-payout-type"
+                    className="grid gap-3"
                   >
-                    <div className="flex items-center space-x-2 p-4 border rounded-lg cursor-pointer hover:bg-accent">
-                      <RadioGroupItem value="bank_account" id="bank" data-testid="radio-bank-account" />
-                      <Label htmlFor="bank" className="flex items-center gap-2 font-normal cursor-pointer flex-1">
-                        <Building2 className="h-5 w-5 text-muted-foreground" />
-                        <div>
-                          <div className="font-medium">Bank Account</div>
-                          <div className="text-sm text-muted-foreground">Receive payments to your bank account. Reference payout cost: GHS 8 when a bank transfer is used.</div>
-                        </div>
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2 p-4 border rounded-lg cursor-pointer hover:bg-accent">
+                    {bankPayoutsAllowed && (
+                      <div className={`flex items-center space-x-3 rounded-2xl border p-4 transition-colors ${
+                        payoutType === "bank_account"
+                          ? "border-primary/40 bg-primary/5 dark:bg-primary/10"
+                          : "border-border/70 bg-background/40 hover:border-primary/20 hover:bg-primary/5 dark:hover:bg-primary/10"
+                      }`}>
+                        <RadioGroupItem value="bank_account" id="bank" data-testid="radio-bank-account" />
+                        <Label htmlFor="bank" className="flex flex-1 items-center gap-3 font-normal cursor-pointer">
+                          <Building2 className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <div className="font-medium">Bank Account</div>
+                            <div className="text-sm text-muted-foreground">
+                              Receive your money in your bank account.
+                            </div>
+                          </div>
+                        </Label>
+                      </div>
+                    )}
+                    <div className={`flex items-center space-x-3 rounded-2xl border p-4 transition-colors ${
+                      payoutType === "mobile_money"
+                        ? "border-primary/40 bg-primary/5 dark:bg-primary/10"
+                        : "border-border/70 bg-background/40 hover:border-primary/20 hover:bg-primary/5 dark:hover:bg-primary/10"
+                    }`}>
                       <RadioGroupItem value="mobile_money" id="mobile" data-testid="radio-mobile-money" />
-                      <Label htmlFor="mobile" className="flex items-center gap-2 font-normal cursor-pointer flex-1">
+                      <Label htmlFor="mobile" className="flex items-center gap-3 font-normal cursor-pointer flex-1">
                         <Smartphone className="h-5 w-5 text-muted-foreground" />
                         <div>
                           <div className="font-medium">Mobile Money</div>
-                          <div className="text-sm text-muted-foreground">MTN, Vodafone/Telecel, AirtelTigo. Paystack transfer cost: GHS 1 per successful payout.</div>
+                          <div className="text-sm text-muted-foreground">Receive your money with MTN, Vodafone/Telecel, or AirtelTigo.</div>
                         </div>
                       </Label>
                     </div>
@@ -349,6 +523,7 @@ export default function SellerPaymentSetup() {
                     <div className="space-y-2">
                       <Label htmlFor="bankCode">Select Bank</Label>
                       <Select
+                        value={form.watch("bankCode") || undefined}
                         onValueChange={(value) => {
                           form.setValue("bankCode", value);
                           setVerified(false);
@@ -380,21 +555,21 @@ export default function SellerPaymentSetup() {
                         <Button
                           type="button"
                           onClick={handleVerify}
-                          disabled={verifying || !form.getValues("accountNumber") || !form.getValues("bankCode")}
+                          disabled={verifyAccountMutation.isPending || !form.getValues("accountNumber") || !form.getValues("bankCode")}
                           data-testid="button-verify-account"
                         >
-                          {verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                          {verifyAccountMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                         </Button>
                       </div>
                     </div>
 
                     {verified && form.getValues("accountName") && (
-                      <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+                      <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4">
                         <div className="flex items-center gap-2">
-                          <CheckCircle2 className="h-5 w-5 text-green-600" />
+                          <CheckCircle2 className="h-5 w-5 text-primary" />
                           <div>
-                            <p className="font-medium text-green-900 dark:text-green-100">Account Verified</p>
-                            <p className="text-sm text-green-700 dark:text-green-300" data-testid="text-account-name">
+                            <p className="font-medium text-foreground">Account Verified</p>
+                            <p className="text-sm text-muted-foreground" data-testid="text-account-name">
                               {form.getValues("accountName")}
                             </p>
                           </div>
@@ -406,7 +581,10 @@ export default function SellerPaymentSetup() {
                   <>
                     <div className="space-y-2">
                       <Label htmlFor="mobileProvider">Mobile Money Provider</Label>
-                      <Select onValueChange={(value) => form.setValue("mobileProvider", value)}>
+                      <Select
+                        value={form.watch("mobileProvider") || undefined}
+                        onValueChange={(value) => form.setValue("mobileProvider", value)}
+                      >
                         <SelectTrigger data-testid="select-provider">
                           <SelectValue placeholder="Choose provider" />
                         </SelectTrigger>
@@ -417,7 +595,7 @@ export default function SellerPaymentSetup() {
                           <SelectItem value="vod" data-testid="provider-vodafone">
                             Vodafone Cash / Telecel
                           </SelectItem>
-                          <SelectItem value="atm" data-testid="provider-airteltigo">
+                          <SelectItem value="atl" data-testid="provider-airteltigo">
                             AirtelTigo Money
                           </SelectItem>
                         </SelectContent>
@@ -433,13 +611,13 @@ export default function SellerPaymentSetup() {
                         data-testid="input-mobile-number"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Enter the mobile number registered for mobile money
+                        Enter the number linked to your mobile money account.
                       </p>
                     </div>
                   </>
                 )}
 
-                <div className="flex gap-3 pt-4">
+                <div className="flex flex-wrap gap-3 pt-4">
                   <Button
                     type="submit"
                     disabled={setupPaymentMutation.isPending || (payoutType === "bank_account" && !verified)}
@@ -449,12 +627,12 @@ export default function SellerPaymentSetup() {
                     {setupPaymentMutation.isPending ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Setting Up...
+                        Updating...
                       </>
                     ) : (
                       <>
                         <CheckCircle2 className="h-4 w-4" />
-                        Complete Setup
+                        {hasCompletePayoutSetup(store) ? "Update Payment Details" : "Complete Setup"}
                       </>
                     )}
                   </Button>

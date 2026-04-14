@@ -41,6 +41,10 @@ interface SellerData {
   nationalIdCard: string | null;
   businessAddress: string | null;
   createdAt: string | null;
+  storeId?: string | null;
+  storeLogo?: string | null;
+  productCount?: number;
+  orderCount?: number;
 }
 
 const createSellerSchema = z.object({
@@ -93,6 +97,10 @@ const normalizeSeller = (raw: any): SellerData => ({
   nationalIdCard: raw?.nationalIdCard || null,
   businessAddress: raw?.businessAddress || null,
   createdAt: raw?.createdAt || null,
+  storeId: raw?.storeId || null,
+  storeLogo: raw?.storeLogo || null,
+  productCount: Number(raw?.productCount || 0),
+  orderCount: Number(raw?.orderCount || 0),
 });
 
 function CreateSellerDialog() {
@@ -124,6 +132,7 @@ function CreateSellerDialog() {
         description: "Seller created successfully",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/seller-stats"] });
       setOpen(false);
       form.reset();
     },
@@ -444,6 +453,7 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
         description: "Seller updated successfully",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/seller-stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stores/by-seller", sellerData.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/seller-profile", sellerData.id] });
@@ -1156,6 +1166,7 @@ function ApproveRejectDialog({ sellerData }: { sellerData: SellerData }) {
       });
       // Force immediate refetch of users data
       await queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/seller-stats"] });
       await queryClient.refetchQueries({ queryKey: ["/api/users"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/stores/my-store"] });
@@ -1183,6 +1194,7 @@ function ApproveRejectDialog({ sellerData }: { sellerData: SellerData }) {
       });
       // Force immediate refetch of users data
       await queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/seller-stats"] });
       await queryClient.refetchQueries({ queryKey: ["/api/users"] });
       setOpen(false);
       setAction(null);
@@ -1289,6 +1301,7 @@ function BanActivateDialog({ sellerData }: { sellerData: SellerData }) {
         description: `Seller ${sellerData.isActive ? 'deactivated' : 'activated'} successfully`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/seller-stats"] });
       setReason("");
       setOpen(false);
     },
@@ -1374,62 +1387,25 @@ export default function AdminSellers() {
     }
   }, [isAuthenticated, authLoading, user, navigate]);
 
+  const isAdminViewer =
+    isAuthenticated && (user?.role === "admin" || user?.role === "super_admin");
+
   const { data: users = [], isLoading } = useQuery<SellerData[]>({
-    queryKey: ["/api/users"],
+    queryKey: ["/api/admin/seller-stats"],
     queryFn: async () => {
-      const res = await fetch("/api/users", { credentials: "include" });
+      const res = await fetch("/api/admin/seller-stats", { credentials: "include" });
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(text || "Failed to load users");
+        throw new Error(text || "Failed to load sellers");
       }
       const payload = await res.json();
       if (!Array.isArray(payload)) return [];
       return payload.map(normalizeSeller);
     },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
-  });
-
-  const { data: stores = [] } = useQuery<Array<{ id: string; primarySellerId: string; name?: string; logo?: string | null; banner?: string | null }>>({
-    queryKey: ["/api/stores"],
-    queryFn: async () => {
-      const res = await fetch("/api/stores", { credentials: "include" });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to load stores");
-      }
-      const payload = await res.json();
-      if (!Array.isArray(payload)) return [];
-      return payload;
-    },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
-  });
-
-  const { data: sellerProducts = [] } = useQuery<Array<{ id: string; sellerId?: string | null }>>({
-    queryKey: ["/api/products", "admin-seller-stats"],
-    queryFn: async () => {
-      const res = await fetch("/api/products", { credentials: "include" });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to load products");
-      }
-      const payload = await res.json();
-      return Array.isArray(payload) ? payload : [];
-    },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
-  });
-
-  const { data: sellerOrders = [] } = useQuery<Array<{ id: string; sellerId?: string | null }>>({
-    queryKey: ["/api/orders", "admin-seller-stats"],
-    queryFn: async () => {
-      const res = await fetch("/api/orders", { credentials: "include" });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to load orders");
-      }
-      const payload = await res.json();
-      return Array.isArray(payload) ? payload : [];
-    },
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAdminViewer,
+    retry: 1,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
 
   // All sellers (exclude rejected application records from management lists)
@@ -1454,22 +1430,6 @@ export default function AdminSellers() {
     : activeTab === "approved" 
       ? approvedSellers 
       : allSellers;
-  
-  // Create quick-lookup maps by sellerId
-  const sellerToStoreMap = new Map(stores.map(store => [store.primarySellerId, store.id]));
-  const sellerStoreDetailsMap = new Map(stores.map((store) => [store.primarySellerId, store]));
-  const sellerProductCountMap = new Map<string, number>();
-  for (const product of sellerProducts) {
-    const sellerId = product?.sellerId;
-    if (!sellerId) continue;
-    sellerProductCountMap.set(sellerId, (sellerProductCountMap.get(sellerId) || 0) + 1);
-  }
-  const sellerOrderCountMap = new Map<string, number>();
-  for (const order of sellerOrders) {
-    const sellerId = order?.sellerId;
-    if (!sellerId) continue;
-    sellerOrderCountMap.set(sellerId, (sellerOrderCountMap.get(sellerId) || 0) + 1);
-  }
   
   const filteredSellers = sellers.filter(s => 
     (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
@@ -1537,15 +1497,10 @@ export default function AdminSellers() {
             ) : (
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 {filteredSellers.map((seller) => {
-                  const linkedStore = sellerStoreDetailsMap.get(seller.id);
-                  const linkedStoreLogo =
-                    linkedStore?.logo && linkedStore.logo !== linkedStore?.banner
-                      ? linkedStore.logo
-                      : null;
-                  const sellerImage = seller.profileImage || linkedStoreLogo || null;
-                  const sellerBanner = seller.storeBanner || linkedStore?.banner || null;
-                  const sellerProductCount = sellerProductCountMap.get(seller.id) || 0;
-                  const sellerOrderCount = sellerOrderCountMap.get(seller.id) || 0;
+                  const sellerImage = seller.profileImage || seller.storeLogo || null;
+                  const sellerBanner = seller.storeBanner || null;
+                  const sellerProductCount = seller.productCount || 0;
+                  const sellerOrderCount = seller.orderCount || 0;
 
                   return (
                 <Card
@@ -1628,7 +1583,7 @@ export default function AdminSellers() {
                           <ViewApplicationDialog sellerData={seller} />
                           <EditSellerDialog sellerData={seller} />
                           <BanActivateDialog sellerData={seller} />
-                          {seller.isApproved && sellerToStoreMap.has(seller.id) && (
+                          {seller.isApproved && seller.storeId && (
                             <Button 
                               variant="outline" 
                               size="sm"

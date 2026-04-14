@@ -47,6 +47,7 @@ import {
   securitySettings,
   mediaLibrary,
   reportActivityLogs,
+  systemActivityLogs,
   receipts,
 } from "@shared/schema";
 import { eq, or, isNotNull, isNull, and, desc, sql, inArray, asc, lte, gte } from "drizzle-orm";
@@ -65,11 +66,23 @@ import {
   resolveRoleFeatures,
   type AuthRequest 
 } from "./auth";
-import { uploadToCloudinary, uploadWithMetadata, uploadWith4KEnhancement } from "./cloudinary";
+import {
+  buildTrimmedCloudinaryVideoUrl,
+  resetCloudinaryConfigCache,
+  uploadToCloudinary,
+  uploadWithMetadata,
+  uploadWith4KEnhancement,
+} from "./cloudinary";
 import multer from "multer";
 import sharp from "sharp";
 import { insertUserSchema, insertProductSchema, insertDeliveryZoneSchema, insertOrderSchema, insertWishlistSchema, insertReviewSchema, insertRiderReviewSchema, insertBannerCollectionSchema, insertMarketplaceBannerSchema, insertFooterPageSchema, vehicleInfoSchema, type User } from "@shared/schema";
-import { getStoreTypeSchema, type StoreType, STORE_TYPES } from "@shared/storeTypes";
+import {
+  getStoreTypeSchema,
+  getStoreTypeProductSchema,
+  buildStoreTypeProductDefaults,
+  type StoreType,
+  STORE_TYPES,
+} from "@shared/storeTypes";
 import buildPaystackInitializePayload from './paystackUtils';
 import { getValidFrontendUrl, getFrontendUrlSync, clearFrontendUrlCache } from './frontendUrlResolver';
 import { runtimeConfig } from "./config/runtimeConfig";
@@ -81,6 +94,7 @@ import { jitsiMeetService } from "./services/jitsiMeetService";
 import { hasSupportFirstResponse, isSupportStaffRole, resolveSupportDisplayName, shouldMaskSupportIdentityForViewer } from "./services/supportMessagingService";
 import { canonicalizeOrderStatus } from "./services/orderStateMachine";
 import { getRiderRiskScore, listRiderRiskScores, recordRiderRiskSignal } from "./services/riderRiskEngine";
+import { logSystemActivity } from "./observability";
 
 const upload = multer({ storage: multer.memoryStorage() });
 const PROFILE_IMAGE_MAX_BYTES = runtimeConfig.upload.profileImageMaxBytes;
@@ -309,6 +323,13 @@ function buildRouteFallbackPlatformSettings() {
     mapboxPublicToken: null,
     mapboxStyleUrl: "mapbox://styles/mapbox/navigation-night-v1",
     mapboxGlVersion: "v3.4.0",
+    smtpHost: null,
+    smtpPort: null,
+    smtpUser: null,
+    smtpPass: null,
+    smtpSecure: false,
+    smtpFromEmail: null,
+    smtpFromName: null,
     paystackPublicKey: null,
     paystackSecretKey: null,
     processingFeePercent: "1.95",
@@ -368,6 +389,110 @@ function buildRouteFallbackPlatformSettings() {
     frontendUrl: null,
     updatedAt: new Date(),
   };
+}
+
+function isMaskedSecretValue(value?: string | null): boolean {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  return (
+    /^[\u2022\u25CF\u25E6\u2219\u00B7*\-_\sxX]{4,}$/.test(normalized) ||
+    normalized.includes("â€¢") ||
+    normalized.includes("Ã¢â‚¬Â¢")
+  );
+}
+
+function isValidPaystackSecretKey(value?: string | null): boolean {
+  const normalized = String(value || "").trim();
+  if (!normalized || isMaskedSecretValue(normalized)) return false;
+  return /^sk_(test|live)_/i.test(normalized);
+}
+
+function isValidPaystackPublicKey(value?: string | null): boolean {
+  const normalized = String(value || "").trim();
+  if (!normalized || isMaskedSecretValue(normalized)) return false;
+  return /^pk_(test|live)_/i.test(normalized);
+}
+
+function getPaystackKeyMode(value?: string | null): "test" | "live" | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (/^sk_test_|^pk_test_/.test(normalized)) return "test";
+  if (/^sk_live_|^pk_live_/.test(normalized)) return "live";
+  return null;
+}
+
+function resolvePaystackKeyPair(settings: { paystackSecretKey?: string | null; paystackPublicKey?: string | null } | null | undefined) {
+  const configuredSecret = String(settings?.paystackSecretKey || "").trim();
+  const configuredPublic = String(settings?.paystackPublicKey || "").trim();
+  const envSecret = String(process.env.PAYSTACK_SECRET_KEY || "").trim();
+  const envPublic = String(process.env.PAYSTACK_PUBLIC_KEY || "").trim();
+
+  const settingsPairValid =
+    isValidPaystackSecretKey(configuredSecret) &&
+    isValidPaystackPublicKey(configuredPublic) &&
+    getPaystackKeyMode(configuredSecret) === getPaystackKeyMode(configuredPublic);
+
+  if (settingsPairValid) {
+    return {
+      secretKey: configuredSecret,
+      publicKey: configuredPublic,
+      secretSource: "settings" as const,
+      publicSource: "settings" as const,
+    };
+  }
+
+  const envPairValid =
+    isValidPaystackSecretKey(envSecret) &&
+    isValidPaystackPublicKey(envPublic) &&
+    getPaystackKeyMode(envSecret) === getPaystackKeyMode(envPublic);
+
+  if (envPairValid) {
+    return {
+      secretKey: envSecret,
+      publicKey: envPublic,
+      secretSource: "env" as const,
+      publicSource: "env" as const,
+    };
+  }
+
+  const candidatePairs = [
+    {
+      secretKey: configuredSecret,
+      publicKey: envPublic,
+      secretSource: "settings" as const,
+      publicSource: "env" as const,
+    },
+    {
+      secretKey: envSecret,
+      publicKey: configuredPublic,
+      secretSource: "env" as const,
+      publicSource: "settings" as const,
+    },
+  ];
+
+  for (const candidate of candidatePairs) {
+    if (
+      isValidPaystackSecretKey(candidate.secretKey) &&
+      isValidPaystackPublicKey(candidate.publicKey) &&
+      getPaystackKeyMode(candidate.secretKey) === getPaystackKeyMode(candidate.publicKey)
+    ) {
+      return candidate;
+    }
+  }
+
+  return {
+    secretKey: "",
+    publicKey: "",
+    secretSource: "missing" as const,
+    publicSource: "missing" as const,
+  };
+}
+
+function resolvePaystackPublicKey(settings: { paystackPublicKey?: string | null } | null | undefined): string {
+  return resolvePaystackKeyPair(settings as any).publicKey;
+}
+
+function resolvePaystackSecretKey(settings: { paystackSecretKey?: string | null } | null | undefined): string {
+  return resolvePaystackKeyPair(settings as any).secretKey;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -552,6 +677,170 @@ export async function registerRoutes(app: Express): Promise<Server> {
           stdout: String(error?.stdout || "").trim(),
           stderr: String(error?.stderr || "").trim(),
         });
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/system-activities/summary",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("view_analytics"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const [summary] = await db
+          .select({
+            totalActivities: sql<number>`COUNT(*)`,
+            activeIssues: sql<number>`COUNT(*) FILTER (WHERE ${systemActivityLogs.isResolved} = false AND ${systemActivityLogs.severity} IN ('warning', 'error', 'critical'))`,
+            criticalErrors: sql<number>`COUNT(*) FILTER (WHERE ${systemActivityLogs.isResolved} = false AND ${systemActivityLogs.severity} = 'critical')`,
+          })
+          .from(systemActivityLogs);
+
+        return res.json({
+          totalActivities: Number(summary?.totalActivities || 0),
+          activeIssues: Number(summary?.activeIssues || 0),
+          criticalErrors: Number(summary?.criticalErrors || 0),
+        });
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || "Failed to load system activity summary" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/system-activities",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("view_analytics"),
+    async (req: AuthRequest, res) => {
+      try {
+        const limit = Math.min(500, Math.max(10, Number(req.query.limit || 100)));
+        const category = String(req.query.category || "").trim();
+        const severity = String(req.query.severity || "").trim();
+        const status = String(req.query.status || "").trim().toLowerCase();
+        const search = String(req.query.search || "").trim();
+
+        const conditions = [];
+
+        if (category && category !== "all") {
+          conditions.push(eq(systemActivityLogs.category, category));
+        }
+        if (severity && severity !== "all") {
+          conditions.push(eq(systemActivityLogs.severity, severity));
+        }
+        if (status === "open") {
+          conditions.push(eq(systemActivityLogs.isResolved, false));
+        } else if (status === "resolved") {
+          conditions.push(eq(systemActivityLogs.isResolved, true));
+        }
+        if (search) {
+          const searchPattern = `%${search}%`;
+          conditions.push(
+            sql`(
+              ${systemActivityLogs.title} ILIKE ${searchPattern}
+              OR ${systemActivityLogs.message} ILIKE ${searchPattern}
+              OR COALESCE(${systemActivityLogs.humanExplanation}, '') ILIKE ${searchPattern}
+              OR COALESCE(${systemActivityLogs.rootCause}, '') ILIKE ${searchPattern}
+              OR COALESCE(${systemActivityLogs.source}, '') ILIKE ${searchPattern}
+            )`,
+          );
+        }
+
+        const logs = await db
+          .select()
+          .from(systemActivityLogs)
+          .where(conditions.length ? and(...conditions) : undefined)
+          .orderBy(desc(systemActivityLogs.lastSeenAt), desc(systemActivityLogs.createdAt))
+          .limit(limit);
+
+        return res.json(logs);
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || "Failed to load system activities" });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/admin/system-activities/:id/resolve",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("view_analytics"),
+    async (req: AuthRequest, res) => {
+      try {
+        const shouldResolve = req.body?.resolved !== false;
+        const [updated] = await db
+          .update(systemActivityLogs)
+          .set({
+            isResolved: shouldResolve,
+            resolvedAt: shouldResolve ? new Date() : null,
+            updatedAt: new Date(),
+          })
+          .where(eq(systemActivityLogs.id, req.params.id))
+          .returning();
+
+        if (!updated) {
+          return res.status(404).json({ error: "System activity not found" });
+        }
+
+        await logSystemActivity({
+          category: "system",
+          severity: "info",
+          title: shouldResolve ? "System issue resolved" : "System issue reopened",
+          message: `${updated.title} was ${shouldResolve ? "resolved" : "reopened"} by ${req.user?.role || "admin"}.`,
+          humanExplanation: "A platform operator changed the issue state from the System Activities page.",
+          source: "/api/admin/system-activities/:id/resolve",
+          actorId: req.user?.id || null,
+          actorRole: req.user?.role || null,
+          entityType: "system_activity_log",
+          entityId: updated.id,
+          metadata: {
+            targetActivityId: updated.id,
+            targetSeverity: updated.severity,
+            resolutionState: shouldResolve ? "resolved" : "open",
+          },
+        });
+
+        return res.json(updated);
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || "Failed to update system activity" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/system-activities/export",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("view_analytics"),
+    async (req: AuthRequest, res) => {
+      try {
+        const logs = await db
+          .select()
+          .from(systemActivityLogs)
+          .orderBy(desc(systemActivityLogs.lastSeenAt), desc(systemActivityLogs.createdAt))
+          .limit(1000);
+
+        await logSystemActivity({
+          category: "system",
+          severity: "info",
+          title: "System activities exported",
+          message: `${req.user?.role || "admin"} exported ${logs.length} system activity rows.`,
+          humanExplanation: "A platform operator exported the current system activity history for analysis or debugging.",
+          source: "/api/admin/system-activities/export",
+          actorId: req.user?.id || null,
+          actorRole: req.user?.role || null,
+          entityType: "system_activity_export",
+          metadata: {
+            exportedCount: logs.length,
+            format: "json",
+          },
+        });
+
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="system-activities-${Date.now()}.json"`);
+        return res.send(JSON.stringify(logs, null, 2));
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || "Failed to export system activities" });
       }
     },
   );
@@ -827,6 +1116,171 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const email = String(req.body?.email || "").trim().toLowerCase();
+
+      if (!email || !email.includes("@")) {
+        return res.status(400).json({ error: "Enter a valid email address." });
+      }
+
+      const account = await storage.getUserByEmail(email);
+      if (!account) {
+        return res.status(404).json({ error: "No account found for that email address." });
+      }
+
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      const token = `${randomUUID().replace(/-/g, "")}${randomUUID().replace(/-/g, "")}`;
+      const frontendUrl = getFrontendUrlSync();
+      const resetLink = frontendUrl ? `${frontendUrl.replace(/\/$/, "")}/reset-password?token=${token}` : null;
+
+      await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, account.id));
+      await db.insert(passwordResetTokens).values({
+        userId: account.id,
+        token,
+        expiresAt,
+        createdBy: null,
+      });
+
+      await logSystemActivity({
+        category: "auth",
+        severity: "info",
+        title: "Password reset requested",
+        message: `Password reset requested for ${account.email}.`,
+        humanExplanation: "A user opened the forgot-password flow and submitted their account email.",
+        rootCause: "The user could not access their account password and requested a reset.",
+        suggestedFix: "Review the request and continue with the password recovery process for the account owner.",
+        preventiveAction: "Encourage users to keep access to their sign-in email and store passwords securely.",
+        source: "/api/auth/forgot-password",
+        entityType: "user",
+        entityId: account.id,
+        metadata: {
+          email: account.email,
+          expiresAt: expiresAt.toISOString(),
+        },
+      });
+
+      await notifyAdmins(
+        "security",
+        "Password Reset Request",
+        `${account.email} requested a password reset.`,
+        {
+          userId: account.id,
+          email: account.email,
+          resetRequest: true,
+        },
+        {
+          requiredAdminPermission: "manage_users",
+          includeAgents: true,
+          requiredAgentFeature: "support.view",
+        },
+      );
+
+      const platformSettings = await storage.getPlatformSettings();
+      const platformName = String(platformSettings?.platformName || "KiyuMart").trim() || "KiyuMart";
+      const supportEmail = String(platformSettings?.contactEmail || "support@kiyumart.com").trim() || "support@kiyumart.com";
+
+      try {
+        const { sendPasswordResetEmail } = await import("./email");
+        if (!resetLink) {
+          throw new Error("Reset link is not available");
+        }
+        await sendPasswordResetEmail({
+          to: account.email,
+          resetLink,
+          platformName,
+          supportEmail,
+        });
+      } catch (emailErr: any) {
+        console.error("[AUTH] Failed to send password reset email:", emailErr?.message || emailErr);
+        return res.status(503).json({
+          error: "Email service is not configured",
+          userMessage: "We could not send the reset email right now. Please contact support.",
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: "Password reset email sent.",
+        resetLink: process.env.NODE_ENV === "production" ? undefined : resetLink,
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || "Failed to submit password reset request." });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const token = String(req.body?.token || "").trim();
+      const newPassword = String(req.body?.newPassword || "");
+
+      if (!token || !newPassword) {
+        return res.status(400).json({ error: "Reset token and new password are required." });
+      }
+
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters long" });
+      }
+      if (!/[A-Z]/.test(newPassword)) {
+        return res.status(400).json({ error: "Password must contain at least one uppercase letter" });
+      }
+      if (!/[a-z]/.test(newPassword)) {
+        return res.status(400).json({ error: "Password must contain at least one lowercase letter" });
+      }
+      if (!/[0-9]/.test(newPassword)) {
+        return res.status(400).json({ error: "Password must contain at least one number" });
+      }
+
+      const [resetToken] = await db
+        .select()
+        .from(passwordResetTokens)
+        .where(eq(passwordResetTokens.token, token))
+        .limit(1);
+
+      if (!resetToken || resetToken.usedAt) {
+        return res.status(400).json({ error: "This reset link is no longer valid." });
+      }
+
+      const expiresAt = resetToken.expiresAt ? new Date(resetToken.expiresAt) : null;
+      if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() < Date.now()) {
+        return res.status(400).json({ error: "This reset link has expired. Please request a new one." });
+      }
+
+      const account = await storage.getUser(resetToken.userId);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found." });
+      }
+
+      const hashedPassword = await hashPassword(newPassword);
+      await db.update(users).set({ password: hashedPassword }).where(eq(users.id, account.id));
+      await db
+        .update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(passwordResetTokens.id, resetToken.id));
+
+      await logSystemActivity({
+        category: "auth",
+        severity: "info",
+        title: "Password reset completed",
+        message: `Password reset completed for ${account.email}.`,
+        humanExplanation: "A user successfully reset their account password using a reset link.",
+        rootCause: "Account password was reset through the forgot-password flow.",
+        suggestedFix: "Confirm the account owner can sign in with their new password.",
+        preventiveAction: "Encourage strong, unique passwords and enable account recovery steps.",
+        source: "/api/auth/reset-password",
+        entityType: "user",
+        entityId: account.id,
+        metadata: {
+          email: account.email,
+        },
+      });
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || "Failed to reset password." });
+    }
+  });
+
   app.get("/api/auth/me", requireAuth, async (req: AuthRequest, res) => {
     try {
       const currentUser = await storage.getUser(req.user!.id);
@@ -916,7 +1370,202 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password, ...profile } = user;
       res.json(profile);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      const rawMessage = String(error?.message || "");
+      console.error("[ORDERS] Checkout creation failed:", rawMessage, error);
+      if (
+        rawMessage.includes("invalid input value for enum order_status") &&
+        rawMessage.includes("created")
+      ) {
+        return res.status(409).json({
+          error: "Checkout state is out of date",
+          userMessage: "Your checkout session was out of date. Please refresh the page and try again.",
+        });
+      }
+      res.status(400).json({ error: rawMessage });
+    }
+  });
+
+  app.get("/api/profile/export", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const { password, ...safeUser } = user;
+
+      const settledValue = <T,>(result: PromiseSettledResult<T>, fallback: T): T =>
+        result.status === "fulfilled" ? result.value : fallback;
+
+      const [
+        userStore,
+        userOrders,
+        userCart,
+        userWishlist,
+        userNotifications,
+        userSupportConversations,
+      ] = await Promise.allSettled([
+        user.role === "seller"
+          ? db.select().from(stores).where(eq(stores.primarySellerId, userId)).limit(1).then((rows) => rows[0] || null)
+          : Promise.resolve(null),
+        storage.getOrdersByUser(userId, "buyer"),
+        db.select().from(cart).where(eq(cart.userId, userId)).orderBy(desc(cart.createdAt)),
+        storage.getWishlist(userId),
+        storage.getNotificationsByUser(userId, 500),
+        db
+          .select()
+          .from(supportConversations)
+          .where(eq(supportConversations.customerId, userId))
+          .orderBy(desc(supportConversations.updatedAt)),
+      ]);
+
+      const safeUserStore = settledValue(userStore, null);
+      const safeUserOrders = settledValue(userOrders, []);
+      const safeUserCart = settledValue(userCart, []);
+      const safeUserWishlist = settledValue(userWishlist, []);
+      const safeUserNotifications = settledValue(userNotifications, []);
+      const safeUserSupportConversations = settledValue(userSupportConversations, []);
+
+      const orderIds = Array.from(new Set(safeUserOrders.map((order) => order.id).filter(Boolean)));
+      const supportConversationIds = Array.from(
+        new Set(safeUserSupportConversations.map((conversation) => conversation.id).filter(Boolean)),
+      );
+      const cartProductIds = safeUserCart.map((item) => item.productId).filter(Boolean);
+      const wishlistProductIds = safeUserWishlist.map((item) => item.productId).filter(Boolean);
+
+      const [allOrderItems, allOrderStatusHistory, allSupportMessages, cartProducts, wishlistProducts] =
+        await Promise.allSettled([
+          orderIds.length > 0
+            ? db
+                .select({
+                  id: orderItems.id,
+                  orderId: orderItems.orderId,
+                  productId: orderItems.productId,
+                  quantity: orderItems.quantity,
+                  price: orderItems.price,
+                  productName: products.name,
+                  productImage: products.images,
+                })
+                .from(orderItems)
+                .leftJoin(products, eq(orderItems.productId, products.id))
+                .where(inArray(orderItems.orderId, orderIds))
+                .orderBy(asc(orderItems.id))
+            : Promise.resolve([]),
+          orderIds.length > 0
+            ? db
+                .select()
+                .from(orderStatusHistory)
+                .where(inArray(orderStatusHistory.orderId, orderIds))
+                .orderBy(asc(orderStatusHistory.createdAt))
+            : Promise.resolve([]),
+          supportConversationIds.length > 0
+            ? db
+                .select()
+                .from(supportMessages)
+                .where(inArray(supportMessages.conversationId, supportConversationIds))
+                .orderBy(asc(supportMessages.createdAt))
+            : Promise.resolve([]),
+          cartProductIds.length > 0
+            ? db
+                .select({
+                  id: products.id,
+                  name: products.name,
+                  image: products.images,
+                  price: products.price,
+                  categoryId: products.categoryId,
+                })
+                .from(products)
+                .where(inArray(products.id, Array.from(new Set(cartProductIds))))
+            : Promise.resolve([]),
+          wishlistProductIds.length > 0
+            ? db
+                .select({
+                  id: products.id,
+                  name: products.name,
+                  image: products.images,
+                  price: products.price,
+                  categoryId: products.categoryId,
+                })
+                .from(products)
+                .where(inArray(products.id, Array.from(new Set(wishlistProductIds))))
+            : Promise.resolve([]),
+        ]);
+
+      const safeOrderItems = settledValue(allOrderItems, []);
+      const safeOrderStatusHistory = settledValue(allOrderStatusHistory, []);
+      const safeSupportMessages = settledValue(allSupportMessages, []);
+      const safeCartProducts = settledValue(cartProducts, []);
+      const safeWishlistProducts = settledValue(wishlistProducts, []);
+
+      const cartProductMap = new Map(safeCartProducts.map((product) => [product.id, product]));
+      const wishlistProductMap = new Map(safeWishlistProducts.map((product) => [product.id, product]));
+
+      const orderItemsByOrder = new Map<string, any[]>();
+      for (const item of safeOrderItems) {
+        const bucket = orderItemsByOrder.get(item.orderId) || [];
+        bucket.push({
+          id: item.id,
+          productId: item.productId,
+          productName: item.productName || "Unknown Product",
+          productImage: item.productImage || null,
+          quantity: item.quantity,
+          price: item.price,
+        });
+        orderItemsByOrder.set(item.orderId, bucket);
+      }
+
+      const orderHistoryByOrder = new Map<string, any[]>();
+      for (const entry of safeOrderStatusHistory) {
+        const bucket = orderHistoryByOrder.get(entry.orderId) || [];
+        bucket.push(entry);
+        orderHistoryByOrder.set(entry.orderId, bucket);
+      }
+
+      const supportMessagesByConversation = new Map<string, any[]>();
+      for (const message of safeSupportMessages) {
+        const bucket = supportMessagesByConversation.get(message.conversationId) || [];
+        bucket.push(message);
+        supportMessagesByConversation.set(message.conversationId, bucket);
+      }
+
+      const exportPayload = {
+        exportedAt: new Date().toISOString(),
+        account: safeUser,
+        store: safeUserStore,
+        cart: safeUserCart.map((item) => ({
+          ...item,
+          product: cartProductMap.get(item.productId) || null,
+        })),
+        wishlist: safeUserWishlist.map((item) => ({
+          ...item,
+          product: wishlistProductMap.get(item.productId) || null,
+        })),
+        notifications: safeUserNotifications,
+        orders: safeUserOrders.map((order) => ({
+          ...order,
+          items: orderItemsByOrder.get(order.id) || [],
+          statusHistory: orderHistoryByOrder.get(order.id) || [],
+        })),
+        supportConversations: safeUserSupportConversations.map((conversation) => ({
+          ...conversation,
+          messages: supportMessagesByConversation.get(conversation.id) || [],
+        })),
+      };
+
+      const safeName = String(user.name || "account")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "account";
+      const fileName = `kiyumart-data-export-${safeName}-${new Date().toISOString().slice(0, 10)}.json`;
+
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.status(200).send(JSON.stringify(exportPayload, null, 2));
+    } catch (error: any) {
+      console.error("Profile export failed:", error);
+      res.status(500).json({ error: "Could not prepare your data export right now" });
     }
   });
 
@@ -949,6 +1598,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (req.body[field] !== undefined) {
           updateData[field] = req.body[field];
         }
+      }
+
+      const currentUser = await storage.getUser(req.user!.id);
+      const currentRole = String(currentUser?.role || "").toLowerCase();
+
+      // Only sellers should be able to update seller-store fields from the profile route.
+      if (currentRole !== "seller") {
+        delete updateData.storeType;
+        delete updateData.storeTypeMetadata;
+        delete updateData.storeName;
+        delete updateData.storeDescription;
+        delete updateData.storeBanner;
+      }
+
+      // Treat blank store type from stale forms as "not updating store type" instead of failing the whole profile save.
+      if ("storeType" in updateData && !String(updateData.storeType || "").trim()) {
+        delete updateData.storeType;
+      }
+
+      if ("storeTypeMetadata" in updateData && !("storeType" in updateData) && currentRole !== "seller") {
+        delete updateData.storeTypeMetadata;
       }
 
       // Prevent updates if no valid fields provided
@@ -984,7 +1654,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Validate storeTypeMetadata if being updated without storeType
       if (updateData.storeTypeMetadata !== undefined && !updateData.storeType) {
-        const currentUser = await storage.getUser(req.user!.id);
         if (currentUser?.storeType) {
           try {
             const storeTypeSchema = getStoreTypeSchema(currentUser.storeType as StoreType);
@@ -1124,6 +1793,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const DIRECT_VIDEO_EXTENSIONS = [".mp4", ".webm", ".ogg", ".mov", ".m4v"] as const;
+
+  const isDirectVideoUrl = (value: string) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    return DIRECT_VIDEO_EXTENSIONS.some((ext) => normalized.includes(ext));
+  };
+
+  const decodeEscapedVideoUrl = (value: string) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return "";
+    try {
+      return JSON.parse(`"${normalized.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)
+        .replace(/&amp;/g, "&")
+        .trim();
+    } catch {
+      return normalized.replace(/\\u002F/g, "/").replace(/\\\//g, "/").replace(/&amp;/g, "&").trim();
+    }
+  };
+
+  const extractFirstMatch = (html: string, patterns: RegExp[]) => {
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      const candidate = decodeEscapedVideoUrl(match?.[1] || "");
+      if (candidate && /^https?:\/\//i.test(candidate)) {
+        return candidate;
+      }
+    }
+    return "";
+  };
+
+  app.get("/api/video-source", async (req, res) => {
+    try {
+      const rawUrl = String(req.query?.url || "").trim();
+      if (!rawUrl) {
+        return res.status(400).json({ error: "Video URL is required" });
+      }
+
+      let parsed: URL;
+      try {
+        parsed = new URL(rawUrl);
+      } catch {
+        return res.status(400).json({ error: "Invalid video URL" });
+      }
+
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        return res.status(400).json({ error: "Only HTTP and HTTPS video links are supported" });
+      }
+
+      const host = parsed.hostname.toLowerCase();
+      const provider =
+        host.includes("tiktok.com")
+          ? "tiktok"
+          : host.includes("youtube.com") || host.includes("youtu.be")
+            ? "youtube"
+            : host.includes("vimeo.com")
+              ? "vimeo"
+              : host.includes("instagram.com")
+                ? "instagram"
+                : host.includes("facebook.com") || host.includes("fb.watch")
+                  ? "facebook"
+              : isDirectVideoUrl(rawUrl)
+                ? "direct"
+                : "unknown";
+
+      if (isDirectVideoUrl(rawUrl)) {
+        return res.json({ playbackUrl: rawUrl, provider: "direct", posterUrl: null });
+      }
+
+      const response = await fetch(rawUrl, {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "en-US,en;q=0.9",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        return res.status(422).json({ error: "Could not load this video page" });
+      }
+
+      const html = await response.text();
+      const playbackUrl = extractFirstMatch(html, [
+        /"playAddr":"([^"]+)"/,
+        /"playAddrH264":"([^"]+)"/,
+        /"downloadAddr":"([^"]+)"/,
+        /<meta[^>]+property=["']og:video:secure_url["'][^>]+content=["']([^"']+)["']/i,
+        /<meta[^>]+property=["']og:video:url["'][^>]+content=["']([^"']+)["']/i,
+        /<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["']/i,
+        /<meta[^>]+name=["']twitter:player:stream["'][^>]+content=["']([^"']+)["']/i,
+        /<source[^>]+src=["']([^"']+)["']/i,
+        /<video[^>]+src=["']([^"']+)["']/i,
+      ]);
+      const posterUrl = extractFirstMatch(html, [
+        /<meta[^>]+property=["']og:image:secure_url["'][^>]+content=["']([^"']+)["']/i,
+        /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+        /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+      ]);
+
+      if (!playbackUrl) {
+        return res.status(422).json({
+          error: "We could not extract a clean in-app video source from this link. Try a direct video file or upload the video.",
+        });
+      }
+
+      return res.json({
+        playbackUrl,
+        posterUrl: posterUrl || null,
+        provider,
+      });
+    } catch (error: any) {
+      console.error("Video source resolve error:", error);
+      return res.status(500).json({ error: error.message || "Failed to prepare video playback" });
+    }
+  });
+
   // Generic image upload endpoint (for admins/sellers)
   // Public upload endpoint for registration (seller/rider Ghana cards, profile images)
   app.post("/api/upload/public", upload.single("file"), async (req, res) => {
@@ -1132,9 +1919,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No image file provided" });
       }
 
-      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-      if (!allowedMimeTypes.includes(req.file.mimetype)) {
-        return res.status(400).json({ error: "Invalid file type. Only JPEG, PNG, WEBP, and GIF images are allowed" });
+      if (!req.file.mimetype.startsWith("image/")) {
+        return res.status(400).json({ error: "Please upload an image file" });
       }
 
       const maxSize = 10 * 1024 * 1024; // 10MB
@@ -1183,9 +1969,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No image file provided" });
       }
 
-      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-      if (!allowedMimeTypes.includes(req.file.mimetype)) {
-        return res.status(400).json({ error: "Invalid file type. Only JPEG, PNG, WEBP, and GIF images are allowed" });
+      if (!req.file.mimetype.startsWith("image/")) {
+        return res.status(400).json({ error: "Please upload an image file" });
       }
 
       const maxSize = 10 * 1024 * 1024; // 10MB
@@ -1193,32 +1978,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "File too large. Maximum size is 10MB" });
       }
 
-      const metadata = await sharp(req.file.buffer).metadata();
-      const width = metadata.width || 0;
-      const height = metadata.height || 0;
-      
-      const result = await uploadWith4KEnhancement(
-        req.file.buffer, 
-        "kiyumart/uploads", 
-        width, 
-        height
-      );
-      
-      res.json({ 
-        url: result.url, 
-        width: result.width, 
-        height: result.height,
-        enhanced: result.enhanced 
-      });
+      try {
+        const metadata = await sharp(req.file.buffer).metadata();
+        const width = metadata.width || 0;
+        const height = metadata.height || 0;
+        
+        const result = await uploadWith4KEnhancement(
+          req.file.buffer, 
+          "kiyumart/uploads", 
+          width, 
+          height
+        );
+        
+        return res.json({ 
+          url: result.url, 
+          width: result.width, 
+          height: result.height,
+          enhanced: result.enhanced 
+        });
+      } catch (enhancementError: any) {
+        console.warn("Image enhancement skipped, falling back to standard upload:", enhancementError?.message || enhancementError);
+        const imageUrl = await uploadToCloudinary(req.file.buffer, "kiyumart/uploads");
+        return res.json({ url: imageUrl, width: null, height: null, enhanced: false });
+      }
     } catch (error: any) {
       console.error("Image upload error:", error);
-      
-      if (error.message?.includes("4K enhancement failed") || 
-          error.message?.includes("quality insufficient") ||
-          error.message?.includes("resolution")) {
-        return res.status(400).json({ error: error.message });
-      }
-      
       res.status(500).json({ error: error.message || "Failed to upload image" });
     }
   });
@@ -1230,26 +2014,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No video file provided" });
       }
 
-      const allowedMimeTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
-      if (!allowedMimeTypes.includes(req.file.mimetype)) {
-        return res.status(400).json({ error: "Invalid file type. Only MP4, WEBM, and MOV videos are allowed" });
-      }
-
-      const maxSize = 30 * 1024 * 1024; // 30MB
-      if (req.file.size > maxSize) {
-        return res.status(400).json({ error: "File too large. Maximum size is 30MB" });
+      if (!String(req.file.mimetype || "").toLowerCase().startsWith("video/")) {
+        return res.status(400).json({ error: "Invalid file type. Please upload a video file." });
       }
 
       const result = await uploadWithMetadata(req.file.buffer, "kiyumart/videos");
-      
-      // Check video duration if metadata is available (must be under 30 seconds)
-      if (result.duration && result.duration >= 30) {
-        return res.status(400).json({ 
-          error: `Video is too long (${result.duration.toFixed(1)}s). Must be under 30 seconds` 
-        });
-      }
 
-      res.json({ url: result.url, duration: result.duration });
+      const optimizedUrl =
+        result.duration && result.duration > 30
+          ? buildTrimmedCloudinaryVideoUrl(result.url, 30)
+          : result.url;
+
+      res.json({
+        url: optimizedUrl,
+        originalUrl: result.url,
+        duration: result.duration,
+        trimmed: Boolean(result.duration && result.duration > 30),
+      });
     } catch (error: any) {
       console.error("Video upload error:", error);
       res.status(500).json({ error: error.message || "Failed to upload video" });
@@ -3403,6 +4184,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Product Routes ============
   // Only sellers may create products via this endpoint. Admins should not create products directly.
+  const normalizeProductDynamicFieldsForStore = (storeType: StoreType | null | undefined, rawDynamicFields: any) => {
+    const currentDynamicFields =
+      rawDynamicFields && typeof rawDynamicFields === "object" && !Array.isArray(rawDynamicFields)
+        ? rawDynamicFields
+        : {};
+
+    if (!storeType) {
+      return currentDynamicFields;
+    }
+
+    const normalizedStoreSpecific = buildStoreTypeProductDefaults(storeType, currentDynamicFields.storeSpecific);
+    getStoreTypeProductSchema(storeType).parse(normalizedStoreSpecific);
+
+  return {
+    ...currentDynamicFields,
+    storeType: storeType || currentDynamicFields.storeType || null,
+    storeSpecific: normalizedStoreSpecific,
+  };
+};
+
   app.post("/api/products", requireAuth, requireRole("seller"), requireRoleFeature("products.create"), upload.fields([
     { name: "images", maxCount: 5 },
     { name: "video", maxCount: 1 }
@@ -3451,27 +4252,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (files.video && files.video[0]) {
         const videoFile = files.video[0];
-        
-        // Video format validation
-        const allowedFormats = ['video/mp4', 'video/webm'];
-        if (!allowedFormats.includes(videoFile.mimetype)) {
-          return res.status(400).json({ 
-            error: "Invalid video format. Only MP4 and WEBM formats are allowed. Please upload an MP4 or WEBM file."
+
+        if (!String(videoFile.mimetype || "").toLowerCase().startsWith("video/")) {
+          return res.status(400).json({
+            error: "Invalid video format. Please upload a valid video file.",
           });
         }
 
         // Upload video and get server-side metadata
         const videoMetadata = await uploadWithMetadata(videoFile.buffer, "kiyumart/videos");
         videoUrl = videoMetadata.url;
-        
-        // SERVER-SIDE validation of 30-second limit (critical security requirement)
+
         if (videoMetadata.duration) {
           videoDuration = Math.round(videoMetadata.duration);
-          
           if (videoDuration > 30) {
-            return res.status(400).json({ 
-              error: `Video duration exceeds maximum limit of 30 seconds. Your video is ${videoDuration} seconds long. Please upload a shorter video (max 30 seconds).`
-            });
+            videoUrl = buildTrimmedCloudinaryVideoUrl(videoMetadata.url, 30);
           }
         }
       }
@@ -3488,15 +4283,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Parse dynamic fields if provided
-      const dynamicFields = parseMaybeJson(req.body.dynamicFields);
+      let dynamicFields = parseMaybeJson(req.body.dynamicFields);
 
       // Auto-link products to seller's store if seller is creating the product
       let storeId = req.body.storeId;
+      let sellerStoreType: StoreType | undefined;
       if (req.user!.role === "seller") {
         try {
           // Ensure seller has a store (requires approval and storeType)
           const sellerStore = await storage.ensureStoreForSeller(req.user!.id, { requireApproval: true });
           storeId = sellerStore.id;
+          sellerStoreType = sellerStore.storeType as StoreType | undefined;
           console.log(`[Product Creation] Using store ${storeId} for seller ${req.user!.id}`);
         } catch (storeError: any) {
           console.error(`[Product Creation] Failed to ensure store for seller ${req.user!.id}:`, storeError.message);
@@ -3510,6 +4307,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
       }
+
+      dynamicFields = normalizeProductDynamicFieldsForStore(sellerStoreType, dynamicFields);
 
       const normalizedCategoryId = String(req.body.categoryId || "").trim();
       let resolvedCategorySlug: string | undefined;
@@ -3559,6 +4358,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("[PRODUCT CREATE] Failed to notify admins:", notifyError);
       }
 
+      try {
+        await notifyLowStockIfNeeded(null, product);
+      } catch (lowStockError) {
+        console.error("[PRODUCT CREATE] Failed to send low stock alert:", lowStockError);
+      }
+
       res.json(product);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -3600,9 +4405,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Ensure seller has a store (requires approval)
       let storeId: string | undefined = req.body.storeId;
+      let sellerStoreType: StoreType | undefined;
       try {
         const sellerStore = await storage.ensureStoreForSeller(sellerId, { requireApproval: true });
         storeId = sellerStore.id;
+        sellerStoreType = sellerStore.storeType as StoreType | undefined;
       } catch (storeError: any) {
         return res.status(400).json({ error: `Cannot create product for seller: ${storeError.message}` });
       }
@@ -3622,7 +4429,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         images: normalizeStringArray(req.body.images),
         video: req.body.video || null,
         videoDuration: req.body.videoDuration || undefined,
-        dynamicFields: parseMaybeJson(req.body.dynamicFields),
+        dynamicFields: normalizeProductDynamicFieldsForStore(
+          sellerStoreType,
+          parseMaybeJson(req.body.dynamicFields),
+        ),
         tags: normalizeStringArray(req.body.tags),
         price: req.body.price,
         costPrice: req.body.costPrice || null,
@@ -3651,6 +4461,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       } catch (notifyError) {
         console.error("[ADMIN PRODUCT CREATE] Failed to notify admins:", notifyError);
+      }
+
+      try {
+        await notifyLowStockIfNeeded(null, product);
+      } catch (lowStockError) {
+        console.error("[ADMIN PRODUCT CREATE] Failed to send low stock alert:", lowStockError);
       }
 
       res.json(product);
@@ -3707,6 +4523,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const resolvedSeller = product.sellerId ? sellerById.get(String(product.sellerId)) : undefined;
       return {
         ...product,
+        stock:
+          Array.isArray(product?.dynamicFields?.variantSummary) && product.dynamicFields.variantSummary.length > 0
+            ? getVariantSummaryStock(product.dynamicFields.variantSummary)
+            : product.stock,
         category: resolvedCategory?.slug || product.category || null,
         categoryName: resolvedCategory?.name || null,
         storeName:
@@ -3717,6 +4537,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
           null,
       };
     });
+  };
+
+  const reconcileProductsWithLiveVariants = async (productList: any[]) => {
+    if (!Array.isArray(productList) || productList.length === 0) return [];
+
+    const reconciledEntries = await Promise.all(
+      productList.map(async (product: any) => {
+        if (!product?.id) return [null, null] as const;
+
+        const variants = await storage.getProductVariants(product.id).catch(() => []);
+        if (!Array.isArray(variants) || variants.length === 0) {
+          return [product.id, null] as const;
+        }
+
+        const { productImages, productStock } = getProductImagesAndStockFromValidVariants(variants);
+        const nextVariantSummary = buildVariantSummarySnapshot(variants);
+        const currentVariantSummary = Array.isArray(product?.dynamicFields?.variantSummary)
+          ? buildVariantSummarySnapshot(product.dynamicFields.variantSummary)
+          : [];
+        const currentImages = Array.isArray(product.images) ? product.images : [];
+        const summaryChanged = JSON.stringify(currentVariantSummary) !== JSON.stringify(nextVariantSummary);
+        const imagesChanged = productImages.length > 0 && JSON.stringify(currentImages) !== JSON.stringify(productImages);
+        const stockChanged =
+          Number(product.stock || 0) !== productStock ||
+          getVariantSummaryStock(currentVariantSummary) !== productStock;
+
+        const nextDynamicFields = {
+          ...(product.dynamicFields || {}),
+          variantSummary: nextVariantSummary,
+        };
+        const nextImages = productImages.length > 0 ? productImages : currentImages;
+
+        if (summaryChanged || imagesChanged || stockChanged) {
+          await storage.updateProduct(product.id, {
+            stock: productStock,
+            images: nextImages,
+            dynamicFields: nextDynamicFields,
+          });
+        }
+
+        return [
+          product.id,
+          {
+            ...product,
+            stock: productStock,
+            images: nextImages,
+            dynamicFields: nextDynamicFields,
+          },
+        ] as const;
+      }),
+    );
+
+    const reconciledById = new Map(reconciledEntries.filter(([id]) => Boolean(id)));
+    return productList.map((product: any) => reconciledById.get(product.id) || product);
   };
 
   const filterPublicMarketplaceProducts = async (productList: any[]) => {
@@ -3832,7 +4706,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         category: category as string,
         isActive: normalizedIsActive,
       });
-      const hydratedProducts = await hydrateProductsWithCategories(products);
+      const sellerScopedRequest = Boolean(finalSellerId || finalStoreId || sellerId);
+      const scopedProducts = sellerScopedRequest
+        ? products.filter((product: any) => !product?.dynamicFields?.archived)
+        : products;
+      const liveProducts = sellerScopedRequest
+        ? await reconcileProductsWithLiveVariants(scopedProducts)
+        : scopedProducts;
+      const hydratedProducts = await hydrateProductsWithCategories(liveProducts);
       const shouldApplyPublicVisibilityFilter = !sellerId;
       const responseProducts = shouldApplyPublicVisibilityFilter
         ? await filterPublicMarketplaceProducts(hydratedProducts)
@@ -3850,18 +4731,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
       }
-      const platformSettings = await storage.getPlatformSettings();
-      if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
-        const primaryStore = await storage.getStore(platformSettings.primaryStoreId);
-        if (primaryStore) {
-          if (product.storeId !== primaryStore.id) {
-            return res.status(404).json({ error: "Product not found" });
-          }
+      const [platformSettings, resolvedCategory] = await Promise.all([
+        storage.getPlatformSettings().catch(() => null),
+        product.categoryId ? storage.getCategory(product.categoryId).catch(() => undefined) : Promise.resolve(undefined),
+      ]);
+
+      if (platformSettings && !platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
+        const primaryStore = await storage.getStore(platformSettings.primaryStoreId).catch(() => undefined);
+        if (primaryStore && product.storeId !== primaryStore.id) {
+          return res.status(404).json({ error: "Product not found" });
         }
       }
-      const resolvedCategory = product.categoryId ? await storage.getCategory(product.categoryId) : undefined;
+
       res.json({
         ...product,
+        stock:
+          Array.isArray(product?.dynamicFields?.variantSummary) && product.dynamicFields.variantSummary.length > 0
+            ? getVariantSummaryStock(product.dynamicFields.variantSummary)
+            : product.stock,
         category: resolvedCategory?.slug || product.category || null,
         categoryName: resolvedCategory?.name || null,
       });
@@ -3870,8 +4757,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/products/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.edit"), async (req: AuthRequest, res) => {
+  app.post(
+    "/api/users/:id/reset-password",
+    requireAuth,
+    requireRole("super_admin"),
+    requirePermission("edit_passwords"),
+    async (req: AuthRequest, res) => {
+      try {
+        const userId = req.params.id;
+        const newPassword = typeof req.body?.password === "string" ? req.body.password : "";
+
+        if (!newPassword) {
+          return res.status(400).json({ error: "A new password is required" });
+        }
+        if (newPassword.length < 8) {
+          return res.status(400).json({ error: "Password must be at least 8 characters long" });
+        }
+        if (!/[A-Z]/.test(newPassword)) {
+          return res.status(400).json({ error: "Password must contain at least one uppercase letter" });
+        }
+        if (!/[a-z]/.test(newPassword)) {
+          return res.status(400).json({ error: "Password must contain at least one lowercase letter" });
+        }
+        if (!/[0-9]/.test(newPassword)) {
+          return res.status(400).json({ error: "Password must contain at least one number" });
+        }
+
+        const targetUser = await storage.getUser(userId);
+        if (!targetUser) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        const hashedPassword = await hashPassword(newPassword);
+        await storage.updateUser(userId, { password: hashedPassword });
+
+        await logSystemActivity({
+          category: "security",
+          severity: "info",
+          title: "Admin password reset completed",
+          message: `Super admin ${req.user?.email || req.user?.id} reset the password for ${targetUser.email}.`,
+          humanExplanation: "A super admin manually reset a user's password from the admin console.",
+          rootCause: "Manual admin intervention was requested to restore account access.",
+          suggestedFix: "Confirm the user can sign in with the new password or request a reset link.",
+          preventiveAction: "Encourage users to use strong passwords and password managers.",
+          source: "/api/users/:id/reset-password",
+          entityType: "user",
+          entityId: String(targetUser.id),
+          actorId: String(req.user?.id || ""),
+          actorRole: String(req.user?.role || ""),
+          metadata: {
+            targetUserId: targetUser.id,
+            targetUserEmail: targetUser.email,
+          },
+        });
+
+        try {
+          const notification = await storage.createNotification({
+            userId: targetUser.id,
+            type: "security",
+            title: "Password reset",
+            message:
+              "Your password was reset by a Super Admin. If you did not request this, please contact support immediately.",
+            metadata: {
+              link: "/profile",
+              action: "admin_password_reset",
+            },
+          });
+          io.to(targetUser.id).emit("notification", {
+            id: notification.id,
+            title: notification.title,
+            message: notification.message,
+            type: notification.type,
+            metadata: notification.metadata,
+            createdAt: notification.createdAt,
+          });
+        } catch (notifyError) {
+          console.error("Failed to notify user about admin password reset:", notifyError);
+        }
+
+        res.json({ success: true, message: "Password reset successfully" });
+      } catch (error: any) {
+        res.status(500).json({ error: error?.message || "Failed to reset password" });
+      }
+    },
+  );
+
+  app.patch("/api/products/:id", requireAuth, requireRole("admin", "super_admin", "seller"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.edit"), async (req: AuthRequest, res) => {
     try {
+      const parseMaybeJson = (value: any) => {
+        if (typeof value !== "string") return value;
+        const trimmed = value.trim();
+        if (!trimmed) return undefined;
+        try {
+          return JSON.parse(trimmed);
+        } catch {
+          return value;
+        }
+      };
       const product = await storage.getProduct(req.params.id);
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
@@ -3882,6 +4864,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updateData = { ...req.body } as Record<string, any>;
+      const productStore = product.storeId
+        ? await storage.getStore(product.storeId)
+        : product.sellerId
+          ? await storage.getStoreByPrimarySeller(product.sellerId)
+          : undefined;
+      const storeType = productStore?.storeType as StoreType | undefined;
 
       if (Object.prototype.hasOwnProperty.call(updateData, "categoryId")) {
         const normalizedCategoryId = String(updateData.categoryId || "").trim();
@@ -3898,9 +4886,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      if (Object.prototype.hasOwnProperty.call(updateData, "dynamicFields")) {
+        const nextDynamicFields = normalizeProductDynamicFieldsForStore(
+          storeType,
+          parseMaybeJson(updateData.dynamicFields),
+        );
+        updateData.dynamicFields = {
+          ...((product.dynamicFields as Record<string, any> | undefined) || {}),
+          ...(nextDynamicFields || {}),
+        };
+      } else if (storeType) {
+        updateData.dynamicFields = normalizeProductDynamicFieldsForStore(
+          storeType,
+          (product.dynamicFields as Record<string, any> | undefined) || {},
+        );
+      }
+
       const updated = await storage.updateProduct(req.params.id, updateData);
       if (!updated) {
         return res.status(404).json({ error: "Product not found" });
+      }
+
+      try {
+        await notifyLowStockIfNeeded(product, updated);
+      } catch (lowStockError) {
+        console.error("[PRODUCT UPDATE] Failed to send low stock alert:", lowStockError);
       }
 
       clearProductListCache();
@@ -3937,7 +4947,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Not authorized" });
       }
 
-      await storage.deleteProduct(req.params.id);
+      const [{ count: orderItemCount }] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(orderItems)
+        .where(eq(orderItems.productId, req.params.id));
+
+      const archiveProductForHistory = async () => {
+        const archivedDynamicFields = {
+          ...(product.dynamicFields || {}),
+          archived: true,
+          archivedAt: new Date().toISOString(),
+          archivedReason: "linked_order_history",
+        };
+
+        const archivedProduct = await storage.updateProduct(req.params.id, {
+          isActive: false,
+          dynamicFields: archivedDynamicFields,
+        } as any);
+
+        clearProductListCache();
+        return res.json({
+          success: true,
+          archived: true,
+          product: archivedProduct,
+          message: "Product was archived because it is already linked to past orders.",
+        });
+      };
+
+      if (Number(orderItemCount || 0) > 0) {
+        return await archiveProductForHistory();
+      }
+
+      try {
+        await storage.deleteProduct(req.params.id);
+      } catch (deleteError: any) {
+        const isForeignKeyHistoryError =
+          deleteError?.code === "23503" ||
+          String(deleteError?.message || "").includes("order_items_product_id_products_id_fk") ||
+          String(deleteError?.message || "").includes("violates foreign key constraint");
+
+        if (isForeignKeyHistoryError) {
+          return await archiveProductForHistory();
+        }
+
+        throw deleteError;
+      }
+
       clearProductListCache();
       res.json({ success: true });
     } catch (error: any) {
@@ -4240,7 +5295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Wishlist Routes ============
-  app.post("/api/wishlist", requireAuth, requireRoleFeature("wishlist.manage"), async (req: AuthRequest, res) => {
+  app.post("/api/wishlist", requireAuth, async (req: AuthRequest, res) => {
     try {
       const validatedData = insertWishlistSchema.parse(req.body);
       const wishlistItem = await storage.addToWishlist(req.user!.id, validatedData.productId);
@@ -4250,7 +5305,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/wishlist", requireAuth, requireRoleFeature("wishlist.manage"), async (req: AuthRequest, res) => {
+  app.get("/api/wishlist", requireAuth, async (req: AuthRequest, res) => {
     try {
       const wishlist = await storage.getWishlist(req.user!.id);
       res.json(wishlist);
@@ -4259,7 +5314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/wishlist/:productId", requireAuth, requireRoleFeature("wishlist.manage"), async (req: AuthRequest, res) => {
+  app.delete("/api/wishlist/:productId", requireAuth, async (req: AuthRequest, res) => {
     try {
       await storage.removeFromWishlist(req.user!.id, req.params.productId);
       res.json({ success: true });
@@ -4359,9 +5414,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const getValidVariantRows = (variants: any[] = []) =>
+    variants.filter((variant) => {
+      const color = String(variant?.color || "").trim();
+      const size = String(variant?.size || "").trim();
+      return color.length > 0 && size.length > 0;
+    });
+
+  const getProductImagesAndStockFromValidVariants = (variants: any[] = []) => {
+    const validVariants = getValidVariantRows(variants);
+    const productImages = Array.from(
+      new Set(
+        validVariants.flatMap((item: any) =>
+          Array.isArray(item?.images) && item.images.length > 0
+            ? item.images
+            : item?.image
+              ? [item.image]
+              : []
+        )
+      )
+    ).filter(Boolean).slice(0, 8);
+    const productStock = validVariants.reduce((sum: number, item: any) => sum + (Number(item?.stock) || 0), 0);
+
+    return { validVariants, productImages, productStock };
+  };
+
+  const buildVariantSummarySnapshot = (variants: any[] = []) =>
+    getValidVariantRows(variants).map((variant: any) => ({
+      id: variant.id,
+      color: String(variant?.color || "").trim(),
+      size: String(variant?.size || "").trim(),
+      images: Array.isArray(variant?.images) ? variant.images : [],
+      image: variant?.image || null,
+      stock: Number(variant?.stock) || 0,
+      originalStock: Number(variant?.originalStock ?? variant?.stock) || 0,
+    }));
+
+  const getVariantSummaryStock = (summary: any[] = []) =>
+    buildVariantSummarySnapshot(summary).reduce((sum: number, variant: any) => sum + (Number(variant?.stock) || 0), 0);
+
   app.get("/api/products/:productId/variants", async (req, res) => {
     try {
-      const variants = await storage.getProductVariants(req.params.productId);
+      const { productId } = req.params;
+      const variants = await storage.getProductVariants(productId);
+      const product = await storage.getProduct(productId).catch(() => null);
+
+      if (product) {
+        const { productImages, productStock } = getProductImagesAndStockFromValidVariants(variants);
+        const nextVariantSummary = buildVariantSummarySnapshot(variants);
+        const currentVariantSummary = Array.isArray((product as any)?.dynamicFields?.variantSummary)
+          ? buildVariantSummarySnapshot((product as any).dynamicFields.variantSummary)
+          : [];
+        const currentImages = Array.isArray(product.images) ? product.images : [];
+        const summaryChanged = JSON.stringify(currentVariantSummary) !== JSON.stringify(nextVariantSummary);
+        const imagesChanged = productImages.length > 0 && JSON.stringify(currentImages) !== JSON.stringify(productImages);
+        const stockChanged =
+          Number(product.stock || 0) !== productStock ||
+          getVariantSummaryStock(currentVariantSummary) !== productStock;
+
+        if (summaryChanged || imagesChanged || stockChanged) {
+          await storage.updateProduct(productId, {
+            stock: productStock,
+            images: productImages.length > 0 ? productImages : currentImages,
+            dynamicFields: {
+              ...(product.dynamicFields || {}),
+              variantSummary: nextVariantSummary,
+            },
+          });
+        }
+      }
+
       res.json(variants);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -4372,7 +5494,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/products/:productId/variants", requireAuth, requireRole("seller", "admin", "super_admin"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.edit"), async (req: AuthRequest, res) => {
     try {
       const { productId } = req.params;
-      const { color, size, sku, image, stock, priceAdjustment } = req.body;
+      const { color, size, images, stock } = req.body;
 
       // Verify the product belongs to the seller (or admin creating on behalf)
       const product = await storage.getProduct(productId);
@@ -4384,14 +5506,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
+      const normalizedColor = String(color || "").trim();
+      const normalizedSize = String(size || "").trim();
+      const normalizedImages = Array.isArray(images)
+        ? images.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+        : [];
+      const normalizedStock = Number.isFinite(Number(stock)) ? Math.max(0, Math.floor(Number(stock))) : 0;
+
+      if (!normalizedColor) {
+        return res.status(400).json({ error: "Color is required" });
+      }
+      if (!normalizedSize) {
+        return res.status(400).json({ error: "Size is required" });
+      }
+      if (normalizedImages.length < 3 || normalizedImages.length > 5) {
+        return res.status(400).json({ error: "Each variant must have 3 to 5 images" });
+      }
+
       const variant = await storage.createProductVariant({
         productId,
-        color: color || null,
-        size: size || null,
-        sku: sku || null,
-        image: image || null,
-        stock: stock || 0,
-        priceAdjustment: priceAdjustment || "0",
+        color: normalizedColor,
+        size: normalizedSize,
+        images: normalizedImages,
+        image: normalizedImages[0] || null,
+        stock: normalizedStock,
+        originalStock: normalizedStock,
+        sku: null,
+        priceAdjustment: "0",
+      });
+
+      const allVariants = await storage.getProductVariants(productId);
+      const { productImages, productStock } = getProductImagesAndStockFromValidVariants(allVariants);
+      await storage.updateProduct(productId, {
+        stock: productStock,
+        images: productImages,
+        dynamicFields: {
+          ...(product.dynamicFields || {}),
+          variantSummary: buildVariantSummarySnapshot(allVariants),
+        },
       });
 
       res.json(variant);
@@ -4404,7 +5556,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/products/:productId/variants/:variantId", requireAuth, requireRole("seller", "admin", "super_admin"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.edit"), async (req: AuthRequest, res) => {
     try {
       const { productId, variantId } = req.params;
-      const { color, size, sku, image, stock, priceAdjustment } = req.body;
+      const { color, size, images, stock } = req.body;
 
       // Verify the product belongs to the seller
       const product = await storage.getProduct(productId);
@@ -4416,13 +5568,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
+      const existingVariants = await storage.getProductVariants(productId);
+      const currentVariant = existingVariants.find((variant) => variant.id === variantId);
+      if (!currentVariant) {
+        return res.status(404).json({ error: "Variant not found for this product" });
+      }
+
+      const normalizedColor = String(color || "").trim();
+      const normalizedSize = String(size || "").trim();
+      const normalizedImages = Array.isArray(images)
+        ? images.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+        : [];
+      const normalizedStock = Number.isFinite(Number(stock)) ? Math.max(0, Math.floor(Number(stock))) : 0;
+
+      if (!normalizedColor) {
+        return res.status(400).json({ error: "Color is required" });
+      }
+      if (!normalizedSize) {
+        return res.status(400).json({ error: "Size is required" });
+      }
+      if (normalizedImages.length < 3 || normalizedImages.length > 5) {
+        return res.status(400).json({ error: "Each variant must have 3 to 5 images" });
+      }
+
       const variant = await storage.updateProductVariant(variantId, {
-        color: color || null,
-        size: size || null,
-        sku: sku || null,
-        image: image || null,
-        stock: stock || 0,
-        priceAdjustment: priceAdjustment || "0",
+        color: normalizedColor,
+        size: normalizedSize,
+        images: normalizedImages,
+        image: normalizedImages[0] || null,
+        stock: normalizedStock,
+        sku: null,
+        priceAdjustment: "0",
+      });
+
+      const allVariants = await storage.getProductVariants(productId);
+      const { productImages, productStock } = getProductImagesAndStockFromValidVariants(allVariants);
+      await storage.updateProduct(productId, {
+        stock: productStock,
+        images: productImages,
+        dynamicFields: {
+          ...(product.dynamicFields || {}),
+          variantSummary: buildVariantSummarySnapshot(allVariants),
+        },
       });
 
       res.json(variant);
@@ -4446,7 +5633,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
+      const existingVariants = await storage.getProductVariants(productId);
+      const currentVariant = existingVariants.find((variant) => variant.id === variantId);
+      if (!currentVariant) {
+        return res.status(404).json({ error: "Variant not found for this product" });
+      }
+
+      const normalizedCurrentColor = String(currentVariant.color || "").trim().toLowerCase();
+      const replacementVariant = existingVariants.find((variant) => {
+        if (variant.id === variantId) return false;
+        return String(variant.color || "").trim().toLowerCase() === normalizedCurrentColor;
+      });
+
+      if (replacementVariant) {
+        await storage.reassignCartVariantReferences([variantId], replacementVariant.id);
+      } else {
+        await storage.clearCartVariantReferences([variantId]);
+      }
+
       await storage.deleteProductVariant(variantId);
+
+      const allVariants = await storage.getProductVariants(productId);
+      const { productImages, productStock } = getProductImagesAndStockFromValidVariants(allVariants);
+      await storage.updateProduct(productId, {
+        stock: productStock,
+        images: productImages,
+        dynamicFields: {
+          ...(product.dynamicFields || {}),
+          variantSummary: buildVariantSummarySnapshot(allVariants),
+        },
+      });
+
       res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -4754,6 +5971,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get platform settings to check for single-store mode
       const platformSettings = await storage.getPlatformSettings();
+      if (platformSettings.showHomepageFeaturedSection === false) {
+        return res.json([]);
+      }
       
       let scopedProducts;
       if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
@@ -4797,6 +6017,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(cachedProducts);
       }
       const platformSettings = await storage.getPlatformSettings();
+      if (platformSettings.showHomepageNewArrivalSection === false) {
+        return res.json([]);
+      }
 
       let scopedProducts;
       if (!platformSettings.isMultiVendor && platformSettings.primaryStoreId) {
@@ -4876,51 +6099,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin: Sellers list with payout summary
   app.get('/api/admin/sellers', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
-      await storage.backfillMissingCommissionEarnings(100);
-      const sellers = await storage.getUsersByRole('seller');
-      const results: any[] = [];
-
-      // Import needed schema and db helpers here so the scope is clear
-      const { db } = await import("../db/index");
-      const { sellerPayouts, commissions } = await import("@shared/schema");
-      const { eq, sql } = await import("drizzle-orm");
-
-      for (const s of sellers) {
-        // Aggregates for payouts (use sql templates instead of db.raw)
-        const totals = await db.select({
-          totalPaid: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} = 'completed' THEN ${sellerPayouts.amount}::numeric ELSE 0 END), 0)`,
-          pending: sql`COALESCE(SUM(CASE WHEN ${sellerPayouts.status} IN ('pending', 'processing') THEN ${sellerPayouts.amount}::numeric ELSE 0 END), 0)`,
-          count: sql`COALESCE(COUNT(*), 0)`,
-          lastPayoutAt: sql`MAX(${sellerPayouts.processedAt})`
-        }).from(sellerPayouts).where(eq(sellerPayouts.sellerId, s.id));
-
-        const commissionTotals = await db.select({
-          totalPaid: sql`COALESCE(SUM(CASE WHEN ${commissions.status} = 'processed' THEN ${commissions.sellerAmount}::numeric ELSE 0 END), 0)`,
-          pending: sql`COALESCE(SUM(CASE WHEN ${commissions.status} IN ('pending', 'processing') THEN ${commissions.sellerAmount}::numeric ELSE 0 END), 0)`,
-          count: sql`COALESCE(SUM(CASE WHEN ${commissions.status} = 'processed' THEN 1 ELSE 0 END), 0)`,
-          lastPayoutAt: sql`MAX(${commissions.processedAt})`,
-        }).from(commissions).where(eq(commissions.sellerId, s.id));
-
-        const payoutTotalPaid = Number(totals[0]?.totalPaid ?? 0);
-        const payoutPending = Number(totals[0]?.pending ?? 0);
-        const payoutCount = Number(totals[0]?.count ?? 0);
-        const commissionTotalPaid = Number(commissionTotals[0]?.totalPaid ?? 0);
-        const commissionPending = Number(commissionTotals[0]?.pending ?? 0);
-        const commissionCount = Number(commissionTotals[0]?.count ?? 0);
-
-        results.push({
-          id: s.id,
-          name: s.name,
-          email: s.email,
-          phone: s.phone,
-          isApproved: s.isApproved,
-          totalPaid: Math.max(payoutTotalPaid, commissionTotalPaid).toFixed(2),
-          pendingAmount: Math.max(payoutPending, commissionPending).toFixed(2),
-          payoutCount: Math.max(payoutCount, commissionCount),
-          lastPayoutAt: totals[0]?.lastPayoutAt || commissionTotals[0]?.lastPayoutAt || null
-        });
-      }
-      res.json(results);
+      const resultRows = await storage.getAdminSellerPayoutSummaries();
+      res.json(resultRows);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -4930,7 +6110,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/sellers/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
     try {
       const sellerId = req.params.id;
-      await storage.backfillMissingCommissionEarnings(100);
+      void storage.backfillMissingCommissionEarnings(100).catch((error: any) => {
+        console.error("[ADMIN_SELLER_PAYOUTS] Background commission backfill failed:", error?.message || error);
+      });
       const payouts = await storage.getSellerPayouts(sellerId);
       res.json(payouts);
     } catch (error: any) {
@@ -7453,13 +8635,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/orders", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { items, ...orderData } = req.body;
+      const initialOrderStatus = "pending";
       
       if (!items || items.length === 0) {
         return res.status(400).json({ error: "Order must contain at least one item" });
       }
-      
+
+      const [_, platformSettings] = await Promise.all([
+        typeof (storage as any).resolveBuyerUnpaidOrders === "function"
+          ? (storage as any).resolveBuyerUnpaidOrders(req.user!.id)
+          : Promise.resolve(0),
+        storage.getPlatformSettings(),
+      ]);
+
       // Get platform settings to check if multi-vendor mode is enabled
-      const platformSettings = await storage.getPlatformSettings();
       const platformIsMultiVendor = platformSettings?.isMultiVendor ?? false;
       const externalRiderSystemEnabled = !!platformSettings?.isExternalRiderSystemEnabled;
       const processingFeePercent = Number(platformSettings?.processingFeePercent ?? "1.95");
@@ -7481,9 +8670,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let serverProductSavings = 0;
       const validatedItems = [];
       const productsBySeller = new Map<string, { sellerId: string; storeId: string | null; products: any[] }>();
-      
-      for (const item of items) {
-        const product = await storage.getProduct(item.productId);
+
+      const resolvedProducts = await Promise.all(
+        items.map(async (item: any) => ({
+          item,
+          product: await storage.getProduct(item.productId),
+        })),
+      );
+
+      for (const { item, product } of resolvedProducts) {
         if (!product) {
           return res.status(404).json({ error: `Product ${item.productId} not found` });
         }
@@ -7499,11 +8694,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
+        if (String(product.sellerId || "").trim() === String(req.user!.id || "").trim()) {
+          return res.status(403).json({
+            error: "Self purchase is not allowed",
+            userMessage: "You cannot place an order for your own product. Remove it from your cart to continue.",
+          });
+        }
+
         if (!product.isActive) {
           return res.status(400).json({ error: `Product ${product.name} is no longer available` });
         }
         
         // Calculate actual price with discount
+        const normalizedVariantId = String(item.variantId || "").trim() || null;
+        const normalizedSelectedColor = String(item.selectedColor || "").trim() || null;
+        const normalizedSelectedSize = String(item.selectedSize || "").trim() || null;
+        const normalizedSelectedImageIndex = Number.isFinite(Number(item.selectedImageIndex))
+          ? Math.max(0, Number(item.selectedImageIndex) || 0)
+          : 0;
+        const productVariantRows = await storage.getProductVariants(product.id).catch(() => []);
+        const currentVariant = normalizedVariantId
+          ? productVariantRows.find((variant: any) => String(variant.id) === normalizedVariantId)
+          : null;
+
+        if (productVariantRows.length > 0 && !normalizedVariantId) {
+          return res.status(400).json({
+            error: "Variant selection is required",
+            userMessage: "Please choose the product option again before checking out.",
+          });
+        }
+
+        if (normalizedVariantId && !currentVariant) {
+          return res.status(400).json({
+            error: "Selected variant is invalid",
+            userMessage: "The selected product option is no longer available. Please choose it again.",
+          });
+        }
+
         const originalPrice = parseFloat(product.price);
         const discount = product.discount || 0;
         const discountedPrice = originalPrice * (1 - discount / 100);
@@ -7515,6 +8742,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         const validatedItem = {
           productId: item.productId,
+          variantId: normalizedVariantId,
+          selectedColor: normalizedSelectedColor || String(currentVariant?.color || "").trim() || null,
+          selectedSize: normalizedSelectedSize || String(currentVariant?.size || "").trim() || null,
+          selectedImageIndex: normalizedSelectedImageIndex,
           quantity: item.quantity,
           price: discountedPrice.toFixed(2),
           total: itemTotal.toFixed(2),
@@ -7648,10 +8879,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : (typeof orderData.deliveryCity === "string" && orderData.deliveryCity.trim())
           ? orderData.deliveryCity
           : null;
+      const pickupStationId = isPickupOrder ? String(orderData.deliveryZoneId || "").trim() : "";
       const resolvedDeliveryZoneId =
-        isPickupOrder || externalRiderSystemEnabled
-          ? null
-          : (orderData.deliveryZoneId || null);
+        isPickupOrder
+          ? (pickupStationId || null)
+          : externalRiderSystemEnabled
+            ? null
+            : (orderData.deliveryZoneId || null);
+      if (isPickupOrder) {
+        const pickupStations = await storage.getDeliveryZones(false, "pickup_station");
+        if (pickupStations.length > 0 && !pickupStationId) {
+          return res.status(400).json({
+            error: "Pickup station is required",
+            userMessage: "Please choose a pickup station before placing this pickup order.",
+          });
+        }
+        if (pickupStationId) {
+          const matchingPickupStation = pickupStations.find((station: any) => String(station.id) === pickupStationId);
+          if (!matchingPickupStation) {
+            return res.status(400).json({
+              error: "Pickup station is invalid",
+              userMessage: "The selected pickup station is no longer available. Please choose another one.",
+            });
+          }
+        }
+      }
       const resolvedDeliveryLatitude = isPickupOrder ? null : toFiniteNumber(orderData.deliveryLatitude);
       const resolvedDeliveryLongitude = isPickupOrder ? null : toFiniteNumber(orderData.deliveryLongitude);
 
@@ -7725,6 +8977,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               storeId: sellerGroup.storeId,
               items: sellerGroup.products.map(p => ({
                 productId: p.productId,
+                variantId: p.variantId || null,
+                selectedColor: p.selectedColor || null,
+                selectedSize: p.selectedSize || null,
+                selectedImageIndex: p.selectedImageIndex ?? 0,
                 quantity: p.quantity,
                 price: p.price,
                 total: p.total
@@ -7740,7 +8996,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         const baseOrderData = {
           buyerId: req.user!.id,
-          status: orderData.status || 'pending',
+          status: initialOrderStatus,
           deliveryMethod: storedDeliveryMethod,
           externalDeliveryByBus: effectiveExternalDeliveryByBus,
           externalDeliveryType: effectiveExternalDeliveryType,
@@ -7801,6 +9057,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const orderInput = {
           ...orderData,
           buyerId: req.user!.id,
+          status: initialOrderStatus,
           deliveryMethod: storedDeliveryMethod,
           externalDeliveryByBus: effectiveExternalDeliveryByBus,
           externalDeliveryType: effectiveExternalDeliveryType,
@@ -7832,67 +9089,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const validatedOrder = insertOrderSchema.parse(orderInput);
         const order = await storage.createOrder(validatedOrder, validatedItems.map(v => ({
           productId: v.productId,
+          variantId: v.variantId || null,
+          selectedColor: v.selectedColor || null,
+          selectedSize: v.selectedSize || null,
+          selectedImageIndex: v.selectedImageIndex ?? 0,
           quantity: v.quantity,
           price: v.price,
           total: v.total
         })));
         createdOrders = [order];
       }
-      // Rider matching starts only after payment verification to keep assignment deterministic.
-      
-      // Notify operations users as soon as an order is created (pending payment),
-      // then follow with payment-confirmed notification once paid.
-      try {
-        const orderNumbers = createdOrders.map((o: any) => `#${o.orderNumber}`).join(", ");
-        await notifyAdmins(
-          "order",
-          "New Order Created",
-          `${createdOrders.length} order(s) created by ${req.user!.email}: ${orderNumbers}.`,
-          {
-            buyerId: req.user!.id,
-            orderIds: createdOrders.map((o: any) => o.id),
-            orderNumbers,
-            deliveryMethod: normalizedDeliveryMethod,
-            link: "/admin/orders",
-          },
-          {
-            requiredAdminPermission: "manage_orders",
-            includeAgents: true,
-            requiredAgentFeature: "orders.view",
-          }
-        );
-      } catch (opsNotifyErr) {
-        console.error("[ORDERS] Could not send ops notification for created order:", opsNotifyErr);
-      }
-
-      try {
-        const inventorySnapshot = validatedItems.map((item: any) => ({
-          productId: item.productId,
-          quantityPurchased: Number(item.quantity || 0),
-        }));
-        clearProductListCache();
-        io.emit("product_inventory_updated", {
-          orderIds: createdOrders.map((o: any) => o.id),
-          buyerId: req.user!.id,
-          items: inventorySnapshot,
-          timestamp: new Date().toISOString(),
-        });
-      } catch (inventoryEventError) {
-        console.error("[ORDERS] Could not emit product inventory update:", inventoryEventError);
-      }
-
       // Return response: single order for single-vendor (backward compatible)
       // or first order + session info for multi-vendor
-      if (isMultiVendor) {
-        res.json({ 
-          ...createdOrders[0],
-          checkoutSessionId: sessionId,
-          isMultiVendor: true,
-          totalOrders: createdOrders.length 
-        });
-      } else {
-        res.json(createdOrders[0]);
-      }
+      const responsePayload = isMultiVendor
+        ? {
+            ...createdOrders[0],
+            checkoutSessionId: sessionId,
+            isMultiVendor: true,
+            totalOrders: createdOrders.length,
+          }
+        : createdOrders[0];
+
+      res.json(responsePayload);
+
+      // Rider matching starts only after payment verification to keep assignment deterministic.
+      // Run non-critical post-order side effects after the response so checkout stays fast.
+      void (async () => {
+        const createdOrderNumbers = createdOrders.map((o: any) => `#${o.orderNumber}`).join(", ");
+
+        try {
+          await notifyAdmins(
+            "order",
+            "New Order Created",
+            `${createdOrders.length} order(s) created by ${req.user!.email}: ${createdOrderNumbers}.`,
+            {
+              buyerId: req.user!.id,
+              orderIds: createdOrders.map((o: any) => o.id),
+              orderNumbers: createdOrderNumbers,
+              deliveryMethod: normalizedDeliveryMethod,
+              link: "/admin/orders",
+            },
+            {
+              requiredAdminPermission: "manage_orders",
+              includeAgents: true,
+              requiredAgentFeature: "orders.view",
+            }
+          );
+        } catch (opsNotifyErr) {
+          console.error("[ORDERS] Could not send ops notification for created order:", opsNotifyErr);
+        }
+
+        try {
+          const inventorySnapshot = validatedItems.map((item: any) => ({
+            productId: item.productId,
+            quantityPurchased: Number(item.quantity || 0),
+          }));
+          clearProductListCache();
+          io.emit("product_inventory_updated", {
+            orderIds: createdOrders.map((o: any) => o.id),
+            buyerId: req.user!.id,
+            items: inventorySnapshot,
+            timestamp: new Date().toISOString(),
+          });
+        } catch (inventoryEventError) {
+          console.error("[ORDERS] Could not emit product inventory update:", inventoryEventError);
+        }
+      })();
+
+      return;
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -7903,6 +9167,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userRole = req.user!.role as "admin" | "super_admin" | "buyer" | "seller" | "rider" | "agent";
       // Allow context override: buyers can shop, sellers/riders/agents can view purchases vs their work orders
       const context = (req.query.context as string) || userRole;
+      const includeItems = String(req.query.includeItems || "true").toLowerCase() !== "false";
+      const lightweightList = !includeItems;
       
       let orders: any[];
       
@@ -7957,13 +9223,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fetch order items with product names for each order
       const ordersWithItemsRaw = await Promise.all(
         orders.map(async (order) => {
-          const items = await storage.getOrderItems(order.id);
-          const orderHistory = await storage.getOrderStatusHistory(order.id);
-          const verificationSummary = extractVerificationSummary(orderHistory);
-          const busDeliveryWorkflow = isBusMethod(order.deliveryMethod)
+          const [items, orderHistory] = includeItems
+            ? await Promise.all([
+                storage.getOrderItems(order.id),
+                storage.getOrderStatusHistory(order.id),
+              ])
+            : [[], []];
+          const verificationSummary = includeItems ? extractVerificationSummary(orderHistory) : null;
+          const busDeliveryWorkflow = includeItems && isBusMethod(order.deliveryMethod)
             ? extractBusDeliveryWorkflow(orderHistory, order)
             : null;
-          const normalizedVerificationSummary = isBusMethod(order.deliveryMethod)
+          const normalizedVerificationSummary = verificationSummary && isBusMethod(order.deliveryMethod)
             ? {
                 sellerToRider: verificationSummary.sellerToRider || null,
                 riderToBuyer: null,
@@ -7977,7 +9247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             !seller && orderStore?.primarySellerId ? await storage.getUser(orderStore.primarySellerId) : null;
           let resolvedSeller = seller || fallbackSeller;
           let resolvedStore = orderStore || sellerStoresBySellerId.get(order.sellerId) || null;
-          if (!resolvedSeller || !resolvedStore) {
+          if (!lightweightList && (!resolvedSeller || !resolvedStore)) {
             const inferred = await inferOrderSellerContext(order);
             if (!resolvedSeller && inferred.sellerRecord) resolvedSeller = inferred.sellerRecord;
             if (!resolvedStore && inferred.storeRecord) resolvedStore = inferred.storeRecord;
@@ -7990,7 +9260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
           const rider = order.riderId ? ridersById.get(order.riderId) : null;
-          const pickupStationInfo = await buildPickupStationInfo(order);
+          const pickupStationInfo = includeItems ? await buildPickupStationInfo(order) : null;
           const securedOrder = sanitizeOrderVerificationSecrets(order, req.user!);
           const deliveryMethod = String(order?.deliveryMethod || "").toLowerCase().trim();
           const isPickup = deliveryMethod === "pickup";
@@ -8002,17 +9272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             req.user!.role === "admin" ||
             req.user!.role === "super_admin" ||
             String(order?.buyerId || "") === String(req.user!.id);
-          if (isBuyerOrAdminViewer) {
-            if (isPickup && !securedOrder.pickupOtp) {
-              const newPickupOtp = generateOrderOtp();
-              await storage.updateOrder(order.id, { pickupOtp: newPickupOtp } as any);
-              securedOrder.pickupOtp = newPickupOtp;
-            }
-            if (!isPickup && !isBus && !isManualExternalDelivery && !securedOrder.deliveryOtp) {
-              const newDeliveryOtp = generateOrderOtp();
-              await storage.updateOrder(order.id, { deliveryOtp: newDeliveryOtp } as any);
-              securedOrder.deliveryOtp = newDeliveryOtp;
-            }
+          if (includeItems && isBuyerOrAdminViewer) {
             if (isPickup && !securedOrder.pickupOtp) {
               const newPickupOtp = generateOrderOtp();
               await storage.updateOrder(order.id, { pickupOtp: newPickupOtp } as any);
@@ -8205,19 +9465,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Enforce stakeholder access for order detail reads.
       const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
+      const isSupportAgent = req.user!.role === "agent";
       const isBuyer = req.user!.id === securedOrder.buyerId;
       const isSeller = req.user!.id === securedOrder.sellerId;
       const isRider = !!securedOrder.riderId && req.user!.id === securedOrder.riderId;
       const isStakeholder = isBuyer || isSeller || isRider;
 
-      if (!isAdmin && !isStakeholder) {
+      if (!isAdmin && !isSupportAgent && !isStakeholder) {
         return res.status(403).json({ error: "Unauthorized to view this order" });
       }
-      if (!isAdmin && visible.hidden) {
+      if (!isAdmin && !isSupportAgent && visible.hidden) {
         return res.status(404).json({ error: "Order not found" });
       }
 
       const pickupStationInfo = await buildPickupStationInfo(securedOrder);
+      const items = await storage.getOrderItems(securedOrder.id);
       let riderInfo: any = securedOrder.riderId
         ? {
             id: securedOrder.riderId,
@@ -8277,14 +9539,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Only include customer PII for admin/super_admin or the buyer themselves
-      if (isAdmin || isBuyer) {
+      const sellerLimitedOrderPayload = isSeller && !isAdmin && !isSupportAgent && !isBuyer
+        ? {
+            ...securedOrder,
+            deliveryPhone: null,
+          }
+        : securedOrder;
+
+      // Include customer contact details only for admin/support staff and the buyer.
+      if (isAdmin || isSupportAgent || isBuyer) {
         // Fetch customer/buyer information to display in order details
         const buyer = await storage.getUser(finalOrder.buyerId);
         
         // Return order with complete customer info (authorized)
         res.json({
-          ...securedOrder,
+          ...sellerLimitedOrderPayload,
+          items,
           riderInfo,
           sellerInfo,
           pickupStationInfo,
@@ -8300,7 +9570,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         // Return order with rider metadata but without customer PII.
         res.json({
-          ...securedOrder,
+          ...sellerLimitedOrderPayload,
+          items,
           riderInfo,
           sellerInfo,
           pickupStationInfo,
@@ -10784,6 +12055,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/sellers/:sellerId/dashboard", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
     try {
       const { sellerId } = req.params;
+      const liteMode = String(req.query.lite || req.query.mode || "").toLowerCase();
+      const isLite = liteMode === "1" || liteMode === "true" || liteMode === "summary";
       const seller = await storage.getUser(sellerId);
 
       if (!seller || seller.role !== "seller") {
@@ -10808,13 +12081,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(and(eq(featuredListings.sellerId, sellerId), eq(featuredListings.isActive, true))),
       ]);
 
-      const productsHydrated = await hydrateProductsWithCategories(rawProducts);
+      const sellerScopedProducts = rawProducts.filter((product: any) => !product?.dynamicFields?.archived);
+      const productsHydrated = isLite
+        ? sellerScopedProducts
+        : await hydrateProductsWithCategories(
+            await reconcileProductsWithLiveVariants(sellerScopedProducts),
+          );
       const productById = new Map(productsHydrated.map((product: any) => [product.id, product]));
 
       const buyerIds = Array.from(new Set(sales.map((order: any) => order.buyerId).filter(Boolean)));
       const riderIds = Array.from(new Set(sales.map((order: any) => order.riderId).filter(Boolean)));
       const relatedUserIds = Array.from(new Set([sellerId, ...buyerIds, ...riderIds]));
-      const buyers = relatedUserIds.length > 0
+      const buyers = !isLite && relatedUserIds.length > 0
         ? await db
             .select({
               id: users.id,
@@ -10828,7 +12106,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const buyerById = new Map(buyers.map((buyer) => [buyer.id, buyer]));
 
       const orderIds = sales.map((order: any) => order.id).filter(Boolean);
-      const orderItemRows = orderIds.length > 0
+      const orderItemRows = !isLite && orderIds.length > 0
         ? await db
             .select({
               orderId: orderItems.orderId,
@@ -11317,7 +12595,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         store.primarySellerId ? storage.getSellerCommissions(store.primarySellerId) : Promise.resolve([]),
       ]);
 
-      const storeProducts = await hydrateProductsWithCategories(storeProductsRaw);
+      const visibleStoreProducts = storeProductsRaw.filter((product: any) => !product?.dynamicFields?.archived);
+      const storeProducts = await hydrateProductsWithCategories(
+        await reconcileProductsWithLiveVariants(visibleStoreProducts),
+      );
       const buyerIds = Array.from(new Set(storeOrders.map((order: any) => order.buyerId).filter(Boolean)));
       const riderIds = Array.from(new Set(storeOrders.map((order: any) => order.riderId).filter(Boolean)));
       const relatedUserIds = Array.from(new Set([...buyerIds, ...riderIds, ...(store.primarySellerId ? [store.primarySellerId] : [])]));
@@ -11896,6 +13177,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/seller/message-contacts", requireAuth, requireRoleAllowInactive("seller"), requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const userId = req.user!.id;
+      const platformSettings = await storage.getPlatformSettings().catch(() => null as any);
+      const supportEmail = String(platformSettings?.contactEmail || "support@kiyumart.com").trim() || "support@kiyumart.com";
+      const supportPhone = String(platformSettings?.contactPhone || "").trim() || null;
+      const supportLabel = `${String(platformSettings?.platformName || "KiyuMart").trim() || "KiyuMart"} Support`;
 
       const [admins, superAdmins, agents] = await Promise.all([
         storage.getUsersByRole("admin"),
@@ -11906,16 +13191,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const sellerOrders = await storage.getOrdersByUser(userId, "seller");
       const activeStatuses = new Set([
-        "paid",
-        "preparing",
+        "pending",
+        "confirmed",
+        "processing",
+        "packaged",
         "ready",
+        "external_dispatch_arranged",
         "searching_rider",
         "assigned",
         "rider_arrived",
         "picked_up",
         "in_transit",
         "en_route",
-        "arrived",
+        "delivering",
+        "delivered",
+        "completed",
       ]);
 
       const activeStakeholderIds = new Set<string>();
@@ -11955,10 +13245,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (primarySupport) {
         allContacts.push({
           id: primarySupport.id,
-          name: "Support Agent",
-          email: "support@kiyumart.com",
+          name: supportLabel,
+          email: supportEmail,
           role: "support_agent",
-          phone: null,
+          phone: supportPhone,
           profileImage: primarySupport.profileImage || null,
           isActive: true,
         });
@@ -12692,6 +13982,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get(
+    "/api/admin/seller-stats",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("manage_users"),
+    async (_req, res) => {
+      try {
+        const [sellerUsers, sellerStores, productCounts, orderCounts] = await Promise.all([
+          storage.getUsersByRole("seller"),
+          storage.getStores(),
+          db
+            .select({
+              sellerId: products.sellerId,
+              count: sql<number>`cast(count(*) as int)`,
+            })
+            .from(products)
+            .groupBy(products.sellerId),
+          db
+            .select({
+              sellerId: orders.sellerId,
+              count: sql<number>`cast(count(*) as int)`,
+            })
+            .from(orders)
+            .where(isNotNull(orders.sellerId))
+            .groupBy(orders.sellerId),
+        ]);
+
+        const storeBySellerId = new Map(
+          sellerStores
+            .filter((store) => !!store.primarySellerId)
+            .map((store) => [String(store.primarySellerId), store]),
+        );
+        const productCountBySellerId = new Map(
+          productCounts
+            .filter((entry) => !!entry.sellerId)
+            .map((entry) => [String(entry.sellerId), Number(entry.count || 0)]),
+        );
+        const orderCountBySellerId = new Map(
+          orderCounts
+            .filter((entry) => !!entry.sellerId)
+            .map((entry) => [String(entry.sellerId), Number(entry.count || 0)]),
+        );
+
+        res.json(
+          sellerUsers.map((seller) => {
+            const linkedStore = storeBySellerId.get(String(seller.id));
+            return {
+              ...seller,
+              storeId: linkedStore?.id || null,
+              storeName: seller.storeName || linkedStore?.name || null,
+              storeBanner: seller.storeBanner || linkedStore?.banner || null,
+              storeLogo: linkedStore?.logo || null,
+              productCount: productCountBySellerId.get(String(seller.id)) || 0,
+              orderCount: orderCountBySellerId.get(String(seller.id)) || 0,
+            };
+          }),
+        );
+      } catch (error: any) {
+        console.error("GET /api/admin/seller-stats failed:", error?.message || error);
+        res.status(500).json({ error: "Could not load seller stats right now." });
+      }
+    },
+  );
+
   // ============ Platform Settings ============
   app.get("/api/settings", async (req, res) => {
     try {
@@ -12726,6 +14080,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!settings.mapboxGlVersion && process.env.VITE_MAPBOX_GL_VERSION) {
         toUpdate.mapboxGlVersion = process.env.VITE_MAPBOX_GL_VERSION;
       }
+      if (!settings.smtpHost && process.env.SMTP_HOST) {
+        toUpdate.smtpHost = process.env.SMTP_HOST;
+      }
+      if (!settings.smtpPort && process.env.SMTP_PORT) {
+        toUpdate.smtpPort = Number(process.env.SMTP_PORT);
+      }
+      if (!settings.smtpUser && process.env.SMTP_USER) {
+        toUpdate.smtpUser = process.env.SMTP_USER;
+      }
+      if (!settings.smtpPass && process.env.SMTP_PASS) {
+        toUpdate.smtpPass = process.env.SMTP_PASS;
+      }
+      if ((settings.smtpSecure === null || settings.smtpSecure === undefined) && process.env.SMTP_SECURE) {
+        toUpdate.smtpSecure = String(process.env.SMTP_SECURE).trim().toLowerCase() === "true";
+      }
+      if (!settings.smtpFromEmail && process.env.SMTP_FROM_EMAIL) {
+        toUpdate.smtpFromEmail = process.env.SMTP_FROM_EMAIL;
+      }
+      if (!settings.smtpFromName && process.env.SMTP_FROM_NAME) {
+        toUpdate.smtpFromName = process.env.SMTP_FROM_NAME;
+      }
 
       if (Object.keys(toUpdate).length > 0) {
         // Persist imported env settings so they become manageable via dashboard.
@@ -12756,11 +14131,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allowPickupAgentAdminChat: settings.allowPickupAgentAdminChat !== false,
         cloudinaryApiSecret: settings.cloudinaryApiSecret ? "••••••••••••••••" : "",
         paystackSecretKey: settings.paystackSecretKey ? "••••••••••••••••" : "",
+        smtpPass: settings.smtpPass ? "********************************" : "",
         cloudinaryApiSecretSource: getSource(settings.cloudinaryApiSecret ?? undefined, process.env.CLOUDINARY_API_SECRET),
         cloudinaryApiKeySource: getSource(settings.cloudinaryApiKey ?? undefined, process.env.CLOUDINARY_API_KEY),
         cloudinaryCloudNameSource: getSource(settings.cloudinaryCloudName ?? undefined, process.env.CLOUDINARY_CLOUD_NAME),
         paystackSecretKeySource: getSource(settings.paystackSecretKey ?? undefined, process.env.PAYSTACK_SECRET_KEY),
         paystackPublicKeySource: getSource(settings.paystackPublicKey ?? undefined, process.env.PAYSTACK_PUBLIC_KEY),
+        smtpHostSource: getSource(settings.smtpHost ?? undefined, process.env.SMTP_HOST),
+        smtpPortSource: getSource(
+          settings.smtpPort !== null && settings.smtpPort !== undefined ? String(settings.smtpPort) : undefined,
+          process.env.SMTP_PORT,
+        ),
+        smtpUserSource: getSource(settings.smtpUser ?? undefined, process.env.SMTP_USER),
+        smtpPassSource: getSource(settings.smtpPass ?? undefined, process.env.SMTP_PASS),
+        smtpFromEmailSource: getSource(settings.smtpFromEmail ?? undefined, process.env.SMTP_FROM_EMAIL),
+        smtpFromNameSource: getSource(settings.smtpFromName ?? undefined, process.env.SMTP_FROM_NAME),
         mapboxPublicTokenSource: getSource(
           settings.mapboxPublicToken ?? undefined,
           String(process.env.VITE_MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || "").trim() || undefined,
@@ -12895,12 +14280,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         isExternalRiderSystemEnabled: settings.isExternalRiderSystemEnabled === true,
         showCheckoutDeliveryMap: settings.showCheckoutDeliveryMap !== false,
+        isMultiVendor: settings.isMultiVendor === true,
+        allowSellerBankPayouts: settings.allowSellerBankPayouts !== false,
+        allowSellerDirectSupportMessages: settings.allowSellerDirectSupportMessages !== false,
+        contactEmail: String(settings.contactEmail || "support@kiyumart.com").trim() || "support@kiyumart.com",
       });
     } catch (error: any) {
       console.warn('[ROUTES] Falling back to public platform settings response:', error?.message || error);
       res.json({
         isExternalRiderSystemEnabled: false,
         showCheckoutDeliveryMap: true,
+        isMultiVendor: false,
+        allowSellerBankPayouts: true,
+        allowSellerDirectSupportMessages: true,
+        contactEmail: "support@kiyumart.com",
       });
     }
   });
@@ -12927,6 +14320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updated = await storage.updatePlatformSettings(toUpdate);
+      resetCloudinaryConfigCache();
       const sanitized = { ...updated, cloudinaryApiSecret: updated.cloudinaryApiSecret ? "••••••••••••••••" : "", paystackSecretKey: updated.paystackSecretKey ? "••••••••••••••••" : "" };
       res.json(sanitized);
     } catch (error: any) {
@@ -13001,6 +14395,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/settings/import-smtp", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (_req, res) => {
+    try {
+      const current = await storage.getPlatformSettings();
+      const toUpdate: any = {};
+      if (process.env.SMTP_HOST && !current.smtpHost) toUpdate.smtpHost = process.env.SMTP_HOST;
+      if (process.env.SMTP_PORT && !current.smtpPort) toUpdate.smtpPort = Number(process.env.SMTP_PORT);
+      if (process.env.SMTP_USER && !current.smtpUser) toUpdate.smtpUser = process.env.SMTP_USER;
+      if (process.env.SMTP_PASS && !current.smtpPass) toUpdate.smtpPass = process.env.SMTP_PASS;
+      if (process.env.SMTP_FROM_EMAIL && !current.smtpFromEmail) toUpdate.smtpFromEmail = process.env.SMTP_FROM_EMAIL;
+      if (process.env.SMTP_FROM_NAME && !current.smtpFromName) toUpdate.smtpFromName = process.env.SMTP_FROM_NAME;
+      if ((current.smtpSecure === null || current.smtpSecure === undefined) && process.env.SMTP_SECURE) {
+        toUpdate.smtpSecure = String(process.env.SMTP_SECURE).trim().toLowerCase() === "true";
+      }
+
+      if (Object.keys(toUpdate).length === 0) {
+        return res.json({ message: "No SMTP environment values to import", settings: current });
+      }
+
+      const updated = await storage.updatePlatformSettings(toUpdate);
+      res.json({
+        ...updated,
+        smtpPass: updated.smtpPass ? "********************************" : "",
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.patch("/api/settings", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_platform_settings"), async (req: AuthRequest, res) => {
     const start = Date.now();
     try {
@@ -13013,14 +14435,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
         delete updateData.isExternalRiderSystemEnabled;
         delete updateData.showCheckoutDeliveryMap;
         delete updateData.allowPickupAgentAdminChat;
+        delete updateData.showHomepageFeaturedSection;
+        delete updateData.showHomepageNewArrivalSection;
+        delete updateData.smtpHost;
+        delete updateData.smtpPort;
+        delete updateData.smtpUser;
+        delete updateData.smtpPass;
+        delete updateData.smtpSecure;
+        delete updateData.smtpFromEmail;
+        delete updateData.smtpFromName;
       }
 
       // Preserve sensitive fields when placeholders or empty values are submitted
-      if (!updateData.cloudinaryApiSecret || updateData.cloudinaryApiSecret === "••••••••••••••••") {
+      if (!updateData.cloudinaryApiSecret || isMaskedSecretValue(updateData.cloudinaryApiSecret)) {
         updateData.cloudinaryApiSecret = previousSettings.cloudinaryApiSecret;
       }
-      if (!updateData.paystackSecretKey || updateData.paystackSecretKey === "••••••••••••••••") {
+      if (!updateData.paystackSecretKey || isMaskedSecretValue(updateData.paystackSecretKey)) {
         updateData.paystackSecretKey = previousSettings.paystackSecretKey;
+      }
+      if (!updateData.paystackPublicKey || isMaskedSecretValue(updateData.paystackPublicKey)) {
+        updateData.paystackPublicKey = previousSettings.paystackPublicKey;
+      }
+      if (!updateData.smtpPass || isMaskedSecretValue(updateData.smtpPass)) {
+        updateData.smtpPass = previousSettings.smtpPass;
+      }
+      if (
+        updateData.paystackSecretKey &&
+        !isMaskedSecretValue(updateData.paystackSecretKey) &&
+        !isValidPaystackSecretKey(updateData.paystackSecretKey)
+      ) {
+        return res.status(400).json({
+          error: "Invalid Paystack secret key",
+          userMessage: "Please enter a valid Paystack secret key that starts with sk_test_ or sk_live_.",
+        });
+      }
+      if (
+        updateData.paystackPublicKey &&
+        !isMaskedSecretValue(updateData.paystackPublicKey) &&
+        !isValidPaystackPublicKey(updateData.paystackPublicKey)
+      ) {
+        return res.status(400).json({
+          error: "Invalid Paystack public key",
+          userMessage: "Please enter a valid Paystack public key that starts with pk_test_ or pk_live_.",
+        });
+      }
+      if (
+        isValidPaystackSecretKey(updateData.paystackSecretKey) &&
+        isValidPaystackPublicKey(updateData.paystackPublicKey) &&
+        getPaystackKeyMode(updateData.paystackSecretKey) !== getPaystackKeyMode(updateData.paystackPublicKey)
+      ) {
+        return res.status(400).json({
+          error: "Mismatched Paystack key modes",
+          userMessage: "Your Paystack secret key and public key must both be test keys or both be live keys.",
+        });
+      }
+
+      if (updateData.paystackSecretKey && isMaskedSecretValue(updateData.paystackSecretKey)) {
+        updateData.paystackSecretKey = previousSettings.paystackSecretKey;
+      }
+      if (updateData.paystackPublicKey && isMaskedSecretValue(updateData.paystackPublicKey)) {
+        updateData.paystackPublicKey = previousSettings.paystackPublicKey;
       }
 
       // Do not overwrite social links with empty strings accidentally - preserve previous unless explicitly set to null
@@ -13081,8 +14555,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ) {
         return res.status(400).json({ error: "Mapbox public token must start with pk." });
       }
+      if ("smtpPort" in updateData) {
+        const smtpPort = Number(updateData.smtpPort);
+        if (!Number.isFinite(smtpPort) || smtpPort <= 0) {
+          return res.status(400).json({ error: "SMTP port must be a valid positive number." });
+        }
+        updateData.smtpPort = smtpPort;
+      }
+      if ("smtpHost" in updateData && typeof updateData.smtpHost === "string") {
+        updateData.smtpHost = updateData.smtpHost.trim();
+      }
+      if ("smtpUser" in updateData && typeof updateData.smtpUser === "string") {
+        updateData.smtpUser = updateData.smtpUser.trim();
+      }
+      if ("smtpFromEmail" in updateData && typeof updateData.smtpFromEmail === "string") {
+        updateData.smtpFromEmail = updateData.smtpFromEmail.trim().toLowerCase();
+      }
+      if ("smtpFromName" in updateData && typeof updateData.smtpFromName === "string") {
+        updateData.smtpFromName = updateData.smtpFromName.trim();
+      }
 
-      const settings = await storage.updatePlatformSettings(updateData);
+      let settings;
+      try {
+        settings = await storage.updatePlatformSettings(updateData);
+      } catch (error: any) {
+        const message = String(error?.message || "");
+        const missingBankPayoutColumn =
+          message.includes("allow_seller_bank_payouts") &&
+          message.toLowerCase().includes("does not exist");
+        const missingExternalRiderColumn =
+          message.includes("is_external_rider_system_enabled") &&
+          message.toLowerCase().includes("does not exist");
+        const missingCheckoutMapColumn =
+          message.includes("show_checkout_delivery_map") &&
+          message.toLowerCase().includes("does not exist");
+        const missingPickupAgentChatColumn =
+          message.includes("allow_pickup_agent_admin_chat") &&
+          message.toLowerCase().includes("does not exist");
+        const missingSellerDirectSupportMessagesColumn =
+          message.includes("allow_seller_direct_support_messages") &&
+          message.toLowerCase().includes("does not exist");
+        const missingSharedVariantStockColumn =
+          message.includes("allow_shared_variant_color_stock") &&
+          message.toLowerCase().includes("does not exist");
+
+        if (
+          !missingBankPayoutColumn &&
+          !missingExternalRiderColumn &&
+          !missingCheckoutMapColumn &&
+          !missingPickupAgentChatColumn &&
+          !missingSellerDirectSupportMessagesColumn &&
+          !missingSharedVariantStockColumn
+        ) {
+          throw error;
+        }
+
+        console.warn(
+          "[ROUTES] platform settings update hit a missing newer feature column; retrying without unsupported fields",
+        );
+        delete updateData.allowSellerBankPayouts;
+        delete updateData.isExternalRiderSystemEnabled;
+        delete updateData.showCheckoutDeliveryMap;
+        delete updateData.allowPickupAgentAdminChat;
+        delete updateData.allowSellerDirectSupportMessages;
+        delete updateData.allowSharedVariantColorStock;
+        settings = await storage.updatePlatformSettings(updateData);
+      }
 
       if (previousSettings.allowPickupAgentAdminChat !== settings.allowPickupAgentAdminChat) {
         const { db } = await import("../db/index");
@@ -13122,6 +14660,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      if (
+        previousSettings.cloudinaryApiSecret !== settings.cloudinaryApiSecret ||
+        previousSettings.cloudinaryApiKey !== settings.cloudinaryApiKey ||
+        previousSettings.cloudinaryCloudName !== settings.cloudinaryCloudName
+      ) {
+        resetCloudinaryConfigCache();
+      }
+
       // Handle automatic store updates when multi-vendor mode is toggled
       if (previousSettings.isMultiVendor !== settings.isMultiVendor) {
         if (settings.isMultiVendor) {
@@ -13150,6 +14696,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log("Multi-vendor mode disabled - operating in single-store mode");
         }
       }
+
+      settings = {
+        ...settings,
+        smtpPass: settings.smtpPass ? "********************************" : "",
+      };
       
       res.json({
         ...settings,
@@ -13799,7 +15350,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { role } = req.query;
       const features = await storage.getRoleFeatures(role as string | undefined);
-      res.json(features);
+      res.json(
+        features.map((entry: any) => ({
+          ...entry,
+          features: sanitizeRoleFeaturePayload(entry.role, entry.features || {}),
+        })),
+      );
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -13823,6 +15379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (normalizedRole === "super_admin") {
         normalizedFeatures = Object.fromEntries(Object.keys(normalizedFeatures).map((key) => [key, true]));
       }
+      normalizedFeatures = sanitizeRoleFeaturePayload(normalizedRole, normalizedFeatures);
       
       const updatedFeatures = await storage.updateRoleFeatures(
         normalizedRole,
@@ -14025,6 +15582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { orderId, checkoutSessionId } = req.body;
       const forceRetry = req.body?.forceRetry === true;
+      const inlineMode = req.body?.inline === true;
       const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
       const isCompletedPaymentStatus = (value?: string | null) =>
         ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
@@ -14038,10 +15596,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get platform settings for Paystack key
       const settings = await storage.getPlatformSettings();
-      if (!settings.paystackSecretKey) {
+      const paystackKeyPair = resolvePaystackKeyPair(settings as any);
+      let paystackSecretKey = paystackKeyPair.secretKey;
+      let paystackPublicKey = paystackKeyPair.publicKey;
+      const configuredSecret = String((settings as any)?.paystackSecretKey || "").trim();
+      const configuredPublic = String((settings as any)?.paystackPublicKey || "").trim();
+      const secretSource = paystackKeyPair.secretSource;
+      const publicSource = paystackKeyPair.publicSource;
+      console.info(`[PAYMENTS] Initializing checkout: secretSource=${secretSource}, publicSource=${publicSource}, inline=${inlineMode}`);
+      if (!paystackSecretKey) {
         return res.status(503).json({ 
           error: "Payment gateway not configured", 
           userMessage: "Payment system is currently unavailable. Please contact support or try again later."
+        });
+      }
+      if (inlineMode && !paystackPublicKey) {
+        return res.status(503).json({
+          error: "Payment gateway public key not configured",
+          userMessage: "Payment system is currently unavailable. Please contact support or try again later.",
         });
       }
 
@@ -14050,11 +15622,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 8000);
           const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${settings.paystackSecretKey}`,
-              "Content-Type": "application/json",
-            },
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${paystackSecretKey}`,
+                "Content-Type": "application/json",
+              },
             signal: controller.signal,
           });
           clearTimeout(timeout);
@@ -14201,6 +15773,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const callbackBase = frontendHost || `${req.protocol}://${req.get('host')}`;
       const callbackUrl = `${callbackBase}/payment/verify`;
       console.debug('[PAYMENTS] Using callback URL for Paystack initialize:', callbackUrl);
+      const {
+        isValidGhanaMobileMoneyNumber,
+        normalizeGhanaMobileMoneyNumber,
+        normalizeGhanaMobileMoneyProvider,
+      } = await import("./paystack");
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
@@ -14277,6 +15854,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
               // Only include as Paystack subaccount if seller uses bank account payouts
               if (store.payoutType === 'bank_account') {
+                if (settings.allowSellerBankPayouts === false) {
+                  storeErrors.push(`Store ${store.name} bank payout setup is disabled by platform settings`);
+                  continue;
+                }
                 if (!store.isPayoutVerified || !store.paystackSubaccountId) {
                   storeErrors.push(`Store ${store.name} bank payout setup is incomplete`);
                   continue;
@@ -14286,10 +15867,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   share: sellerShare,
                 });
               } else if (store.payoutType === 'mobile_money') {
+                const normalizedProvider = normalizeGhanaMobileMoneyProvider(store.payoutDetails?.provider);
+                const normalizedMobileNumber = normalizeGhanaMobileMoneyNumber(store.payoutDetails?.mobileNumber);
                 if (
                   !store.isPayoutVerified ||
-                  !store.payoutDetails?.mobileNumber ||
-                  !store.payoutDetails?.provider
+                  !normalizedMobileNumber ||
+                  !normalizedProvider ||
+                  !isValidGhanaMobileMoneyNumber(normalizedMobileNumber, normalizedProvider)
                 ) {
                   storeErrors.push(`Store ${store.name} mobile money payout setup is incomplete`);
                   continue;
@@ -14300,8 +15884,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 paymentPayload.metadata.mobilePayouts.push({
                   storeId: store.id,
                   sellerId: store.primarySellerId,
-                  provider: store.payoutDetails?.provider,
-                  mobileNumber: store.payoutDetails?.mobileNumber,
+                  provider: normalizedProvider,
+                  mobileNumber: normalizedMobileNumber,
                   amountKobo: sellerShare,
                 });
               } else {
@@ -14346,6 +15930,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
               // Only assign as Paystack subaccount when seller uses bank account payouts
               if (store.payoutType === 'bank_account') {
+                if (settings.allowSellerBankPayouts === false) {
+                  return res.status(400).json({
+                    error: "Payment configuration incomplete",
+                    userMessage: `Store ${store.name} bank payout setup is currently disabled by platform settings.`,
+                  });
+                }
                 if (!store.isPayoutVerified || !store.paystackSubaccountId) {
                   return res.status(400).json({
                     error: "Payment configuration incomplete",
@@ -14364,10 +15954,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 paymentPayload.metadata.splitEnabled = true;
                 paymentPayload.metadata.sellerShareKobo = sellerShare;
               } else if (store.payoutType === 'mobile_money') {
+                const normalizedProvider = normalizeGhanaMobileMoneyProvider(store.payoutDetails?.provider);
+                const normalizedMobileNumber = normalizeGhanaMobileMoneyNumber(store.payoutDetails?.mobileNumber);
                 if (
                   !store.isPayoutVerified ||
-                  !store.payoutDetails?.mobileNumber ||
-                  !store.payoutDetails?.provider
+                  !normalizedMobileNumber ||
+                  !normalizedProvider ||
+                  !isValidGhanaMobileMoneyNumber(normalizedMobileNumber, normalizedProvider)
                 ) {
                   return res.status(400).json({
                     error: "Payment configuration incomplete",
@@ -14381,8 +15974,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 paymentPayload.metadata.splitEnabled = false;
                 paymentPayload.metadata.mobilePayout = paymentPayload.metadata.mobilePayout || {};
                 paymentPayload.metadata.mobilePayout[store.id] = {
-                  provider: store.payoutDetails?.provider,
-                  mobileNumber: store.payoutDetails?.mobileNumber,
+                  provider: normalizedProvider,
+                  mobileNumber: normalizedMobileNumber,
                   amountKobo: sellerShare,
                 };
               } else {
@@ -14407,25 +16000,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
         const { key: idempotencyKey } = await storage.createIdempotencyKey(`init-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, idempotencyPayload);
 
-        const response = await fetch("https://api.paystack.co/transaction/initialize", {
+        const initializePayment = async (secretKey: string) =>
+          fetch("https://api.paystack.co/transaction/initialize", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${settings.paystackSecretKey}`,
+            Authorization: `Bearer ${secretKey}`,
             "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey,
           },
           body: JSON.stringify(paymentPayload),
           signal: controller.signal,
         });
-        
+
+        let response = await initializePayment(paystackSecretKey);
+        let responsePublicKey = paystackPublicKey;
+         
         clearTimeout(timeout);
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          return res.status(502).json({ 
-            error: errorData.message || "Payment gateway error",
-            userMessage: "Unable to connect to payment gateway. Please try again in a few moments."
-          });
+          const gatewayMessage = String(errorData?.message || "").trim();
+          if (response.status === 401 || response.status === 403) {
+            const envSecret = String(process.env.PAYSTACK_SECRET_KEY || "").trim();
+            const envPublic = String(process.env.PAYSTACK_PUBLIC_KEY || "").trim();
+            const canRetryWithEnvPair =
+              isValidPaystackSecretKey(envSecret) &&
+              envSecret !== paystackSecretKey;
+
+            if (canRetryWithEnvPair) {
+              const retryResponse = await initializePayment(envSecret);
+              if (retryResponse.ok) {
+                response = retryResponse;
+                paystackSecretKey = envSecret;
+                if (isValidPaystackPublicKey(envPublic)) {
+                  responsePublicKey = envPublic;
+                }
+              } else {
+                const retryErrorData = await retryResponse.json().catch(() => ({}));
+                return res.status(502).json({
+                  error: String(retryErrorData?.message || gatewayMessage || "Payment gateway authentication failed").trim(),
+                  userMessage: "Payment gateway credentials need attention. Please contact support and try again shortly.",
+                });
+              }
+            } else {
+              return res.status(502).json({
+                error: gatewayMessage || "Payment gateway authentication failed",
+                userMessage: "Payment gateway credentials need attention. Please contact support and try again shortly.",
+              });
+            }
+          }
+          if (!response.ok) {
+            return res.status(502).json({ 
+              error: gatewayMessage || "Payment gateway error",
+              userMessage: gatewayMessage || "Unable to connect to payment gateway. Please try again in a few moments."
+            });
+          }
         }
 
         const data = await response.json();
@@ -14441,6 +16070,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.info(`[PAYMENTS] Paystack initialize response: reference=${data?.data?.reference} status=${data?.status}`);
         
         if (!data.status) {
+          await logSystemActivity({
+            category: "payment",
+            severity: "error",
+            title: "Paystack initialize failed",
+            message: data.message || "Paystack returned a failed initialize response.",
+            humanExplanation: "The Paystack gateway declined the initialization request.",
+            rootCause: "Paystack returned a non-success status during initialization.",
+            suggestedFix: "Verify Paystack credentials, order totals, and network connectivity.",
+            preventiveAction: "Keep Paystack keys in sync and monitor gateway health.",
+            source: "/api/payments/initialize",
+            entityType: "payment",
+            entityId: String(orderId || checkoutSessionId || ""),
+            actorId: String(req.user?.id || ""),
+            actorRole: String(req.user?.role || ""),
+            metadata: {
+              paystackStatus: data.status,
+              paystackMessage: data.message || null,
+              reference: data?.data?.reference || null,
+              orderIds: orders.map((o: any) => o.id),
+              orderNumbers: orders.map((o: any) => o.orderNumber),
+              amount: totalAmount,
+              currency: orders[0]?.currency || null,
+              inline: inlineMode,
+            },
+          });
           return res.status(400).json({ 
             error: data.message || "Payment initialization failed",
             userMessage: data.message || "Unable to initialize payment. Please try again."
@@ -14448,6 +16102,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         if (!data.data?.authorization_url || !data.data?.reference) {
+          await logSystemActivity({
+            category: "payment",
+            severity: "error",
+            title: "Paystack initialize returned invalid payload",
+            message: "Paystack did not return a valid authorization URL or reference.",
+            humanExplanation: "The gateway response was missing required fields for checkout.",
+            rootCause: "Paystack returned incomplete initialization data.",
+            suggestedFix: "Retry initialization and confirm Paystack API status.",
+            preventiveAction: "Monitor gateway health and validate responses.",
+            source: "/api/payments/initialize",
+            entityType: "payment",
+            entityId: String(orderId || checkoutSessionId || ""),
+            actorId: String(req.user?.id || ""),
+            actorRole: String(req.user?.role || ""),
+            metadata: {
+              paystackStatus: data.status,
+              paystackMessage: data.message || null,
+              reference: data?.data?.reference || null,
+              orderIds: orders.map((o: any) => o.id),
+              orderNumbers: orders.map((o: any) => o.orderNumber),
+              amount: totalAmount,
+              currency: orders[0]?.currency || null,
+              inline: inlineMode,
+            },
+          });
           return res.status(502).json({ 
             error: "Invalid payment gateway response",
             userMessage: "Payment system returned invalid data. Please try again."
@@ -14465,10 +16144,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await Promise.all(updatePromises);
 
         console.log(`✅ Payment initialized for ${isMultiVendor ? `${orders.length} orders in session ${checkoutSessionId}` : `order ${orders[0].orderNumber}`}`);
+        await logSystemActivity({
+          category: "payment",
+          severity: "info",
+          title: "Paystack initialize succeeded",
+          message: `Payment initialization created reference ${data.data.reference}.`,
+          humanExplanation: "The payment gateway accepted the initialization request and issued a reference.",
+          rootCause: "Valid Paystack credentials and order data were supplied.",
+          suggestedFix: "Proceed to Paystack inline checkout.",
+          preventiveAction: "Continue monitoring initialization success rate.",
+          source: "/api/payments/initialize",
+          entityType: "payment",
+          entityId: String(data.data.reference || ""),
+          actorId: String(req.user?.id || ""),
+          actorRole: String(req.user?.role || ""),
+          metadata: {
+            reference: data.data.reference,
+            accessCode: data.data.access_code,
+            authorizationUrl: data.data.authorization_url,
+            orderIds: orders.map((o: any) => o.id),
+            orderNumbers: orders.map((o: any) => o.orderNumber),
+            amount: totalAmount,
+            currency: orders[0]?.currency || null,
+            inline: inlineMode,
+            keySource: { secret: secretSource, public: publicSource },
+          },
+        });
 
-        res.json(data.data);
+        const inlineResponse = {
+          reference: data.data.reference,
+          access_code: data.data.access_code,
+          authorization_url: data.data.authorization_url,
+          inline: {
+            publicKey: responsePublicKey,
+            email: req.user!.email,
+            amount: Math.round(totalAmount * 100),
+            currency: orders[0].currency,
+            reference: data.data.reference,
+            accessCode: data.data.access_code,
+            channels: ["card", "bank_transfer", "mobile_money"],
+          },
+        };
+
+        res.json(inlineMode ? inlineResponse : data.data);
       } catch (fetchError: any) {
         clearTimeout(timeout);
+
+        const retryWithEnvSecret =
+          paystackSecretKey !== String(process.env.PAYSTACK_SECRET_KEY || "").trim() &&
+          String(process.env.PAYSTACK_SECRET_KEY || "").trim().length > 0;
+
+        if (retryWithEnvSecret) {
+          try {
+            const envSecret = String(process.env.PAYSTACK_SECRET_KEY || "").trim();
+            const retryResponse = await fetch("https://api.paystack.co/transaction/initialize", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${envSecret}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(paymentPayload),
+            });
+
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              if (retryData?.status && retryData?.data?.authorization_url && retryData?.data?.reference) {
+                const updatePromises = orders.map((order: any) =>
+                  storage.updateOrder(order.id, {
+                    paymentReference: retryData.data.reference,
+                    paymentStatus: "pending",
+                  })
+                );
+                await Promise.all(updatePromises);
+
+                const retryInlineResponse = {
+                  reference: retryData.data.reference,
+                  access_code: retryData.data.access_code,
+                  authorization_url: retryData.data.authorization_url,
+                  inline: {
+                    publicKey: paystackPublicKey,
+                    email: req.user!.email,
+                    amount: Math.round(totalAmount * 100),
+                    currency: orders[0].currency,
+                    reference: retryData.data.reference,
+                    accessCode: retryData.data.access_code,
+                    channels: ["card", "bank_transfer", "mobile_money"],
+                  },
+                };
+
+                return res.json(inlineMode ? retryInlineResponse : retryData.data);
+              }
+            }
+          } catch {
+            // Fall through to the normal gateway error response below.
+          }
+        }
         
         if (fetchError.name === 'AbortError') {
           return res.status(504).json({ 
@@ -14477,6 +16247,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
         
+        await logSystemActivity({
+          category: "payment",
+          severity: "error",
+          title: "Paystack initialize request failed",
+          message: fetchError?.message || "Payment gateway request failed.",
+          humanExplanation: "The platform could not reach Paystack to initialize checkout.",
+          rootCause: "Network timeout or Paystack API error during initialization.",
+          suggestedFix: "Check gateway connectivity and retry with valid credentials.",
+          preventiveAction: "Monitor gateway latency and configure retries.",
+          source: "/api/payments/initialize",
+          entityType: "payment",
+          entityId: String(orderId || checkoutSessionId || ""),
+          actorId: String(req.user?.id || ""),
+          actorRole: String(req.user?.role || ""),
+          metadata: {
+            orderIds: orders.map((o: any) => o.id),
+            orderNumbers: orders.map((o: any) => o.orderNumber),
+            amount: totalAmount,
+            currency: orders[0]?.currency || null,
+            inline: inlineMode,
+            error: fetchError?.message || null,
+          },
+        });
         return res.status(502).json({ 
           error: "Failed to connect to payment gateway",
           userMessage: "Unable to reach payment gateway. Please check your internet connection and try again."
@@ -14535,7 +16328,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function verifyReferenceAndProcess(reference: string, currentUserId?: string | undefined) {
     // Get platform settings for Paystack key
     const settings = await storage.getPlatformSettings();
-    if (!settings.paystackSecretKey) {
+    const paystackSecretKey = resolvePaystackSecretKey(settings as any);
+    if (!paystackSecretKey) {
       throw new Error("Payment gateway not configured");
     }
 
@@ -14566,6 +16360,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await Promise.allSettled(
           targetOrderIds.map((id: string) => storage.createCommissionWithEarning(id))
         );
+        try {
+          const cartOwnerId = currentUserId || existingTransaction.userId || null;
+          if (cartOwnerId && typeof storage.clearCart === "function") {
+            await storage.clearCart(cartOwnerId);
+          }
+        } catch (cartCleanupError: any) {
+          console.error("[VERIFY] Could not clear cart for completed transaction:", cartCleanupError?.message || cartCleanupError);
+        }
         await startRiderMatchingForPaidOrders(targetOrderIds);
         await ensureReceiptsForOrders(targetOrderIds, {
           trigger: "payment_success",
@@ -14591,7 +16393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let usedVerificationFallback = false;
     try {
       const response = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
-        headers: { Authorization: `Bearer ${settings.paystackSecretKey}` },
+        headers: { Authorization: `Bearer ${paystackSecretKey}` },
         signal: controller.signal,
       });
 
@@ -14707,6 +16509,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
 
       if (orders.every((o: any) => isCompletedPaymentStatus(o.paymentStatus))) {
+        await logSystemActivity({
+          category: "payment",
+          severity: "info",
+          title: "Paystack verification reused completed transaction",
+          message: "Payment verification reused an existing completed transaction record.",
+          humanExplanation: "The platform found a completed transaction for this reference and avoided duplicate processing.",
+          rootCause: "A prior verification or webhook already completed the transaction.",
+          suggestedFix: "No action needed unless the order state is incorrect.",
+          preventiveAction: "Continue to use idempotent verification flows.",
+          source: "/api/payments/verify",
+          entityType: "payment",
+          entityId: reference,
+          actorId: String(currentUserId || ""),
+          actorRole: currentUserId ? "buyer" : "system",
+          metadata: {
+            reference,
+            orderIds: orders.map((o: any) => o.id),
+            orderNumbers: orders.map((o: any) => o.orderNumber),
+            paymentStatus: "completed",
+          },
+        });
         return {
           transaction: await storage.getTransactionByReference(reference),
           verified: true,
@@ -14754,6 +16577,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               } as any);
             })
           );
+          try {
+            if (primaryOrder?.buyerId && typeof storage.clearCart === "function") {
+              await storage.clearCart(primaryOrder.buyerId);
+            }
+          } catch (cartCleanupError: any) {
+            console.error("[VERIFY] Could not clear cart after fallback payment success:", cartCleanupError?.message || cartCleanupError);
+          }
           const commissionResults = await Promise.allSettled(
             orders.map((o: any) => storage.createCommissionWithEarning(o.id))
           );
@@ -14815,31 +16645,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      if (data.data.status === "success") {
-        await startRiderMatchingForPaidOrders(orders.map((o: any) => o.id));
-        await ensureReceiptsForOrders(
+        if (data.data.status === "success") {
+          await startRiderMatchingForPaidOrders(orders.map((o: any) => o.id));
+          await ensureReceiptsForOrders(
           orders.map((o: any) => o.id),
           {
             trigger: "payment_success",
             generatedBy: currentUserId || primaryOrder.buyerId || null,
             generatedByRole: currentUserId ? "buyer" : "super_admin",
           },
-        );
-        if (usedVerificationFallback) {
-          try {
-            await Promise.all(
-              orders
-                .filter((order: any) => Boolean(order?.sellerId))
+          );
+          if (usedVerificationFallback) {
+            try {
+              const orderNumbers = orders.map((o: any) => `#${o.orderNumber}`).join(", ");
+              const totalPaid = (Number(data.data.amount || 0) / 100).toFixed(2);
+              await storage.createNotification({
+                userId: primaryOrder.buyerId,
+                type: "order",
+                title: "New Order Placed",
+                message:
+                  orders.length === 1
+                    ? `Your order ${orderNumbers} has been placed successfully. Payment confirmed: ${data.data.currency} ${totalPaid}.`
+                    : `Your orders ${orderNumbers} have been placed successfully. Payment confirmed: ${data.data.currency} ${totalPaid}.`,
+                metadata: {
+                  orderIds: orders.map((o: any) => o.id),
+                  orderNumbers: orders.map((o: any) => o.orderNumber),
+                  link: "/orders",
+                  paymentStatus: "completed",
+                } as any,
+              });
+            } catch (buyerPaidNotifyErr) {
+              console.error("[VERIFY] Could not send buyer paid-order notification:", buyerPaidNotifyErr);
+            }
+            try {
+              await Promise.all(
+                orders
+                  .filter((order: any) => Boolean(order?.sellerId))
                 .map(async (order: any) => {
                   const deliveryMethod = String(order.deliveryMethod || "").toLowerCase().trim();
                   const isPickup = deliveryMethod === "pickup" || deliveryMethod === "store_pickup";
                   const sellerMessage = isPickup
-                    ? `Order #${order.orderNumber} has been paid. Start packaging and mark it as packaged when the pickup order is prepared.`
-                    : `Order #${order.orderNumber} has been paid. Start packaging and mark it ready when dispatch preparation is complete.`;
+                    ? `A new order #${order.orderNumber} has been placed and paid. Start packaging and mark it as packaged when the pickup order is prepared.`
+                    : `A new order #${order.orderNumber} has been placed and paid. Start packaging and mark it ready when dispatch preparation is complete.`;
                   await storage.createNotification({
                     userId: order.sellerId,
                     type: "order",
-                    title: "New Paid Order",
+                    title: "New Order Placed",
                     message: sellerMessage,
                     metadata: {
                       orderId: order.id,
@@ -14879,6 +16730,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      await logSystemActivity({
+        category: "payment",
+        severity: data.data.status === "success" ? "info" : "warning",
+        title: "Paystack verification completed",
+        message: data.data.status === "success"
+          ? "Payment verified successfully with Paystack."
+          : data.data.gateway_response || "Payment verification completed with a non-success status.",
+        humanExplanation: "The platform verified the payment reference with Paystack.",
+        rootCause: "Paystack verification responded with the latest payment status.",
+        suggestedFix: data.data.status === "success"
+          ? "Continue order fulfillment."
+          : "Review Paystack response and retry verification if needed.",
+        preventiveAction: "Monitor Paystack status codes and keep credentials valid.",
+        source: "/api/payments/verify",
+        entityType: "payment",
+        entityId: reference,
+        actorId: String(currentUserId || ""),
+        actorRole: currentUserId ? "buyer" : "system",
+        metadata: {
+          reference,
+          status: data.data.status,
+          gatewayResponse: data.data.gateway_response || null,
+          amount: Number(data.data.amount || 0) / 100,
+          currency: data.data.currency,
+          channel: data.data.channel,
+          paidAt: data.data.paid_at || null,
+          customer: {
+            id: data.data.customer?.id,
+            email: data.data.customer?.email,
+            firstName: data.data.customer?.first_name,
+            lastName: data.data.customer?.last_name,
+          },
+          orderIds: orders.map((o: any) => o.id),
+          orderNumbers: orders.map((o: any) => o.orderNumber),
+          isMultiVendor,
+          metadata: data.data.metadata || {},
+        },
+      });
+
       const transaction = await storage.getTransactionByReference(reference);
 
       return {
@@ -14894,8 +16784,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       clearTimeout(timeout);
 
       if (fetchError.name === 'AbortError') {
+        await logSystemActivity({
+          category: "payment",
+          severity: "error",
+          title: "Paystack verification timed out",
+          message: "Paystack verification request timed out.",
+          humanExplanation: "The Paystack verification call took too long to respond.",
+          rootCause: "Gateway latency or network interruption.",
+          suggestedFix: "Retry verification after a short delay.",
+          preventiveAction: "Monitor gateway latency and add retries.",
+          source: "/api/payments/verify",
+          entityType: "payment",
+          entityId: reference,
+          actorId: String(currentUserId || ""),
+          actorRole: currentUserId ? "buyer" : "system",
+          metadata: {
+            reference,
+            error: "timeout",
+          },
+        });
         throw new Error('Payment verification timeout');
       }
+      await logSystemActivity({
+        category: "payment",
+        severity: "error",
+        title: "Paystack verification failed",
+        message: fetchError?.message || "Payment verification failed.",
+        humanExplanation: "An error occurred while verifying the Paystack reference.",
+        rootCause: "Gateway or validation error during verification.",
+        suggestedFix: "Retry verification and confirm Paystack status.",
+        preventiveAction: "Maintain resilient verification retries.",
+        source: "/api/payments/verify",
+        entityType: "payment",
+        entityId: reference,
+        actorId: String(currentUserId || ""),
+        actorRole: currentUserId ? "buyer" : "system",
+        metadata: {
+          reference,
+          error: fetchError?.message || null,
+        },
+      });
       throw fetchError;
     }
   }
@@ -14906,9 +16834,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const crypto = await import('crypto');
       const settings = await storage.getPlatformSettings();
+      const paystackSecretKey = resolvePaystackSecretKey(settings as any);
       
-      if (!settings.paystackSecretKey) {
+      if (!paystackSecretKey) {
         console.error('[WEBHOOK] Paystack secret key not configured');
+        await logSystemActivity({
+          category: "payment",
+          severity: "critical",
+          title: "Paystack webhook rejected (missing secret key)",
+          message: "Paystack webhook received but the secret key is not configured.",
+          humanExplanation: "The platform cannot verify webhook signatures without a Paystack secret key.",
+          rootCause: "Paystack secret key was missing from platform settings.",
+          suggestedFix: "Configure the Paystack secret key in platform settings.",
+          preventiveAction: "Keep payment credentials configured in all environments.",
+          source: "/api/webhooks/paystack",
+          entityType: "payment",
+          entityId: "webhook",
+          actorRole: "system",
+          metadata: {
+            event: (req as any)?.body?.event || null,
+          },
+        });
         return res.status(503).json({ error: "Payment gateway not configured" });
       }
 
@@ -14916,11 +16862,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rawBody = (req as any).rawBody;
       if (!rawBody) {
         console.error('[WEBHOOK] Missing raw body for signature verification');
+        await logSystemActivity({
+          category: "security",
+          severity: "error",
+          title: "Paystack webhook rejected (missing raw body)",
+          message: "Webhook request did not include raw body needed for signature verification.",
+          humanExplanation: "The webhook payload could not be verified.",
+          rootCause: "Request body was not captured before JSON parsing.",
+          suggestedFix: "Ensure raw body capture middleware is enabled for webhooks.",
+          preventiveAction: "Validate webhook middleware configuration on deploy.",
+          source: "/api/webhooks/paystack",
+          entityType: "payment",
+          entityId: "webhook",
+          actorRole: "system",
+          metadata: {
+            event: (req as any)?.body?.event || null,
+          },
+        });
         return res.status(400).json({ error: "Invalid request format" });
       }
 
       const hash = crypto
-        .createHmac('sha512', settings.paystackSecretKey)
+        .createHmac('sha512', paystackSecretKey)
         .update(rawBody)
         .digest('hex');
 
@@ -14930,11 +16893,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
           expected: hash.substring(0, 20) + '...',
           received: typeof paystackSignature === 'string' ? paystackSignature.substring(0, 20) + '...' : 'missing'
         });
+        await logSystemActivity({
+          category: "security",
+          severity: "critical",
+          title: "Paystack webhook signature mismatch",
+          message: "Webhook signature verification failed.",
+          humanExplanation: "The webhook signature did not match the expected HMAC.",
+          rootCause: "Signature mismatch or malicious webhook attempt.",
+          suggestedFix: "Verify Paystack secret key configuration.",
+          preventiveAction: "Monitor webhook signature failures and rotate keys if necessary.",
+          source: "/api/webhooks/paystack",
+          entityType: "payment",
+          entityId: "webhook",
+          actorRole: "system",
+          metadata: {
+            receivedSignature: typeof paystackSignature === "string" ? `${paystackSignature.substring(0, 20)}...` : null,
+          },
+        });
         return res.status(401).json({ error: "Invalid signature" });
       }
 
       const event = req.body as any;
       console.log('[WEBHOOK] Paystack event received:', event.event);
+      await logSystemActivity({
+        category: "payment",
+        severity: "info",
+        title: "Paystack webhook received",
+        message: `Webhook event ${event.event} received from Paystack.`,
+        humanExplanation: "Paystack sent a webhook event to the platform.",
+        rootCause: "Paystack emitted an event for a transaction state change.",
+        suggestedFix: "Review event payload if payment state is unexpected.",
+        preventiveAction: "Keep webhook endpoint healthy and authenticated.",
+        source: "/api/webhooks/paystack",
+        entityType: "payment",
+        entityId: event?.data?.reference || "webhook",
+        actorRole: "system",
+        metadata: {
+          event: event.event,
+          reference: event?.data?.reference || null,
+          amount: event?.data?.amount ? Number(event.data.amount) / 100 : null,
+          currency: event?.data?.currency || null,
+          status: event?.data?.status || null,
+          channel: event?.data?.channel || null,
+          customerEmail: event?.data?.customer?.email || null,
+        },
+      });
 
       // Handle different webhook events
       if (event.event === 'charge.success') {
@@ -14987,6 +16990,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
               trigger: "payment_success",
               generatedBy: null,
               generatedByRole: "super_admin",
+            });
+            await logSystemActivity({
+              category: "payment",
+              severity: "info",
+              title: "Paystack webhook processed",
+              message: "Webhook charge.success was processed and orders updated.",
+              humanExplanation: "The payment was confirmed and the order flow was updated.",
+              rootCause: "Paystack charge.success webhook received.",
+              suggestedFix: "No action needed unless orders are missing.",
+              preventiveAction: "Maintain webhook delivery and processing health.",
+              source: "/api/webhooks/paystack",
+              entityType: "payment",
+              entityId: reference || "webhook",
+              actorRole: "system",
+              metadata: {
+                event: "charge.success",
+                reference,
+                orderIds: paidOrderIds,
+                amount: data?.amount ? Number(data.amount) / 100 : null,
+                currency: data?.currency || null,
+              },
             });
             try {
               const orderListLabel = paidOrderIds.length > 0 ? paidOrderIds.join(", ") : "unknown";
@@ -15258,7 +17282,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[ADMIN-PAYOUT] Admin ${req.user!.email} updated payout ${id} to ${status}`);
       
       res.json(updated);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.code === "PAYOUT_VERIFICATION_REQUIRED") {
+        return res.status(400).json({ error: error.message || "Payout verification evidence is required before completion." });
+      }
       console.error('[ADMIN-PAYOUT] Error processing payout:', error);
       res.status(500).json({ error: "Failed to process payout" });
     }
@@ -15341,8 +17368,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const limit = Math.min(200, Math.max(1, Number(req.query.limit || 100)));
       const rows = await db.execute(sql`select * from order_payments order by order_created_at desc limit ${limit}`);
+      if (res.headersSent || res.writableEnded) {
+        return;
+      }
       res.json((rows as any).rows || []);
     } catch (error: any) {
+      if (res.headersSent || res.writableEnded) {
+        return;
+      }
       res.status(400).json({ error: error.message });
     }
   });
@@ -15731,6 +17764,109 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (error) {
       console.error("Error notifying admins:", error);
+    }
+  }
+
+  const ROLE_DISALLOWED_FEATURES: Record<string, string[]> = {
+    seller: ["support.manage"],
+    buyer: ["support.manage"],
+    rider: ["support.manage"],
+    pickup_agent: ["support.manage"],
+  };
+
+  function sanitizeRoleFeaturePayload(role: string, features: Record<string, boolean>) {
+    const normalizedRole = String(role || "").toLowerCase().trim();
+    const sanitized = { ...features };
+    for (const key of ROLE_DISALLOWED_FEATURES[normalizedRole] || []) {
+      delete sanitized[key];
+    }
+    return sanitized;
+  }
+
+  const LOW_STOCK_THRESHOLD = 5;
+
+  async function notifyUserDirect(
+    userId: string,
+    type: "product" | "system" | "order" | "message" | "payout" | "review" | "user",
+    title: string,
+    message: string,
+    metadata?: Record<string, any>,
+  ) {
+    await storage.createNotification({
+      userId,
+      type: type as any,
+      title,
+      message,
+      metadata,
+    });
+
+    io.to(userId).emit("notification", {
+      userId,
+      type,
+      title,
+      message,
+      metadata,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async function notifyLowStockIfNeeded(
+    previousProduct: { id: string; name: string; stock?: number | null; sellerId: string } | null | undefined,
+    currentProduct: { id: string; name: string; stock?: number | null; sellerId: string },
+  ) {
+    const previousStock = Number(previousProduct?.stock ?? Number.POSITIVE_INFINITY);
+    const currentStock = Number(currentProduct.stock ?? 0);
+    const crossedIntoLowStock = previousStock > LOW_STOCK_THRESHOLD && currentStock <= LOW_STOCK_THRESHOLD;
+
+    if (!crossedIntoLowStock || currentStock < 0) {
+      return;
+    }
+
+    const lowStockMessage =
+      currentStock <= 0
+        ? `${currentProduct.name} is now out of stock.`
+        : `${currentProduct.name} is running low with ${currentStock} item${currentStock === 1 ? "" : "s"} left.`;
+
+    try {
+      await notifyUserDirect(
+        currentProduct.sellerId,
+        "product",
+        "Low stock alert",
+        lowStockMessage,
+        {
+          productId: currentProduct.id,
+          sellerId: currentProduct.sellerId,
+          stock: currentStock,
+          threshold: LOW_STOCK_THRESHOLD,
+          link: "/seller/products",
+          alertKind: "low_stock",
+        },
+      );
+    } catch (sellerNotifyError) {
+      console.error("[LOW STOCK] Failed to notify seller:", sellerNotifyError);
+    }
+
+    try {
+      const superAdmins = await storage.getUsersByRole("super_admin");
+      for (const superAdmin of superAdmins) {
+        if (!superAdmin?.id || superAdmin.isActive === false) continue;
+        await notifyUserDirect(
+          superAdmin.id,
+          "product",
+          "Seller product is low on stock",
+          `${currentProduct.name} is low on stock with ${Math.max(currentStock, 0)} item${currentStock === 1 ? "" : "s"} left.`,
+          {
+            productId: currentProduct.id,
+            sellerId: currentProduct.sellerId,
+            stock: currentStock,
+            threshold: LOW_STOCK_THRESHOLD,
+            link: "/admin/products",
+            alertKind: "low_stock",
+          },
+        );
+      }
+    } catch (superAdminNotifyError) {
+      console.error("[LOW STOCK] Failed to notify super admins:", superAdminNotifyError);
     }
   }
 
@@ -18946,7 +21082,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Paystack Integration Routes ============
-  const { paystackService } = await import("./paystack");
+  const {
+    isValidGhanaMobileMoneyNumber,
+    normalizeGhanaMobileMoneyNumber,
+    normalizeGhanaMobileMoneyProvider,
+    paystackService,
+  } = await import("./paystack");
 
   // Get Ghana banks list
   app.get("/api/paystack/banks", requireAuth, async (req: AuthRequest, res) => {
@@ -18984,18 +21125,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { payoutType, payoutDetails } = req.body;
+      const normalizedPayoutDetails = { ...(payoutDetails || {}) };
+      const settings = await storage.getPlatformSettings();
 
       // Validate payout details based on type
       if (payoutType === "bank_account") {
-        if (!payoutDetails.bankCode || !payoutDetails.accountNumber) {
+        if (settings.allowSellerBankPayouts === false) {
+          return res.status(400).json({
+            error: "Bank account payouts are currently disabled. Please use mobile money.",
+          });
+        }
+        if (!normalizedPayoutDetails.bankCode || !normalizedPayoutDetails.accountNumber || !normalizedPayoutDetails.accountName || !normalizedPayoutDetails.bankName) {
           return res.status(400).json({ 
-            error: "Bank code and account number are required for bank account payouts" 
+            error: "Bank code, bank name, account number, and account name are required for bank account payouts" 
           });
         }
       } else if (payoutType === "mobile_money") {
-        if (!payoutDetails.provider || !payoutDetails.mobileNumber) {
+        normalizedPayoutDetails.provider = normalizeGhanaMobileMoneyProvider(normalizedPayoutDetails.provider);
+        normalizedPayoutDetails.mobileNumber = normalizeGhanaMobileMoneyNumber(normalizedPayoutDetails.mobileNumber);
+
+        if (
+          !normalizedPayoutDetails.provider ||
+          !normalizedPayoutDetails.mobileNumber ||
+          !isValidGhanaMobileMoneyNumber(normalizedPayoutDetails.mobileNumber, normalizedPayoutDetails.provider)
+        ) {
           return res.status(400).json({ 
-            error: "Provider and mobile number are required for mobile money payouts" 
+            error: "Provider and a valid Ghana mobile money number for that provider are required for mobile money payouts" 
           });
         }
       } else {
@@ -19005,7 +21160,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get platform settings for commission rate
-      const settings = await storage.getPlatformSettings();
       const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "1");
       
       let paystackIdentifier: string;
@@ -19015,8 +21169,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const seller = await storage.getUser(store.primarySellerId!);
         const subaccountData = {
           business_name: store.name,
-          bank_code: payoutDetails.bankCode,
-          account_number: payoutDetails.accountNumber,
+          bank_code: normalizedPayoutDetails.bankCode,
+          account_number: normalizedPayoutDetails.accountNumber,
           percentage_charge: commissionRate,
           description: `Seller: ${store.name}`,
           primary_contact_email: req.user!.email,
@@ -19030,21 +21184,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Mobile money payouts work differently (no subaccounts)
         // Store mobile money details for manual transfer processing
         // Format: mobile_{provider}_{number} for tracking
-        paystackIdentifier = `mobile_${payoutDetails.provider}_${payoutDetails.mobileNumber}`;
+        paystackIdentifier = `mobile_${normalizedPayoutDetails.provider}_${normalizedPayoutDetails.mobileNumber}`;
       }
 
       // Update store with payment configuration
       const updatedStore = await storage.updateStore(req.params.storeId, {
         paystackSubaccountId: paystackIdentifier,
         payoutType: payoutType,
-        payoutDetails: payoutDetails,
+        payoutDetails: normalizedPayoutDetails,
         isPayoutVerified: true,
       });
+
+      let releasedPayouts = { releasedCount: 0, releasedAmount: 0 };
+      try {
+        releasedPayouts = await storage.activateEligibleSellerPayoutsForSeller(store.primarySellerId!);
+      } catch (activationError: any) {
+        console.warn(
+          "[PAYOUT] Store payout setup completed, but held payout activation failed:",
+          activationError?.message || activationError,
+        );
+      }
+
+      try {
+        const payoutSetupMessage =
+          releasedPayouts.releasedCount > 0
+            ? `Your payout setup is complete. ${releasedPayouts.releasedCount} held payout${releasedPayouts.releasedCount === 1 ? "" : "s"} worth GHS ${releasedPayouts.releasedAmount.toFixed(2)} ${payoutType === "mobile_money" ? "have been queued for transfer" : "have been released"} for your seller account.`
+            : `Your payout setup is complete. Future seller earnings can now be transferred to your ${payoutType === "mobile_money" ? "mobile money wallet" : "bank account"}.`;
+
+        await storage.createNotification({
+          userId: store.primarySellerId!,
+          type: "payout",
+          title: "Payout Setup Complete",
+          message: payoutSetupMessage,
+          metadata: {
+            link: "/seller/payment-setup",
+            payoutType,
+            releasedCount: releasedPayouts.releasedCount,
+            releasedAmount: releasedPayouts.releasedAmount,
+          },
+        } as any);
+
+        io.to(store.primarySellerId!).emit("notification", {
+          type: "payout",
+          title: "Payout Setup Complete",
+          message: payoutSetupMessage,
+        });
+      } catch (notifyError: any) {
+        console.error("[SELLER_PAYOUT_SETUP] Failed to notify seller about payout setup completion:", notifyError?.message || notifyError);
+      }
 
       res.json({
         success: true,
         identifier: paystackIdentifier,
-        store: updatedStore
+        store: updatedStore,
+        releasedPayouts,
       });
     } catch (error: any) {
       res.status(400).json({ error: error.message });

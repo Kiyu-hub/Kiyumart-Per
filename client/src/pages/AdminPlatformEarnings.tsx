@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -50,6 +50,35 @@ type EarningRow = {
   storeId?: string | null;
   storeName?: string | null;
 };
+
+function CollapsibleDashboardSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Card className="border-border/70 bg-card shadow-sm">
+      <details open={defaultOpen}>
+        <summary className="cursor-pointer list-none px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-base font-semibold">{title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
+            </div>
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+          </div>
+        </summary>
+        <CardContent className="pt-0">{children}</CardContent>
+      </details>
+    </Card>
+  );
+}
 
 type AdminTransaction = {
   id: string;
@@ -245,7 +274,8 @@ export default function AdminPlatformEarnings() {
 
     const topStoreMap = new Map<string, number>();
     earningsArray.forEach((earning) => {
-      const storeName = getDisplayStoreName(earning);
+      const storeName = getResolvedStoreName(earning);
+      if (!storeName) return;
       topStoreMap.set(storeName, (topStoreMap.get(storeName) || 0) + num(earning.amount));
     });
 
@@ -369,7 +399,8 @@ export default function AdminPlatformEarnings() {
           minute: "2-digit",
         })
       : "N/A";
-  const getDisplayStoreName = (earning: EarningRow) => {
+
+  function getResolvedStoreName(earning: EarningRow): string | null {
     const storeName = String(earning.storeName || "").trim();
     if (storeName && storeName.toLowerCase() !== "unknown store") return storeName;
 
@@ -382,9 +413,14 @@ export default function AdminPlatformEarnings() {
       if (promotionMatch?.[1]) return promotionMatch[1].trim();
     }
 
-    return "Unknown Store";
-  };
-  const getEntryReference = (earning: EarningRow) => {
+    return null;
+  }
+
+  function getDisplayStoreName(earning: EarningRow) {
+    return getResolvedStoreName(earning) || "Unknown Store";
+  }
+
+  function getEntryReference(earning: EarningRow) {
     const normalizedType = String(earning.type || "").toLowerCase();
     if (earning.orderNumber || earning.orderId) {
       return {
@@ -404,7 +440,7 @@ export default function AdminPlatformEarnings() {
       title: `Entry ${entryRef || "N/A"}`,
       subtitle: earning.createdAt ? formatDate(earning.createdAt) : "Entry date unavailable",
     };
-  };
+  }
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return <PageLoadingState title="Loading finance access" description="Preparing the platform earnings workspace." />;
@@ -545,40 +581,42 @@ export default function AdminPlatformEarnings() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/70 bg-card shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">How Platform Earnings Accumulate</CardTitle>
+        <CollapsibleDashboardSection
+          title="How Platform Earnings Accumulate"
+          summary="Expand to view the finance explanation for how commission, fees, and promotion revenue are recorded."
+        >
+          <div className="space-y-4">
             <CardDescription>
               Platform earnings are recorded live from payment and commission events. Seller settlement and payout transfer costs remain separate.
             </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-              <p className="text-sm font-medium">Total Earnings</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Combined platform-side inflows from commission and promotion records.
-              </p>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+                <p className="text-sm font-medium">Total Earnings</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Combined platform-side inflows from commission and promotion records.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+                <p className="text-sm font-medium">Commission</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Deducted from the seller merchandise share only, after coupon discount and before seller settlement.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+                <p className="text-sm font-medium">Processing Fees</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Paid by the customer as the exact Paystack checkout fee. They are recorded separately from platform commission and never added to seller payout.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+                <p className="text-sm font-medium">Promotion Revenue</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Promotion income is recorded when promotion requests are confirmed and approved for activation.
+                </p>
+              </div>
             </div>
-            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-              <p className="text-sm font-medium">Commission</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Deducted from the seller merchandise share only, after coupon discount and before seller settlement.
-              </p>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-              <p className="text-sm font-medium">Processing Fees</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Paid by the customer as the exact Paystack checkout fee. They are recorded separately from platform commission and never added to seller payout.
-              </p>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-              <p className="text-sm font-medium">Promotion Revenue</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Promotion income is recorded when promotion requests are confirmed and approved for activation.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </CollapsibleDashboardSection>
 
         <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
           <Card>

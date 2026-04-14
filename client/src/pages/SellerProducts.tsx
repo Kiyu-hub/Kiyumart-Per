@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, Package, Edit, Trash2, Plus, Eye, AlertCircle, RotateCcw } from "lucide-react";
+import { Loader2, Search, Package, Edit, Trash2, Plus, Eye, AlertCircle, RotateCcw, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
@@ -25,7 +25,14 @@ import MediaUploadInput from "@/components/MediaUploadInput";
 import ProductGallery from "@/components/ProductGallery";
 import { CategorySelect } from "@/components/CategorySelect";
 import { PageLoadingState } from "@/components/ui/loading-state";
-import { StoreType } from "@shared/storeTypes";
+import { DynamicFieldRenderer } from "@/components/DynamicFieldRenderer";
+import {
+  StoreType,
+  getStoreTypeLabel,
+  getStoreTypeProductFields,
+  getStoreTypeVariantConfig,
+  buildStoreTypeProductDefaults,
+} from "@shared/storeTypes";
 
 interface Product {
   id: string;
@@ -44,12 +51,162 @@ interface Product {
   deliveryDuration: string | null;
   isActive: boolean;
   createdAt: string;
+  updatedAt?: string;
   dynamicFields?: Record<string, any>;
 }
 
 interface Store {
   id: string;
   storeType: StoreType;
+}
+
+interface PlatformSettingsLite {
+  allowSharedVariantColorStock?: boolean;
+}
+
+interface SizeGuideRow {
+  labelSize: string;
+  uk: string;
+  bust: string;
+  waist: string;
+  hips: string;
+  height: string;
+  length: string;
+  shoulder: string;
+  sleeve: string;
+}
+
+interface SizeGuideData {
+  displaySystem: string;
+  bodyRows: SizeGuideRow[];
+  productRows: SizeGuideRow[];
+}
+
+const getVariantImages = (variant: any): string[] => {
+  if (Array.isArray(variant?.images)) {
+    return variant.images.map((value: unknown) => String(value || "").trim()).filter(Boolean);
+  }
+  if (variant?.image) {
+    return [String(variant.image).trim()].filter(Boolean);
+  }
+  return [];
+};
+
+const resolveProductImagesFromVariants = (variants: any[], fallbackImages: string[] = []) => {
+  const uniqueImages = Array.from(
+    new Set(
+      variants.flatMap((variant) => getVariantImages(variant))
+    ),
+  ).filter(Boolean);
+
+  return uniqueImages.length > 0 ? uniqueImages.slice(0, 8) : fallbackImages;
+};
+
+const resolveProductStockFromVariants = (variants: any[], fallbackStock: number) => {
+  if (!variants.length) return fallbackStock;
+  return variants.reduce((total, variant) => total + (Number(variant?.stock) || 0), 0);
+};
+
+const normalizeVariantColor = (value: unknown) => String(value || "").trim().toLowerCase();
+const normalizeVariantOptionKey = (value: unknown) => String(value || "").trim().toLowerCase();
+const splitVariantSizes = (value: unknown) =>
+  String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const sanitizeLoadedVariants = (variants: any[]) =>
+  variants
+    .filter((variant) => Boolean(variant?.id))
+    .map((variant) => ({
+      ...variant,
+      color: String(variant?.color || "").trim(),
+      size: splitVariantSizes(variant?.size).join(", "),
+      images: getVariantImages(variant),
+      stock: Number(variant?.stock) || 0,
+      originalStock: Number(variant?.originalStock ?? variant?.stock) || 0,
+    }));
+
+const getVariantSummaryFallback = (product?: Product | null) => {
+  const summary = (product as any)?.dynamicFields?.variantSummary;
+  return Array.isArray(summary) ? sanitizeLoadedVariants(summary) : [];
+};
+
+const getProductRemainingStock = (product: Product) => {
+  const variantSummary = getVariantSummaryFallback(product);
+  const productStock = Number(product?.stock);
+  const normalizedProductStock = Number.isFinite(productStock) ? Math.max(0, productStock) : null;
+  if (variantSummary.length > 0) {
+    const summaryStock = variantSummary.reduce((total, variant) => total + (Number(variant?.stock) || 0), 0);
+    if (normalizedProductStock !== null) {
+      return Math.min(summaryStock, normalizedProductStock);
+    }
+    return summaryStock;
+  }
+
+  if (normalizedProductStock !== null) {
+    return normalizedProductStock;
+  }
+
+  return Math.max(0, Number(product?.stock || 0));
+};
+
+const buildVariantSummarySnapshotLocal = (variants: any[] = []) =>
+  sanitizeLoadedVariants(variants).map((variant) => {
+    const images = getVariantImages(variant);
+    return {
+      id: variant.id,
+      color: String(variant?.color || "").trim(),
+      size: String(variant?.size || "").trim(),
+      images,
+      image: images[0] || null,
+      stock: Number(variant?.stock) || 0,
+      originalStock: Number(variant?.originalStock ?? variant?.stock) || 0,
+    };
+  });
+
+const buildProductDynamicFieldsPayload = (
+  storeType: StoreType | undefined,
+  rawDynamicFields: Record<string, any> | undefined,
+  extras: {
+    homepageFeatured: boolean;
+    homepageNewArrival: boolean;
+    sizeGuide: SizeGuideData;
+    variantSummary: any[];
+  },
+) => {
+  const currentDynamicFields = rawDynamicFields || {};
+  const storeSpecific = storeType
+    ? buildStoreTypeProductDefaults(storeType, currentDynamicFields.storeSpecific)
+    : currentDynamicFields.storeSpecific || {};
+
+  return {
+    ...currentDynamicFields,
+    storeType: storeType || currentDynamicFields.storeType || null,
+    homepageFeatured: extras.homepageFeatured,
+    homepageNewArrival: extras.homepageNewArrival,
+    sizeGuide: extras.sizeGuide,
+    variantSummary: extras.variantSummary,
+    storeSpecific,
+  };
+};
+
+async function requestSameOriginJson<T>(method: string, url: string, data?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    credentials: "include",
+    headers: data ? { "Content-Type": "application/json" } : undefined,
+    body: data ? JSON.stringify(data) : undefined,
+  });
+
+  const text = await res.text();
+  const parsed = text ? JSON.parse(text) : null;
+
+  if (!res.ok) {
+    throw new Error(parsed?.error || text || `${method} ${url} failed`);
+  }
+
+  return parsed as T;
 }
 
 interface SellerCategoryRequest {
@@ -73,6 +230,68 @@ const DELIVERY_DURATION_PRESETS = [
   "1-2 weeks",
 ] as const;
 
+const SIZE_DISPLAY_SYSTEMS = [
+  "Standard size",
+  "UK",
+  "US",
+  "EU",
+] as const;
+
+const createEmptySizeGuideRow = (labelSize = ""): SizeGuideRow => ({
+  labelSize,
+  uk: "",
+  bust: "",
+  waist: "",
+  hips: "",
+  height: "",
+  length: "",
+  shoulder: "",
+  sleeve: "",
+});
+
+const normalizeSizeGuideRows = (rows: unknown, sizes: string[]) => {
+  const rowMap = new Map<string, SizeGuideRow>();
+
+  if (Array.isArray(rows)) {
+    rows.forEach((row) => {
+      const labelSize = String((row as any)?.labelSize || "").trim();
+      if (!labelSize) return;
+      rowMap.set(labelSize.toLowerCase(), {
+        labelSize,
+        uk: String((row as any)?.uk || "").trim(),
+        bust: String((row as any)?.bust || "").trim(),
+        waist: String((row as any)?.waist || "").trim(),
+        hips: String((row as any)?.hips || "").trim(),
+        height: String((row as any)?.height || "").trim(),
+        length: String((row as any)?.length || "").trim(),
+        shoulder: String((row as any)?.shoulder || "").trim(),
+        sleeve: String((row as any)?.sleeve || "").trim(),
+      });
+    });
+  }
+
+  const orderedSizes = Array.from(
+    new Set(
+      [
+        ...sizes,
+        ...Array.from(rowMap.values()).map((row) => row.labelSize),
+      ]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  return orderedSizes.map((size) => rowMap.get(size.toLowerCase()) || createEmptySizeGuideRow(size));
+};
+
+const buildSizeGuideFromSource = (raw: any, sizes: string[]): SizeGuideData => ({
+  displaySystem: SIZE_DISPLAY_SYSTEMS.includes(raw?.displaySystem as any)
+    ? raw.displaySystem
+    : "Standard size",
+  bodyRows: normalizeSizeGuideRows(raw?.bodyRows, sizes),
+  productRows: normalizeSizeGuideRows(raw?.productRows, sizes),
+});
+
 const getDeliveryDurationPreset = (value?: string | null) => {
   const normalized = String(value || "").trim();
   if (!normalized) return "";
@@ -86,17 +305,17 @@ const requestCategorySchema = z.object({
   image: z.string().optional().or(z.literal("")),
 });
 
-// Base product schema (media rules: 3-8 images required, video optional)
+// Base product schema (media rules: 3-8 images required, video required)
 const baseProductSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   description: z.string().min(10, "Description must be at least 10 characters"),
   price: z.string().regex(/^\d+(\.\d{1,2})?$/, "Invalid price format"),
   compareAtPrice: z.string().regex(/^\d+(\.\d{1,2})?$/, "Invalid price format").optional().or(z.literal("")),
   categoryId: z.string().optional(),
-  stockQuantity: z.string().regex(/^\d+$/, "Must be a valid number"),
+  stockQuantity: z.string().optional().default("0"),
   tags: z.string().optional(),
-  images: z.array(z.string().url()).min(3, "Minimum 3 product images required").max(8, "Maximum 8 images allowed"),
-  videoUrl: z.string().url("Invalid video URL").optional().or(z.literal("")),
+  images: z.array(z.string().url()).max(8, "Maximum 8 images allowed").default([]),
+  videoUrl: z.string().url("Enter a valid video link"),
   deliveryDuration: z.string().optional(),
   inStock: z.boolean().default(true),
   homepageFeatured: z.boolean().default(false),
@@ -106,6 +325,7 @@ const baseProductSchema = z.object({
 
 function ProductFormDialog({ product, mode }: { product?: Product; mode: "create" | "edit" }) {
   const [open, setOpen] = useState(false);
+  const [isCustomDeliveryDuration, setIsCustomDeliveryDuration] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -115,12 +335,31 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
     enabled: !!user?.id,
   });
 
+  const { data: platformSettings } = useQuery<PlatformSettingsLite>({
+    queryKey: ["/api/platform-settings"],
+    enabled: !!user?.id,
+  });
+
+  const storeTypeProductFields = useMemo(
+    () => (store?.storeType ? getStoreTypeProductFields(store.storeType) : []),
+    [store?.storeType],
+  );
+  const variantConfig = useMemo(
+    () => getStoreTypeVariantConfig(store?.storeType || null),
+    [store?.storeType],
+  );
+
   const { data: freshProduct } = useQuery<Product | null>({
     queryKey: ["/api/products", product?.id, "seller-edit"],
     queryFn: async () => {
       if (!product?.id) return null;
       try {
-        return await fetchApiJson<Product>(`/api/products/${product.id}`);
+        const res = await fetch(`/api/products/${product.id}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error("Failed to load product");
+        return res.json();
       } catch {
         return null;
       }
@@ -134,23 +373,27 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   const productSchema = baseProductSchema;
   type ProductFormData = z.infer<typeof productSchema>;
 
-  const form = useForm<ProductFormData>({
-    resolver: zodResolver(productSchema),
-    defaultValues: effectiveProduct ? {
-      name: effectiveProduct.name,
-      description: effectiveProduct.description,
-      price: effectiveProduct.price,
-      compareAtPrice: effectiveProduct.costPrice || "",
-      categoryId: effectiveProduct.categoryId || undefined,
-      stockQuantity: effectiveProduct.stock.toString(),
-      tags: effectiveProduct.tags?.join(", ") || "",
-      images: effectiveProduct.images || [],
-      videoUrl: effectiveProduct.video || "",
-      deliveryDuration: (effectiveProduct as any).deliveryDuration || "",
+  const buildInitialFormValues = useCallback(
+    (sourceProduct?: Product | null): ProductFormData => sourceProduct ? {
+      name: sourceProduct.name,
+      description: sourceProduct.description,
+      price: sourceProduct.price,
+      compareAtPrice: sourceProduct.costPrice || "",
+      categoryId: sourceProduct.categoryId || undefined,
+      stockQuantity: sourceProduct.stock.toString(),
+      tags: sourceProduct.tags?.join(", ") || "",
+      images: sourceProduct.images || [],
+      videoUrl: sourceProduct.video || "",
+      deliveryDuration: (sourceProduct as any).deliveryDuration || "",
       inStock: true,
-      homepageFeatured: Boolean(effectiveProduct.dynamicFields?.homepageFeatured),
-      homepageNewArrival: Boolean(effectiveProduct.dynamicFields?.homepageNewArrival),
-      dynamicFields: effectiveProduct.dynamicFields || {},
+      homepageFeatured: Boolean(sourceProduct.dynamicFields?.homepageFeatured),
+      homepageNewArrival: Boolean(sourceProduct.dynamicFields?.homepageNewArrival),
+      dynamicFields: {
+        ...(sourceProduct.dynamicFields || {}),
+        storeSpecific: store?.storeType
+          ? buildStoreTypeProductDefaults(store.storeType, sourceProduct.dynamicFields?.storeSpecific)
+          : sourceProduct.dynamicFields?.storeSpecific || {},
+      },
     } : {
       name: "",
       description: "",
@@ -165,68 +408,177 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       inStock: true,
       homepageFeatured: false,
       homepageNewArrival: false,
-      dynamicFields: {},
+      dynamicFields: {
+        storeSpecific: store?.storeType ? buildStoreTypeProductDefaults(store.storeType) : {},
+      },
     },
+    [store?.storeType],
+  );
+
+  const form = useForm<ProductFormData>({
+    resolver: zodResolver(productSchema),
+    defaultValues: buildInitialFormValues(effectiveProduct),
   });
+  const initializedSnapshotRef = useRef<string>("");
 
   const watchedDeliveryDuration = form.watch("deliveryDuration");
+  const watchedDynamicFields = form.watch("dynamicFields");
   const selectedDeliveryPreset = getDeliveryDurationPreset(watchedDeliveryDuration);
+  const showCustomDeliveryDurationInput =
+    isCustomDeliveryDuration || selectedDeliveryPreset === "custom";
 
   // Variant management state
   const [productVariants, setProductVariants] = useState<any[]>([]);
   const [showVariantDialog, setShowVariantDialog] = useState(false);
   const [editingVariant, setEditingVariant] = useState<any>(null);
+  const [isVariantSubmitting, setIsVariantSubmitting] = useState(false);
+  const [activeVariantGroupId, setActiveVariantGroupId] = useState<string | null>(null);
+  const [sizeGuide, setSizeGuide] = useState<SizeGuideData>(() =>
+    buildSizeGuideFromSource(effectiveProduct?.dynamicFields?.sizeGuide, []),
+  );
 
   // Fetch variants when editing a product
-  const { data: existingVariants = [] } = useQuery<any[]>({
-    queryKey: ["/api/products", product?.id, "variants"],
-    enabled: !!product?.id && open,
+  const activeProductId = effectiveProduct?.id || product?.id;
+  const variantsQueryKey = activeProductId ? [`/api/products/${activeProductId}/variants`] : ["/api/products/variants/none"];
+
+  const { data: existingVariants } = useQuery<any[]>({
+    queryKey: variantsQueryKey,
+    queryFn: async () => {
+      if (!activeProductId) return [];
+      return requestSameOriginJson<any[]>("GET", `/api/products/${activeProductId}/variants`);
+    },
+    enabled: !!activeProductId && open,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: !!activeProductId && open ? 15000 : false,
+    staleTime: 0,
   });
+
+  const variantSizeLabels = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          productVariants.flatMap((variant) => {
+            const normalizedSizes = Array.isArray(variant?.sizes) && variant.sizes.length > 0
+              ? variant.sizes
+              : splitVariantSizes(variant?.size);
+            return normalizedSizes.map((value: unknown) => String(value || "").trim()).filter(Boolean);
+          }),
+        ),
+      ),
+    [productVariants],
+  );
+
+  useEffect(() => {
+    if (mode === "edit" && open) {
+      const fallbackVariants = getVariantSummaryFallback(effectiveProduct);
+      if (fallbackVariants.length > 0) {
+        setProductVariants(fallbackVariants);
+      }
+    }
+  }, [mode, open, effectiveProduct]);
 
   // Update variants when fetched
   useEffect(() => {
-    if (existingVariants && existingVariants.length > 0) {
-      setProductVariants(existingVariants);
-    } else if (mode === "create") {
+    if (Array.isArray(existingVariants) && existingVariants.length > 0) {
+      setProductVariants(sanitizeLoadedVariants(existingVariants));
+    } else if (mode === "edit" && Array.isArray(existingVariants) && existingVariants.length === 0) {
+      setProductVariants(getVariantSummaryFallback(effectiveProduct));
+    } else if (mode === "create" && open && productVariants.length === 0) {
       setProductVariants([]);
     }
-  }, [existingVariants, mode]);
+  }, [existingVariants, mode, open, productVariants.length, effectiveProduct]);
 
-  // Reset form when dialog opens/closes
   useEffect(() => {
-    if (open) {
-      form.reset(effectiveProduct ? {
-        name: effectiveProduct.name,
-        description: effectiveProduct.description,
-        price: effectiveProduct.price,
-        compareAtPrice: effectiveProduct.costPrice || "",
-        categoryId: effectiveProduct.categoryId || undefined,
-        stockQuantity: effectiveProduct.stock.toString(),
-        tags: effectiveProduct.tags?.join(", ") || "",
-        images: effectiveProduct.images || [],
-        videoUrl: effectiveProduct.video || "",
-        deliveryDuration: effectiveProduct.deliveryDuration || "",
-        inStock: true,
-        homepageFeatured: Boolean(effectiveProduct.dynamicFields?.homepageFeatured),
-        homepageNewArrival: Boolean(effectiveProduct.dynamicFields?.homepageNewArrival),
-        dynamicFields: effectiveProduct.dynamicFields || {},
-      } : {
-        name: "",
-        description: "",
-        price: "",
-        compareAtPrice: "",
-        categoryId: undefined,
-        stockQuantity: "0",
-        tags: "",
-        images: [],
-        videoUrl: "",
-        inStock: true,
-        homepageFeatured: false,
-        homepageNewArrival: false,
-        dynamicFields: {},
-      });
+    if (!open || !activeProductId) return;
+
+    let cancelled = false;
+
+    const loadVariants = async () => {
+      try {
+        const latestVariants = await requestSameOriginJson<any[]>("GET", `/api/products/${activeProductId}/variants`);
+        if (!cancelled) {
+          const normalizedVariants = Array.isArray(latestVariants) ? sanitizeLoadedVariants(latestVariants) : [];
+          setProductVariants(normalizedVariants.length > 0 ? normalizedVariants : getVariantSummaryFallback(effectiveProduct));
+        }
+      } catch {
+        if (!cancelled) {
+          setProductVariants(getVariantSummaryFallback(effectiveProduct));
+        }
+      }
+    };
+
+    loadVariants();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, activeProductId, effectiveProduct]);
+
+  useEffect(() => {
+    if (!open) return;
+    setSizeGuide(buildSizeGuideFromSource(effectiveProduct?.dynamicFields?.sizeGuide, variantSizeLabels));
+  }, [open, effectiveProduct]);
+
+  useEffect(() => {
+    if (!open) return;
+    setSizeGuide((prev) => buildSizeGuideFromSource(prev, variantSizeLabels));
+  }, [open, variantSizeLabels]);
+
+  useEffect(() => {
+    if (!open || !store?.storeType) return;
+
+    const currentDynamicFields = watchedDynamicFields || {};
+    const normalizedStoreSpecific = buildStoreTypeProductDefaults(
+      store.storeType,
+      currentDynamicFields.storeSpecific,
+    );
+
+    const currentSerialized = JSON.stringify(currentDynamicFields.storeSpecific || {});
+    const normalizedSerialized = JSON.stringify(normalizedStoreSpecific);
+
+    if (currentSerialized !== normalizedSerialized) {
+      form.setValue(
+        "dynamicFields",
+        {
+          ...currentDynamicFields,
+          storeSpecific: normalizedStoreSpecific,
+        },
+        { shouldDirty: false, shouldTouch: false },
+      );
     }
-  }, [open, effectiveProduct, form]);
+  }, [open, store?.storeType, watchedDynamicFields, form]);
+
+  // Reset form when the dialog first opens, and only hydrate fresher product data
+  // while the form is still untouched.
+  useEffect(() => {
+    if (!open) {
+      initializedSnapshotRef.current = "";
+      return;
+    }
+
+    const sourceProduct = freshProduct || product || null;
+    const snapshot = JSON.stringify({
+      id: sourceProduct?.id || "create",
+      updatedAt: sourceProduct?.updatedAt || "",
+      storeType: store?.storeType || "",
+    });
+    const shouldHydrate =
+      !initializedSnapshotRef.current ||
+      (!form.formState.isDirty && initializedSnapshotRef.current !== snapshot);
+
+    if (!shouldHydrate) return;
+
+    form.reset(buildInitialFormValues(sourceProduct));
+    initializedSnapshotRef.current = snapshot;
+
+    const initialDeliveryDuration = String(sourceProduct?.deliveryDuration || "").trim();
+    setIsCustomDeliveryDuration(
+      Boolean(initialDeliveryDuration) &&
+        !DELIVERY_DURATION_PRESETS.includes(initialDeliveryDuration as any),
+    );
+  }, [open, freshProduct, product, store?.storeType, form, buildInitialFormValues]);
 
   const createProductMutation = useMutation({
     mutationFn: async (data: ProductFormData) => {
@@ -242,16 +594,19 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         price: data.price,
         costPrice: data.compareAtPrice || null,
         categoryId: normalizedCategoryId,
-        stock: parseInt(data.stockQuantity),
-        images: data.images || [],
+        stock: resolveProductStockFromVariants(productVariants, 0),
+        images: resolveProductImagesFromVariants(productVariants, data.images || []),
         video: data.videoUrl || null,
         deliveryDuration: data.deliveryDuration || null,
         sellerId: user.id,
         storeId: store?.id || null,
         dynamicFields: {
-          ...(data.dynamicFields || {}),
-          homepageFeatured: Boolean(data.homepageFeatured),
-          homepageNewArrival: Boolean(data.homepageNewArrival),
+          ...buildProductDynamicFieldsPayload(store?.storeType, data.dynamicFields, {
+            homepageFeatured: Boolean(data.homepageFeatured),
+            homepageNewArrival: Boolean(data.homepageNewArrival),
+            sizeGuide,
+            variantSummary: buildVariantSummarySnapshotLocal(productVariants),
+          }),
         },
       };
 
@@ -259,8 +614,11 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         ? data.tags.split(",").map(t => t.trim()).filter(Boolean)
         : [];
 
-      const response = await apiRequest("POST", "/api/products", productData);
-      return response.json();
+      if (productVariants.length === 0) {
+        throw new Error("Add at least one variant before saving this product");
+      }
+
+      return requestSameOriginJson<any>("POST", "/api/products", productData);
     },
     onSuccess: async (createdProduct: any) => {
       // Create variants if any exist
@@ -269,7 +627,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
           for (const variant of productVariants) {
             if (variant.id?.startsWith("temp-")) {
               const { id, ...variantData } = variant;
-              await apiRequest("POST", `/api/products/${createdProduct.id}/variants`, variantData);
+              await requestSameOriginJson("POST", `/api/products/${createdProduct.id}/variants`, variantData);
             }
           }
         } catch (error: any) {
@@ -286,7 +644,9 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         title: "Success",
         description: "Product created successfully",
       });
-        queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller-dashboard", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/homepage/featured-products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/homepage/new-arrivals"] });
       setOpen(false);
@@ -312,14 +672,17 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         price: data.price,
         costPrice: data.compareAtPrice || null,
         categoryId: normalizedCategoryId,
-        stock: parseInt(data.stockQuantity),
-        images: data.images,
+        stock: resolveProductStockFromVariants(productVariants, 0),
+        images: resolveProductImagesFromVariants(productVariants, data.images || effectiveProduct?.images || []),
         video: data.videoUrl || null,
         deliveryDuration: data.deliveryDuration || null,
         dynamicFields: {
-          ...(data.dynamicFields || {}),
-          homepageFeatured: Boolean(data.homepageFeatured),
-          homepageNewArrival: Boolean(data.homepageNewArrival),
+          ...buildProductDynamicFieldsPayload(store?.storeType, data.dynamicFields, {
+            homepageFeatured: Boolean(data.homepageFeatured),
+            homepageNewArrival: Boolean(data.homepageNewArrival),
+            sizeGuide,
+            variantSummary: buildVariantSummarySnapshotLocal(productVariants),
+          }),
         },
       };
 
@@ -327,8 +690,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         ? data.tags.split(",").map(t => t.trim()).filter(Boolean)
         : [];
 
-      const response = await apiRequest("PATCH", `/api/products/${product?.id}`, updateData);
-      return response.json();
+      return requestSameOriginJson<any>("PATCH", `/api/products/${product?.id}`, updateData);
     },
     onSuccess: (updatedProduct: any) => {
       toast({
@@ -337,9 +699,19 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       });
       if (updatedProduct?.id) {
         queryClient.setQueryData(["/api/products", updatedProduct.id], updatedProduct);
+        queryClient.setQueryData(["/api/products", updatedProduct.id, "seller-edit"], updatedProduct);
       }
+      queryClient.setQueryData<Product[] | undefined>(["/api/products", "seller", user?.id], (current) =>
+        Array.isArray(current)
+          ? current.map((item) => (item.id === updatedProduct?.id ? { ...item, ...updatedProduct } : item))
+          : current,
+      );
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller-dashboard", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products", product?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", product?.id, "seller-edit"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", updatedProduct?.id, "seller-edit"] });
       queryClient.invalidateQueries({ queryKey: ["/api/homepage/featured-products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/homepage/new-arrivals"] });
       setOpen(false);
@@ -354,6 +726,14 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   });
 
   const onSubmit = (data: ProductFormData) => {
+    if (productVariants.length === 0) {
+      toast({
+        title: "Variant required",
+        description: "Add at least one color variant with sizes, stock, and 3-5 images.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (mode === "create") {
       createProductMutation.mutate(data);
     } else {
@@ -364,40 +744,156 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   // Variant management functions
   const handleCreateVariant = async (variantData: any) => {
     try {
+      setIsVariantSubmitting(true);
+      setActiveVariantGroupId(null);
+      const normalizedSizes = Array.isArray(variantData?.sizes)
+        ? variantData.sizes.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+        : [String(variantData?.size || "").trim()].filter(Boolean);
+      if (normalizedSizes.length === 0) {
+        throw new Error("Add at least one size before saving this variant");
+      }
+      const perSizeStock = Boolean(variantData?.perSizeStock);
+      const sizeStocks =
+        variantData?.sizeStocks && typeof variantData.sizeStocks === "object"
+          ? variantData.sizeStocks
+          : {};
+
       if (!product?.id) {
-        setProductVariants((prev) => [...prev, { ...variantData, id: `temp-${Date.now()}` }]);
+        const nextVariants = perSizeStock
+          ? normalizedSizes.map((size: string, index: number) => ({
+              ...variantData,
+              size,
+              stock: Math.max(0, parseInt(String(sizeStocks[size] ?? 0), 10) || 0),
+              originalStock: Math.max(0, parseInt(String(sizeStocks[size] ?? 0), 10) || 0),
+              id: `temp-${Date.now()}-${index}`,
+            }))
+          : [{
+              ...variantData,
+              size: normalizedSizes.join(", "),
+              originalStock: Math.max(0, Number(variantData?.stock) || 0),
+              id: `temp-${Date.now()}`,
+            }];
+        setProductVariants((prev) => [...prev, ...nextVariants]);
         setShowVariantDialog(false);
         setEditingVariant(null);
         return;
       }
 
-      const response = await apiRequest("POST", `/api/products/${product.id}/variants`, variantData);
-      const createdVariant = await response.json();
-      setProductVariants((prev) => [...prev, createdVariant]);
-      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id, "variants"] });
+      const createdVariants = perSizeStock
+        ? await Promise.all(
+            normalizedSizes.map(async (size: string) => {
+              return requestSameOriginJson<any>("POST", `/api/products/${product.id}/variants`, {
+                ...variantData,
+                size,
+                stock: Math.max(0, parseInt(String(sizeStocks[size] ?? 0), 10) || 0),
+              });
+            }),
+          )
+        : [
+            await requestSameOriginJson<any>("POST", `/api/products/${product.id}/variants`, {
+                ...variantData,
+                size: normalizedSizes.join(", "),
+            }),
+          ];
+      const latestVariants = await requestSameOriginJson<any[]>("GET", `/api/products/${product.id}/variants`);
+      setProductVariants(Array.isArray(latestVariants) ? sanitizeLoadedVariants(latestVariants) : createdVariants);
+      queryClient.invalidateQueries({ queryKey: [`/api/products/${product.id}/variants`] });
       queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller-dashboard", user?.id] });
       setShowVariantDialog(false);
       setEditingVariant(null);
-      toast({ title: "Success", description: "Variant created successfully" });
+      toast({
+        title: "Success",
+        description: "Variant created successfully",
+      });
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Failed to create variant", variant: "destructive" });
+    } finally {
+      setActiveVariantGroupId(null);
+      setIsVariantSubmitting(false);
     }
   };
 
   const handleUpdateVariant = async (variantData: any) => {
     try {
       if (!product?.id || !editingVariant) return;
+      setIsVariantSubmitting(true);
+      setActiveVariantGroupId(editingVariant.id);
 
-      const response = await apiRequest("PUT", `/api/products/${product.id}/variants/${editingVariant.id}`, variantData);
-      const updatedVariant = await response.json();
-      setProductVariants((prev) => prev.map((v) => (v.id === editingVariant.id ? updatedVariant : v)));
-      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id, "variants"] });
+      const normalizedSizes = Array.isArray(variantData?.sizes)
+        ? variantData.sizes.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+        : [String(variantData?.size || "").trim()].filter(Boolean);
+      if (normalizedSizes.length === 0) {
+        throw new Error("Add at least one size before updating this variant");
+      }
+      const perSizeStock = Boolean(variantData?.perSizeStock);
+      const sizeStocks =
+        variantData?.sizeStocks && typeof variantData.sizeStocks === "object"
+          ? variantData.sizeStocks
+          : {};
+      const existingVariants = Array.isArray(editingVariant?.variants) && editingVariant.variants.length > 0
+        ? editingVariant.variants
+        : [editingVariant.primaryVariant || editingVariant];
+
+      if (!perSizeStock) {
+        const keeper = existingVariants[0];
+        await requestSameOriginJson("PUT", `/api/products/${product.id}/variants/${keeper.id}`, {
+          ...variantData,
+          size: normalizedSizes.join(", "),
+        });
+
+        if (existingVariants.length > 1) {
+          for (const variant of existingVariants.slice(1)) {
+            await requestSameOriginJson("DELETE", `/api/products/${product.id}/variants/${variant.id}`);
+          }
+        }
+      } else {
+        const existingBySize = new Map<string, any>(
+          existingVariants.map((variant: any) => [normalizeVariantOptionKey(variant?.size), variant]),
+        );
+        const desiredSizes = new Set(normalizedSizes.map((size: string) => normalizeVariantOptionKey(size)));
+
+        for (const size of normalizedSizes) {
+          const existing = existingBySize.get(normalizeVariantOptionKey(size));
+          const nextStock = Math.max(0, parseInt(String(sizeStocks[size] ?? 0), 10) || 0);
+          if (existing) {
+            await requestSameOriginJson("PUT", `/api/products/${product.id}/variants/${existing.id}`, {
+              ...variantData,
+              size,
+              stock: nextStock,
+            });
+            existingBySize.delete(normalizeVariantOptionKey(size));
+          } else {
+            await requestSameOriginJson("POST", `/api/products/${product.id}/variants`, {
+              ...variantData,
+              size,
+              stock: nextStock,
+            });
+          }
+        }
+
+        for (const variant of Array.from(existingBySize.values()).filter(
+          (variant: any) => !desiredSizes.has(normalizeVariantOptionKey(variant?.size)),
+        ) as any[]) {
+          await requestSameOriginJson("DELETE", `/api/products/${product.id}/variants/${variant.id}`);
+        }
+      }
+
+      const latestVariants = await requestSameOriginJson<any[]>("GET", `/api/products/${product.id}/variants`);
+      setProductVariants(Array.isArray(latestVariants) ? sanitizeLoadedVariants(latestVariants) : []);
+      queryClient.invalidateQueries({ queryKey: [`/api/products/${product.id}/variants`] });
       queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller-dashboard", user?.id] });
       setShowVariantDialog(false);
       setEditingVariant(null);
       toast({ title: "Success", description: "Variant updated successfully" });
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Failed to update variant", variant: "destructive" });
+    } finally {
+      setActiveVariantGroupId(null);
+      setIsVariantSubmitting(false);
     }
   };
 
@@ -408,17 +904,107 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         return;
       }
 
-      await apiRequest("DELETE", `/api/products/${product.id}/variants/${variantId}`);
-      setProductVariants((prev) => prev.filter((v) => v.id !== variantId));
-      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id, "variants"] });
+      await requestSameOriginJson("DELETE", `/api/products/${product.id}/variants/${variantId}`);
+      const latestVariants = await requestSameOriginJson<any[]>("GET", `/api/products/${product.id}/variants`);
+      setProductVariants(Array.isArray(latestVariants) ? sanitizeLoadedVariants(latestVariants) : []);
+      queryClient.invalidateQueries({ queryKey: [`/api/products/${product.id}/variants`] });
       queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller-dashboard", user?.id] });
       toast({ title: "Success", description: "Variant deleted successfully" });
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Failed to delete variant", variant: "destructive" });
     }
   };
 
+  const handleDeleteVariantGroup = async (variantsToDelete: any[]) => {
+    try {
+      if (!variantsToDelete.length) return;
+
+      if (!product?.id) {
+        const ids = new Set(variantsToDelete.map((variant) => variant.id));
+        setProductVariants((prev) => prev.filter((variant) => !ids.has(variant.id)));
+        return;
+      }
+
+      for (const variant of variantsToDelete) {
+        await requestSameOriginJson("DELETE", `/api/products/${product.id}/variants/${variant.id}`);
+      }
+
+      const latestVariants = await requestSameOriginJson<any[]>("GET", `/api/products/${product.id}/variants`);
+      setProductVariants(Array.isArray(latestVariants) ? sanitizeLoadedVariants(latestVariants) : []);
+      queryClient.invalidateQueries({ queryKey: [`/api/products/${product.id}/variants`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", product.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller-dashboard", user?.id] });
+      toast({
+        title: "Success",
+        description: "Variant deleted successfully",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete variant",
+        variant: "destructive",
+      });
+    }
+  };
+
   const isLoading = createProductMutation.isPending || updateProductMutation.isPending;
+  const groupedVariants = useMemo(() => {
+    const groups = new Map<string, any[]>();
+    for (const variant of productVariants) {
+      const key = normalizeVariantColor(variant?.color) || `variant-${variant?.id}`;
+      const current = groups.get(key) || [];
+      current.push(variant);
+      groups.set(key, current);
+    }
+
+    return Array.from(groups.values()).map((variants) => {
+      const primaryVariant = variants[0];
+      const usesPerSizeStock =
+        variants.length > 1 &&
+        variants.every((variant) => splitVariantSizes(variant?.size).length <= 1);
+      const sizes = Array.from(
+        new Set(
+          variants.flatMap((variant) => splitVariantSizes(variant?.size)),
+        ),
+      );
+      const totalStock = usesPerSizeStock
+        ? variants.reduce((sum, variant) => sum + (Number(variant?.stock) || 0), 0)
+        : variants.reduce(
+            (max, variant) => Math.max(max, Number(variant?.stock) || 0),
+            0,
+          );
+      const originalStock = usesPerSizeStock
+        ? variants.reduce((sum, variant) => sum + (Number(variant?.originalStock ?? variant?.stock) || 0), 0)
+        : variants.reduce(
+            (max, variant) => Math.max(max, Number(variant?.originalStock ?? variant?.stock) || 0),
+            0,
+          );
+      const imageCount = getVariantImages(primaryVariant).length;
+      const sizeStockMap = Object.fromEntries(
+        variants.flatMap((variant) =>
+          splitVariantSizes(variant?.size).map((size) => [size, Number(variant?.stock) || 0]),
+        ),
+      );
+
+      return {
+        id: primaryVariant?.id,
+        color: primaryVariant?.color || "-",
+        sizes,
+        sizeCount: sizes.length,
+        imageCount,
+        stock: totalStock,
+        originalStock,
+        remainingStock: totalStock,
+        perSizeStock: usesPerSizeStock,
+        sizeStockMap,
+        variants,
+        primaryVariant,
+      };
+    });
+  }, [productVariants]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -430,15 +1016,16 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
           </Button>
         ) : (
           <Button 
-            variant="ghost" 
+            variant="secondary" 
             size="icon"
+            className="h-7 w-7 border border-border/80 bg-background/95 shadow-sm backdrop-blur-sm hover:bg-background"
             data-testid={`button-edit-${product?.id}`}
           >
             <Edit className="h-4 w-4" />
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[min(96vw,72rem)] max-w-4xl max-h-[92vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "Add New Product" : "Edit Product"}</DialogTitle>
           <DialogDescription>
@@ -500,11 +1087,11 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                 name="compareAtPrice"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Compare At Price (Optional)</FormLabel>
+                    <FormLabel>Cost Price (Optional)</FormLabel>
                     <FormControl>
                       <Input type="number" step="0.01" placeholder="349.99" {...field} data-testid="input-product-compare-price" />
                     </FormControl>
-                    <FormDescription>Original price for showing discounts</FormDescription>
+                    <FormDescription>Your buying or cost price for this product</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -536,20 +1123,6 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="stockQuantity"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Stock Quantity *</FormLabel>
-                    <FormControl>
-                      <Input type="number" placeholder="10" {...field} data-testid="input-product-stock" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
             <FormField
               control={form.control}
               name="deliveryDuration"
@@ -559,14 +1132,14 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                   <FormControl>
                     <div className="space-y-3">
                       <Select
-                        value={selectedDeliveryPreset}
+                        value={showCustomDeliveryDurationInput ? "custom" : selectedDeliveryPreset}
                         onValueChange={(value) => {
                           if (value === "custom") {
-                            if (DELIVERY_DURATION_PRESETS.includes(String(field.value || "").trim() as any)) {
-                              field.onChange("");
-                            }
+                            setIsCustomDeliveryDuration(true);
+                            field.onChange("");
                             return;
                           }
+                          setIsCustomDeliveryDuration(false);
                           field.onChange(value);
                         }}
                       >
@@ -583,9 +1156,9 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                         </SelectContent>
                       </Select>
 
-                      {selectedDeliveryPreset === "custom" && (
+                      {showCustomDeliveryDurationInput && (
                         <Input
-                          placeholder="e.g. 4-6 business days"
+                          placeholder="e.g. 3 days or 4-6 business days"
                           {...field}
                           data-testid="input-delivery-duration"
                         />
@@ -600,6 +1173,38 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
               )}
             />
             </div>
+
+            {store?.storeType && storeTypeProductFields.length > 0 && (
+              <Card className="p-4 sm:p-5">
+                <div className="space-y-1">
+                  <h3 className="text-base font-semibold">
+                    {getStoreTypeLabel(store.storeType)} Product Details
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Add the extra product details buyers usually need for this type of store.
+                  </p>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {storeTypeProductFields.map((field) => {
+                    const isWideField = field.type === "textarea" || field.type === "multiselect";
+
+                    return (
+                      <div
+                        key={field.name}
+                        className={isWideField ? "md:col-span-2" : ""}
+                      >
+                        <DynamicFieldRenderer
+                          field={field}
+                          form={form}
+                          basePath="dynamicFields.storeSpecific"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
 
             <FormField
               control={form.control}
@@ -617,63 +1222,53 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
               />
 
             <Card className="p-4">
-              <h3 className="font-semibold mb-4">Homepage Display</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Only the first 5 featured products can appear on the homepage.
-              </p>
-              <div className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="homepageFeatured"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-1">
-                        <FormLabel>Featured Product</FormLabel>
-                        <FormDescription>Show this product in the homepage featured section.</FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-homepage-featured" />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
+              <details className="group" open={Boolean(form.watch("homepageFeatured") || form.watch("homepageNewArrival"))}>
+                <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
+                  <div>
+                    <h3 className="font-semibold">Homepage Display</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Show or hide this product in the homepage sections.
+                    </p>
+                  </div>
+                  <span className="text-sm text-muted-foreground transition-opacity group-open:hidden">Show</span>
+                  <span className="hidden text-sm text-muted-foreground transition-opacity group-open:inline">Hide</span>
+                </summary>
 
-                <FormField
-                  control={form.control}
-                  name="homepageNewArrival"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-1">
-                        <FormLabel>New Arrival</FormLabel>
-                        <FormDescription>Show this product in the homepage new arrivals section.</FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-homepage-new-arrival" />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              </div>
+                <div className="mt-4 space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="homepageFeatured"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-1">
+                          <FormLabel>Featured Product</FormLabel>
+                          <FormDescription>Show this product in the homepage featured section.</FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-homepage-featured" />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="homepageNewArrival"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-1">
+                          <FormLabel>New Arrival</FormLabel>
+                          <FormDescription>Show this product in the homepage new arrivals section.</FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-homepage-new-arrival" />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </details>
             </Card>
-
-            <FormField
-              control={form.control}
-              name="images"
-              render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <ProductGallery
-                      images={field.value || []}
-                      onChange={field.onChange}
-                      maxImages={8}
-                      required={true}
-                      description="Upload 3-8 high-quality product images - front, back, sides, and detailed shots"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
             <FormField
               control={form.control}
@@ -682,12 +1277,13 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                 <FormItem>
                   <MediaUploadInput
                     id="product-video"
-                    label="Product Video (Optional)"
+                    label="Product Video"
                     value={field.value || ""}
                     onChange={field.onChange}
                     accept="video"
                     placeholder="https://... or upload from computer"
-                    description="Upload a video or enter a Cloudinary video URL (max 30 seconds)"
+                    required={true}
+                    description="Upload a product video or paste a direct video link or a supported TikTok, YouTube, Instagram, Facebook, or Vimeo link. Longer videos are optimized automatically."
                   />
                   <FormMessage />
                 </FormItem>
@@ -699,56 +1295,87 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-lg font-semibold">Product Variants</h3>
-                  <p className="text-sm text-muted-foreground">Create different color/size combinations for this product</p>
+                  <p className="text-sm text-muted-foreground">
+                    {variantConfig.sectionDescription}
+                  </p>
                 </div>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setShowVariantDialog(true)}
+                  disabled={isVariantSubmitting}
+                  onClick={() => {
+                    setEditingVariant(null);
+                    setShowVariantDialog(true);
+                  }}
                   data-testid="button-add-variant"
                 >
-                  <Plus className="h-4 w-4 mr-2" />
+                  {isVariantSubmitting && !editingVariant ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4 mr-2" />
+                  )}
                   Add Variant
                 </Button>
               </div>
 
-              {productVariants.length > 0 && (
+              {groupedVariants.length > 0 && (
                 <div className="space-y-2">
-                  <div className="grid grid-cols-12 gap-2 text-sm font-medium text-muted-foreground border-b pb-2">
-                    <div className="col-span-2">Color</div>
-                    <div className="col-span-2">Size</div>
-                    <div className="col-span-2">SKU</div>
-                    <div className="col-span-2">Stock</div>
-                    <div className="col-span-2">Price Adj.</div>
-                    <div className="col-span-2">Actions</div>
+                  <div className="grid grid-cols-[1.5fr_1.6fr_0.7fr_0.8fr_0.9fr_0.9fr] gap-4 text-sm font-medium text-muted-foreground border-b pb-2">
+                    <div>{variantConfig.groupLabel}</div>
+                    <div>{variantConfig.optionsLabel}</div>
+                    <div className="text-center">Images</div>
+                    <div className="text-center">Original</div>
+                    <div className="text-center">Remaining</div>
+                    <div className="text-center">Actions</div>
                   </div>
-                  {productVariants.map((variant) => (
-                    <div key={variant.id} className="grid grid-cols-12 gap-2 text-sm items-center py-2 border-b">
-                      <div className="col-span-2">{variant.color || "-"}</div>
-                      <div className="col-span-2">{variant.size || "-"}</div>
-                      <div className="col-span-2">{variant.sku || "-"}</div>
-                      <div className="col-span-2">{variant.stock}</div>
-                      <div className="col-span-2">{variant.priceAdjustment ? `$${variant.priceAdjustment}` : "-"}</div>
-                      <div className="col-span-2 flex gap-1">
+                  {groupedVariants.map((variantGroup) => (
+                    <div key={variantGroup.id} className="grid grid-cols-[1.5fr_1.6fr_0.7fr_0.8fr_0.9fr_0.9fr] gap-4 text-sm items-center py-2 border-b">
+                      <div className="min-w-0 flex items-center gap-2">
+                        <span
+                          className="h-3.5 w-3.5 rounded-full border border-border shadow-sm"
+                          style={{ backgroundColor: variantGroup.color || "#9ca3af" }}
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">{variantGroup.color}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate">{variantGroup.sizes.join(", ")}</p>
+                        {variantGroup.sizeCount > 1 ? (
+                          <p className="text-xs text-muted-foreground">
+                            {variantGroup.sizeCount} sizes
+                            {variantGroup.perSizeStock ? " • stock per size" : ""}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="text-center">{variantGroup.imageCount}</div>
+                      <div className="text-center">{variantGroup.originalStock}</div>
+                      <div className="text-center">{variantGroup.remainingStock}</div>
+                      <div className="flex items-center justify-center gap-1">
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
+                          disabled={isVariantSubmitting}
                           onClick={() => {
-                            setEditingVariant(variant);
+                            setEditingVariant(variantGroup);
                             setShowVariantDialog(true);
                           }}
-                          data-testid={`button-edit-variant-${variant.id}`}
+                          data-testid={`button-edit-variant-${variantGroup.id}`}
                         >
-                          <Edit className="h-3 w-3" />
+                          {isVariantSubmitting && activeVariantGroupId === variantGroup.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Edit className="h-3 w-3" />
+                          )}
                         </Button>
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteVariant(variant.id)}
-                          data-testid={`button-delete-variant-${variant.id}`}
+                          disabled={isVariantSubmitting}
+                          onClick={() => handleDeleteVariantGroup(variantGroup.variants)}
+                          data-testid={`button-delete-variant-${variantGroup.id}`}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -761,11 +1388,20 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
               {productVariants.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   <Package className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>No variants created yet</p>
-                  <p className="text-sm">Add variants to offer different colors, sizes, or options</p>
+                  <p>{variantConfig.emptyStateLabel}</p>
+                  <p className="text-sm">{variantConfig.emptyStateDescription}</p>
                 </div>
               )}
             </Card>
+
+            {variantConfig.supportsSizeGuide ? (
+              <SizeGuideEditor
+                title={variantConfig.sizeGuideLabel}
+                sizeGuide={sizeGuide}
+                availableSizes={variantSizeLabels}
+                onChange={setSizeGuide}
+              />
+            ) : null}
 
             <div className="flex justify-end gap-3 pt-4">
               <Button
@@ -793,8 +1429,17 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       </DialogContent>
 
       {/* Variant Management Dialog */}
-      <Dialog open={showVariantDialog} onOpenChange={setShowVariantDialog}>
-        <DialogContent className="max-w-md">
+      <Dialog
+        open={showVariantDialog}
+        onOpenChange={(nextOpen) => {
+          if (isVariantSubmitting) return;
+          setShowVariantDialog(nextOpen);
+          if (!nextOpen) {
+            setEditingVariant(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingVariant ? "Edit Variant" : "Add Variant"}</DialogTitle>
             <DialogDescription>
@@ -804,8 +1449,13 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
 
           <VariantForm
             variant={editingVariant}
+            isEditing={Boolean(editingVariant)}
+            allowSharedStockOption={platformSettings?.allowSharedVariantColorStock === true}
+            variantConfig={variantConfig}
+            isSubmitting={isVariantSubmitting}
             onSubmit={editingVariant ? handleUpdateVariant : handleCreateVariant}
             onCancel={() => {
+              if (isVariantSubmitting) return;
               setShowVariantDialog(false);
               setEditingVariant(null);
             }}
@@ -1004,7 +1654,28 @@ function SellerCategoryRequestList({ storeType }: { storeType?: StoreType }) {
     enabled: !!storeType,
   });
 
-  const visibleRequests = requests.slice(0, 5);
+  const [dismissedRequestIds, setDismissedRequestIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const stored = window.localStorage.getItem("seller.dismissedCategoryRequestIds");
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed.map((value) => String(value)) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      "seller.dismissedCategoryRequestIds",
+      JSON.stringify(dismissedRequestIds),
+    );
+  }, [dismissedRequestIds]);
+
+  const visibleRequests = requests
+    .filter((request) => !dismissedRequestIds.includes(String(request.categoryId)))
+    .slice(0, 5);
 
   if (!storeType) {
     return (
@@ -1047,24 +1718,39 @@ function SellerCategoryRequestList({ storeType }: { storeType?: StoreType }) {
         <div className="mt-3 space-y-2">
           {visibleRequests.map((request) => (
             <div key={request.categoryId} className="rounded-lg border p-3">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{request.name}</p>
                   <p className="text-xs text-muted-foreground truncate">
                     {request.slug ? `/${request.slug}` : "Requested category"}
                   </p>
                 </div>
-                <Badge
-                  variant={
-                    request.status === "approved"
-                      ? "default"
-                      : request.status === "rejected"
-                        ? "destructive"
-                        : "outline"
-                  }
-                >
-                  {request.status === "approved" ? "Approved" : request.status === "rejected" ? "Rejected" : "Pending"}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={
+                      request.status === "approved"
+                        ? "default"
+                        : request.status === "rejected"
+                          ? "destructive"
+                          : "outline"
+                    }
+                  >
+                    {request.status === "approved" ? "Approved" : request.status === "rejected" ? "Rejected" : "Pending"}
+                  </Badge>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0 rounded-full"
+                    onClick={() =>
+                      setDismissedRequestIds((prev) => Array.from(new Set([...prev, String(request.categoryId)])))
+                    }
+                    aria-label={`Dismiss ${request.name} request`}
+                    data-testid={`button-dismiss-category-request-${request.categoryId}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">{request.message}</p>
               <p className="mt-2 text-[11px] text-muted-foreground">
@@ -1079,26 +1765,134 @@ function SellerCategoryRequestList({ storeType }: { storeType?: StoreType }) {
 }
 
 // Variant Form Component
-function VariantForm({ variant, onSubmit, onCancel }: {
+function VariantForm({ variant, isEditing = false, allowSharedStockOption = false, variantConfig, isSubmitting = false, onSubmit, onCancel }: {
   variant?: any;
+  isEditing?: boolean;
+  allowSharedStockOption?: boolean;
+  variantConfig: ReturnType<typeof getStoreTypeVariantConfig>;
+  isSubmitting?: boolean;
   onSubmit: (data: any) => void;
   onCancel: () => void;
 }) {
+  const primaryVariant = variant?.primaryVariant || variant;
+  const initialSize = String(primaryVariant?.size || "").trim();
+  const initialImages = getVariantImages(primaryVariant);
+  const presetOptions = variantConfig.secondaryPresetOptions;
+  const initialSizeList = Array.isArray(variant?.sizes) && variant.sizes.length > 0
+    ? variant.sizes.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+    : splitVariantSizes(initialSize);
+  const firstInitialSize = initialSizeList[0] || "";
+  const initialSelectedSize = presetOptions.includes(firstInitialSize) ? firstInitialSize : firstInitialSize ? "__custom__" : "";
+  const initialPerSizeStock = allowSharedStockOption ? Boolean(variant?.perSizeStock) : true;
+  const initialSizeStockMap = variant?.sizeStockMap && typeof variant.sizeStockMap === "object"
+    ? Object.fromEntries(
+        Object.entries(variant.sizeStockMap).map(([size, stock]) => [size, Number(stock) || 0]),
+      )
+    : Object.fromEntries(initialSizeList.map((size: string) => [size, Number(primaryVariant?.stock) || 0]));
   const [formData, setFormData] = useState({
-    color: variant?.color || "",
-    size: variant?.size || "",
-    sku: variant?.sku || "",
-    image: variant?.image || "",
-    stock: variant?.stock || 0,
-    priceAdjustment: variant?.priceAdjustment || "0",
+    color: primaryVariant?.color || variant?.color || "",
+    size: initialSelectedSize,
+    customSize: presetOptions.includes(firstInitialSize) ? "" : firstInitialSize,
+    sizes: initialSizeList,
+    images: initialImages,
+    stock: primaryVariant?.stock || variant?.stock || 0,
+    perSizeStock: initialPerSizeStock,
+    sizeStocks: initialSizeStockMap as Record<string, number>,
   });
+
+  useEffect(() => {
+    if (allowSharedStockOption) return;
+    setFormData((prev) => ({
+      ...prev,
+      perSizeStock: true,
+      sizeStocks: Object.fromEntries(
+        prev.sizes.map((size: string) => [size, prev.sizeStocks[size] ?? prev.stock ?? 0]),
+      ),
+    }));
+  }, [allowSharedStockOption]);
+
+  const resolvedCurrentSize = String(
+    formData.size === "__custom__" ? formData.customSize : formData.size || "",
+  ).trim();
+  const canAddCurrentSize = Boolean(
+    String(
+      formData.size === "__custom__" || !formData.size
+        ? formData.customSize
+        : formData.size,
+    ).trim(),
+  );
+  const hasAnySizeSelected = Array.from(
+    new Set(
+      [
+        ...formData.sizes,
+        ...(resolvedCurrentSize ? [resolvedCurrentSize] : []),
+      ]
+        .map((size) => String(size || "").trim())
+        .filter(Boolean),
+    ),
+  ).length > 0;
+
+  const addSize = () => {
+    const nextSize = String(
+      formData.size === "__custom__" || !formData.size
+        ? formData.customSize
+        : formData.size,
+    ).trim();
+    if (!nextSize) return;
+    setFormData((prev) => {
+      if (prev.sizes.includes(nextSize)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        sizes: [...prev.sizes, nextSize],
+        size: "",
+        customSize: "",
+        sizeStocks: prev.perSizeStock ? { ...prev.sizeStocks, [nextSize]: prev.sizeStocks[nextSize] ?? 0 } : prev.sizeStocks,
+      };
+    });
+  };
+
+  const removeSize = (sizeToRemove: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      sizes: prev.sizes.filter((size: string) => size !== sizeToRemove),
+      sizeStocks: Object.fromEntries(
+        Object.entries(prev.sizeStocks).filter(([size]) => size !== sizeToRemove),
+      ),
+    }));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    const normalizedColor = String(formData.color || "").trim();
+    const draftSize = resolvedCurrentSize;
+    const normalizedSizes = Array.from(
+      new Set(
+        [
+          ...formData.sizes,
+          ...(resolvedCurrentSize ? [resolvedCurrentSize] : []),
+        ]
+          .map((size) => String(size || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    const normalizedSizeStocks = Object.fromEntries(
+      normalizedSizes.map((size) => [size, Math.max(0, parseInt(String(formData.sizeStocks[size] ?? 0), 10) || 0)]),
+    );
+
+    if (!normalizedColor || normalizedSizes.length === 0 || formData.images.length < 3 || formData.images.length > 5) {
+      return;
+    }
     onSubmit({
-      ...formData,
+      color: normalizedColor,
+      size: normalizedSizes[0],
+      sizes: normalizedSizes,
+      images: formData.images,
       stock: parseInt(formData.stock.toString()) || 0,
-      priceAdjustment: formData.priceAdjustment || "0",
+      perSizeStock: allowSharedStockOption ? formData.perSizeStock : true,
+      sizeStocks: normalizedSizeStocks,
     });
   };
 
@@ -1106,78 +1900,349 @@ function VariantForm({ variant, onSubmit, onCancel }: {
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label htmlFor="variant-color">Color (Optional)</Label>
+          <Label htmlFor="variant-color">{variantConfig.primaryLabel} *</Label>
           <Input
             id="variant-color"
+            disabled={isSubmitting}
             value={formData.color}
             onChange={(e) => setFormData((prev) => ({ ...prev, color: e.target.value }))}
-            placeholder="e.g. Red, Blue"
+            placeholder={variantConfig.primaryPlaceholder}
           />
         </div>
         <div>
-          <Label htmlFor="variant-size">Size (Optional)</Label>
-          <Input
-            id="variant-size"
-            value={formData.size}
-            onChange={(e) => setFormData((prev) => ({ ...prev, size: e.target.value }))}
-            placeholder="e.g. S, M, L"
-          />
+          <Label htmlFor="variant-size">{variantConfig.secondaryLabel} *</Label>
+          <Select
+            disabled={isSubmitting}
+            value={formData.size || "__custom__"}
+            onValueChange={(value) => setFormData((prev) => ({ ...prev, size: value }))}
+          >
+            <SelectTrigger id="variant-size">
+              <SelectValue placeholder={`Choose or type a ${variantConfig.secondaryLabel.toLowerCase()}`} />
+            </SelectTrigger>
+            <SelectContent>
+              {presetOptions.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+              <SelectItem value="__custom__">Type my own {variantConfig.secondaryLabel.toLowerCase()}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      <div>
-        <Label htmlFor="variant-sku">SKU (Optional)</Label>
-        <Input
-          id="variant-sku"
-          value={formData.sku}
-          onChange={(e) => setFormData((prev) => ({ ...prev, sku: e.target.value }))}
-          placeholder="Stock Keeping Unit"
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="variant-image">Image URL (Optional)</Label>
-        <Input
-          id="variant-image"
-          value={formData.image}
-          onChange={(e) => setFormData((prev) => ({ ...prev, image: e.target.value }))}
-          placeholder="https://..."
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
+      {(formData.size === "__custom__" || !formData.size) && (
         <div>
-          <Label htmlFor="variant-stock">Stock</Label>
+          <Label htmlFor="variant-custom-size">Custom {variantConfig.secondaryLabel} *</Label>
           <Input
-            id="variant-stock"
-            type="number"
-            value={formData.stock}
-            onChange={(e) => setFormData((prev) => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
-            min="0"
+            id="variant-custom-size"
+            disabled={isSubmitting}
+            value={formData.customSize}
+            onChange={(e) => setFormData((prev) => ({ ...prev, customSize: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addSize();
+              }
+            }}
+            placeholder={variantConfig.secondaryPlaceholder}
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            {variantConfig.secondaryDescription} Then click <span className="font-medium">{variantConfig.addOptionCta}</span>.
+          </p>
         </div>
-        <div>
-          <Label htmlFor="variant-price">Price Adjustment</Label>
-          <Input
-            id="variant-price"
-            type="number"
-            step="0.01"
-            value={formData.priceAdjustment}
-            onChange={(e) => setFormData((prev) => ({ ...prev, priceAdjustment: e.target.value }))}
-            placeholder="0.00"
-          />
+      )}
+
+      <div className="space-y-3 rounded-lg border p-3">
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="variant-stock-mode">Stock Setup *</Label>
+              <p className="text-xs text-muted-foreground">
+                {allowSharedStockOption
+                  ? variantConfig.stockSetupDescription
+                  : variantConfig.perOptionStockDescription}
+              </p>
+            </div>
+            {allowSharedStockOption ? (
+              <Select
+                disabled={isSubmitting}
+                value={formData.perSizeStock ? "per_size" : "shared"}
+                onValueChange={(value) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    perSizeStock: value === "per_size",
+                    sizeStocks:
+                      value === "per_size"
+                        ? Object.fromEntries(prev.sizes.map((size: string) => [size, prev.sizeStocks[size] ?? 0]))
+                        : prev.sizeStocks,
+                  }))
+                }
+              >
+                <SelectTrigger id="variant-stock-mode">
+                  <SelectValue placeholder="Choose stock setup" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="per_size">Separate stock for each size</SelectItem>
+                  <SelectItem value="shared">One shared stock for this color</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-medium text-foreground">
+                Separate stock for each size
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label>Selected {variantConfig.optionsLabel} *</Label>
+              <p className="text-xs text-muted-foreground">{variantConfig.secondaryDescription}</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addSize}
+              disabled={!canAddCurrentSize || isSubmitting}
+            >
+              {variantConfig.addOptionCta}
+            </Button>
+          </div>
+          {formData.sizes.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {formData.sizes.map((size: string) => (
+                <Badge key={size} variant="secondary" className="gap-2 px-3 py-1">
+                  <span>{size}</span>
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => removeSize(size)}
+                    aria-label={`Remove size ${size}`}
+                  >
+                    ×
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No {variantConfig.optionsLabel.toLowerCase()} added yet.</p>
+          )}
         </div>
-      </div>
+
+      <ProductGallery
+        images={formData.images}
+        onChange={(images) => setFormData((prev) => ({ ...prev, images }))}
+        maxImages={5}
+        required={true}
+        description="Add 3-5 images for this variant using URL, Upload, or Library."
+      />
+
+      {formData.perSizeStock ? (
+        <div className="space-y-3 rounded-lg border p-3">
+          <div>
+            <Label>Stock For Each {variantConfig.secondaryLabel} *</Label>
+            <p className="text-xs text-muted-foreground">{variantConfig.perOptionStockDescription}</p>
+          </div>
+          {formData.sizes.length > 0 ? (
+            <div className="space-y-3">
+              {formData.sizes.map((size: string) => (
+                <div key={size} className="flex items-center gap-3">
+                  <div className="min-w-[88px] text-sm font-medium">{size}</div>
+                  <Input
+                    type="number"
+                    disabled={isSubmitting}
+                    min="0"
+                    value={formData.sizeStocks[size] ?? 0}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        sizeStocks: {
+                          ...prev.sizeStocks,
+                          [size]: parseInt(e.target.value, 10) || 0,
+                        },
+                      }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Add at least one size first.</p>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          <div>
+            <Label htmlFor="variant-stock">Stock Quantity *</Label>
+            <Input
+              id="variant-stock"
+              type="number"
+              disabled={isSubmitting}
+              value={formData.stock}
+              onChange={(e) => setFormData((prev) => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
+              min="0"
+            />
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-end gap-3 pt-4">
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
           Cancel
         </Button>
-        <Button type="submit">
+        <Button
+          type="submit"
+          disabled={
+            isSubmitting ||
+            !String(formData.color || "").trim() ||
+            !hasAnySizeSelected ||
+            formData.images.length < 3 ||
+            formData.images.length > 5
+          }
+        >
+          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {variant ? "Update Variant" : "Create Variant"}
         </Button>
       </div>
     </form>
+  );
+}
+
+function SizeGuideEditor({
+  title = "Size Guide",
+  sizeGuide,
+  availableSizes,
+  onChange,
+}: {
+  title?: string;
+  sizeGuide: SizeGuideData;
+  availableSizes: string[];
+  onChange: (next: SizeGuideData) => void;
+}) {
+  const updateRows = (section: "bodyRows" | "productRows", labelSize: string, field: keyof SizeGuideRow, value: string) => {
+    onChange({
+      ...sizeGuide,
+      [section]: sizeGuide[section].map((row) =>
+        row.labelSize === labelSize ? { ...row, [field]: value } : row,
+      ),
+    });
+  };
+
+  const renderSection = (
+    title: string,
+    description: string,
+    section: "bodyRows" | "productRows",
+    columns: Array<{ key: keyof SizeGuideRow; label: string; placeholder: string }>,
+  ) => {
+    const gridTemplateColumns = `100px repeat(${columns.length}, minmax(96px, 1fr))`;
+    return (
+    <div className="space-y-3">
+      <div>
+        <h4 className="text-sm font-semibold">{title}</h4>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      <div className="overflow-x-auto rounded-lg border">
+        <div className="min-w-[780px]">
+          <div className="grid gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground" style={{ gridTemplateColumns }}>
+            <div>Size</div>
+            {columns.map((column) => (
+              <div key={`${section}-${column.key}`}>{column.label}</div>
+            ))}
+          </div>
+          <div className="space-y-0">
+            {sizeGuide[section].map((row) => (
+              <div
+                key={`${section}-${row.labelSize}`}
+                className="grid gap-2 border-b px-3 py-2 last:border-b-0"
+                style={{ gridTemplateColumns }}
+              >
+                <div className="flex items-center">
+                  <Badge variant="secondary" className="justify-center">{row.labelSize}</Badge>
+                </div>
+                {columns.map((column) => (
+                  <Input
+                    key={`${section}-${row.labelSize}-${column.key}`}
+                    value={String(row[column.key] || "")}
+                    onChange={(e) => updateRows(section, row.labelSize, column.key, e.target.value)}
+                    placeholder={column.placeholder}
+                    className="h-9"
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+    );
+  };
+
+  return (
+    <Card className="p-4">
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">{title}</h3>
+            <p className="text-sm text-muted-foreground">
+              Add a simple body chart and product chart for the sizes you already used in this product.
+            </p>
+          </div>
+          <div className="w-full md:w-48">
+            <Label>Size displayed</Label>
+            <Select
+              value={sizeGuide.displaySystem}
+              onValueChange={(value) => onChange({ ...sizeGuide, displaySystem: value })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose size style" />
+              </SelectTrigger>
+              <SelectContent>
+                {SIZE_DISPLAY_SYSTEMS.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {availableSizes.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            Add your product variants first, then the size guide rows will appear here automatically.
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {renderSection(
+              "Body Chart",
+              "Fill in the body measurements your customer should compare before choosing a size.",
+              "bodyRows",
+              [
+                { key: "uk", label: "UK", placeholder: "8" },
+                { key: "bust", label: "Bust", placeholder: "86-90" },
+                { key: "waist", label: "Waist", placeholder: "66-70" },
+                { key: "hips", label: "Hips", placeholder: "91-95" },
+                { key: "height", label: "Height", placeholder: "165-170" },
+              ],
+            )}
+
+            {renderSection(
+              "Product Chart",
+              "Add the garment measurements for each size so buyers can compare the product itself.",
+              "productRows",
+              [
+                { key: "length", label: "Length", placeholder: "138" },
+                { key: "bust", label: "Bust", placeholder: "88" },
+                { key: "waist", label: "Waist", placeholder: "80" },
+                { key: "hips", label: "Hips", placeholder: "96" },
+                { key: "shoulder", label: "Shoulder", placeholder: "38" },
+                { key: "sleeve", label: "Sleeve", placeholder: "58" },
+              ],
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -1187,9 +2252,22 @@ function DeleteProductDialog({ product }: { product: Product }) {
 
   const deleteProductMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("DELETE", `/api/products/${product.id}`, {});
+      const response = await fetch(`/api/products/${product.id}`, {
+        method: "DELETE",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      const text = await response.text();
+      const payload = text ? JSON.parse(text) : null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error || text || "Failed to delete product");
+      }
+
+      return payload;
     },
-    onSuccess: () => {
+    onSuccess: (_payload: any) => {
       toast({
         title: "Success",
         description: "Product deleted successfully",
@@ -1212,8 +2290,9 @@ function DeleteProductDialog({ product }: { product: Product }) {
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
         <Button 
-          variant="ghost" 
+          variant="secondary" 
           size="icon"
+          className="h-7 w-7 border border-border/80 bg-background/95 shadow-sm backdrop-blur-sm hover:bg-background"
           data-testid={`button-delete-${product.id}`}
         >
           <Trash2 className="h-4 w-4 text-destructive" />
@@ -1280,10 +2359,14 @@ export default function SellerProducts() {
 
   // Use debounced search query for filtering
   const filteredProducts = useMemo(() => {
-    return products.filter(p => 
-      p.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-      p.description.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-    );
+    return products.filter((p) => {
+      if (p?.dynamicFields?.archived) return false;
+      const query = debouncedSearchQuery.toLowerCase();
+      return (
+        p.name.toLowerCase().includes(query) ||
+        p.description.toLowerCase().includes(query)
+      );
+    });
   }, [products, debouncedSearchQuery]);
 
   useEffect(() => {
@@ -1352,18 +2435,18 @@ export default function SellerProducts() {
             </div>
           </Card>
         ) : isLoading ? (
-          <div className="grid gap-4">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {[1, 2, 3].map((i) => (
-              <Card key={i} className="p-4">
-                <div className="flex items-start gap-4 animate-pulse">
-                  <div className="w-24 h-24 bg-muted rounded-lg" />
-                  <div className="flex-1 space-y-3">
-                    <div className="h-6 bg-muted rounded w-1/3" />
-                    <div className="h-4 bg-muted rounded w-2/3" />
-                    <div className="h-4 bg-muted rounded w-1/2" />
+              <Card key={i} className="overflow-hidden border-border/70 bg-card/90 p-0 shadow-sm">
+                <div className="animate-pulse">
+                  <div className="aspect-[4/3] bg-muted" />
+                  <div className="space-y-1.5 p-2">
+                    <div className="h-4 w-2/3 rounded bg-muted" />
+                    <div className="h-3 w-full rounded bg-muted" />
+                    <div className="h-3 w-3/4 rounded bg-muted" />
                     <div className="flex gap-2">
-                      <div className="h-6 bg-muted rounded w-20" />
-                      <div className="h-6 bg-muted rounded w-20" />
+                      <div className="h-4 w-14 rounded-full bg-muted" />
+                      <div className="h-4 w-14 rounded-full bg-muted" />
                     </div>
                   </div>
                 </div>
@@ -1371,83 +2454,105 @@ export default function SellerProducts() {
             ))}
           </div>
         ) : (
-          <div className="grid gap-4">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {filteredProducts.map((product) => (
               <Card
                 key={product.id}
-                className={`p-4 transition-all ${product.id === highlightedProductId ? "ring-2 ring-primary shadow-lg" : ""}`}
+                className={`overflow-hidden border-border/70 bg-card/95 p-0 shadow-sm transition-all hover:shadow-md ${product.id === highlightedProductId ? "ring-2 ring-primary shadow-lg" : ""}`}
                 data-testid={`card-product-${product.id}`}
               >
-                <div className="flex items-start gap-4">
-                  {product.images[0] && (
+                <div className="relative aspect-[4/3] bg-muted/50">
+                  {product.images[0] ? (
                     <img 
                       src={product.images[0]} 
                       alt={product.name}
-                      className="w-24 h-24 object-cover rounded-lg"
+                      className="h-full w-full object-cover"
                     />
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      <Package className="h-8 w-8 text-muted-foreground/50" />
+                    </div>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-lg truncate" data-testid={`text-name-${product.id}`}>
-                          {product.name}
-                        </h3>
-                        <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                          {product.description}
-                        </p>
-                      </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        <ProductFormDialog mode="edit" product={product} />
-                        <DeleteProductDialog product={product} />
-                        <Button 
-                          variant="outline" 
-                          size="icon"
-                          onClick={() => navigate(`/product/${product.id}`)}
-                          data-testid={`button-view-${product.id}`}
+                  <div className="absolute right-1.5 top-1.5 flex gap-1">
+                    <ProductFormDialog mode="edit" product={product} />
+                    <DeleteProductDialog product={product} />
+                     <Button 
+                       variant="secondary"
+                       size="icon"
+                        className="h-7 w-7 border border-border/80 bg-background/95 shadow-sm backdrop-blur-sm hover:bg-background"
+                        onClick={() => navigate(`/product/${product.id}?from=${encodeURIComponent(location)}`)}
+                        data-testid={`button-view-${product.id}`}
+                      >
+                       <Eye className="h-3 w-3" />
+                     </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 p-2">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold" data-testid={`text-name-${product.id}`}>
+                      {product.name}
+                    </h3>
+                    <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
+                      {product.description}
+                    </p>
+                  </div>
+
+                  <div className="space-y-0.5">
+                    <div className="min-w-0">
+                      <span className="text-base font-bold text-primary">GHS {product.price}</span>
+                      {product.costPrice && (
+                        <span className="ml-1.5 text-[11px] text-muted-foreground line-through">
+                          GHS {product.costPrice}
+                        </span>
+                      )}
+                    </div>
+                    {product.category && (
+                      <Badge variant="outline" className="max-w-full truncate text-[10px]">
+                        {product.category}
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {(() => {
+                      const remainingStock = getProductRemainingStock(product);
+                      return (
+                        <Badge
+                          variant={remainingStock > 5 ? "default" : "destructive"}
+                          className="text-[10px]"
                         >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-3 flex items-center gap-4">
-                      <div>
-                        <span className="text-lg font-bold text-primary">GHS {product.price}</span>
-                        {product.costPrice && (
-                          <span className="ml-2 text-sm line-through text-muted-foreground">
-                            GHS {product.costPrice}
-                          </span>
-                        )}
-                      </div>
-                      
-                      <Badge variant={product.stock > 0 ? "default" : "destructive"}>
-                        {product.stock > 0 ? `${product.stock} in stock` : "Out of stock"}
-                      </Badge>
-                      
-                      <Badge variant={product.isActive ? "default" : "secondary"}>
-                        {product.isActive ? "Active" : "Inactive"}
-                      </Badge>
+                          {remainingStock <= 0
+                            ? "Out of stock"
+                            : remainingStock <= 5
+                              ? `Low stock: ${remainingStock} left`
+                              : `${remainingStock} in stock`}
+                        </Badge>
+                      );
+                    })()}
+                    <Badge variant={product.isActive ? "default" : "secondary"} className="text-[10px]">
+                      {product.isActive ? "Active" : "Inactive"}
+                    </Badge>
 
-                      {product.dynamicFields?.homepageFeatured && (
-                        <Badge variant="outline">Featured</Badge>
-                      )}
+                    {product.dynamicFields?.homepageFeatured && (
+                      <Badge variant="outline" className="text-[10px]">Featured</Badge>
+                    )}
 
-                      {product.dynamicFields?.homepageNewArrival && (
-                        <Badge variant="outline">New Arrival</Badge>
-                      )}
-                    </div>
+                    {product.dynamicFields?.homepageNewArrival && (
+                      <Badge variant="outline" className="text-[10px]">New Arrival</Badge>
+                    )}
                   </div>
                 </div>
               </Card>
             ))}
             
-            {filteredProducts.length === 0 && !isSearching && (
-              <div className="text-center py-12">
-                <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground" data-testid="text-no-products">
-                  {debouncedSearchQuery ? "No products found matching your search" : "No products yet. Add your first product to get started!"}
-                </p>
-              </div>
+             {filteredProducts.length === 0 && !isSearching && (
+               <div className="col-span-full text-center py-12">
+                 <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                 <p className="text-muted-foreground" data-testid="text-no-products">
+                   {debouncedSearchQuery ? "No products found matching your search" : "No products yet. Add your first product to get started!"}
+                 </p>
+               </div>
             )}
           </div>
         )}

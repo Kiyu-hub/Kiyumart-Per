@@ -249,7 +249,6 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "messages.view": true,
     "messages.send": true,
     "support.view": true,
-    "support.manage": true,
     "store.manage": true,
     "payouts.request": true,
     "promotions.manage": true,
@@ -266,7 +265,6 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "messages.view": true,
     "messages.send": true,
     "support.view": true,
-    "support.manage": true,
     "earnings.view": true,
     "profile.manage": true,
     "maps.view": true,
@@ -274,7 +272,6 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
   pickup_agent: {
     "orders.view": true,
     "support.view": true,
-    "support.manage": true,
     "profile.manage": true,
   },
   agent: {
@@ -293,7 +290,6 @@ const ROLE_FEATURE_DEFAULTS: Record<string, Record<string, boolean>> = {
     "messages.view": true,
     "messages.send": true,
     "support.view": true,
-    "support.manage": true,
     "wishlist.manage": true,
     "profile.manage": true,
     "maps.view": true,

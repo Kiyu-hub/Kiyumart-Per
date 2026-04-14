@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { buildCsv, createSimplePdf, logReportActivity, triggerDownload } from "@/lib/reporting";
-import { queryClient } from "@/lib/queryClient";
+import {
+  buildCsv,
+  logReportActivity,
+  openPrintReportWindow,
+  renderPrintReportError,
+  renderPrintReportWindow,
+  triggerDownload,
+} from "@/lib/reporting";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +32,8 @@ import {
   Truck,
   Users,
 } from "lucide-react";
+import pdfLogoDark from "@assets/kiyumart_logo_dark.png";
+import pdfLogoLight from "@assets/kiyumart_logo_light.png";
 
 type Method = "rider" | "delivery" | "bus" | "pickup";
 
@@ -92,6 +100,35 @@ type BusWorkflow = {
   stage?: string | null;
   proofSubmitted?: boolean;
 } | null;
+
+function CollapsibleDashboardSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Card className="border-border/70 bg-card shadow-sm">
+      <details open={defaultOpen}>
+        <summary className="cursor-pointer list-none px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-base font-semibold">{title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
+            </div>
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+          </div>
+        </summary>
+        <CardContent className="pt-0">{children}</CardContent>
+      </details>
+    </Card>
+  );
+}
 
 type OrderLedgerRow = {
   order_id: string;
@@ -196,6 +233,27 @@ const compactText = (value?: string | null) =>
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+
+const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return date.toLocaleString("en-GH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
 
 const inferRegionFromLocationText = (...values: Array<string | null | undefined>) => {
   const haystack = values
@@ -313,7 +371,7 @@ export default function AdminAnalytics() {
   const locationEntityLabel = "Zone";
   const locationEntityLabelPlural = "zones";
 
-  const { data: analytics, isLoading: aLoading, refetch: refetchAnalytics } = useQuery<Analytics>({
+  const { data: analytics, isLoading: aLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
     enabled: isAuthenticated && canView,
     staleTime: 0,
@@ -321,7 +379,7 @@ export default function AdminAnalytics() {
     refetchInterval: 20000,
   });
 
-  const { data: orders = [], isLoading: oLoading, refetch: refetchOrders } = useQuery<OrderRow[]>({
+  const { data: orders = [], isLoading: oLoading } = useQuery<OrderRow[]>({
     queryKey: ["/api/orders", "analytics"],
     queryFn: async () => {
       const r = await fetch("/api/orders?context=admin", { credentials: "include" });
@@ -335,7 +393,7 @@ export default function AdminAnalytics() {
     refetchInterval: 20000,
   });
 
-  const { data: orderLedger = [], isLoading: ledgerLoading, refetch: refetchOrderLedger } = useQuery<OrderLedgerRow[]>({
+  const { data: orderLedger = [], isLoading: ledgerLoading } = useQuery<OrderLedgerRow[]>({
     queryKey: ["/api/admin/revenue/views/order-ledger", role],
     queryFn: async () => {
       const r = await fetch("/api/admin/revenue/views/order-ledger?limit=600", { credentials: "include" });
@@ -349,7 +407,7 @@ export default function AdminAnalytics() {
     refetchInterval: 20000,
   });
 
-  const { data: zones = [], refetch: refetchZones } = useQuery<Zone[]>({
+  const { data: zones = [] } = useQuery<Zone[]>({
     queryKey: ["/api/delivery-zones", "analytics"],
     queryFn: async () => {
       const r = await fetch("/api/delivery-zones", { credentials: "include" });
@@ -388,10 +446,10 @@ export default function AdminAnalytics() {
   const admins = adminsQuery.data || [];
   const superAdmins = superAdminsQuery.data || [];
 
-  const { data: support, refetch: refetchSupport } = useQuery<SupportAnalytics>({ queryKey: ["/api/support/analytics"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
-  const { data: health, refetch: refetchHealth } = useQuery<SystemHealth>({ queryKey: ["/api/admin/system-health"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
-  const { data: messaging, refetch: refetchMessaging } = useQuery<MessagingStats>({ queryKey: ["/api/admin/messaging-stats"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
-  const { data: revenueViews, refetch: refetchRevenueViews } = useQuery<any>({ queryKey: ["/api/admin/revenue/views/summary"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
+  const { data: support } = useQuery<SupportAnalytics>({ queryKey: ["/api/support/analytics"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
+  const { data: health } = useQuery<SystemHealth>({ queryKey: ["/api/admin/system-health"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
+  const { data: messaging } = useQuery<MessagingStats>({ queryKey: ["/api/admin/messaging-stats"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
+  const { data: revenueViews } = useQuery<any>({ queryKey: ["/api/admin/revenue/views/summary"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
   const { data: reportActivity = [], refetch: refetchReportActivity } = useQuery<ReportActivityRow[]>({
     queryKey: ["/api/reports/activity", "admin-analytics"],
     queryFn: async () => {
@@ -701,75 +759,9 @@ export default function AdminAnalytics() {
     zone: zoneScope || "all",
   });
 
-  const refreshAll = async () => {
+  const refreshAll = () => {
     setIsRefreshing(true);
-    void logReportActivity({
-      action: "request",
-      reportType: currentReportType,
-      format: "json",
-      scope: buildReportScope(),
-      status: "success",
-    }).catch(() => undefined);
-
-    try {
-      await Promise.allSettled([
-        refetchAnalytics(),
-        refetchOrders(),
-        refetchOrderLedger(),
-        refetchZones(),
-        ridersQuery.refetch(),
-        sellersQuery.refetch(),
-        buyersQuery.refetch(),
-        agentsQuery.refetch(),
-        pickupAgentsQuery.refetch(),
-        adminsQuery.refetch(),
-        superAdminsQuery.refetch(),
-        refetchSupport(),
-        refetchHealth(),
-        refetchMessaging(),
-        refetchRevenueViews(),
-        refetchReportActivity(),
-        queryClient.invalidateQueries({
-          predicate: (query) => {
-            const key = query.queryKey?.[0];
-            if (typeof key !== "string") return false;
-            return [
-              "/api/support/analytics",
-              "/api/admin/system-health",
-              "/api/admin/messaging-stats",
-              "/api/admin/revenue/views/summary",
-              "/api/reports/activity",
-              "/api/delivery-zones",
-              "/api/users",
-              "/api/orders",
-              "/api/analytics",
-              "/api/admin/revenue/views/order-ledger",
-            ].some((prefix) => key.startsWith(prefix));
-          },
-          refetchType: "active",
-        }),
-        queryClient.refetchQueries({
-          predicate: (query) => {
-            const key = query.queryKey?.[0];
-            if (typeof key !== "string") return false;
-            return [
-              "/api/support/analytics",
-              "/api/admin/system-health",
-              "/api/admin/messaging-stats",
-              "/api/admin/revenue/views/summary",
-              "/api/reports/activity",
-              "/api/delivery-zones",
-              "/api/users",
-              "/api/orders",
-              "/api/analytics",
-              "/api/admin/revenue/views/order-ledger",
-            ].some((prefix) => key.startsWith(prefix));
-          },
-        }),
-      ]);
-    } finally {
-      setIsRefreshing(false);
-    }
+    window.location.reload();
   };
 
   const exportCsv = async () => {
@@ -802,6 +794,7 @@ export default function AdminAnalytics() {
   };
 
   const exportPdf = async () => {
+    const reportWindow = openPrintReportWindow("KiyuMart Platform Analytics", "Preparing your premium analytics report...");
     const scope = buildReportScope();
     await logReportActivity({
       action: "request",
@@ -812,46 +805,262 @@ export default function AdminAnalytics() {
     });
     try {
       setExporting("pdf");
-      await refreshAll();
+      const prefersDarkPdf = false;
+      const pdfLogoUrl = new URL(prefersDarkPdf ? pdfLogoLight : pdfLogoDark, window.location.origin).toString();
       const rows = await toExportRows();
-      if (!rows.length) return;
 
       const totalCommission = rows.reduce((sum, row) => sum + num(row.platform_commission_amount), 0);
       const totalSellerPaid = rows.reduce((sum, row) => sum + num(row.seller_paid_amount), 0);
       const completedCount = rows.filter((row) => row.completed === "yes").length;
-      const lines: string[] = [
-        `Generated At: ${new Date().toISOString()}`,
-        `Orders In Export: ${rows.length}`,
-        `Completed Orders: ${completedCount}`,
-        `Total Platform Commission: ${totalCommission.toFixed(2)}`,
-        `Total Seller Paid Amount: ${totalSellerPaid.toFixed(2)}`,
-        " ",
-      ];
+      const methodSummary = rows.reduce<Record<string, number>>((acc, row) => {
+        const method = String(row.delivery_method || "unknown");
+        acc[method] = (acc[method] || 0) + 1;
+        return acc;
+      }, {});
+      const topStores = rows.reduce<Record<string, number>>((acc, row) => {
+        const storeName = String(row.store_name || "Unknown Store");
+        acc[storeName] = (acc[storeName] || 0) + num(row.order_total);
+        return acc;
+      }, {});
 
-      rows.forEach((row, index) => {
-        lines.push(`${index + 1}. Order ${row.order_number} (${row.order_id})`);
-        lines.push(`Status: ${row.current_status} | Completed: ${row.completed} | Payment: ${row.payment_status}`);
-        lines.push(`Method: ${row.delivery_method} | BUS Stage: ${row.bus_stage || "N/A"} | ${locationEntityLabel}: ${row.zone || "N/A"}`);
-        lines.push(`Store: ${row.store_name || "N/A"} | Seller: ${row.seller_name || "N/A"}`);
-        lines.push(`Order Total: ${row.order_total} ${row.currency}`);
-        lines.push(`Seller Paid: ${row.seller_paid_amount} | Platform Commission: ${row.platform_commission_amount} | Platform Amount: ${row.platform_amount}`);
-        lines.push(`Commission Rate: ${row.commission_rate} | Commission Status: ${row.commission_status || "N/A"} | Seller Paid Flag: ${row.seller_paid}`);
-        lines.push(`Transaction: ${row.transaction_id || "N/A"} | Status: ${row.transaction_status || "N/A"} | Amount: ${row.transaction_amount}`);
-        lines.push(`Provider: ${row.payment_provider || "N/A"} | Ref: ${row.payment_reference || "N/A"}`);
-        lines.push(`Timeline: ${row.status_flow || row.current_status}`);
-        lines.push(`Created: ${row.order_created_at} | Updated: ${row.order_updated_at || "N/A"} | Delivered: ${row.order_delivered_at || "N/A"}`);
-        lines.push(" ");
-      });
+      const orderRowsMarkup = rows
+        .slice(0, 14)
+        .map(
+          (row) => `
+            <tr>
+              <td>
+                <div class="table-primary">${escapeHtml(row.order_number || row.order_id)}</div>
+                <div class="table-secondary">${escapeHtml(formatDateTime(row.order_created_at))}</div>
+              </td>
+              <td>${escapeHtml(row.store_name || "Unknown Store")}</td>
+              <td>${escapeHtml(row.current_status)}</td>
+              <td>${escapeHtml(row.payment_status || "pending")}</td>
+              <td>${escapeHtml(row.delivery_method)}</td>
+              <td class="table-amount">GHS ${escapeHtml(row.order_total)}</td>
+            </tr>
+          `,
+        )
+        .join("");
 
-      const pdfBytes = createSimplePdf("Kiyumart - Live Order Transaction Ledger", lines);
+      const methodMarkup = Object.entries(methodSummary)
+        .sort((a, b) => b[1] - a[1])
+        .map(
+          ([method, count]) => `
+            <div class="compact-row">
+              <span>${escapeHtml(method)}</span>
+              <span>${escapeHtml(String(count))} orders</span>
+            </div>
+          `,
+        )
+        .join("");
+
+      const storeMarkup = Object.entries(topStores)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(
+          ([storeName, revenue]) => `
+            <div class="compact-row">
+              <span>${escapeHtml(storeName)}</span>
+              <span>GHS ${escapeHtml(revenue.toFixed(2))}</span>
+            </div>
+          `,
+        )
+        .join("");
+
+      if (!reportWindow) {
+        throw new Error("Please allow pop-ups so your PDF report can open.");
+      }
+
+      renderPrintReportWindow(reportWindow, "KiyuMart Platform Analytics", `
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>KiyuMart Platform Analytics</title>
+            <style>
+              :root {
+                --ink: #102a43;
+                --muted: #5c6b7a;
+                --border: #d9e2ec;
+                --surface: #ffffff;
+                --soft: #f7fafc;
+                --accent: #0b8f74;
+                --accent-soft: rgba(11, 143, 116, 0.1);
+              }
+              * { box-sizing: border-box; }
+              body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; color: var(--ink); background: #eef4f7; }
+              .page { max-width: 1040px; margin: 0 auto; min-height: 100vh; background: var(--surface); }
+              .hero {
+                padding: 34px 40px 28px;
+                background:
+                  linear-gradient(135deg, rgba(11, 143, 116, 0.16), rgba(9, 34, 76, 0.06)),
+                  linear-gradient(180deg, #ffffff, #f8fbfc);
+                border-bottom: 1px solid var(--border);
+              }
+              .hero-top { display: flex; align-items: center; gap: 16px; }
+              .hero-top img { height: 42px; width: auto; object-fit: contain; }
+              .eyebrow {
+                display: inline-block; padding: 6px 12px; border-radius: 999px; background: var(--accent-soft);
+                color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+              }
+              h1 { margin: 14px 0 8px; font-size: 34px; line-height: 1.05; }
+              .hero-copy { max-width: 680px; color: var(--muted); font-size: 15px; line-height: 1.6; }
+              .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 24px; }
+              .summary-card { border: 1px solid var(--border); border-radius: 18px; padding: 16px 18px; background: rgba(255,255,255,0.9); }
+              .summary-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+              .summary-value { margin-top: 8px; font-size: 24px; font-weight: 700; }
+              .content { padding: 28px 40px 40px; }
+              .section { margin-top: 28px; }
+              .section:first-child { margin-top: 0; }
+              .section-heading { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
+              .section-icon {
+                width: 30px; height: 30px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+                background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+              }
+              .section-title { margin: 0; font-size: 18px; font-weight: 700; }
+              .report-table-wrap { border: 1px solid var(--border); border-radius: 18px; overflow: hidden; background: var(--surface); }
+              .report-table { width: 100%; border-collapse: collapse; }
+              .report-table thead { background: #f4f8fb; }
+              .report-table th, .report-table td {
+                padding: 14px 16px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; font-size: 14px;
+              }
+              .report-table th {
+                color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700;
+              }
+              .report-table tbody tr:last-child td { border-bottom: none; }
+              .table-primary { font-weight: 700; font-size: 14px; }
+              .table-secondary { margin-top: 4px; color: var(--muted); font-size: 12px; }
+              .table-amount { white-space: nowrap; color: var(--accent); font-weight: 700; }
+              .compact-list { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
+              .compact-row {
+                display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px;
+                border-bottom: 1px solid var(--border); font-size: 14px;
+              }
+              .compact-row:last-child { border-bottom: none; }
+              .two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+              .empty-state {
+                padding: 18px 16px; border: 1px dashed var(--border); border-radius: 14px; color: var(--muted); background: var(--soft); font-size: 14px;
+              }
+              .footer-note {
+                margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 1.6;
+              }
+              .print-footer { display: none; }
+              @page { margin: 16mm; }
+              @media print {
+                body { background: #fff; }
+                .page { max-width: none; }
+                .content { padding-bottom: 72px; }
+                .print-footer {
+                  display: flex; position: fixed; left: 16mm; right: 16mm; bottom: 8mm; align-items: center; justify-content: space-between;
+                  color: var(--muted); font-size: 11px; border-top: 1px solid var(--border); padding-top: 8px; background: #fff;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="page">
+              <section class="hero">
+                <div class="hero-top">
+                  <img src="${pdfLogoUrl}" alt="KiyuMart" />
+                  <div>
+                    <span class="eyebrow">${escapeHtml(isSuperAdmin ? "Platform Analytics Report" : `${locationEntityLabel} Analytics Report`)}</span>
+                    <h1>KiyuMart Live Order Ledger</h1>
+                    <div class="hero-copy">
+                      A premium operations report covering order flow, payment completion, commission totals, seller payouts,
+                      and delivery mix for the selected analytics scope.
+                    </div>
+                  </div>
+                </div>
+                <div class="summary-grid">
+                  <div class="summary-card"><div class="summary-label">Orders In Scope</div><div class="summary-value">${escapeHtml(String(rows.length))}</div></div>
+                  <div class="summary-card"><div class="summary-label">Completed Orders</div><div class="summary-value">${escapeHtml(String(completedCount))}</div></div>
+                  <div class="summary-card"><div class="summary-label">Platform Commission</div><div class="summary-value">GHS ${escapeHtml(totalCommission.toFixed(2))}</div></div>
+                  <div class="summary-card"><div class="summary-label">Seller Paid</div><div class="summary-value">GHS ${escapeHtml(totalSellerPaid.toFixed(2))}</div></div>
+                </div>
+              </section>
+              <main class="content">
+                <section class="section">
+                  <div class="section-heading">
+                    <span class="section-icon">SC</span>
+                    <h2 class="section-title">Scope Summary</h2>
+                  </div>
+                  <div class="compact-list">
+                    <div class="compact-row"><span>Date Preset</span><span>${escapeHtml(String(scope.datePreset || "custom"))}</span></div>
+                    <div class="compact-row"><span>From</span><span>${escapeHtml(String(scope.fromDate || "Not set"))}</span></div>
+                    <div class="compact-row"><span>To</span><span>${escapeHtml(String(scope.toDate || "Not set"))}</span></div>
+                    <div class="compact-row"><span>Delivery Method</span><span>${escapeHtml(String(scope.deliveryMethod || "all"))}</span></div>
+                    <div class="compact-row"><span>${escapeHtml(locationEntityLabel)}</span><span>${escapeHtml(String(scope.zone || "all"))}</span></div>
+                  </div>
+                </section>
+
+                <section class="section">
+                  <div class="section-heading">
+                    <span class="section-icon">OR</span>
+                    <h2 class="section-title">Recent Orders</h2>
+                  </div>
+                  <div class="report-table-wrap">
+                    <table class="report-table">
+                      <thead>
+                        <tr>
+                          <th>Order</th>
+                          <th>Store</th>
+                          <th>Status</th>
+                          <th>Payment</th>
+                          <th>Method</th>
+                          <th>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${orderRowsMarkup}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section class="section">
+                  <div class="two-col">
+                    <div>
+                      <div class="section-heading">
+                        <span class="section-icon">DM</span>
+                        <h2 class="section-title">Delivery Mix</h2>
+                      </div>
+                      <div class="compact-list">${methodMarkup || `<div class="empty-state">No delivery data available.</div>`}</div>
+                    </div>
+                    <div>
+                      <div class="section-heading">
+                        <span class="section-icon">TS</span>
+                        <h2 class="section-title">Top Stores</h2>
+                      </div>
+                      <div class="compact-list">${storeMarkup || `<div class="empty-state">No store revenue data available.</div>`}</div>
+                    </div>
+                  </div>
+                </section>
+
+                <div class="footer-note">
+                  This report reflects the current live order transaction ledger for the selected analytics filters.
+                  For raw spreadsheet analysis, use the CSV export from the analytics page.
+                </div>
+              </main>
+              <div class="print-footer">
+                <span>KiyuMart Platform Analytics</span>
+                <span>${escapeHtml(formatDateTime(new Date().toISOString()))}</span>
+              </div>
+            </div>
+          </body>
+        </html>
+      `);
       await logReportActivity({ action: "generate", reportType: currentReportType, format: "pdf", scope, status: "success" });
-      triggerDownload(
-        new Blob([pdfBytes], { type: "application/pdf" }),
-        `analytics-ledger-${new Date().toISOString().slice(0, 10)}.pdf`
-      );
       await logReportActivity({ action: "download", reportType: currentReportType, format: "pdf", scope, status: "success" });
       void refetchReportActivity();
-    } catch {
+    } catch (error: any) {
+      if (reportWindow) {
+        renderPrintReportError(
+          reportWindow,
+          "Analytics report failed",
+          error?.message || "The report could not be prepared right now. Please try again shortly.",
+        );
+      }
       await logReportActivity({ action: "generate", reportType: currentReportType, format: "pdf", scope, status: "failed" });
     } finally {
       setExporting("none");
@@ -890,9 +1099,21 @@ export default function AdminAnalytics() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void refreshAll()} disabled={exporting !== "none" || isRefreshing}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10"
+                  onClick={() => void refreshAll()}
+                  disabled={exporting !== "none" || isRefreshing}
+                >
                   <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-                  {isRefreshing ? "Refreshing..." : "Refresh"}
+                  {isRefreshing
+                    ? isSuperAdmin
+                      ? "Requesting platform update..."
+                      : "Requesting zone update..."
+                    : isSuperAdmin
+                      ? "Request platform update"
+                      : "Request zone update"}
                 </Button>
                 <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void exportCsv()} disabled={exporting !== "none"}>
                   <Download className="h-4 w-4 mr-2" />
@@ -905,35 +1126,40 @@ export default function AdminAnalytics() {
               </div>
             </div>
 
-            <div className={showInternalRiderFeatures ? "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-8" : "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-7"}>
-              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Total Revenue</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.platformRevenueTotal) || (num(analytics?.platformCommissionTotal) + num(analytics?.promotionRevenueTotal)))}</p></CardContent></Card>
-              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Received Money</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.totalReceivedMoney))}</p></CardContent></Card>
-              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Processing Fees</p><p className="text-xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.processingFeesTotal))}</p></CardContent></Card>
-              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Orders Today</p><p className="text-xl font-semibold text-foreground dark:text-white">{kpi.ordersToday}</p></CardContent></Card>
-              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Orders Week</p><p className="text-xl font-semibold text-foreground dark:text-white">{kpi.week}</p></CardContent></Card>
-              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Deliveries</p><p className="text-xl font-semibold text-foreground dark:text-white">{paidDeliveries.length}</p><p className="text-[11px] text-muted-foreground dark:text-white/70">{showInternalRiderFeatures ? `Successful rider and bus deliveries` : `Successful external and VIP bus deliveries`}</p></CardContent></Card>
-              <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Successful Pickups</p><p className="text-xl font-semibold text-foreground dark:text-white">{paidPickups.length}</p><p className="text-[11px] text-muted-foreground dark:text-white/70">Completed after QR or OTP pickup validation</p></CardContent></Card>
-              {showInternalRiderFeatures ? <Card className="border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="p-3"><p className="text-xs text-muted-foreground dark:text-white/70">Online Riders</p><p className="text-xl font-semibold text-foreground dark:text-white">{onlineRiders}</p><p className="text-[11px] text-red-600 dark:text-red-300">{`${kpi.failed + kpi.delayed} failed/delayed`}</p></CardContent></Card> : null}
+            <div className={showInternalRiderFeatures ? "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8" : "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7"}>
+              <Card className="h-full border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="flex h-full min-h-[132px] flex-col p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Total Revenue</p><p className="mt-2 text-2xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.platformRevenueTotal) || (num(analytics?.platformCommissionTotal) + num(analytics?.promotionRevenueTotal)))}</p></CardContent></Card>
+              <Card className="h-full border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="flex h-full min-h-[132px] flex-col p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Received Money</p><p className="mt-2 text-2xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.totalReceivedMoney))}</p></CardContent></Card>
+              <Card className="h-full border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="flex h-full min-h-[132px] flex-col p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Processing Fees</p><p className="mt-2 text-2xl font-semibold text-foreground dark:text-white">{formatPrice(num(analytics?.processingFeesTotal))}</p></CardContent></Card>
+              <Card className="h-full border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="flex h-full min-h-[132px] flex-col p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Orders Today</p><p className="mt-2 text-2xl font-semibold text-foreground dark:text-white">{kpi.ordersToday}</p></CardContent></Card>
+              <Card className="h-full border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="flex h-full min-h-[132px] flex-col p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Orders Week</p><p className="mt-2 text-2xl font-semibold text-foreground dark:text-white">{kpi.week}</p></CardContent></Card>
+              <Card className="h-full border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="flex h-full min-h-[132px] flex-col p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Deliveries</p><p className="mt-2 text-2xl font-semibold text-foreground dark:text-white">{paidDeliveries.length}</p><p className="mt-auto pt-3 text-[11px] text-muted-foreground dark:text-white/70">{showInternalRiderFeatures ? `Successful rider and bus deliveries` : `Successful external and VIP bus deliveries`}</p></CardContent></Card>
+              <Card className="h-full border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="flex h-full min-h-[132px] flex-col p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Successful Pickups</p><p className="mt-2 text-2xl font-semibold text-foreground dark:text-white">{paidPickups.length}</p><p className="mt-auto pt-3 text-[11px] text-muted-foreground dark:text-white/70">Completed after QR or OTP pickup validation</p></CardContent></Card>
+              {showInternalRiderFeatures ? <Card className="h-full border-border/70 bg-background/95 shadow-none dark:border-white/20 dark:bg-white/5"><CardContent className="flex h-full min-h-[132px] flex-col p-4"><p className="text-xs text-muted-foreground dark:text-white/70">Online Riders</p><p className="mt-2 text-2xl font-semibold text-foreground dark:text-white">{onlineRiders}</p><p className="mt-auto pt-3 text-[11px] text-red-600 dark:text-red-300">{`${kpi.failed + kpi.delayed} failed/delayed`}</p></CardContent></Card> : null}
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl border border-border/70 bg-background/85 p-4">
-                <p className="text-sm font-medium">Total Revenue</p>
-                <p className="mt-1 text-sm text-muted-foreground">Commission and promotion revenue combined. This is platform-side revenue, not gross customer intake.</p>
+            <CollapsibleDashboardSection
+              title="How These Totals Work"
+              summary="Expand to view what Total Revenue, Received Money, Processing Fees, and Deliveries each mean."
+            >
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl border border-border/70 bg-background/85 p-4">
+                  <p className="text-sm font-medium">Total Revenue</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Commission and promotion revenue combined. This is platform-side revenue, not gross customer intake.</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/85 p-4">
+                  <p className="text-sm font-medium">Received Money</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Gross paid customer amount across orders. It includes seller share, platform commission, delivery fees, and the exact checkout processing fee charged to the customer.</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/85 p-4">
+                  <p className="text-sm font-medium">Processing Fees</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Customer-paid Paystack checkout fees recorded separately from commission and seller settlement.</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/85 p-4">
+                  <p className="text-sm font-medium">Deliveries</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Successful completed delivery orders only. Pickup completions are tracked separately after QR or OTP validation.</p>
+                </div>
               </div>
-              <div className="rounded-xl border border-border/70 bg-background/85 p-4">
-                <p className="text-sm font-medium">Received Money</p>
-                <p className="mt-1 text-sm text-muted-foreground">Gross paid customer amount across orders. It includes seller share, platform commission, delivery fees, and the exact checkout processing fee charged to the customer.</p>
-              </div>
-              <div className="rounded-xl border border-border/70 bg-background/85 p-4">
-                <p className="text-sm font-medium">Processing Fees</p>
-                <p className="mt-1 text-sm text-muted-foreground">Customer-paid Paystack checkout fees recorded separately from commission and seller settlement.</p>
-              </div>
-              <div className="rounded-xl border border-border/70 bg-background/85 p-4">
-                <p className="text-sm font-medium">Deliveries</p>
-                <p className="mt-1 text-sm text-muted-foreground">Successful completed delivery orders only. Pickup completions are tracked separately after QR or OTP validation.</p>
-              </div>
-            </div>
+            </CollapsibleDashboardSection>
           </CardContent>
         </Card>
 
@@ -1025,7 +1251,7 @@ export default function AdminAnalytics() {
                         <div className="min-w-0">
                           <p className="font-medium truncate">#{o.orderNumber}</p>
                           <p className="text-xs text-muted-foreground truncate capitalize">
-                            {getStatusLabel(o.status)} | {zoneName.get(String(o.deliveryZoneId || "")) || `Unspecified ${locationEntityLabel.toLowerCase()}`}
+                            {getStatusLabel(o.status)} | {resolveOrderRegion(o)}
                           </p>
                         </div>
                         <p className="text-xs text-muted-foreground">{new Date(o.updatedAt || o.createdAt).toLocaleTimeString()}</p>

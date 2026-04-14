@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
+import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -63,7 +63,7 @@ interface WishlistItem {
 
 export default function HomeConnected() {
   const [, navigate] = useLocation();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, ensureAuthenticated } = useAuth();
   const { toast } = useToast();
   const { currency, currencySymbol, t } = useLanguage();
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -72,6 +72,7 @@ export default function HomeConnected() {
 
   const { data: platformSettings, isLoading: settingsLoading } = useQuery<PlatformSettings>({
     queryKey: ["/api/platform-settings"],
+    queryFn: async () => fetchSameOriginJson<PlatformSettings>("/api/platform-settings"),
     refetchOnMount: true,
     refetchOnWindowFocus: true,
     refetchInterval: 5000,
@@ -83,13 +84,13 @@ export default function HomeConnected() {
   const sidebarAdEnabled = platformSettings?.sidebarAdEnabled ?? false;
   const footerAdEnabled = platformSettings?.footerAdEnabled ?? false;
   const productPageAdEnabled = platformSettings?.productPageAdEnabled ?? false;
+  const showHomepageFeaturedSection = platformSettings?.showHomepageFeaturedSection !== false;
+  const showHomepageNewArrivalSection = platformSettings?.showHomepageNewArrivalSection !== false;
 
   // Query promotions to determine sidebar display logic
   const { data: allPromotions = [] } = useQuery<any[]>({
     queryKey: ["/api/homepage/promotional"],
-    queryFn: async () => {
-      return fetchApiJson<any[]>("/api/homepage/promotional");
-    },
+    queryFn: async () => fetchSameOriginJson<any[]>("/api/homepage/promotional"),
     refetchInterval: 5000,
   });
 
@@ -104,15 +105,15 @@ export default function HomeConnected() {
 
   const { data: allProducts = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["/api/products", "active", "home"],
-    queryFn: async () => {
-      return fetchApiJson<Product[]>("/api/products?isActive=true");
-    },
+    queryFn: async () => fetchSameOriginJson<Product[]>("/api/products?isActive=true"),
   });
   const { data: featuredProducts = [], isLoading: featuredProductsLoading } = useQuery<Product[]>({
     queryKey: ["/api/homepage/featured-products"],
+    queryFn: async () => fetchSameOriginJson<Product[]>("/api/homepage/featured-products"),
   });
   const { data: newArrivalProducts = [], isLoading: newArrivalProductsLoading } = useQuery<Product[]>({
     queryKey: ["/api/homepage/new-arrivals"],
+    queryFn: async () => fetchSameOriginJson<Product[]>("/api/homepage/new-arrivals"),
   });
 
   const { data: dbStores = [] } = useQuery<Array<{
@@ -124,9 +125,7 @@ export default function HomeConnected() {
     isApproved: boolean;
   }>>({
     queryKey: ["/api/stores"],
-    queryFn: async () => {
-      return fetchApiJson("/api/stores?isActive=true&isApproved=true");
-    },
+    queryFn: async () => fetchSameOriginJson("/api/stores?isActive=true&isApproved=true"),
     enabled: platformSettings?.isMultiVendor === true && platformSettings?.shopDisplayMode === "by-store",
   });
 
@@ -139,11 +138,27 @@ export default function HomeConnected() {
   const { data: cartItems = [], isLoading: cartLoading } = useQuery<CartItem[]>({
     queryKey: ["/api/cart"],
     enabled: isAuthenticated && !authLoading,
+    queryFn: async () =>
+      fetchSameOriginJson<CartItem[]>("/api/cart", {
+        cache: "no-store",
+      }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
   });
 
   const { data: wishlist = [] } = useQuery<WishlistItem[]>({
     queryKey: ["/api/wishlist"],
     enabled: isAuthenticated && !authLoading,
+    queryFn: async () =>
+      fetchSameOriginJson<WishlistItem[]>("/api/wishlist", {
+        cache: "no-store",
+      }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
   });
 
   const { data: cartProducts = [] } = useQuery<Product[]>({
@@ -153,7 +168,9 @@ export default function HomeConnected() {
       const productIds = cartItems.map(item => item.productId);
       const productsData = await Promise.all(
         productIds.map(async (id) => {
-          return fetchApiJson<Product>(`/api/products/${id}`);
+          return fetchSameOriginJson<Product>(`/api/products/${id}`, {
+            cache: "no-store",
+          });
         })
       );
       return productsData;
@@ -163,8 +180,11 @@ export default function HomeConnected() {
 
   const addToCartMutation = useMutation({
     mutationFn: async ({ productId, quantity = 1 }: { productId: string; quantity?: number }) => {
-      const res = await apiRequest("POST", "/api/cart", { productId, quantity });
-      return res.json();
+      return fetchSameOriginJson("/api/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId, quantity }),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
@@ -173,10 +193,21 @@ export default function HomeConnected() {
         description: "Product has been added to your cart",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
+      const message = String(error?.message || "").trim();
+      if (/401|authentication|login/i.test(message)) {
+        queryClient.setQueryData(["/api/auth/me"], null);
+        toast({
+          title: "Session expired",
+          description: "Please log in again to continue shopping.",
+          variant: "destructive",
+        });
+        navigate("/auth");
+        return;
+      }
       toast({
         title: "Error",
-        description: "Please login to add items to cart",
+        description: message || "Could not add this item to your cart",
         variant: "destructive",
       });
     },
@@ -184,17 +215,33 @@ export default function HomeConnected() {
 
   const updateCartMutation = useMutation({
     mutationFn: async ({ id, quantity }: { id: string; quantity: number }) => {
-      const res = await apiRequest("PATCH", `/api/cart/${id}`, { quantity });
-      return res.json();
+      return fetchSameOriginJson(`/api/cart/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantity }),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
+    },
+    onError: (error: any) => {
+      const message = String(error?.message || "").trim();
+      queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
+      toast({
+        title: "Cart update not completed",
+        description: /only\s+\d+|out of stock|maximum available quantity/i.test(message)
+          ? "That quantity is no longer available. The cart has been refreshed."
+          : "Please try again in a moment.",
+        variant: "destructive",
+      });
     },
   });
 
   const removeFromCartMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiRequest("DELETE", `/api/cart/${id}`, {});
+      await fetchSameOriginJson(`/api/cart/${id}`, {
+        method: "DELETE",
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
@@ -207,8 +254,11 @@ export default function HomeConnected() {
 
   const addToWishlistMutation = useMutation({
     mutationFn: async (productId: string) => {
-      const res = await apiRequest("POST", "/api/wishlist", { productId });
-      return res.json();
+      return fetchSameOriginJson("/api/wishlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId }),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
@@ -217,10 +267,13 @@ export default function HomeConnected() {
         description: "Product has been added to your wishlist",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
+      const message = String(error?.message || "").trim();
       toast({
         title: "Error",
-        description: "Could not add to wishlist",
+        description: /401|authentication|login/i.test(message)
+          ? "Please login to use wishlist"
+          : message || "Could not add to wishlist",
         variant: "destructive",
       });
     },
@@ -228,7 +281,9 @@ export default function HomeConnected() {
 
   const removeFromWishlistMutation = useMutation({
     mutationFn: async (productId: string) => {
-      await apiRequest("DELETE", `/api/wishlist/${productId}`, {});
+      await fetchSameOriginJson(`/api/wishlist/${productId}`, {
+        method: "DELETE",
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
@@ -237,10 +292,13 @@ export default function HomeConnected() {
         description: "Product has been removed from your wishlist",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
+      const message = String(error?.message || "").trim();
       toast({
         title: "Error",
-        description: "Could not remove from wishlist",
+        description: /401|authentication|login/i.test(message)
+          ? "Please login to use wishlist"
+          : message || "Could not remove from wishlist",
         variant: "destructive",
       });
     },
@@ -264,7 +322,7 @@ export default function HomeConnected() {
   const { data: dbCategories = [] } = useQuery<Array<{id: string; name: string; slug: string; image: string; isActive: boolean; storeTypes: string[] | null; requestedBySeller?: boolean}>>({
     queryKey: ["/api/categories"],
     queryFn: async () => {
-      const data = await fetchApiJson<Array<{id: string; name: string; slug: string; image: string; isActive: boolean; storeTypes: string[] | null; requestedBySeller?: boolean}>>("/api/categories?isActive=true");
+      const data = await fetchSameOriginJson<Array<{id: string; name: string; slug: string; image: string; isActive: boolean; storeTypes: string[] | null; requestedBySeller?: boolean}>>("/api/categories?isActive=true");
       return Array.isArray(data) ? data : [];
     },
   });
@@ -275,7 +333,7 @@ export default function HomeConnected() {
     queryFn: async () => {
       if (!platformSettings?.primaryStoreId) return null;
       try {
-        return await fetchApiJson<{storeType: string}>(`/api/stores/${platformSettings.primaryStoreId}`);
+        return await fetchSameOriginJson<{storeType: string}>(`/api/stores/${platformSettings.primaryStoreId}`);
       } catch {
         return null;
       }
@@ -322,16 +380,28 @@ export default function HomeConnected() {
     };
   }).filter(Boolean) as any[];
 
-  const handleAddToCart = (productId: string) => {
-    if (!isAuthenticated) {
+  const handleAddToCart = async (productId: string) => {
+    const activeUser = await ensureAuthenticated();
+    if (!activeUser) {
       navigate("/auth");
+      return;
+    }
+    const product = availableProducts.find((entry) => entry.id === productId) || null;
+    const hasVariantOptions = Array.isArray(product?.dynamicFields?.variantSummary) && product.dynamicFields.variantSummary.length > 0;
+    if (hasVariantOptions) {
+      toast({
+        title: "Choose product option",
+        description: "Please open the product and choose the exact option before adding it to cart.",
+      });
+      navigate(`/product/${productId}`);
       return;
     }
     addToCartMutation.mutate({ productId });
   };
 
-  const handleToggleWishlist = (productId: string) => {
-    if (!isAuthenticated) {
+  const handleToggleWishlist = async (productId: string) => {
+    const activeUser = await ensureAuthenticated();
+    if (!activeUser) {
       navigate("/auth");
       return;
     }
@@ -523,7 +593,7 @@ export default function HomeConnected() {
 
             {/* Products column - Adjust width based on sidebar visibility */}
             <div className={sidebarItemCount > 0 ? 'lg:col-span-8' : 'lg:col-span-12'}>
-              {(featuredProductsLoading || filteredFeaturedProducts.length > 0 || Boolean(searchQuery)) && (
+              {showHomepageFeaturedSection && (featuredProductsLoading || filteredFeaturedProducts.length > 0 || Boolean(searchQuery)) && (
               <section>
                 <div className="flex items-center justify-between mb-8">
                   <h2 className="text-3xl font-bold">
@@ -588,7 +658,7 @@ export default function HomeConnected() {
             </section>
               )}
 
-              {visibleNewArrivalProducts.length > 0 && (
+              {showHomepageNewArrivalSection && visibleNewArrivalProducts.length > 0 && (
                 <section className="mt-8">
                   <div className="flex items-center justify-between mb-8">
                     <h2 className="text-3xl font-bold">New Arrivals</h2>

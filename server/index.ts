@@ -11,6 +11,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log, DIST_PUBLIC_PATH } from "./vite";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { captureApiActivity } from "./observability";
 
 const app = express();
 let processLevelGuardsInstalled = false;
@@ -81,6 +82,19 @@ app.use((req, res, next) => {
     }
 
     log(logLine);
+
+    if (isApiPath) {
+      void captureApiActivity({
+        method: req.method,
+        path,
+        statusCode: res.statusCode,
+        duration,
+        actorId: (req as any)?.user?.id || null,
+        actorRole: (req as any)?.user?.role || null,
+      }).catch((error) => {
+        console.warn("[OBSERVABILITY] Failed to capture API activity:", (error as any)?.message || error);
+      });
+    }
   });
 
   next();
@@ -359,7 +373,10 @@ app.use(cookieParser());
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS is_external_rider_system_enabled boolean DEFAULT false`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_checkout_delivery_map boolean DEFAULT true`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_pickup_agent_admin_chat boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_seller_direct_support_messages boolean DEFAULT true`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_rider_registration boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_homepage_featured_section boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_homepage_new_arrival_section boolean DEFAULT true`);
     await db.execute(sql`ALTER TABLE platform_settings ALTER COLUMN ads_enabled SET DEFAULT false`);
     await db.execute(sql`ALTER TABLE platform_settings ALTER COLUMN hero_banner_enabled SET DEFAULT false`);
     await db.execute(sql`ALTER TABLE platform_settings ALTER COLUMN sidebar_ad_enabled SET DEFAULT false`);
@@ -373,6 +390,14 @@ app.use(cookieParser());
     await db.execute(sql`UPDATE platform_settings SET product_page_ad_enabled = false WHERE product_page_ad_enabled IS NULL`);
     await db.execute(sql`UPDATE platform_settings SET allow_rider_registration = false WHERE allow_rider_registration IS NULL`);
     await db.execute(sql`UPDATE platform_settings SET is_external_rider_system_enabled = false WHERE is_external_rider_system_enabled IS NULL`);
+    await db.execute(sql`UPDATE platform_settings SET allow_seller_direct_support_messages = true WHERE allow_seller_direct_support_messages IS NULL`);
+    await db.execute(sql`UPDATE platform_settings SET show_homepage_featured_section = true WHERE show_homepage_featured_section IS NULL`);
+    await db.execute(sql`UPDATE platform_settings SET show_homepage_new_arrival_section = true WHERE show_homepage_new_arrival_section IS NULL`);
+    await db.execute(sql`ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS images text[]`);
+    await db.execute(sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS variant_id varchar`);
+    await db.execute(sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS selected_color varchar`);
+    await db.execute(sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS selected_size varchar`);
+    await db.execute(sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS selected_image_index integer DEFAULT 0`);
     await db.execute(sql`ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS entity_kind text DEFAULT 'delivery_zone'`);
     await db.execute(sql`UPDATE delivery_zones SET entity_kind = 'delivery_zone' WHERE entity_kind IS NULL`);
     await db.execute(sql`
@@ -453,6 +478,39 @@ app.use(cookieParser());
     await db.execute(sql`CREATE INDEX IF NOT EXISTS report_activity_logs_report_type_idx ON report_activity_logs(report_type)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS report_activity_logs_created_at_idx ON report_activity_logs(created_at)`);
     await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS system_activity_logs (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        category text NOT NULL,
+        severity text NOT NULL DEFAULT 'info',
+        title text NOT NULL,
+        message text NOT NULL,
+        human_explanation text,
+        root_cause text,
+        suggested_fix text,
+        preventive_action text,
+        source text,
+        entity_type text,
+        entity_id text,
+        actor_id varchar REFERENCES users(id) ON DELETE SET NULL,
+        actor_role user_role,
+        fingerprint text,
+        occurrence_count integer NOT NULL DEFAULT 1,
+        is_resolved boolean NOT NULL DEFAULT false,
+        first_seen_at timestamp DEFAULT now(),
+        last_seen_at timestamp DEFAULT now(),
+        resolved_at timestamp,
+        metadata jsonb DEFAULT '{}'::jsonb,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS system_activity_logs_category_idx ON system_activity_logs(category)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS system_activity_logs_severity_idx ON system_activity_logs(severity)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS system_activity_logs_is_resolved_idx ON system_activity_logs(is_resolved)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS system_activity_logs_fingerprint_idx ON system_activity_logs(fingerprint)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS system_activity_logs_last_seen_at_idx ON system_activity_logs(last_seen_at)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS system_activity_logs_created_at_idx ON system_activity_logs(created_at)`);
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS receipts (
         id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
         receipt_number text NOT NULL UNIQUE,
@@ -483,6 +541,14 @@ app.use(cookieParser());
   }
 
   const server = await registerRoutes(app);
+
+  try {
+    const { storage } = await import("./storage");
+    await storage.getPlatformSettings();
+    console.log("[BOOT] Warmed platform settings cache");
+  } catch (e) {
+    console.warn("[BOOT] Could not warm platform settings cache:", (e as any)?.message ?? String(e));
+  }
 
   // ALWAYS serve the app on the port specified in the environment variable PORT.
   // Default to 5000 for local development.
@@ -554,7 +620,6 @@ app.use(cookieParser());
         "messages.view": true,
         "messages.send": true,
         "support.view": true,
-        "support.manage": true,
         "store.manage": true,
         "payouts.request": true,
         "promotions.manage": true,
@@ -571,7 +636,6 @@ app.use(cookieParser());
         "messages.view": true,
         "messages.send": true,
         "support.view": true,
-        "support.manage": true,
         "earnings.view": true,
         "profile.manage": true,
         "maps.view": true,
@@ -579,7 +643,6 @@ app.use(cookieParser());
       pickup_agent: {
         "orders.view": true,
         "support.view": true,
-        "support.manage": true,
         "profile.manage": true,
       },
       agent: {
@@ -598,7 +661,6 @@ app.use(cookieParser());
         "messages.view": true,
         "messages.send": true,
         "support.view": true,
-        "support.manage": true,
         "wishlist.manage": true,
         "profile.manage": true,
         "maps.view": true,
@@ -701,7 +763,9 @@ app.use(cookieParser());
   // doesn't interfere with the other routes.
   // We start listening first so API/health endpoints stay responsive
   // even if the frontend dev middleware takes time to initialize.
-  const useEmbeddedVite = app.get("env") === "development" && process.env.KIYUMART_USE_EMBEDDED_VITE === "true";
+  const useEmbeddedVite =
+    app.get("env") === "development" &&
+    process.env.KIYUMART_USE_EMBEDDED_VITE !== "false";
 
   if (useEmbeddedVite) {
     try {
@@ -718,28 +782,42 @@ app.use(cookieParser());
         next();
       });
     } catch (viteError: any) {
-      const fallbackDistPath = DIST_PUBLIC_PATH;
       console.error("[BOOT] Vite dev middleware failed; continuing without crashing the backend:", viteError?.message || viteError);
+      console.error("[BOOT] Refusing to serve a stale built frontend in development. Fix the Vite startup error and restart.");
+      app.use("*", (req, res) => {
+        if (req.originalUrl.startsWith("/api") || req.originalUrl.startsWith("/socket.io")) {
+          res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+          return;
+        }
 
-      if (fs.existsSync(path.resolve(fallbackDistPath, "index.html"))) {
-        console.warn("[BOOT] Serving existing built frontend as a fallback while Vite is unavailable.");
-        serveStatic(app);
-        frontendReady = true;
-      } else {
-        app.use("*", (req, res) => {
-          if (req.originalUrl.startsWith("/api") || req.originalUrl.startsWith("/socket.io")) {
-            res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
-            return;
-          }
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          res.status(404).end();
+          return;
+        }
 
-          if (req.method !== "GET" && req.method !== "HEAD") {
-            res.status(404).end();
-            return;
-          }
-
-          res.status(503).send("Frontend dev server failed to initialize. The backend is still running.");
-        });
-      }
+        res.status(503).type("html").send(`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KiyuMart Dev Server Error</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0f172a; color: #e5e7eb; font-family: Arial, sans-serif; }
+      .card { max-width: 560px; padding: 24px 28px; border: 1px solid rgba(255,255,255,0.1); border-radius: 18px; background: rgba(15, 23, 42, 0.92); box-shadow: 0 20px 45px rgba(0,0,0,0.35); }
+      h1 { margin: 0 0 12px; font-size: 22px; }
+      p { margin: 0 0 10px; color: #cbd5e1; line-height: 1.5; }
+      code { color: #86efac; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Frontend Dev Server Failed To Start</h1>
+      <p>KiyuMart will not serve an old built frontend in development anymore.</p>
+      <p>Restart with <code>npx tsx server/index.ts</code> after fixing the Vite startup issue.</p>
+    </div>
+  </body>
+</html>`);
+      });
     }
   } else {
     serveStatic(app);

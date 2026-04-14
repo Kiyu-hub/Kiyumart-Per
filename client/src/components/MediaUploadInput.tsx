@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Upload, Link as LinkIcon, Loader2, X, Image, Video, CheckCircle, FolderOpen, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import CleanVideoPlayer from "@/components/CleanVideoPlayer";
 
 interface MediaLibraryItem {
   id: string;
@@ -41,6 +42,7 @@ interface MediaUploadInputProps {
   minDimensions?: { width: number; height: number };
   /** Category filter for media library (banner, product, category, logo) */
   mediaCategory?: string;
+  compact?: boolean;
 }
 
 export default function MediaUploadInput({
@@ -56,6 +58,7 @@ export default function MediaUploadInput({
   skip4KValidation = false,
   minDimensions = { width: 200, height: 200 },
   mediaCategory,
+  compact = false,
 }: MediaUploadInputProps) {
   const apiBase = ((import.meta.env as any).VITE_API_URL || "").trim().replace(/\/$/, "");
   const toApiUrl = (path: string) => (path.startsWith("http") ? path : `${apiBase}${path}`);
@@ -213,12 +216,12 @@ export default function MediaUploadInput({
       return;
     }
 
-    setValidationStatus("Checking file size...");
-    const maxSize = isVideo ? 30 * 1024 * 1024 : 10 * 1024 * 1024;
-    if (file.size > maxSize) {
+    setValidationStatus("Checking file...");
+    const maxSize = 10 * 1024 * 1024;
+    if (isImage && file.size > maxSize) {
       toast({
         title: "File too large",
-        description: `File is ${formatFileSize(file.size)}. Maximum size is ${isVideo ? "30MB" : "10MB"}`,
+        description: `File is ${formatFileSize(file.size)}. Maximum size is 10MB`,
         variant: "destructive",
       });
       setFileInfo(null);
@@ -226,66 +229,20 @@ export default function MediaUploadInput({
     }
 
     if (isImage) {
-      try {
-        setValidationStatus("Checking image dimensions...");
-        const { width, height } = await validateImageDimensions(file);
-
-        if (skip4KValidation) {
-          if (width < minDimensions.width || height < minDimensions.height) {
-            toast({
-              title: "Image resolution too low",
-              description: `Image is ${width}x${height}px. Minimum required: ${minDimensions.width}x${minDimensions.height}px`,
-              variant: "destructive",
-            });
-            e.target.value = "";
-            setFileInfo(null);
-            return;
-          }
-        } else if (width < 3840 || height < 2160) {
-          toast({
-            title: "Image resolution too low",
-            description: `Image is ${width}x${height}px. Minimum required: 3840x2160px (4K)`,
-            variant: "destructive",
-          });
-          e.target.value = "";
-          setFileInfo(null);
-          return;
-        }
-        setValidationStatus(`Image validated (${width}x${height}px)`);
-      } catch {
-        toast({
-          title: "Validation failed",
-          description: "Could not validate image dimensions",
-          variant: "destructive",
-        });
-        setFileInfo(null);
-        return;
-      }
+      setValidationStatus("Image ready for upload");
     }
 
     if (isVideo) {
       try {
-        setValidationStatus("Checking video duration...");
+        setValidationStatus("Preparing video for upload...");
         const duration = await validateVideoDuration(file);
-        if (duration >= 30) {
-          toast({
-            title: "Video too long",
-            description: `Video is ${duration.toFixed(1)}s. Must be under 30 seconds`,
-            variant: "destructive",
-          });
-          e.target.value = "";
-          setFileInfo(null);
-          return;
-        }
-        setValidationStatus(`Video validated (${duration.toFixed(1)}s)`);
+        setValidationStatus(
+          duration > 30
+            ? `Long video detected (${duration.toFixed(1)}s). It will be optimized automatically.`
+            : `Video validated (${duration.toFixed(1)}s)`,
+        );
       } catch {
-        toast({
-          title: "Validation failed",
-          description: "Could not validate video duration",
-          variant: "destructive",
-        });
-        setFileInfo(null);
-        return;
+        setValidationStatus("Uploading video without local duration check...");
       }
     }
 
@@ -411,28 +368,30 @@ export default function MediaUploadInput({
 
   return (
     <div className="space-y-2">
-      <Label htmlFor={id}>
-        {label} {required && <span className="text-destructive">*</span>}
-      </Label>
+      {label ? (
+        <Label htmlFor={id}>
+          {label} {required && <span className="text-destructive">*</span>}
+        </Label>
+      ) : null}
       
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "url" | "upload" | "library")} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="url" disabled={disabled}>
-            <LinkIcon className="h-4 w-4 mr-2" />
-            URL
+        <TabsList className={`grid w-full grid-cols-3 ${compact ? "h-auto gap-1 p-1" : ""}`}>
+          <TabsTrigger value="url" disabled={disabled} className={compact ? "px-2 py-2 text-[11px]" : ""}>
+            <LinkIcon className={`h-4 w-4 ${compact ? "" : "mr-2"}`} />
+            <span className={compact ? "sr-only" : ""}>URL</span>
           </TabsTrigger>
-          <TabsTrigger value="upload" disabled={disabled}>
-            <Upload className="h-4 w-4 mr-2" />
-            Upload
+          <TabsTrigger value="upload" disabled={disabled} className={compact ? "px-2 py-2 text-[11px]" : ""}>
+            <Upload className={`h-4 w-4 ${compact ? "" : "mr-2"}`} />
+            <span className={compact ? "sr-only" : ""}>Upload</span>
           </TabsTrigger>
-          <TabsTrigger value="library" disabled={disabled}>
-            <FolderOpen className="h-4 w-4 mr-2" />
-            Library
+          <TabsTrigger value="library" disabled={disabled} className={compact ? "px-2 py-2 text-[11px]" : ""}>
+            <FolderOpen className={`h-4 w-4 ${compact ? "" : "mr-2"}`} />
+            <span className={compact ? "sr-only" : ""}>Library</span>
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="url" className="space-y-2">
-          <div className="flex gap-2">
+        <TabsContent value="url" className={compact ? "mt-2 space-y-2" : "space-y-2"}>
+          <div className={`flex gap-2 ${compact ? "flex-col" : ""}`}>
             <Input
               id={id}
               type="url"
@@ -441,6 +400,7 @@ export default function MediaUploadInput({
               placeholder={placeholder}
               disabled={disabled}
               data-testid={`input-${id}`}
+              className={compact ? "h-9 text-xs" : ""}
             />
             {value && (
               <Button
@@ -457,20 +417,20 @@ export default function MediaUploadInput({
           </div>
         </TabsContent>
 
-        <TabsContent value="upload" className="space-y-2">
-          <div className="flex items-center gap-2">
+        <TabsContent value="upload" className={compact ? "mt-2 space-y-2" : "space-y-2"}>
+          <div className={`flex items-center gap-2 ${compact ? "flex-col" : ""}`}>
             <Button
               type="button"
               variant="outline"
               disabled={isUploading || disabled}
               onClick={() => document.getElementById(`${id}-file-input`)?.click()}
-              className="flex-1"
+              className={compact ? "h-9 w-full px-2 text-xs" : "flex-1"}
               data-testid={`button-upload-${id}`}
             >
               {isUploading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Uploading...
+                  {compact ? "Uploading" : "Uploading..."}
                 </>
               ) : (
                 <>
@@ -479,7 +439,7 @@ export default function MediaUploadInput({
                   ) : (
                     <Image className="h-4 w-4 mr-2" />
                   )}
-                  Choose {getFileTypeLabel()}
+                  {compact ? "Upload" : `Choose ${getFileTypeLabel()}`}
                 </>
               )}
             </Button>
@@ -505,7 +465,7 @@ export default function MediaUploadInput({
             )}
           </div>
 
-          {fileInfo && (
+          {fileInfo && !compact && (
             <div className="text-xs text-muted-foreground">
               <span className="font-medium">{fileInfo.name}</span>
               <span className="mx-2">•</span>
@@ -513,7 +473,7 @@ export default function MediaUploadInput({
             </div>
           )}
 
-          {validationStatus && (
+          {validationStatus && !compact && (
             <div className="flex items-start gap-2 text-xs">
               {validationStatus.startsWith('✓') ? (
                 <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
@@ -526,7 +486,7 @@ export default function MediaUploadInput({
             </div>
           )}
 
-          {isUploading && uploadProgress > 0 && (
+          {isUploading && uploadProgress > 0 && !compact && (
             <div className="space-y-1">
               <Progress value={uploadProgress} className="h-2" />
               <p className="text-xs text-muted-foreground text-center">
@@ -535,15 +495,15 @@ export default function MediaUploadInput({
             </div>
           )}
 
-          {value && (
+          {value && !compact && (
             <p className="text-xs text-muted-foreground break-all">
               Current: {value}
             </p>
           )}
         </TabsContent>
 
-        <TabsContent value="library" className="space-y-2">
-          {(mediaError || assetsError) && (
+        <TabsContent value="library" className={compact ? "mt-2 space-y-2" : "space-y-2"}>
+          {(mediaError || assetsError) && !compact && (
             <div className="text-xs text-muted-foreground">
               Some library sources could not be loaded. Try refreshing or signing in again.
             </div>
@@ -556,11 +516,11 @@ export default function MediaUploadInput({
             <div className="text-center py-8 text-muted-foreground">
               <FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p className="text-sm">No images in library</p>
-              <p className="text-xs">Upload images or add from assets</p>
+              {!compact && <p className="text-xs">Upload images or add from assets</p>}
             </div>
           ) : (
-            <ScrollArea className="h-48 border rounded-md p-2">
-              <div className="grid grid-cols-3 gap-2">
+            <ScrollArea className={`${compact ? "h-28" : "h-48"} border rounded-md p-2`}>
+              <div className={`grid ${compact ? "grid-cols-2" : "grid-cols-3"} gap-2`}>
                 {allLibraryImages.map((img, idx) => (
                   <button
                     key={`${img.source}-${idx}`}
@@ -585,15 +545,17 @@ export default function MediaUploadInput({
                         <Check className="h-6 w-6 text-primary drop-shadow-lg" />
                       </div>
                     )}
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5">
-                      <p className="text-[10px] text-white truncate">{img.name}</p>
-                    </div>
+                    {!compact && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5">
+                        <p className="text-[10px] text-white truncate">{img.name}</p>
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
             </ScrollArea>
           )}
-          {value && (
+          {value && !compact && (
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground break-all flex-1">
                 Selected: {value.split('/').pop()}
@@ -612,11 +574,11 @@ export default function MediaUploadInput({
         </TabsContent>
       </Tabs>
 
-      {description && (
+      {description && !compact && (
         <p className="text-xs text-muted-foreground">{description}</p>
       )}
 
-      {value && accept === "image" && (
+      {value && accept === "image" && !compact && (
         <div className="mt-2">
           <img
             src={value}
@@ -627,13 +589,14 @@ export default function MediaUploadInput({
         </div>
       )}
 
-      {value && accept === "video" && (
+      {value && accept === "video" && !compact && (
         <div className="mt-2">
-          <video
-            src={value}
-            controls
-            className="max-w-xs h-32 rounded border"
-            data-testid={`video-preview-${id}`}
+          <CleanVideoPlayer
+            videoUrl={value}
+            title={label || "Product video"}
+            className="max-w-md"
+            compact
+            layout="landscape"
           />
         </div>
       )}

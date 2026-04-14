@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { PageLoadingState, SectionLoadingState } from "@/components/ui/loading-state";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 import { formatDistanceToNow } from "date-fns";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
@@ -62,6 +62,14 @@ interface Order {
       submittedAt?: string | null;
     } | null;
   } | null;
+  items?: Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    price?: string;
+    selectedColor?: string | null;
+    selectedSize?: string | null;
+  }>;
 }
 
 interface OrderStats {
@@ -290,6 +298,13 @@ function ViewOrderDialog({
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const [pickupVerificationQr, setPickupVerificationQr] = useState("");
   const [pickupVerificationOtp, setPickupVerificationOtp] = useState("");
+  const formatItemSelection = (item: { selectedColor?: string | null; selectedSize?: string | null }) => {
+    const parts = [
+      item.selectedColor ? `Color: ${item.selectedColor}` : null,
+      item.selectedSize ? `Size: ${item.selectedSize}` : null,
+    ].filter(Boolean);
+    return parts.join(" • ");
+  };
 
   const { data: orderDetails, isLoading } = useQuery({
     queryKey: ["/api/orders", orderId],
@@ -691,6 +706,37 @@ function ViewOrderDialog({
               </div>
             )}
 
+            {!!orderDetails.items?.length && (
+              <div className="border-t pt-4">
+                <p className="text-sm font-medium text-muted-foreground mb-2">Ordered Items</p>
+                <div className="space-y-2">
+                  {orderDetails.items.map((item: any, index: number) => (
+                    <div
+                      key={`${orderDetails.id}-${item.productId}-${index}`}
+                      className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold truncate" title={item.productName}>
+                          {item.productName}
+                        </p>
+                        {!!formatItemSelection(item) && (
+                          <p className="text-xs text-muted-foreground">
+                            {formatItemSelection(item)}
+                          </p>
+                        )}
+                        {item.price && (
+                          <p className="text-xs text-muted-foreground">
+                            Unit price: {formatPrice(parseFloat(item.price))}
+                          </p>
+                        )}
+                      </div>
+                      <p className="shrink-0 text-sm font-medium">Qty: {item.quantity}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {(orderDetails.deliveryAddress || orderDetails.customerInfo?.email || orderDetails.customerInfo?.phone || orderDetails.deliveryPhone) && (
               <div className="space-y-1">
                 {orderDetails.deliveryAddress && (
@@ -834,12 +880,15 @@ export default function AdminOrders() {
   // Fetch all orders (admin/super_admin sees all)
   const { data: allOrders = [], isLoading, refetch } = useQuery<Order[]>({
     queryKey: ["/api/orders"],
-    queryFn: async () => {
-      const res = await fetch("/api/orders", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch orders");
-      return res.json();
-    },
+    queryFn: () =>
+      fetchSameOriginJson<Order[]>("/api/orders?context=admin&includeItems=false", {
+        cache: "no-store",
+      }),
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin" || user?.role === "agent"),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
     refetchInterval: 30000, // Refetch every 30 seconds as fallback
   });
 
@@ -1906,7 +1955,7 @@ function OrdersList({
                   onClick={(e) => {
                     e.stopPropagation();
                     // Navigate to tracking page with order id
-                    navigate(`/track?orderId=${order.id}`);
+                    navigate(`/track/${encodeURIComponent(order.id)}`);
                   }}
                   data-testid={`button-track-${order.id}`}
                 >

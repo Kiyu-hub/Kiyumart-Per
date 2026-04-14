@@ -125,6 +125,16 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
       });
       await Promise.all(updatePromises);
 
+      if (typeof storage.clearCart === "function") {
+        await storage.clearCart(primaryOrder.buyerId);
+      } else if (typeof storage.clearCartThroughCheckoutTime === "function") {
+        const checkoutStartedAt = orders.reduce((earliest: Date, order: any) => {
+          const createdAt = order?.createdAt ? new Date(order.createdAt) : earliest;
+          return createdAt < earliest ? createdAt : earliest;
+        }, new Date());
+        await storage.clearCartThroughCheckoutTime(primaryOrder.buyerId, checkoutStartedAt);
+      }
+
       // Calculate commission for each order (storage helper)
       // Use allSettled so a failure for one order doesn't block others; log failures
       const commissionResults = await Promise.allSettled(orders.map((order: any) => storage.createCommissionWithEarning(order.id)));
@@ -174,7 +184,21 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
       const orderNumbers = orders.map((o: any) => `#${o.orderNumber}`).join(', ');
       const totalPaid = (eventData.amount / 100).toFixed(2);
 
-      await storage.createNotification({ userId: primaryOrder.buyerId, type: 'order', title: 'Payment Confirmed', message: `Your payment for ${orders.length} order(s) (${orderNumbers}) was successful. Total: ${eventData.currency} ${totalPaid}` });
+      await storage.createNotification({
+        userId: primaryOrder.buyerId,
+        type: 'order',
+        title: 'New Order Placed',
+        message:
+          orders.length === 1
+            ? `Your order ${orderNumbers} has been placed successfully. Payment confirmed: ${eventData.currency} ${totalPaid}.`
+            : `Your orders ${orderNumbers} have been placed successfully. Payment confirmed: ${eventData.currency} ${totalPaid}.`,
+        metadata: {
+          orderIds: orders.map((o: any) => o.id),
+          orderNumbers: orders.map((o: any) => o.orderNumber),
+          link: "/orders",
+          paymentStatus: "completed",
+        } as any,
+      });
 
       await Promise.all(
         orders
@@ -183,12 +207,12 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
             const deliveryMethod = String(order.deliveryMethod || "").toLowerCase().trim();
             const isPickup = deliveryMethod === "pickup" || deliveryMethod === "store_pickup";
             const sellerMessage = isPickup
-              ? `Order #${order.orderNumber} has been paid. Pack it and mark it ready for pickup when it is prepared.`
-              : `Order #${order.orderNumber} has been paid. Start packaging and mark it ready when dispatch preparation is complete.`;
+              ? `A new order #${order.orderNumber} has been placed and paid. Package it and mark it ready for pickup when it is prepared.`
+              : `A new order #${order.orderNumber} has been placed and paid. Start packaging and mark it ready when dispatch preparation is complete.`;
             await storage.createNotification({
               userId: order.sellerId,
               type: "order",
-              title: "New Paid Order",
+              title: "New Order Placed",
               message: sellerMessage,
               metadata: {
                 orderId: order.id,
@@ -242,8 +266,14 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
         });
       }
     } else {
-      // mark failed
-      await Promise.all(orders.map((order: any) => storage.updateOrder(order.id, { paymentStatus: 'failed' })));
+      if (typeof storage.resolveBuyerUnpaidOrders === "function") {
+        await storage.resolveBuyerUnpaidOrders(primaryOrder.buyerId, {
+          orderIds: orders.map((order: any) => order.id),
+          force: true,
+        });
+      } else {
+        await Promise.all(orders.map((order: any) => storage.updateOrder(order.id, { paymentStatus: 'failed' })));
+      }
       await storage.createNotification({ userId: primaryOrder.buyerId, type: 'order', title: 'Payment Failed', message: `Payment for ${orders.length} order(s) failed. Please try again.` });
       io.to(primaryOrder.buyerId).emit('payment_failed', { orderId: primaryOrder.id, orderNumber: orders.map(o => o.orderNumber).join(', '), reason: eventData.gateway_response || 'Payment failed' });
     }

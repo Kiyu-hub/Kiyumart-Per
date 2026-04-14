@@ -5,6 +5,7 @@ import { Heart, Star } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 
 interface ProductCardProps {
   id: string;
@@ -19,6 +20,13 @@ interface ProductCardProps {
   inStock?: boolean;
   isWishlisted?: boolean;
   onToggleWishlist?: (id: string) => void;
+  category?: string | null;
+  categoryName?: string | null;
+  categoryId?: string | null;
+  description?: string;
+  dynamicFields?: Record<string, unknown>;
+  video?: string;
+  deliveryDuration?: string;
 }
 
 /**
@@ -73,14 +81,23 @@ export default function ProductCard({
   inStock = true,
   isWishlisted: initialWishlisted = false,
   onToggleWishlist,
+  category,
+  categoryName,
+  categoryId,
+  description,
+  dynamicFields,
+  video,
+  deliveryDuration,
 }: ProductCardProps) {
-  const [, navigate] = useLocation();
-  const [isWishlisted, setIsWishlisted] = useState(initialWishlisted);
+  const [location, navigate] = useLocation();
+  const [localWishlisted, setLocalWishlisted] = useState(initialWishlisted);
   const { formatPrice } = useLanguage();
 
   useEffect(() => {
-    setIsWishlisted(initialWishlisted);
+    setLocalWishlisted(initialWishlisted);
   }, [initialWishlisted]);
+
+  const isWishlisted = onToggleWishlist ? initialWishlisted : localWishlisted;
 
   const sellingPrice = typeof price === 'string' ? parseFloat(price) : price;
   const originalPrice = costPrice ? (typeof costPrice === 'string' ? parseFloat(costPrice) : costPrice) : null;
@@ -104,18 +121,55 @@ export default function ProductCard({
 
   const handleWishlistToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsWishlisted(!isWishlisted);
-    onToggleWishlist?.(id);
+    if (onToggleWishlist) {
+      onToggleWishlist(id);
+      return;
+    }
+    setLocalWishlisted(!isWishlisted);
   };
 
   const handleCardClick = () => {
-    navigate(`/product/${id}`);
+    queryClient.setQueryData(["/api/products", id], (current: any) => current ?? ({
+      id,
+      name,
+      description,
+      price: String(price),
+      costPrice: costPrice != null ? String(costPrice) : undefined,
+      discount: actualDiscount,
+      category: category ?? null,
+      categoryName: categoryName ?? null,
+      categoryId: categoryId ?? null,
+      images: image ? [image] : [],
+      video,
+      ratings: String(ratingNum || 0),
+      totalRatings: Number(reviewCount || 0),
+      stock: inStock ? 1 : 0,
+      deliveryDuration,
+      dynamicFields,
+      isActive: true,
+    }));
+    navigate(`/product/${id}?from=${encodeURIComponent(location)}`);
+  };
+
+  const prefetchProductDetails = () => {
+    queryClient.prefetchQuery({
+      queryKey: ["/api/products", id],
+      queryFn: async () => fetchSameOriginJson(`/api/products/${id}`),
+      staleTime: 60 * 1000,
+    });
+    queryClient.prefetchQuery({
+      queryKey: ["/api/products", id, "variants"],
+      queryFn: async () => fetchSameOriginJson(`/api/products/${id}/variants`),
+      staleTime: 60 * 1000,
+    });
   };
 
   return (
     <Card 
       className={"group overflow-hidden hover-elevate transition-all duration-300 cursor-pointer " + (import.meta.env.DEV ? 'outline outline-1 outline-muted/30' : '')}
       onClick={handleCardClick}
+      onMouseEnter={prefetchProductDetails}
+      onFocus={prefetchProductDetails}
       data-testid={`card-product-${id}`}
     >
       {/* Product Image Container - DO NOT MODIFY ASPECT RATIO */}

@@ -4,14 +4,23 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
-import { buildCsv, createSimplePdf, logReportActivity, triggerDownload } from "@/lib/reporting";
+import {
+  buildCsv,
+  logReportActivity,
+  openPrintReportWindow,
+  renderPrintReportError,
+  renderPrintReportWindow,
+  triggerDownload,
+} from "@/lib/reporting";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { DollarSign, Download, Loader2, Package, ShoppingCart, TrendingUp } from "lucide-react";
+import { DollarSign, Download, Loader2, ShoppingCart, TrendingUp } from "lucide-react";
+import pdfLogoDark from "@assets/kiyumart_logo_dark.png";
+import pdfLogoLight from "@assets/kiyumart_logo_light.png";
 
 type OrderRow = {
   id: string;
@@ -28,6 +37,8 @@ type Analytics = {
   totalOrders?: number;
   totalReceivedMoney?: number;
   sellerSettlementTotal?: number;
+  pendingPayoutValue?: number;
+  completedPayoutValue?: number;
   platformCommissionTotal?: number;
   processingFeesTotal?: number;
 };
@@ -47,6 +58,25 @@ const n = (v?: string | null) => String(v || "").toLowerCase().trim();
 const num = (v: unknown) => Number(v || 0) || 0;
 const paid = (s?: string | null) => ["completed", "paid", "success"].includes(n(s));
 const completed = (s?: string | null) => ["completed", "delivered"].includes(n(s));
+const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+const formatDateTime = (value?: string | null) => {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return date.toLocaleString("en-GH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
 const dayKey = (v?: string | null) => {
   if (!v) return "";
   const d = new Date(v);
@@ -157,6 +187,9 @@ export default function SellerAnalytics() {
   }, [scoped]);
 
   const loading = statsLoading || ordersLoading;
+  const sellerSettlementTotal = num(stats?.sellerSettlementTotal ?? stats?.totalReceivedMoney);
+  const pendingPayoutTotal = num(stats?.pendingPayoutValue);
+  const sellerWalletTotal = num(stats?.completedPayoutValue);
   const reportType = "seller_performance_analytics";
   const reportScope = { range, scopedOrders: scoped.length };
   const exportRows = scoped.map((order) => ({
@@ -186,28 +219,450 @@ export default function SellerAnalytics() {
   };
 
   const handleExportPdf = async () => {
+    const reportWindow = openPrintReportWindow("KiyuMart Seller Analytics", "Preparing your premium analytics report...");
     await logReportActivity({ action: "request", reportType, format: "pdf", scope: reportScope, status: "success" });
     try {
       setExporting("pdf");
-      const lines = [
-        `Generated At: ${new Date().toISOString()}`,
-        `Range: ${range}`,
-        `Orders: ${scoped.length}`,
-        `Revenue: ${totals.revenue.toFixed(2)}`,
-        `Completed: ${totals.completedCount} | Cancelled: ${totals.cancelledCount}`,
-        " ",
-      ];
-      exportRows.forEach((row, idx) => {
-        lines.push(`${idx + 1}. ${row.order_id}`);
-        lines.push(`Status: ${row.status} | Payment: ${row.payment_status} | Method: ${row.delivery_method}`);
-        lines.push(`Total: ${row.total} | Created: ${row.created_at} | Delivered: ${row.delivered_at || "N/A"}`);
-        lines.push(" ");
-      });
-      const pdfBytes = createSimplePdf("Kiyumart Seller Analytics Report", lines);
+      const prefersDarkPdf = false;
+      const pdfLogoUrl = new URL(prefersDarkPdf ? pdfLogoLight : pdfLogoDark, window.location.origin).toString();
+      const orderRowsMarkup =
+        exportRows.length > 0
+          ? exportRows
+              .slice(0, 12)
+              .map(
+                (row) => `
+                  <tr>
+                    <td>
+                      <div class="table-primary">${escapeHtml(row.order_id)}</div>
+                      <div class="table-secondary">${escapeHtml(formatDateTime(row.created_at))}</div>
+                    </td>
+                    <td>${escapeHtml(row.status)}</td>
+                    <td>${escapeHtml(row.payment_status || "pending")}</td>
+                    <td>${escapeHtml(row.delivery_method)}</td>
+                    <td class="table-amount">GHS ${escapeHtml(row.total)}</td>
+                  </tr>
+                `,
+              )
+              .join("")
+          : "";
+
+      const receiptsMarkup =
+        receipts.length > 0
+          ? receipts
+              .slice(0, 8)
+              .map(
+                (receipt) => `
+                  <div class="compact-row">
+                    <span>${escapeHtml(receipt.receiptNumber)}</span>
+                    <span>${escapeHtml(receipt.orderNumber)}</span>
+                    <span>GHS ${escapeHtml(Number(receipt.total || 0).toFixed(2))}</span>
+                  </div>
+                `,
+              )
+              .join("")
+          : `<div class="empty-state">No recent receipts available.</div>`;
+
+      const deliveryMarkup = byMethod
+        .map(
+          (entry) => `
+            <div class="compact-row">
+              <span>${escapeHtml(entry.method)}</span>
+              <span>${escapeHtml(String(entry.count))} completed</span>
+            </div>
+          `,
+        )
+        .join("");
+
+      const trendMarkup =
+        salesTrend.length > 0
+          ? salesTrend
+              .slice(-7)
+              .map(
+                (point) => `
+                  <div class="compact-row">
+                    <span>${escapeHtml(point.day)}</span>
+                    <span>GHS ${escapeHtml(point.revenue.toFixed(2))} • ${escapeHtml(String(point.orders))} orders</span>
+                  </div>
+                `,
+              )
+              .join("")
+          : `<div class="empty-state">No sales trend data available in this range.</div>`;
+
+      if (!reportWindow) {
+        throw new Error("Please allow pop-ups so your PDF report can open.");
+      }
+
+      renderPrintReportWindow(reportWindow, "KiyuMart Seller Analytics", `
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>KiyuMart Seller Analytics</title>
+            <style>
+              :root {
+                --ink: #102a43;
+                --muted: #5c6b7a;
+                --border: #d9e2ec;
+                --surface: #ffffff;
+                --soft: #f7fafc;
+                --accent: #0b8f74;
+                --accent-soft: rgba(11, 143, 116, 0.1);
+              }
+              * { box-sizing: border-box; }
+              body {
+                margin: 0;
+                font-family: "Segoe UI", Arial, sans-serif;
+                color: var(--ink);
+                background: #eef4f7;
+              }
+              .page {
+                max-width: 980px;
+                margin: 0 auto;
+                min-height: 100vh;
+                background: var(--surface);
+              }
+              .hero {
+                padding: 34px 40px 28px;
+                background:
+                  linear-gradient(135deg, rgba(11, 143, 116, 0.16), rgba(9, 34, 76, 0.06)),
+                  linear-gradient(180deg, #ffffff, #f8fbfc);
+                border-bottom: 1px solid var(--border);
+              }
+              .hero-top {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+              }
+              .hero-top img {
+                height: 42px;
+                width: auto;
+                object-fit: contain;
+              }
+              .eyebrow {
+                display: inline-block;
+                padding: 6px 12px;
+                border-radius: 999px;
+                background: var(--accent-soft);
+                color: var(--accent);
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+              }
+              h1 {
+                margin: 14px 0 8px;
+                font-size: 34px;
+                line-height: 1.05;
+              }
+              .hero-copy {
+                max-width: 620px;
+                color: var(--muted);
+                font-size: 15px;
+                line-height: 1.6;
+              }
+              .summary-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 14px;
+                margin-top: 24px;
+              }
+              .summary-card {
+                border: 1px solid var(--border);
+                border-radius: 18px;
+                padding: 16px 18px;
+                background: rgba(255, 255, 255, 0.9);
+              }
+              .summary-label {
+                color: var(--muted);
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+              }
+              .summary-value {
+                margin-top: 8px;
+                font-size: 24px;
+                font-weight: 700;
+              }
+              .content {
+                padding: 28px 40px 40px;
+              }
+              .section {
+                margin-top: 28px;
+              }
+              .section:first-child {
+                margin-top: 0;
+              }
+              .section-heading {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 0 0 14px;
+              }
+              .section-icon {
+                width: 30px;
+                height: 30px;
+                border-radius: 999px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                background: var(--accent-soft);
+                color: var(--accent);
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+              }
+              .section-title {
+                margin: 0;
+                font-size: 18px;
+                font-weight: 700;
+              }
+              .report-table-wrap {
+                border: 1px solid var(--border);
+                border-radius: 18px;
+                overflow: hidden;
+                background: var(--surface);
+              }
+              .report-table {
+                width: 100%;
+                border-collapse: collapse;
+              }
+              .report-table thead {
+                background: #f4f8fb;
+              }
+              .report-table th,
+              .report-table td {
+                padding: 14px 16px;
+                border-bottom: 1px solid var(--border);
+                text-align: left;
+                vertical-align: top;
+                font-size: 14px;
+              }
+              .report-table th {
+                color: var(--muted);
+                font-size: 12px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                font-weight: 700;
+              }
+              .report-table tbody tr:last-child td {
+                border-bottom: none;
+              }
+              .table-primary {
+                font-weight: 700;
+                font-size: 14px;
+              }
+              .table-secondary {
+                margin-top: 4px;
+                color: var(--muted);
+                font-size: 12px;
+              }
+              .table-amount {
+                white-space: nowrap;
+                color: var(--accent);
+                font-weight: 700;
+              }
+              .compact-list {
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                overflow: hidden;
+                background: var(--surface);
+              }
+              .compact-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 18px;
+                padding: 14px 16px;
+                border-bottom: 1px solid var(--border);
+                font-size: 14px;
+              }
+              .compact-row:last-child {
+                border-bottom: none;
+              }
+              .two-col {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 18px;
+              }
+              .empty-state {
+                padding: 18px 16px;
+                border: 1px dashed var(--border);
+                border-radius: 14px;
+                color: var(--muted);
+                background: var(--soft);
+                font-size: 14px;
+              }
+              .footer-note {
+                margin-top: 30px;
+                padding-top: 18px;
+                border-top: 1px solid var(--border);
+                color: var(--muted);
+                font-size: 12px;
+                line-height: 1.6;
+              }
+              .print-footer {
+                display: none;
+              }
+              @page {
+                margin: 16mm;
+              }
+              @media print {
+                body { background: #fff; }
+                .page { max-width: none; }
+                .content { padding-bottom: 72px; }
+                .print-footer {
+                  display: flex;
+                  position: fixed;
+                  left: 16mm;
+                  right: 16mm;
+                  bottom: 8mm;
+                  align-items: center;
+                  justify-content: space-between;
+                  color: var(--muted);
+                  font-size: 11px;
+                  border-top: 1px solid var(--border);
+                  padding-top: 8px;
+                  background: #fff;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="page">
+              <section class="hero">
+                <div class="hero-top">
+                  <img src="${pdfLogoUrl}" alt="KiyuMart" />
+                  <div>
+                    <span class="eyebrow">Seller Analytics Report</span>
+                    <h1>KiyuMart Seller Performance</h1>
+                    <div class="hero-copy">
+                      A premium summary of your revenue, settlement, completed orders, delivery performance,
+                      and recent sales activity.
+                    </div>
+                  </div>
+                </div>
+                <div class="summary-grid">
+                  <div class="summary-card">
+                    <div class="summary-label">Report Range</div>
+                    <div class="summary-value">${escapeHtml(range.toUpperCase())}</div>
+                  </div>
+                  <div class="summary-card">
+                    <div class="summary-label">Orders</div>
+                    <div class="summary-value">${escapeHtml(String(scoped.length))}</div>
+                  </div>
+                  <div class="summary-card">
+                    <div class="summary-label">Revenue</div>
+                    <div class="summary-value">GHS ${escapeHtml(totals.revenue.toFixed(2))}</div>
+                  </div>
+                  <div class="summary-card">
+                    <div class="summary-label">Settlement</div>
+                    <div class="summary-value">GHS ${escapeHtml(sellerSettlementTotal.toFixed(2))}</div>
+                  </div>
+                  <div class="summary-card">
+                    <div class="summary-label">Pending Payout</div>
+                    <div class="summary-value">GHS ${escapeHtml(pendingPayoutTotal.toFixed(2))}</div>
+                  </div>
+                  <div class="summary-card">
+                    <div class="summary-label">Seller Wallet</div>
+                    <div class="summary-value">GHS ${escapeHtml(sellerWalletTotal.toFixed(2))}</div>
+                  </div>
+                </div>
+              </section>
+              <main class="content">
+                <section class="section">
+                  <div class="section-heading">
+                    <span class="section-icon">KP</span>
+                    <h2 class="section-title">Key Performance</h2>
+                  </div>
+                  <div class="compact-list">
+                    <div class="compact-row"><span>Completed Orders</span><span>${escapeHtml(String(totals.completedCount))}</span></div>
+                    <div class="compact-row"><span>Cancelled Orders</span><span>${escapeHtml(String(totals.cancelledCount))}</span></div>
+                    <div class="compact-row"><span>Average Order Value</span><span>GHS ${escapeHtml(totals.aov.toFixed(2))}</span></div>
+                    <div class="compact-row"><span>Paid Completed Ratio</span><span>${escapeHtml(totals.paidRate.toFixed(1))}%</span></div>
+                  </div>
+                </section>
+
+                <section class="section">
+                  <div class="section-heading">
+                    <span class="section-icon">OR</span>
+                    <h2 class="section-title">Recent Orders</h2>
+                  </div>
+                  ${
+                    exportRows.length > 0
+                      ? `
+                        <div class="report-table-wrap">
+                          <table class="report-table">
+                            <thead>
+                              <tr>
+                                <th>Order</th>
+                                <th>Status</th>
+                                <th>Payment</th>
+                                <th>Method</th>
+                                <th>Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${orderRowsMarkup}
+                            </tbody>
+                          </table>
+                        </div>
+                      `
+                      : `<div class="empty-state">No orders available in this report range.</div>`
+                  }
+                </section>
+
+                <section class="section">
+                  <div class="two-col">
+                    <div>
+                      <div class="section-heading">
+                        <span class="section-icon">RC</span>
+                        <h2 class="section-title">Recent Receipts</h2>
+                      </div>
+                      <div class="compact-list">${receiptsMarkup}</div>
+                    </div>
+                    <div>
+                      <div class="section-heading">
+                        <span class="section-icon">DL</span>
+                        <h2 class="section-title">Delivery Mix</h2>
+                      </div>
+                      <div class="compact-list">${deliveryMarkup}</div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="section">
+                  <div class="section-heading">
+                    <span class="section-icon">TR</span>
+                    <h2 class="section-title">Recent Sales Trend</h2>
+                  </div>
+                  <div class="compact-list">${trendMarkup}</div>
+                </section>
+
+                <div class="footer-note">
+                  This report reflects the current seller analytics snapshot available in your KiyuMart workspace.
+                  For spreadsheet analysis, use the CSV export from the analytics page.
+                </div>
+              </main>
+              <div class="print-footer">
+                <span>KiyuMart Seller Analytics</span>
+                <span>${escapeHtml(formatDateTime(new Date().toISOString()))}</span>
+              </div>
+            </div>
+          </body>
+        </html>
+      `);
       await logReportActivity({ action: "generate", reportType, format: "pdf", scope: reportScope, status: "success" });
-      triggerDownload(new Blob([pdfBytes], { type: "application/pdf" }), `seller-analytics-${new Date().toISOString().slice(0, 10)}.pdf`);
       await logReportActivity({ action: "download", reportType, format: "pdf", scope: reportScope, status: "success" });
-    } catch {
+    } catch (error: any) {
+      if (reportWindow) {
+        renderPrintReportError(
+          reportWindow,
+          "Seller analytics report failed",
+          error?.message || "The report could not be prepared right now. Please try again shortly.",
+        );
+      }
       await logReportActivity({ action: "generate", reportType, format: "pdf", scope: reportScope, status: "failed" });
     } finally {
       setExporting("none");
@@ -249,20 +704,19 @@ export default function SellerAnalytics() {
           </div>
         ) : (
           <>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Card><CardHeader className="pb-2"><CardDescription>Revenue Earned</CardDescription><CardTitle className="text-2xl">{formatPrice(totals.revenue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />All paid completed orders</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Seller Settlement</CardDescription><CardTitle className="text-2xl">{formatPrice(num(stats?.sellerSettlementTotal ?? stats?.totalReceivedMoney))}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Net amount after platform split</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Platform Commission</CardDescription><CardTitle className="text-2xl">{formatPrice(num(stats?.platformCommissionTotal))}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><TrendingUp className="h-4 w-4" />Deducted before seller settlement</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Processing Fees</CardDescription><CardTitle className="text-2xl">{formatPrice(num(stats?.processingFeesTotal))}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><ShoppingCart className="h-4 w-4" />Exact Paystack checkout fees kept outside seller payout</CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardDescription>Seller Settlement</CardDescription><CardTitle className="text-2xl">{formatPrice(sellerSettlementTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Net amount after platform split</CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardDescription>Pending Payout</CardDescription><CardTitle className="text-2xl">{formatPrice(pendingPayoutTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Paid order money not yet sent out</CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardDescription>Seller Wallet</CardDescription><CardTitle className="text-2xl">{formatPrice(sellerWalletTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Money already paid to your seller account</CardContent></Card>
               <Card><CardHeader className="pb-2"><CardDescription>Orders Completed</CardDescription><CardTitle className="text-2xl">{totals.completedCount}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><ShoppingCart className="h-4 w-4" />Vs {totals.cancelledCount} cancelled</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Average Order Value</CardDescription><CardTitle className="text-2xl">{formatPrice(totals.aov)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><Package className="h-4 w-4" />Per paid order</CardContent></Card>
               <Card><CardHeader className="pb-2"><CardDescription>Conversion Quality</CardDescription><CardTitle className="text-2xl">{totals.paidRate.toFixed(1)}%</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><TrendingUp className="h-4 w-4" />Paid completed ratio</CardContent></Card>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-3">
               <Card><CardContent className="p-4"><p className="text-sm font-medium">Checkout Processing Fee</p><p className="mt-1 text-sm text-muted-foreground">This covers only the exact Paystack checkout fee charged to the customer. It stays outside seller settlement.</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="text-sm font-medium">Seller Settlement</p><p className="mt-1 text-sm text-muted-foreground">Your settlement comes from merchandise subtotal minus coupon discount and minus platform commission. Delivery and checkout fees are excluded.</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="text-sm font-medium">Payout Transfer Cost</p><p className="mt-1 text-sm text-muted-foreground">Reference Paystack payout costs are GHS 1 for mobile money and GHS 8 for bank transfer. They are tracked separately from platform commission and checkout fees.</p></CardContent></Card>
+              <Card><CardContent className="p-4"><p className="text-sm font-medium">Pending Payout</p><p className="mt-1 text-sm text-muted-foreground">This is paid order money that still has not been transferred to your seller payout account yet.</p></CardContent></Card>
+              <Card><CardContent className="p-4"><p className="text-sm font-medium">Seller Wallet</p><p className="mt-1 text-sm text-muted-foreground">This is the total money already paid out to your seller account and successfully received.</p></CardContent></Card>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
@@ -312,7 +766,7 @@ export default function SellerAnalytics() {
               </CardHeader>
               <CardContent className="space-y-2">
                 {receipts.slice(0, 6).map((receipt) => (
-                  <a key={receipt.id} href={`/orders/${receipt.orderId}/receipt`} className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-accent">
+                  <a key={receipt.id} href={`/orders/${receipt.orderId}/receipt`} className="flex items-center justify-between rounded-lg border p-3 text-sm transition-colors hover:border-primary/30 hover:bg-primary/5 dark:hover:bg-primary/10">
                     <div className="min-w-0">
                       <p className="font-medium truncate">{receipt.receiptNumber}</p>
                       <p className="text-xs text-muted-foreground truncate">Order #{receipt.orderNumber} • {receipt.orderStatus}</p>

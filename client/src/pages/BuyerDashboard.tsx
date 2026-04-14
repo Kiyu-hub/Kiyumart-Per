@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { fetchApiJson } from "@/lib/queryClient";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Package, MapPin, Loader2, ShoppingBag, Wallet, TrendingUp, Receipt } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,8 +37,13 @@ export default function BuyerDashboard() {
   }, [isAuthenticated, authLoading, user, navigate]);
 
   const { data: orders = [], isLoading } = useQuery<Order[]>({
-    queryKey: ["/api/orders"],
+    queryKey: ["/api/orders", "buyer-dashboard", user?.id],
+    queryFn: async () => fetchApiJson<Order[]>("/api/orders?context=buyer&includeItems=false"),
     enabled: isAuthenticated && user?.role === "buyer",
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
   if (authLoading || !isAuthenticated || user?.role !== "buyer") {
@@ -101,23 +107,23 @@ export default function BuyerDashboard() {
   return (
     <DashboardLayout role="buyer">
       <div className="p-6 space-y-6">
-        <Card className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-[linear-gradient(90deg,rgba(6,78,59,0.42)_0%,rgba(2,6,23,0.98)_48%,rgba(8,47,73,0.48)_100%)] text-white shadow-[0_0_0_1px_rgba(20,184,166,0.08)]">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_50%,rgba(16,185,129,0.14),transparent_40%),radial-gradient(circle_at_85%_50%,rgba(6,182,212,0.14),transparent_42%)]" />
+        <Card className="relative overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-sm dark:border-emerald-500/30 dark:bg-[linear-gradient(90deg,rgba(6,78,59,0.42)_0%,rgba(2,6,23,0.98)_48%,rgba(8,47,73,0.48)_100%)] dark:text-white dark:shadow-[0_0_0_1px_rgba(20,184,166,0.08)]">
+          <div className="pointer-events-none absolute inset-0 hidden dark:block dark:bg-[radial-gradient(circle_at_18%_50%,rgba(16,185,129,0.14),transparent_40%),radial-gradient(circle_at_85%_50%,rgba(6,182,212,0.14),transparent_42%)]" />
           <CardContent className="relative p-4 md:p-5">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
-                <p className="text-white/80 text-sm">Welcome back</p>
+                <p className="text-muted-foreground text-sm dark:text-white/80">Welcome back</p>
                 <h1 className="text-xl md:text-2xl font-bold mt-1">
                   {user?.name ? `${user.name.split(" ")[0]}'s Buyer Dashboard` : "Buyer Dashboard"}
                 </h1>
-                <p className="text-sm text-white/90 mt-1 max-w-xl">
-                  Track deliveries, resolve pending payments, and manage recent orders from one clean workspace.
+                <p className="text-sm text-muted-foreground mt-1 max-w-xl dark:text-white/90">
+                  See your recent orders, payments, and delivery updates in one place.
                 </p>
                 <div className="flex flex-wrap gap-2 mt-3">
-                  <Badge className="bg-white/20 text-white border-white/30 hover:bg-white/20 text-xs">
+                  <Badge className="border-border bg-muted text-foreground hover:bg-muted text-xs dark:bg-white/20 dark:text-white dark:border-white/30 dark:hover:bg-white/20">
                     {activeDeliveries} active delivery{activeDeliveries === 1 ? "" : "ies"}
                   </Badge>
-                  <Badge className="bg-white/20 text-white border-white/30 hover:bg-white/20 text-xs">
+                  <Badge className="border-border bg-muted text-foreground hover:bg-muted text-xs dark:bg-white/20 dark:text-white dark:border-white/30 dark:hover:bg-white/20">
                     {stats.pendingPayments} payment pending
                   </Badge>
                 </div>
@@ -126,7 +132,7 @@ export default function BuyerDashboard() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-white/50 text-white hover:bg-white/15 hover:text-white"
+                  className="border-border text-foreground hover:bg-muted hover:text-foreground dark:border-white/50 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                   onClick={() => navigate("/")}
                   data-testid="button-go-shop"
                 >
@@ -145,7 +151,7 @@ export default function BuyerDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.totalOrders}</div>
-              <p className="text-xs text-muted-foreground">Lifetime purchases</p>
+              <p className="text-xs text-muted-foreground">All your orders so far</p>
             </CardContent>
           </Card>
 
@@ -158,7 +164,7 @@ export default function BuyerDashboard() {
               <div className="text-2xl font-bold">
                 {orders.filter((o) => trackStatuses.has(normalize(o.status)) || normalize(o.status) === "pending").length}
               </div>
-              <p className="text-xs text-muted-foreground">Pending + in transit</p>
+              <p className="text-xs text-muted-foreground">Orders still in progress</p>
             </CardContent>
           </Card>
 
@@ -169,7 +175,7 @@ export default function BuyerDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.completedOrders}</div>
-              <p className="text-xs text-muted-foreground">Delivered</p>
+              <p className="text-xs text-muted-foreground">Orders you have received</p>
             </CardContent>
           </Card>
 
@@ -181,7 +187,7 @@ export default function BuyerDashboard() {
             <CardContent>
               <div className="text-2xl font-bold">{formatPrice(stats.totalSpend)}</div>
               <p className="text-xs text-muted-foreground">
-                {stats.pendingPayments} order(s) need payment
+                {stats.pendingPayments} order(s) still need payment
               </p>
             </CardContent>
           </Card>
@@ -191,7 +197,7 @@ export default function BuyerDashboard() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Spending Overview</CardTitle>
-              <p className="text-sm text-muted-foreground">Last 6 months spending trend</p>
+              <p className="text-sm text-muted-foreground">Your spending over the last 6 months</p>
             </CardHeader>
             <CardContent>
               <ChartContainer config={{ spend: { label: "Spend", color: "#10b981" } }} className="h-[220px] w-full">
@@ -208,7 +214,7 @@ export default function BuyerDashboard() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Delivery Success Rate</CardTitle>
-              <p className="text-sm text-muted-foreground">Order completion quality</p>
+              <p className="text-sm text-muted-foreground">How many of your orders were completed</p>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="text-3xl font-semibold">{deliverySuccessRate.toFixed(1)}%</div>
@@ -225,7 +231,7 @@ export default function BuyerDashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold">Recent Orders</h2>
-            <p className="text-sm text-muted-foreground">Latest activity from your purchase history</p>
+            <p className="text-sm text-muted-foreground">Your latest orders</p>
           </div>
           <Button size="sm" variant="outline" className={buyerButtonClass} onClick={() => navigate("/orders")} data-testid="button-view-orders-list">
             <Receipt className="h-4 w-4 mr-2" />
@@ -254,7 +260,7 @@ export default function BuyerDashboard() {
               const action = canResumePayment
                 ? { label: "Continue Payment", path: `/payment/${order.id}`, variant: "outline" as const }
                 : shouldTrack
-                  ? { label: "Track Order", path: `/track?orderId=${order.id}`, variant: "outline" as const }
+                  ? { label: "Track Order", path: `/track/${encodeURIComponent(order.id)}`, variant: "outline" as const }
                   : { label: "View Order", path: "/orders", variant: "ghost" as const };
 
               return (

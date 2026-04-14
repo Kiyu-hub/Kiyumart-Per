@@ -14,6 +14,7 @@ import Home from "@/pages/HomeConnected";
 import ProductDetails from "@/pages/ProductDetails";
 import Cart from "@/pages/Cart";
 import AuthPage from "@/pages/AuthPage";
+import ResetPassword from "@/pages/ResetPassword";
 import AdminDashboard from "@/pages/AdminDashboardRouter";
 import SellerDashboard from "@/pages/SellerDashboardConnected";
 import RiderDashboard from "@/pages/RiderDashboard";
@@ -58,13 +59,13 @@ import AdminManualRiderAssignment from "@/pages/AdminManualRiderAssignment";
 import AdminAgents from "@/pages/AdminAgents";
 import AdminMessages from "@/pages/AdminMessages";
 import AdminAnalytics from "@/pages/AdminAnalytics";
+import AdminSystemActivities from "@/pages/AdminSystemActivities";
 import AdminMediaLibrary from "@/pages/AdminMediaLibrary";
 import AdminNotifications from "@/pages/AdminNotifications";
 import SellerMediaLibrary from "@/pages/SellerMediaLibrary";
 import SellerProducts from "@/pages/SellerProducts";
 import SellerCategories from "@/pages/SellerCategories";
 import SellerOrders from "@/pages/SellerOrders";
-import SellerCoupons from "@/pages/SellerCoupons";
 import SellerPromotions from "@/pages/SellerPromotions";
 import SellerDeliveries from "@/pages/SellerDeliveries";
 import SellerNotifications from "@/pages/SellerNotifications";
@@ -152,6 +153,33 @@ function withAdminExternalRiderFeatureGuard(Component: React.ComponentType) {
   };
 }
 
+function withSellerFeatureRouteGuard(
+  Component: React.ComponentType,
+  options: { requireMultiVendor?: boolean; requireInternalRider?: boolean },
+) {
+  return function GuardedSellerFeatureRoute() {
+    const [, navigate] = useLocation();
+    const { isExternalRiderSystemEnabled, hasResolvedSettings, isMultiVendor } = usePlatformSettings();
+    const { requireMultiVendor = false, requireInternalRider = false } = options;
+
+    const blockedByStoreMode = requireMultiVendor && !isMultiVendor;
+    const blockedByRiderMode = requireInternalRider && isExternalRiderSystemEnabled;
+    const shouldBlock = hasResolvedSettings && (blockedByStoreMode || blockedByRiderMode);
+
+    React.useEffect(() => {
+      if (shouldBlock) {
+        navigate("/seller");
+      }
+    }, [navigate, shouldBlock]);
+
+    if (!hasResolvedSettings || shouldBlock) {
+      return <RouteGateLoader />;
+    }
+
+    return <Component />;
+  };
+}
+
 const GuardedRiderDashboard = withExternalRiderRouteGuard(RiderDashboard);
 const GuardedRiderDeliveries = withExternalRiderRouteGuard(RiderDeliveries);
 const GuardedRiderActiveRoute = withExternalRiderRouteGuard(RiderActiveRoute);
@@ -167,6 +195,8 @@ const GuardedRiderDetailsPage = withAdminExternalRiderFeatureGuard(RiderDetailsP
 const GuardedAdminManualRiderAssignment = withAdminExternalRiderFeatureGuard(AdminManualRiderAssignment);
 const GuardedAdminDeliveryTracking = withAdminExternalRiderFeatureGuard(AdminDeliveryTracking);
 const GuardedAdminDeliveryZones = withAdminExternalRiderFeatureGuard(AdminDeliveryZones);
+const GuardedSellerPromotions = withSellerFeatureRouteGuard(SellerPromotions, { requireMultiVendor: true });
+const GuardedSellerDeliveries = withSellerFeatureRouteGuard(SellerDeliveries, { requireInternalRider: true });
 
 function RouteScrollManager() {
   const [location] = useLocation();
@@ -214,6 +244,7 @@ function Router() {
       <Route path="/category/:id" component={CategoryPage} />
       <Route path="/cart" component={Cart} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/checkout" component={Checkout} />
       <Route path="/payment/verify" component={PaymentVerifyPage} />
       <Route path="/payment/success" component={PaymentSuccess} />
@@ -267,17 +298,21 @@ function Router() {
       <Route path="/admin/agents" component={AdminAgents} />
       <Route path="/admin/applications" component={AdminApplications} />
       <Route path="/admin/permissions" component={SuperAdminPermissions} />
-      <Route path="/admin/messages" component={AdminMessages} />
-      <Route path="/admin/live-support" component={CustomerSupport} />
-      <Route path="/admin/analytics" component={AdminAnalytics} />
+       <Route path="/admin/messages" component={AdminMessages} />
+       <Route path="/admin/live-support" component={CustomerSupport} />
+       <Route path="/admin/system-activities" component={AdminSystemActivities} />
+       <Route path="/admin/analytics" component={AdminAnalytics} />
       <Route path="/admin/notifications" component={AdminNotifications} />
       <Route path="/seller/products" component={SellerProducts} />
       <Route path="/seller/categories" component={SellerCategories} />
       <Route path="/seller/media-library" component={SellerMediaLibrary} />
+      <Route path="/seller/personal-orders/:id" component={SellerOrders} />
+      <Route path="/seller/orders/:id" component={SellerOrders} />
+      <Route path="/seller/personal-orders" component={SellerOrders} />
       <Route path="/seller/orders" component={SellerOrders} />
-      <Route path="/seller/coupons" component={SellerCoupons} />
-      <Route path="/seller/promotions" component={SellerPromotions} />
-      <Route path="/seller/deliveries" component={SellerDeliveries} />
+      <Route path="/seller/coupons" component={SellerDashboard} />
+      <Route path="/seller/promotions" component={GuardedSellerPromotions} />
+      <Route path="/seller/deliveries" component={GuardedSellerDeliveries} />
       <Route path="/seller/notifications" component={SellerNotifications} />
       <Route path="/seller/messages" component={SellerMessages} />
       <Route path="/seller/analytics" component={SellerAnalytics} />
@@ -306,6 +341,7 @@ function Router() {
       <Route path="/agent/notifications" component={AgentNotifications} />
       <Route path="/agent/settings" component={Settings} />
       <Route path="/chat" component={ChatPage} />
+      <Route path="/track/:id" component={OrderTracking} />
       <Route path="/track" component={OrderTracking} />
       <Route path="/live-tracking" component={LiveTracking} />
       <Route path="/page/:slug" component={DynamicPage} />

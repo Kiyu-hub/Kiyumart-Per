@@ -4,6 +4,10 @@ import { fetchApiJson } from "@/lib/queryClient";
 export interface PublicPlatformSettings {
   isExternalRiderSystemEnabled: boolean;
   showCheckoutDeliveryMap: boolean;
+  isMultiVendor: boolean;
+  allowSellerBankPayouts: boolean;
+  allowSellerDirectSupportMessages: boolean;
+  contactEmail?: string | null;
 }
 
 export const publicPlatformSettingsQueryKey = ["/api/public/platform-settings"] as const;
@@ -11,6 +15,10 @@ export const publicPlatformSettingsQueryKey = ["/api/public/platform-settings"] 
 const defaultPublicPlatformSettings: PublicPlatformSettings = {
   isExternalRiderSystemEnabled: false,
   showCheckoutDeliveryMap: true,
+  isMultiVendor: false,
+  allowSellerBankPayouts: true,
+  allowSellerDirectSupportMessages: true,
+  contactEmail: "support@kiyumart.com",
 };
 
 export function usePlatformSettings() {
@@ -26,13 +34,16 @@ export function usePlatformSettings() {
   const hasResolvedSettings = query.isFetched || query.isFetchedAfterMount || query.isError;
   const isExternalRiderSystemEnabled = hasResolvedSettings
     ? query.data?.isExternalRiderSystemEnabled === true
-    : true;
+    : defaultPublicPlatformSettings.isExternalRiderSystemEnabled;
 
   return {
     ...query,
     settings: query.data ?? defaultPublicPlatformSettings,
     isExternalRiderSystemEnabled,
     showCheckoutDeliveryMap: query.data?.showCheckoutDeliveryMap !== false,
+    isMultiVendor: query.data?.isMultiVendor === true,
+    allowSellerBankPayouts: query.data?.allowSellerBankPayouts !== false,
+    allowSellerDirectSupportMessages: query.data?.allowSellerDirectSupportMessages !== false,
     hasResolvedSettings,
   };
 }

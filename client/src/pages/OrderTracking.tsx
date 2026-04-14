@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -67,12 +67,24 @@ export default function OrderTracking() {
   const { toast } = useToast();
   const { formatPrice } = useLanguage();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
-  const searchParams = new URLSearchParams(location.split("?")[1] || "");
-  const requestedOrderId = searchParams.get("orderId");
+  const pathname = useMemo(() => location.split("?")[0] || "", [location]);
+  const searchParams = useMemo(() => new URLSearchParams(location.split("?")[1] || ""), [location]);
+  const trackPathMatch = useMemo(() => pathname.match(/^\/track\/([^/?#]+)/), [pathname]);
+  const requestedOrderId = trackPathMatch?.[1]
+    ? decodeURIComponent(trackPathMatch[1])
+    : searchParams.get("orderId");
+  const isOrderDetailsMode = Boolean(requestedOrderId);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [riderLocations, setRiderLocations] = useState<Map<string, RiderLocation>>(new Map());
   const socketRef = useRef<Socket | null>(null);
+  const goBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    navigate(isOrderDetailsMode ? "/orders" : "/");
+  };
   const normalizeStatus = (value?: string) => {
     const s = (value || "").toLowerCase().trim();
     if (s === "created") return "pending";
@@ -278,23 +290,30 @@ export default function OrderTracking() {
   }, [isExternalRiderSystemEnabled, orders]);
 
   // Filter orders based on search and status
-  const filteredOrders = orders.filter((order) => {
-    if (requestedOrderId && order.id !== requestedOrderId) return false;
+  const referencedOrder = requestedOrderId
+    ? orders.find((order) => order.id === requestedOrderId || order.orderNumber === requestedOrderId) ?? null
+    : null;
 
-    const normalized = normalizeStatus(order.status);
-    const customerStatus = toCustomerStatus(order.status, order.deliveryMethod);
-    const address = normalizeDeliveryMethod(order.deliveryMethod) === "pickup" ? "" : (order.deliveryAddress || "");
-    const city = order.deliveryCity || "";
-    const matchesSearch = 
-      searchQuery === "" ||
-      order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      address.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      city.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredOrders = isOrderDetailsMode
+    ? referencedOrder
+      ? [referencedOrder]
+      : []
+    : orders.filter((order) => {
 
-    const matchesStatus = statusFilter === "all" || customerStatus === statusFilter;
+        const normalized = normalizeStatus(order.status);
+        const customerStatus = toCustomerStatus(order.status, order.deliveryMethod);
+        const address = normalizeDeliveryMethod(order.deliveryMethod) === "pickup" ? "" : (order.deliveryAddress || "");
+        const city = order.deliveryCity || "";
+        const matchesSearch = 
+          searchQuery === "" ||
+          order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          address.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          city.toLowerCase().includes(searchQuery.toLowerCase());
 
-    return matchesSearch && matchesStatus;
-  });
+        const matchesStatus = statusFilter === "all" || customerStatus === statusFilter;
+
+        return matchesSearch && matchesStatus;
+      });
 
   const hasOrders = orders.length > 0;
 
@@ -321,14 +340,21 @@ export default function OrderTracking() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <header className="border-b p-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/")} data-testid="button-back">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <h1 className="text-2xl font-bold" data-testid="text-heading">Track Your Orders</h1>
-        </div>
-        <ThemeToggle />
-      </header>
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={goBack}
+              data-testid="button-back"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <h1 className="text-2xl font-bold" data-testid="text-heading">
+              {isOrderDetailsMode ? "Order Tracking" : "Track Your Orders"}
+            </h1>
+          </div>
+          <ThemeToggle />
+        </header>
 
       <main className="flex-1 p-6">
         <div className="max-w-7xl mx-auto space-y-6">
@@ -341,72 +367,82 @@ export default function OrderTracking() {
             </Card>
           ) : (
             <>
-              {/* Filters Section */}
-              <Card className="p-4" data-testid="card-filters">
-                <div className="flex flex-col md:flex-row gap-4">
-                  <div className="flex-1">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search by order number or address..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10"
-                        data-testid="input-search"
-                      />
+              {!isOrderDetailsMode && (
+                <Card className="p-4" data-testid="card-filters">
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <div className="flex-1">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search by order number or address..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-10"
+                          data-testid="input-search"
+                        />
+                      </div>
+                    </div>
+                    <div className="w-full md:w-48">
+                      <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger data-testid="select-status-filter">
+                          <Filter className="h-4 w-4 mr-2" />
+                          <SelectValue placeholder="Filter by status" />
+                        </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Orders</SelectItem>
+                            <SelectItem value="pending">Pending</SelectItem>
+                            <SelectItem value="processing">Preparing Delivery</SelectItem>
+                            <SelectItem value="en_route">On the Way</SelectItem>
+                            <SelectItem value="delivered">Delivered / Completed</SelectItem>
+                            <SelectItem value="cancelled">Cancelled</SelectItem>
+                          <SelectItem value="disputed">Disputed</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
-                  <div className="w-full md:w-48">
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger data-testid="select-status-filter">
-                        <Filter className="h-4 w-4 mr-2" />
-                        <SelectValue placeholder="Filter by status" />
-                      </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Orders</SelectItem>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="processing">Preparing Delivery</SelectItem>
-                          <SelectItem value="en_route">On the Way</SelectItem>
-                          <SelectItem value="delivered">Delivered / Completed</SelectItem>
-                          <SelectItem value="cancelled">Cancelled</SelectItem>
-                        <SelectItem value="disputed">Disputed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                {requestedOrderId && (
-                  <p className="text-xs text-muted-foreground mt-3">
-                    Showing tracking for selected order.
-                  </p>
-                )}
-              </Card>
+                </Card>
+              )}
 
-              {/* Results Count */}
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground" data-testid="text-results-count">
-                  {filteredOrders.length === orders.length 
-                    ? `${orders.length} order${orders.length === 1 ? '' : 's'}`
-                    : `${filteredOrders.length} of ${orders.length} order${orders.length === 1 ? '' : 's'}`
-                  }
-                </p>
-              </div>
+              {!isOrderDetailsMode && (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground" data-testid="text-results-count">
+                    {filteredOrders.length === orders.length 
+                      ? `${orders.length} order${orders.length === 1 ? '' : 's'}`
+                      : `${filteredOrders.length} of ${orders.length} order${orders.length === 1 ? '' : 's'}`
+                    }
+                  </p>
+                </div>
+              )}
 
               {/* Orders List */}
               {filteredOrders.length === 0 ? (
-                <Card className="p-8 text-center" data-testid="card-no-results">
-                  <p className="text-lg text-muted-foreground">No orders match your filters</p>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => {
-                      setSearchQuery("");
-                      setStatusFilter("all");
-                    }} 
-                    className="mt-4"
-                    data-testid="button-clear-filters"
-                  >
-                    Clear Filters
-                  </Button>
-                </Card>
+                  <Card className="p-8 text-center" data-testid="card-no-results">
+                    <p className="text-lg text-muted-foreground">
+                      {isOrderDetailsMode ? "The selected order could not be resolved." : "No orders match your filters"}
+                    </p>
+                    {isOrderDetailsMode ? (
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate("/orders")}
+                        className="mt-4"
+                        data-testid="button-back-to-orders"
+                      >
+                        Back to Orders
+                      </Button>
+                    ) : (
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          setSearchQuery("");
+                          setStatusFilter("all");
+                        }} 
+                        className="mt-4"
+                        data-testid="button-clear-filters"
+                      >
+                        Clear Filters
+                      </Button>
+                    )}
+                  </Card>
               ) : (
                 <div className="space-y-6">
                   {filteredOrders.map((order) => (

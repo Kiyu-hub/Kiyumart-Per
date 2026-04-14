@@ -11,6 +11,9 @@ if (!connectionString) {
 }
 
 const useNeon = process.env.DB_DRIVER === "neon" || /neon/i.test(connectionString);
+const poolMax = Math.max(4, Number(process.env.DB_POOL_MAX || 10));
+const idleTimeoutMillis = Math.max(10000, Number(process.env.DB_IDLE_TIMEOUT_MS || 30000));
+const connectionTimeoutMillis = Math.max(10000, Number(process.env.DB_CONNECTION_TIMEOUT_MS || 15000));
 
 const attachPoolErrorHandler = (
   pool: { on: (...args: any[]) => any },
@@ -27,9 +30,9 @@ const db = (() => {
     neonConfig.webSocketConstructor = ws;
     const pool = new NeonPool({ 
       connectionString,
-      max: 20, // Maximum number of connections in the pool
-      idleTimeoutMillis: 30000, // How long a connection can be idle before being closed
-      connectionTimeoutMillis: 10000, // How long to wait when connecting a new client
+      max: poolMax, // Maximum number of connections in the pool
+      idleTimeoutMillis, // How long a connection can be idle before being closed
+      connectionTimeoutMillis, // How long to wait when connecting a new client
     });
     attachPoolErrorHandler(pool, "Neon");
     return drizzleNeon(pool, { schema });
@@ -41,9 +44,9 @@ const db = (() => {
   const pool = new PgPool({
     connectionString,
     ssl: useSsl ? { rejectUnauthorized: false } : undefined,
-    max: 20, // Maximum number of connections in the pool
-    idleTimeoutMillis: 30000, // How long a connection can be idle before being closed
-    connectionTimeoutMillis: 10000, // How long to wait when connecting a new client
+    max: poolMax, // Maximum number of connections in the pool
+    idleTimeoutMillis, // How long a connection can be idle before being closed
+    connectionTimeoutMillis, // How long to wait when connecting a new client
   });
   attachPoolErrorHandler(pool, "Postgres");
   return drizzlePg(pool, { schema });
