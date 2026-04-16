@@ -4,15 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { fetchApiJson } from "@/lib/queryClient";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Package, MapPin, Loader2, ShoppingBag, Wallet, TrendingUp, Receipt } from "lucide-react";
+import { Package, MapPin, Loader2, ShoppingBag, Receipt } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 interface Order {
   id: string;
@@ -21,6 +19,9 @@ interface Order {
   status: string;
   paymentStatus?: string;
   createdAt: string;
+  deliveryMethod?: string;
+  externalDeliveryType?: string | null;
+  externalDeliveryByBus?: boolean | null;
 }
 
 export default function BuyerDashboard() {
@@ -58,50 +59,121 @@ export default function BuyerDashboard() {
     if (s === "completed" || s === "paid") return "paid";
     return s || "pending";
   };
+  const getBuyerOrderStage = (order: Order) => {
+    const status = normalize(order.status) || "pending";
+    const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+    const isPickup = ["pickup", "store_pickup", "store pickup"].includes(normalize(order.deliveryMethod));
+    const isExternalManualFlow = usesExternalDeliveryFlow(order);
+
+    if (
+      paymentStatus !== "paid" &&
+      !["completed", "delivered", "cancelled", "refunded", "disputed"].includes(status)
+    ) {
+      return "pending";
+    }
+
+    if ((status === "pending" || status === "created") && (paymentStatus === "paid" || paymentStatus === "processing")) {
+      return "processing";
+    }
+
+    if (isPickup && status === "packaged") {
+      return "processing";
+    }
+
+    if (isExternalManualFlow && ["rider_arrived", "delivered", "completed"].includes(status)) {
+      return "completed";
+    }
+
+    if (["completed", "delivered"].includes(status)) {
+      return "completed";
+    }
+
+    if (["cancelled", "disputed"].includes(status)) {
+      return status;
+    }
+
+    if (
+      [
+        "confirmed",
+        "ready",
+        "processing",
+        "packaged",
+        "assigned",
+        "searching_rider",
+        "rider_arrived",
+        "external_dispatch_arranged",
+      ].includes(status)
+    ) {
+      return "processing";
+    }
+
+    if (["picked_up", "in_transit", "en_route", "out_for_delivery", "delivering"].includes(status)) {
+      return isExternalManualFlow || isPickup ? "processing" : "en_route";
+    }
+
+    return "pending";
+  };
+  const usesExternalDeliveryFlow = (order: Order) =>
+    isExternalRiderSystemEnabled &&
+    !["pickup", "store_pickup", "store pickup"].includes(normalize(order.deliveryMethod));
+
+  const getDashboardOrderAction = (order: Order) => {
+    const status = normalize(order.status);
+    const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+    const isPickup = ["pickup", "store_pickup", "store pickup"].includes(normalize(order.deliveryMethod));
+    const useExternalViewFlow = usesExternalDeliveryFlow(order);
+    const stage = getBuyerOrderStage(order);
+    const canResumePayment =
+      ["pending", "created", "unpaid"].includes(status) &&
+      ["pending", "failed", "processing"].includes(paymentStatus);
+
+    if (canResumePayment) {
+      return {
+        label: "Continue Payment",
+        path: `/payment/${encodeURIComponent(order.id)}`,
+        variant: "outline" as const,
+      };
+    }
+
+    if (stage === "completed") {
+      return {
+        label: "Track Order",
+        path: `/track/${encodeURIComponent(order.id)}`,
+        variant: "outline" as const,
+      };
+    }
+
+    if (stage !== "pending" || paymentStatus === "paid" || paymentStatus === "processing") {
+      return {
+        label: isPickup || useExternalViewFlow ? "View Order" : "Track Order",
+        path: isPickup || useExternalViewFlow
+          ? `/orders/${encodeURIComponent(order.id)}`
+          : `/track/${encodeURIComponent(order.id)}`,
+        variant: "outline" as const,
+      };
+    }
+
+    return {
+      label: "View Order",
+      path: `/orders/${encodeURIComponent(order.id)}`,
+      variant: "outline" as const,
+    };
+  };
 
   const stats = {
     totalOrders: orders.length,
-    pendingOrders: orders.filter(o => normalize(o.status) === "pending").length,
-    completedOrders: orders.filter(o => {
-      const s = normalize(o.status);
-      return s === "delivered" || s === "completed";
-    }).length,
-    totalSpend: orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0),
+    pendingOrders: orders.filter((o) => getBuyerOrderStage(o) === "pending").length,
+    completedOrders: orders.filter((o) => getBuyerOrderStage(o) === "completed").length,
     pendingPayments: orders.filter((o) => {
       const paymentStatus = normalizePaymentStatus(o.paymentStatus);
       return paymentStatus === "pending" || paymentStatus === "failed" || paymentStatus === "processing";
     }).length,
   };
 
-  const trackStatuses = new Set([
-    "processing",
-    "packaged",
-    "ready",
-    "picked_up",
-    "in_transit",
-    "en_route",
-    "arrived",
-    "external_dispatch_arranged",
-    ...(showInternalRiderFeatures ? ["searching_rider", "assigned", "rider_arrived"] : []),
-  ]);
-  const activeDeliveries = orders.filter((o) => trackStatuses.has(normalize(o.status))).length;
+  const openOrders = orders.filter((o) => ["pending", "processing"].includes(getBuyerOrderStage(o))).length;
   const recentOrders = [...orders]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 6);
-  const monthlySpend = Array.from(
-    orders.reduce((map, order) => {
-      const d = new Date(order.createdAt);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      map.set(key, (map.get(key) || 0) + (Number(order.total) || 0));
-      return map;
-    }, new Map<string, number>())
-  )
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-6)
-    .map(([month, spend]) => ({ month: month.slice(5), spend }));
-  const deliverySuccessRate = stats.totalOrders
-    ? (stats.completedOrders / stats.totalOrders) * 100
-    : 0;
   const buyerButtonClass = "!hover:bg-muted !hover:text-foreground";
 
   return (
@@ -116,34 +188,23 @@ export default function BuyerDashboard() {
                 <h1 className="text-xl md:text-2xl font-bold mt-1">
                   {user?.name ? `${user.name.split(" ")[0]}'s Buyer Dashboard` : "Buyer Dashboard"}
                 </h1>
-                <p className="text-sm text-muted-foreground mt-1 max-w-xl dark:text-white/90">
-                  See your recent orders, payments, and delivery updates in one place.
-                </p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  <Badge className="border-border bg-muted text-foreground hover:bg-muted text-xs dark:bg-white/20 dark:text-white dark:border-white/30 dark:hover:bg-white/20">
-                    {activeDeliveries} active delivery{activeDeliveries === 1 ? "" : "ies"}
-                  </Badge>
+                  <p className="text-sm text-muted-foreground mt-1 max-w-xl dark:text-white/90">
+                   See your recent orders, payments, and fulfillment updates in one place.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <Badge className="border-border bg-muted text-foreground hover:bg-muted text-xs dark:bg-white/20 dark:text-white dark:border-white/30 dark:hover:bg-white/20">
+                    {openOrders} pending deliver{openOrders === 1 ? "y" : "ies"}
+                    </Badge>
                   <Badge className="border-border bg-muted text-foreground hover:bg-muted text-xs dark:bg-white/20 dark:text-white dark:border-white/30 dark:hover:bg-white/20">
                     {stats.pendingPayments} payment pending
                   </Badge>
                 </div>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-border text-foreground hover:bg-muted hover:text-foreground dark:border-white/50 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
-                  onClick={() => navigate("/")}
-                  data-testid="button-go-shop"
-                >
-                  Go to Shop
-                </Button>
-              </div>
             </div>
           </CardContent>
         </Card>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Card data-testid="card-total-orders" className="border-l-4 border-l-primary">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
@@ -157,21 +218,25 @@ export default function BuyerDashboard() {
 
           <Card data-testid="card-pending-orders" className="border-l-4 border-l-orange-500">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Open Deliveries</CardTitle>
+              <CardTitle className="text-sm font-medium">Pending Delivery</CardTitle>
               <MapPin className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {orders.filter((o) => trackStatuses.has(normalize(o.status)) || normalize(o.status) === "pending").length}
+                {openOrders}
               </div>
-              <p className="text-xs text-muted-foreground">Orders still in progress</p>
+              <p className="text-xs text-muted-foreground">
+                {showInternalRiderFeatures
+                  ? "Orders being prepared, dispatched, or delivered"
+                  : "Orders being prepared or coordinated for delivery and pickup"}
+              </p>
             </CardContent>
           </Card>
 
           <Card data-testid="card-completed-orders" className="border-l-4 border-l-green-500">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Completed Orders</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <Package className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.completedOrders}</div>
@@ -179,53 +244,6 @@ export default function BuyerDashboard() {
             </CardContent>
           </Card>
 
-          <Card data-testid="card-total-spend" className="border-l-4 border-l-blue-500">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Spend</CardTitle>
-              <Wallet className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatPrice(stats.totalSpend)}</div>
-              <p className="text-xs text-muted-foreground">
-                {stats.pendingPayments} order(s) still need payment
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Spending Overview</CardTitle>
-              <p className="text-sm text-muted-foreground">Your spending over the last 6 months</p>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={{ spend: { label: "Spend", color: "#10b981" } }} className="h-[220px] w-full">
-                <AreaChart data={monthlySpend}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Area dataKey="spend" stroke="var(--color-spend)" fill="var(--color-spend)" fillOpacity={0.2} />
-                </AreaChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Delivery Success Rate</CardTitle>
-              <p className="text-sm text-muted-foreground">How many of your orders were completed</p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-3xl font-semibold">{deliverySuccessRate.toFixed(1)}%</div>
-              <div className="h-2 rounded-full bg-muted">
-                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, deliverySuccessRate)}%` }} />
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {stats.completedOrders} completed out of {stats.totalOrders} total orders
-              </p>
-            </CardContent>
-          </Card>
         </div>
 
         <div className="flex items-center justify-between">
@@ -254,20 +272,23 @@ export default function BuyerDashboard() {
               const canResumePayment =
                 ["pending", "created", "unpaid"].includes(s) &&
                 (isUnpaid || isProcessingPayment);
-              const shouldTrack = trackStatuses.has(s) || isPaid || isProcessingPayment;
-              const displayStatus = (s === "pending" && (isPaid || isProcessingPayment)) ? "processing" : order.status;
-
-              const action = canResumePayment
-                ? { label: "Continue Payment", path: `/payment/${order.id}`, variant: "outline" as const }
-                : shouldTrack
-                  ? { label: "Track Order", path: `/track/${encodeURIComponent(order.id)}`, variant: "outline" as const }
-                  : { label: "View Order", path: "/orders", variant: "ghost" as const };
+              const displayStatus = (s === "pending" && (isPaid || isProcessingPayment)) ? "processing" : getBuyerOrderStage(order);
+              const action = getDashboardOrderAction(order);
+              const fulfillmentLabel =
+                normalize(order.deliveryMethod) === "pickup"
+                  ? "Pickup"
+                  : usesExternalDeliveryFlow(order)
+                    ? String(order.externalDeliveryType || "").toLowerCase().trim() === "bus" || order.externalDeliveryByBus
+                      ? "VIP Bus Delivery"
+                      : "Third-Party Delivery"
+                    : "Rider Delivery";
 
               return (
                 <Card
                   key={order.id}
-                  className="border shadow-sm hover:shadow-md transition-shadow flex flex-col"
+                  className="border shadow-sm hover:shadow-md transition-shadow flex flex-col cursor-pointer"
                   data-testid={`order-${order.id}`}
+                  onClick={() => navigate(`/orders/${encodeURIComponent(order.id)}`)}
                 >
                   <CardContent className="p-4 flex-1 flex flex-col">
                     <div className="mb-3">
@@ -292,6 +313,10 @@ export default function BuyerDashboard() {
                           <span className="text-muted-foreground">Total</span>
                           <span className="font-semibold">{formatPrice(Number(order.total) || 0)}</span>
                         </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">Fulfillment</span>
+                          <span className="font-medium">{fulfillmentLabel}</span>
+                        </div>
                       </div>
 
                       {canResumePayment && (
@@ -304,7 +329,10 @@ export default function BuyerDashboard() {
                         size="sm"
                         variant={action.variant}
                         className={buyerButtonClass}
-                        onClick={() => navigate(action.path)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          navigate(action.path);
+                        }}
                       >
                         {action.label}
                       </Button>

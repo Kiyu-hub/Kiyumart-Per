@@ -209,6 +209,12 @@ export default function Orders() {
 
   const filterOrdersByStatus = (status: string) => {
     if (status === "all") return orders;
+    if (status === "processing") {
+      return orders.filter((order) => {
+        const effective = getEffectiveOrderStatus(order);
+        return effective === "processing" || effective === "en_route";
+      });
+    }
     if (status === "delivered") {
       return orders.filter((order) => {
         const effective = getEffectiveOrderStatus(order);
@@ -226,8 +232,6 @@ export default function Orders() {
         return "Pending";
       case "processing":
         return "Preparing";
-      case "en_route":
-        return isExternalRiderSystemEnabled ? "Delivery In Progress" : "In Progress";
       case "delivered":
         return "Completed";
       case "cancelled":
@@ -236,11 +240,14 @@ export default function Orders() {
         return status;
     }
   };
+  const getFilterProcessingLabel = () => "Preparing";
+  const getFilterCompletedLabel = () => "Completed";
 
   const getPaymentButtonConfig = (order: Order) => {
     const paymentStatus = normalizePaymentStatus(order.paymentStatus);
     const orderStatus = getEffectiveOrderStatus(order);
     const isPickup = normalize(order.deliveryMethod) === "pickup";
+    const isExternalManualFlow = isExternalRiderSystemEnabled && !isPickup;
     const rawStatus = normalize(order.status);
     const canResumePayment =
       ["pending", "created", "unpaid"].includes(rawStatus) &&
@@ -250,12 +257,27 @@ export default function Orders() {
       paymentStatus === "paid";
 
     if (shouldTrackOrView) {
+      if (["delivered", "completed"].includes(orderStatus)) {
+        return {
+          label: "Track Order",
+          variant: "outline" as const,
+          disabled: false,
+          onClick: () => navigate(`/track/${encodeURIComponent(order.id)}`),
+          title: "View the completed order timeline and final delivery state",
+        };
+      }
+
       return {
-        label: isPickup ? "View Order" : "Track Order",
+        label: isPickup || isExternalManualFlow ? "View Order" : "Track Order",
         variant: "outline" as const,
         disabled: false,
-        onClick: () => navigate(`/track/${encodeURIComponent(order.id)}`),
-        title: isPickup ? "View order updates" : "View order status and tracking information",
+        onClick: () =>
+          navigate(
+            isPickup || isExternalManualFlow
+              ? `/orders/${encodeURIComponent(order.id)}`
+              : `/track/${encodeURIComponent(order.id)}`,
+          ),
+        title: isPickup || isExternalManualFlow ? "View order updates" : "View order status and tracking information",
       };
     }
 
@@ -270,11 +292,24 @@ export default function Orders() {
     }
 
     return {
-      label: isPickup ? "View Order" : "Track Order",
+      label: ["delivered", "completed"].includes(orderStatus)
+        ? "Track Order"
+        : isPickup || isExternalManualFlow
+          ? "View Order"
+          : "Track Order",
       variant: "outline" as const,
       disabled: false,
-      onClick: () => navigate(`/track/${encodeURIComponent(order.id)}`),
-      title: isPickup ? "View order updates" : "View order status and tracking information",
+      onClick: () =>
+        navigate(["delivered", "completed"].includes(orderStatus)
+          ? `/track/${encodeURIComponent(order.id)}`
+          : isPickup || isExternalManualFlow
+            ? `/orders/${encodeURIComponent(order.id)}`
+            : `/track/${encodeURIComponent(order.id)}`),
+      title: ["delivered", "completed"].includes(orderStatus)
+        ? "View the completed order timeline and final delivery state"
+        : isPickup || isExternalManualFlow
+          ? "View order updates"
+          : "View order status and tracking information",
     };
   };
 
@@ -319,8 +354,10 @@ export default function Orders() {
         (String(order.externalDeliveryType || "").toLowerCase().trim() === "bus" || order.externalDeliveryByBus));
     const verification = order.verificationSummary;
     const showVerificationBlock = ["delivered", "completed"].includes(orderStatus);
+    const primaryItem = order.items?.[0];
+    const extraItemsCount = Math.max(0, (order.items?.length || 0) - 1);
     const handleCardClick = () => {
-      paymentButtonConfig.onClick();
+      navigate(`/orders/${encodeURIComponent(order.id)}`);
     };
 
     return (
@@ -353,37 +390,35 @@ export default function Orders() {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Items:</span>
-              <span className="font-medium">{order.items?.length || 0} items</span>
-            </div>
             {(order.items?.length || 0) > 0 && (
               <div className="rounded-md border border-border/60 bg-muted/20 p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Ordered Items
                 </p>
-                <div className="space-y-1.5">
-                  {order.items.map((item, index) => (
-                    <div
-                      key={`${order.id}-${item.productId}-${index}`}
-                      className="flex items-start justify-between gap-3 text-sm"
-                    >
+                {primaryItem ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-start justify-between gap-3 text-sm">
                       <div className="min-w-0 flex-1">
-                        <span className="block truncate" title={item.productName}>
-                          {item.productName}
+                        <span className="block truncate font-medium" title={primaryItem.productName}>
+                          {primaryItem.productName}
                         </span>
-                        {!!formatItemSelection(item) && (
-                          <span className="block truncate text-xs text-muted-foreground" title={formatItemSelection(item)}>
-                            {formatItemSelection(item)}
+                        {!!formatItemSelection(primaryItem) && (
+                          <span className="block truncate text-xs text-muted-foreground" title={formatItemSelection(primaryItem)}>
+                            {formatItemSelection(primaryItem)}
+                          </span>
+                        )}
+                        {extraItemsCount > 0 && (
+                          <span className="block text-xs text-muted-foreground">
+                            +{extraItemsCount} more item{extraItemsCount === 1 ? "" : "s"}
                           </span>
                         )}
                       </div>
                       <span className="shrink-0 text-muted-foreground">
-                        Qty: {item.quantity}
+                        Qty: {primaryItem.quantity}
                       </span>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ) : null}
               </div>
             )}
             <div className="flex justify-between text-sm">
@@ -488,19 +523,21 @@ export default function Orders() {
               </>
             )}
           </div>
-          <Button
-            className="w-full mt-4"
-            variant={paymentButtonConfig.variant}
-            onClick={(e) => {
-              e.stopPropagation();
-              paymentButtonConfig.onClick();
-            }}
-            disabled={paymentButtonConfig.disabled}
-            title={paymentButtonConfig.title}
-            data-testid={`button-action-${order.id}`}
-          >
-            {paymentButtonConfig.label}
-          </Button>
+            <div className="mt-4">
+              <Button
+                className="w-full"
+                variant={paymentButtonConfig.variant}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  paymentButtonConfig.onClick();
+                }}
+                disabled={paymentButtonConfig.disabled}
+                title={paymentButtonConfig.title}
+                data-testid={`button-action-${order.id}`}
+              >
+                {paymentButtonConfig.label}
+              </Button>
+            </div>
         </CardContent>
       </Card>
     );
@@ -543,7 +580,7 @@ export default function Orders() {
           </div>
 
           <Tabs defaultValue="all" className="w-full">
-            <TabsList className="grid w-full grid-cols-6">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="all" data-testid="tab-all">
                 {getOrderFlowLabel("all")} ({orders.length})
               </TabsTrigger>
@@ -551,20 +588,17 @@ export default function Orders() {
                 {getOrderFlowLabel("pending")} ({filterOrdersByStatus("pending").length})
               </TabsTrigger>
               <TabsTrigger value="processing" data-testid="tab-processing">
-                {getOrderFlowLabel("processing")} ({filterOrdersByStatus("processing").length})
-              </TabsTrigger>
-              <TabsTrigger value="en_route" data-testid="tab-delivering">
-                {getOrderFlowLabel("en_route")} ({filterOrdersByStatus("en_route").length})
+                {getFilterProcessingLabel()} ({filterOrdersByStatus("processing").length})
               </TabsTrigger>
               <TabsTrigger value="delivered" data-testid="tab-delivered">
-                {getOrderFlowLabel("delivered")} ({filterOrdersByStatus("delivered").length})
+                {getFilterCompletedLabel()} ({filterOrdersByStatus("delivered").length})
               </TabsTrigger>
               <TabsTrigger value="cancelled" data-testid="tab-cancelled">
                 {getOrderFlowLabel("cancelled")} ({filterOrdersByStatus("cancelled").length})
               </TabsTrigger>
             </TabsList>
 
-            {["all", "pending", "processing", "en_route", "delivered", "cancelled"].map((status) => (
+            {["all", "pending", "processing", "delivered", "cancelled"].map((status) => (
               <TabsContent key={status} value={status} className="mt-6">
                 {filterOrdersByStatus(status).length === 0 ? (
                   <div className="text-center py-12">

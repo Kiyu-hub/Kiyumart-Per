@@ -69,11 +69,17 @@ export default function OrderTracking() {
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const pathname = useMemo(() => location.split("?")[0] || "", [location]);
   const searchParams = useMemo(() => new URLSearchParams(location.split("?")[1] || ""), [location]);
+  const orderPathMatch = useMemo(() => pathname.match(/^\/orders\/([^/?#]+)/), [pathname]);
   const trackPathMatch = useMemo(() => pathname.match(/^\/track\/([^/?#]+)/), [pathname]);
-  const requestedOrderId = trackPathMatch?.[1]
-    ? decodeURIComponent(trackPathMatch[1])
-    : searchParams.get("orderId");
-  const isOrderDetailsMode = Boolean(requestedOrderId);
+  const requestedOrderId = orderPathMatch?.[1]
+    ? decodeURIComponent(orderPathMatch[1])
+    : trackPathMatch?.[1]
+      ? decodeURIComponent(trackPathMatch[1])
+      : searchParams.get("orderId");
+  const isDirectOrderDetailsRoute = Boolean(orderPathMatch?.[1]);
+  const isExplicitTrackingRoute = Boolean(trackPathMatch?.[1]);
+  const isSingleOrderMode = Boolean(requestedOrderId);
+  const isOrderDetailsMode = isSingleOrderMode;
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [riderLocations, setRiderLocations] = useState<Map<string, RiderLocation>>(new Map());
@@ -83,7 +89,7 @@ export default function OrderTracking() {
       window.history.back();
       return;
     }
-    navigate(isOrderDetailsMode ? "/orders" : "/");
+    navigate(isSingleOrderMode ? "/orders" : "/");
   };
   const normalizeStatus = (value?: string) => {
     const s = (value || "").toLowerCase().trim();
@@ -114,6 +120,11 @@ export default function OrderTracking() {
     }
     return "Third-Party Delivery";
   };
+  const getStatusFilterProcessingLabel = () =>
+    isExternalRiderSystemEnabled ? "Preparing / Dispatching" : "Preparing Delivery";
+  const getStatusFilterEnRouteLabel = () =>
+    isExternalRiderSystemEnabled ? "In Delivery Process" : "On the Way";
+  const getStatusFilterCompletedLabel = () => "Delivered / Completed";
   const toCustomerStatus = (value?: string, deliveryMethod?: string) => {
     const s = normalizeStatus(value);
     const isPickup = isPickupMethod(deliveryMethod);
@@ -310,7 +321,11 @@ export default function OrderTracking() {
           address.toLowerCase().includes(searchQuery.toLowerCase()) ||
           city.toLowerCase().includes(searchQuery.toLowerCase());
 
-        const matchesStatus = statusFilter === "all" || customerStatus === statusFilter;
+        const matchesStatus =
+          statusFilter === "all" ||
+          (statusFilter === "delivered"
+            ? customerStatus === "delivered" || customerStatus === "completed"
+            : customerStatus === statusFilter);
 
         return matchesSearch && matchesStatus;
       });
@@ -350,7 +365,11 @@ export default function OrderTracking() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <h1 className="text-2xl font-bold" data-testid="text-heading">
-              {isOrderDetailsMode ? "Order Tracking" : "Track Your Orders"}
+              {isDirectOrderDetailsRoute
+                ? "Order Details"
+                : isExplicitTrackingRoute
+                  ? "Track Order"
+                  : "Track Your Orders"}
             </h1>
           </div>
           <ThemeToggle />
@@ -391,9 +410,9 @@ export default function OrderTracking() {
                           <SelectContent>
                             <SelectItem value="all">All Orders</SelectItem>
                             <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="processing">Preparing Delivery</SelectItem>
-                            <SelectItem value="en_route">On the Way</SelectItem>
-                            <SelectItem value="delivered">Delivered / Completed</SelectItem>
+                            <SelectItem value="processing">{getStatusFilterProcessingLabel()}</SelectItem>
+                            <SelectItem value="en_route">{getStatusFilterEnRouteLabel()}</SelectItem>
+                            <SelectItem value="delivered">{getStatusFilterCompletedLabel()}</SelectItem>
                             <SelectItem value="cancelled">Cancelled</SelectItem>
                           <SelectItem value="disputed">Disputed</SelectItem>
                         </SelectContent>

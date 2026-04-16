@@ -5164,6 +5164,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/coupons/available", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const sellerId = String(req.query.sellerId || "").trim();
+      const orderTotal = Number(req.query.orderTotal || 0);
+
+      if (!sellerId) {
+        return res.status(400).json({ error: "sellerId is required" });
+      }
+
+      const sellerCoupons = await storage.getCouponsBySeller(sellerId);
+      const now = new Date();
+      const availableCoupons = sellerCoupons.filter((coupon: any) => {
+        if (!coupon?.isActive) return false;
+        if (coupon.expiryDate && new Date(coupon.expiryDate) < now) return false;
+        if (coupon.usageLimit && Number(coupon.usedCount || 0) >= Number(coupon.usageLimit || 0)) return false;
+        const minimumPurchase = Number(coupon.minimumPurchase || 0);
+        if (orderTotal > 0 && minimumPurchase > orderTotal) return false;
+        return true;
+      });
+
+      res.json(availableCoupons);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), async (req: AuthRequest, res) => {
     try {
       const coupon = await storage.getCoupon(req.params.id);
@@ -6105,6 +6131,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ error: error.message });
     }
   });
+
+  app.get(
+    "/api/admin/sellers/:sellerId/dashboard/bootstrap",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("view_analytics"),
+    async (req, res) => {
+      try {
+        const { sellerId } = req.params;
+        const seller = await storage.getUser(sellerId);
+
+        if (!seller || seller.role !== "seller") {
+          return res.status(404).json({ error: "Seller not found" });
+        }
+
+        const store = await storage.getStoreByPrimarySeller(sellerId);
+        const { password: _password, ...sellerWithoutPassword } = seller as any;
+
+        return res.json({
+          seller: sellerWithoutPassword,
+          store,
+        });
+      } catch (error: any) {
+        console.error("Error building seller dashboard bootstrap:", error);
+        return res.status(400).json({ error: error.message });
+      }
+    },
+  );
 
   // Admin: Get payouts for a seller
   app.get('/api/admin/sellers/:id/payouts', requireAuth, requireRole('admin', 'super_admin'), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
@@ -12067,9 +12121,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
       const isPaidPaymentStatus = (value?: string | null) =>
         ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
+      const store = await storage.getStoreByPrimarySeller(sellerId);
+      const sellerOrderFilter = store?.id
+        ? and(eq(orders.sellerId, sellerId), eq(orders.storeId, store.id))
+        : eq(orders.sellerId, sellerId);
+      const sellerProductFilter = and(
+        eq(products.sellerId, sellerId),
+        store?.id ? eq(products.storeId, store.id) : sql`true`,
+      );
 
-      const [store, rawProducts, sales, payouts, commissionsList, availableBalance, activeFeaturedRows] = await Promise.all([
-        storage.getStoreByPrimarySeller(sellerId),
+      if (isLite) {
+        const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
+        const completedPaidFilter = sql`lower(cast(${orders.status} as text)) = 'completed' and ${paidStatusFilter}`;
+        const visibleProductFilter = and(
+          sellerProductFilter,
+          sql`coalesce((${products.dynamicFields}->>'archived')::boolean, false) = false`,
+        );
+
+        const [summaryRows, productSummaryRows, payoutSummaryRows, commissionSummaryRows, availableBalanceRows, featuredProductSummaryRows] = await Promise.all([
+          db
+            .select({
+              totalSales: sql<number>`count(*)`,
+              totalRevenue: sql<number>`coalesce(sum(case when ${completedPaidFilter} then ${orders.total}::numeric else 0 end), 0)`,
+              totalPaid: sql<number>`coalesce(sum(case when ${paidStatusFilter} then ${orders.total}::numeric else 0 end), 0)`,
+              salesThisMonth: sql<number>`coalesce(sum(case when date_trunc('month', ${orders.createdAt}) = date_trunc('month', now()) then 1 else 0 end), 0)`,
+              revenueThisMonth: sql<number>`coalesce(sum(case when ${completedPaidFilter} and date_trunc('month', coalesce(${orders.updatedAt}, ${orders.deliveredAt}, ${orders.createdAt})) = date_trunc('month', now()) then ${orders.total}::numeric else 0 end), 0)`,
+            })
+            .from(orders)
+            .where(sellerOrderFilter),
+          db
+            .select({
+              totalProducts: sql<number>`count(*)`,
+              activeProducts: sql<number>`coalesce(sum(case when ${products.isActive} then 1 else 0 end), 0)`,
+              inactiveProducts: sql<number>`coalesce(sum(case when not ${products.isActive} then 1 else 0 end), 0)`,
+              outOfStockProducts: sql<number>`coalesce(sum(case when coalesce(${products.stock}, 0) <= 0 then 1 else 0 end), 0)`,
+              lowStockProducts: sql<number>`coalesce(sum(case when coalesce(${products.stock}, 0) > 0 and coalesce(${products.stock}, 0) <= 5 then 1 else 0 end), 0)`,
+              totalStockUnits: sql<number>`coalesce(sum(coalesce(${products.stock}, 0)), 0)`,
+              averageProductRating: sql<number>`coalesce(avg(case when coalesce(${products.totalRatings}, 0) > 0 then ${products.ratings}::numeric else null end), 0)`,
+              totalProductRatings: sql<number>`coalesce(sum(coalesce(${products.totalRatings}, 0)), 0)`,
+            })
+            .from(products)
+            .where(visibleProductFilter),
+          db
+            .select({
+              completedPayoutValue: sql<number>`coalesce(sum(case when lower(cast(${sellerPayouts.status} as text)) = 'completed' then ${sellerPayouts.amount}::numeric else 0 end), 0)`,
+              pendingPayoutValue: sql<number>`coalesce(sum(case when lower(cast(${sellerPayouts.status} as text)) in ('pending', 'processing') then ${sellerPayouts.amount}::numeric else 0 end), 0)`,
+            })
+            .from(sellerPayouts)
+            .where(eq(sellerPayouts.sellerId, sellerId)),
+          db
+            .select({
+              totalCommissionCharged: sql<number>`coalesce(sum(${commissions.commissionAmount}::numeric), 0)`,
+              netSellerProfit: sql<number>`coalesce(sum(${commissions.sellerAmount}::numeric), 0)`,
+            })
+            .from(commissions)
+            .where(eq(commissions.sellerId, sellerId)),
+          db
+            .select({
+              availableBalance: sql<number>`coalesce(sum(${commissions.sellerAmount}::numeric), 0)`,
+            })
+            .from(commissions)
+            .where(and(eq(commissions.sellerId, sellerId), eq(commissions.status, "pending"))),
+          db
+            .select({
+              featuredProducts: sql<number>`count(*)`,
+            })
+            .from(featuredListings)
+            .where(and(eq(featuredListings.sellerId, sellerId), eq(featuredListings.isActive, true))),
+        ]);
+
+        const summaryRow = summaryRows[0] || {};
+        const productSummaryRow = productSummaryRows[0] || {};
+        const payoutSummaryRow = payoutSummaryRows[0] || {};
+        const commissionSummaryRow = commissionSummaryRows[0] || {};
+        const totalCommissionCharged = Number(commissionSummaryRow.totalCommissionCharged ?? 0);
+        const netSellerProfit = Number(commissionSummaryRow.netSellerProfit ?? 0);
+        const completedPayoutValue = Number(payoutSummaryRow.completedPayoutValue ?? 0);
+        const pendingPayoutValue = Number(payoutSummaryRow.pendingPayoutValue ?? 0);
+        const availableBalance = Number(availableBalanceRows[0]?.availableBalance ?? 0);
+        const featuredProducts = Number(featuredProductSummaryRows[0]?.featuredProducts ?? 0);
+
+        const { password: _password, ...sellerWithoutPassword } = seller as any;
+
+        return res.json({
+          seller: sellerWithoutPassword,
+          store,
+          summary: {
+            totalSales: Number(summaryRow.totalSales ?? 0),
+            totalRevenue: Number(summaryRow.totalRevenue ?? 0),
+            totalPaid: Number(summaryRow.totalPaid ?? 0),
+            salesThisMonth: Number(summaryRow.salesThisMonth ?? 0),
+            revenueThisMonth: Number(summaryRow.revenueThisMonth ?? 0),
+            avgOrderValue: Number(summaryRow.totalSales ?? 0) > 0 ? Number(summaryRow.totalRevenue ?? 0) / Number(summaryRow.totalSales ?? 0) : 0,
+            totalProducts: Number(productSummaryRow.totalProducts ?? 0),
+            activeProducts: Number(productSummaryRow.activeProducts ?? 0),
+            inactiveProducts: Number(productSummaryRow.inactiveProducts ?? 0),
+            outOfStockProducts: Number(productSummaryRow.outOfStockProducts ?? 0),
+            lowStockProducts: Number(productSummaryRow.lowStockProducts ?? 0),
+            totalStockUnits: Number(productSummaryRow.totalStockUnits ?? 0),
+            averageProductRating: Number(productSummaryRow.averageProductRating ?? 0),
+            totalProductRatings: Number(productSummaryRow.totalProductRatings ?? 0),
+            featuredProducts,
+            totalCommissionCharged,
+            netSellerProfit,
+            availableBalance,
+            completedPayoutValue,
+            pendingPayoutValue,
+          },
+          sales: [],
+          payouts: [],
+          commissions: [],
+          products: [],
+          topProducts: [],
+          recentActivity: [],
+        });
+      }
+
+      const [rawProducts, sales, payouts, commissionsList, availableBalance, activeFeaturedRows] = await Promise.all([
         storage.getProducts({ sellerId }),
         storage.getOrdersByUser(sellerId, "seller"),
         storage.getSellerPayouts(sellerId),
@@ -12081,16 +12249,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(and(eq(featuredListings.sellerId, sellerId), eq(featuredListings.isActive, true))),
       ]);
 
-      const sellerScopedProducts = rawProducts.filter((product: any) => !product?.dynamicFields?.archived);
+      const sellerScopedProducts = rawProducts.filter((product: any) => {
+        const matchesStore = store?.id ? product.storeId === store.id : true;
+        return matchesStore && !product?.dynamicFields?.archived;
+      });
       const productsHydrated = isLite
         ? sellerScopedProducts
         : await hydrateProductsWithCategories(
             await reconcileProductsWithLiveVariants(sellerScopedProducts),
           );
       const productById = new Map(productsHydrated.map((product: any) => [product.id, product]));
+      const scopedSales = store?.id
+        ? sales.filter((order: any) => order.storeId === store.id)
+        : sales;
 
-      const buyerIds = Array.from(new Set(sales.map((order: any) => order.buyerId).filter(Boolean)));
-      const riderIds = Array.from(new Set(sales.map((order: any) => order.riderId).filter(Boolean)));
+      const buyerIds = Array.from(new Set(scopedSales.map((order: any) => order.buyerId).filter(Boolean)));
+      const riderIds = Array.from(new Set(scopedSales.map((order: any) => order.riderId).filter(Boolean)));
       const relatedUserIds = Array.from(new Set([sellerId, ...buyerIds, ...riderIds]));
       const buyers = !isLite && relatedUserIds.length > 0
         ? await db
@@ -12105,7 +12279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : [];
       const buyerById = new Map(buyers.map((buyer) => [buyer.id, buyer]));
 
-      const orderIds = sales.map((order: any) => order.id).filter(Boolean);
+      const orderIds = scopedSales.map((order: any) => order.id).filter(Boolean);
       const orderItemRows = !isLite && orderIds.length > 0
         ? await db
             .select({
@@ -12158,7 +12332,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         productPerformanceMap.set(row.productId, existing);
       }
 
-      const detailedSales = sales.map((order: any) => ({
+      const detailedSales = scopedSales.map((order: any) => ({
         ...order,
         buyer: buyerById.get(order.buyerId) || null,
         seller: buyerById.get(order.sellerId) || null,
@@ -12166,11 +12340,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         items: itemsByOrderId.get(order.id) || [],
       }));
 
-      const completedPaidOrders = sales.filter((order: any) => {
+      const completedPaidOrders = scopedSales.filter((order: any) => {
         const normalizedStatus = String(order.status || "").toLowerCase().trim();
         return normalizedStatus === "completed" && isPaidPaymentStatus(order.paymentStatus);
       });
-      const paidOrders = sales.filter((order: any) => isPaidPaymentStatus(order.paymentStatus));
+      const paidOrders = scopedSales.filter((order: any) => isPaidPaymentStatus(order.paymentStatus));
       const totalRevenue = completedPaidOrders.reduce((sum: number, order: any) => sum + toNumber(order.total), 0);
       const totalPaid = paidOrders.reduce((sum: number, order: any) => sum + toNumber(order.total), 0);
       const totalCommissionCharged = commissionsList.reduce((sum: number, commission: any) => sum + toNumber(commission.commissionAmount), 0);
@@ -12183,7 +12357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .reduce((sum: number, payout: any) => sum + toNumber(payout.amount), 0);
 
       const now = new Date();
-      const salesThisMonth = sales.filter((order: any) => {
+      const salesThisMonth = scopedSales.filter((order: any) => {
         const orderDate = order.createdAt ? new Date(order.createdAt) : null;
         return Boolean(orderDate) && orderDate!.getMonth() === now.getMonth() && orderDate!.getFullYear() === now.getFullYear();
       }).length;
@@ -12249,12 +12423,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         seller: sellerWithoutPassword,
         store,
         summary: {
-          totalSales: sales.length,
+          totalSales: scopedSales.length,
           totalRevenue,
           totalPaid,
           salesThisMonth,
           revenueThisMonth,
-          avgOrderValue: sales.length > 0 ? totalRevenue / sales.length : 0,
+          avgOrderValue: scopedSales.length > 0 ? totalRevenue / scopedSales.length : 0,
           totalProducts: productsHydrated.length,
           activeProducts: activeProducts.length,
           inactiveProducts: inactiveProducts.length,
@@ -14295,6 +14469,260 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allowSellerDirectSupportMessages: true,
         contactEmail: "support@kiyumart.com",
       });
+    }
+  });
+
+  app.get("/api/admin/sellers/:sellerId/dashboard/products", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
+    try {
+      const { sellerId } = req.params;
+      const seller = await storage.getUser(sellerId);
+
+      if (!seller || seller.role !== "seller") {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+
+      const store = await storage.getStoreByPrimarySeller(sellerId);
+      const rawProducts = await storage.getProducts({ sellerId });
+      const sellerScopedProducts = rawProducts.filter((product: any) => {
+        const matchesStore = store?.id ? product.storeId === store.id : true;
+        return matchesStore && !product?.dynamicFields?.archived;
+      });
+      const productsHydrated = await hydrateProductsWithCategories(
+        await reconcileProductsWithLiveVariants(sellerScopedProducts),
+      );
+
+      res.json({
+        products: productsHydrated,
+      });
+    } catch (error: any) {
+      console.error("Error building seller products dashboard section:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/sellers/:sellerId/dashboard/sales", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
+    try {
+      const { sellerId } = req.params;
+      const seller = await storage.getUser(sellerId);
+
+      if (!seller || seller.role !== "seller") {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+
+      const toNumber = (value: unknown) => Number.parseFloat(String(value ?? "0")) || 0;
+      const store = await storage.getStoreByPrimarySeller(sellerId);
+      const rawProducts = await storage.getProducts({ sellerId });
+      const sellerScopedProducts = rawProducts.filter((product: any) => {
+        const matchesStore = store?.id ? product.storeId === store.id : true;
+        return matchesStore && !product?.dynamicFields?.archived;
+      });
+      const productsHydrated = await hydrateProductsWithCategories(
+        await reconcileProductsWithLiveVariants(sellerScopedProducts),
+      );
+      const productById = new Map(productsHydrated.map((product: any) => [product.id, product]));
+
+      const allSales = await storage.getOrdersByUser(sellerId, "seller");
+      const sales = store?.id
+        ? allSales.filter((order: any) => order.storeId === store.id)
+        : allSales;
+      const buyerIds = Array.from(new Set(sales.map((order: any) => order.buyerId).filter(Boolean)));
+      const riderIds = Array.from(new Set(sales.map((order: any) => order.riderId).filter(Boolean)));
+      const relatedUserIds = Array.from(new Set([sellerId, ...buyerIds, ...riderIds]));
+      const buyers = relatedUserIds.length > 0
+        ? await db
+            .select({
+              id: users.id,
+              name: users.name,
+              email: users.email,
+              phone: users.phone,
+            })
+            .from(users)
+            .where(inArray(users.id, relatedUserIds))
+        : [];
+      const buyerById = new Map(buyers.map((buyer) => [buyer.id, buyer]));
+
+      const orderIds = sales.map((order: any) => order.id).filter(Boolean);
+      const orderItemRows = orderIds.length > 0
+        ? await db
+            .select({
+              orderId: orderItems.orderId,
+              productId: orderItems.productId,
+              quantity: orderItems.quantity,
+              price: orderItems.price,
+              total: orderItems.total,
+              selectedColor: orderItems.selectedColor,
+              selectedSize: orderItems.selectedSize,
+              selectedImageIndex: orderItems.selectedImageIndex,
+              productName: products.name,
+              productImages: products.images,
+            })
+            .from(orderItems)
+            .leftJoin(products, eq(orderItems.productId, products.id))
+            .where(inArray(orderItems.orderId, orderIds))
+        : [];
+
+      const itemsByOrderId = new Map<string, any[]>();
+      const productPerformanceMap = new Map<string, {
+        productId: string;
+        name: string;
+        image: string | null;
+        unitsSold: number;
+        revenue: number;
+        ordersCount: number;
+      }>();
+
+      for (const row of orderItemRows) {
+        const currentItems = itemsByOrderId.get(row.orderId) || [];
+        currentItems.push({
+          productId: row.productId,
+          productName: row.productName || "Product",
+          quantity: Number(row.quantity || 0),
+          price: row.price,
+          total: row.total,
+          selectedColor: row.selectedColor || null,
+          selectedSize: row.selectedSize || null,
+          image: Array.isArray(row.productImages)
+            ? row.productImages[Math.max(0, Number(row.selectedImageIndex ?? 0))] || row.productImages[0] || null
+            : null,
+        });
+        itemsByOrderId.set(row.orderId, currentItems);
+
+        const existing = productPerformanceMap.get(row.productId) || {
+          productId: row.productId,
+          name: row.productName || "Product",
+          image: Array.isArray(row.productImages) ? row.productImages[0] || null : null,
+          unitsSold: 0,
+          revenue: 0,
+          ordersCount: 0,
+        };
+        existing.unitsSold += Number(row.quantity || 0);
+        existing.revenue += toNumber(row.total);
+        existing.ordersCount += 1;
+        productPerformanceMap.set(row.productId, existing);
+      }
+
+      const detailedSales = await Promise.all(
+        sales.map(async (order: any) => ({
+          ...order,
+          buyer: buyerById.get(order.buyerId) || null,
+          seller: buyerById.get(order.sellerId) || null,
+          rider: order.riderId ? buyerById.get(order.riderId) || null : null,
+          items: itemsByOrderId.get(order.id) || [],
+          pickupStationInfo: await buildPickupStationInfo(order),
+        })),
+      );
+
+      const topProducts = Array.from(productPerformanceMap.values())
+        .map((entry) => ({
+          ...entry,
+          product: productById.get(entry.productId) || null,
+        }))
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 8);
+
+      res.json({
+        sales: detailedSales,
+        topProducts,
+      });
+    } catch (error: any) {
+      console.error("Error building seller sales dashboard section:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/sellers/:sellerId/dashboard/finance", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
+    try {
+      const { sellerId } = req.params;
+      const seller = await storage.getUser(sellerId);
+
+      if (!seller || seller.role !== "seller") {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+
+      const [payouts, commissionsList] = await Promise.all([
+        storage.getSellerPayouts(sellerId),
+        storage.getSellerCommissions(sellerId),
+      ]);
+
+      res.json({
+        payouts,
+        commissions: commissionsList,
+      });
+    } catch (error: any) {
+      console.error("Error building seller finance dashboard section:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/sellers/:sellerId/dashboard/activity", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req, res) => {
+    try {
+      const { sellerId } = req.params;
+      const seller = await storage.getUser(sellerId);
+
+      if (!seller || seller.role !== "seller") {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+
+      const store = await storage.getStoreByPrimarySeller(sellerId);
+      const rawProducts = await storage.getProducts({ sellerId });
+      const sellerScopedProducts = rawProducts.filter((product: any) => {
+        const matchesStore = store?.id ? product.storeId === store.id : true;
+        return matchesStore && !product?.dynamicFields?.archived;
+      });
+      const productsHydrated = await hydrateProductsWithCategories(
+        await reconcileProductsWithLiveVariants(sellerScopedProducts),
+      );
+      const allSales = await storage.getOrdersByUser(sellerId, "seller");
+      const sales = store?.id
+        ? allSales.filter((order: any) => order.storeId === store.id)
+        : allSales;
+      const payouts = await storage.getSellerPayouts(sellerId);
+
+      const buyerIds = Array.from(new Set(sales.map((order: any) => order.buyerId).filter(Boolean)));
+      const buyers = buyerIds.length > 0
+        ? await db
+            .select({
+              id: users.id,
+              name: users.name,
+            })
+            .from(users)
+            .where(inArray(users.id, buyerIds))
+        : [];
+      const buyerById = new Map(buyers.map((buyer) => [buyer.id, buyer]));
+
+      const recentActivity = [
+        ...sales.slice(0, 6).map((order: any) => ({
+          type: "sale",
+          title: `Order #${order.orderNumber}`,
+          description: `${buyerById.get(order.buyerId)?.name || "Buyer"} placed an order worth ${order.total} ${order.currency || "GHS"}`,
+          status: order.status,
+          at: order.createdAt,
+        })),
+        ...payouts.slice(0, 4).map((payout: any) => ({
+          type: "payout",
+          title: `Payout ${payout.reference || payout.id}`,
+          description: `${payout.amount} ${payout.currency || "GHS"} via ${payout.method}`,
+          status: payout.status,
+          at: payout.createdAt,
+        })),
+        ...productsHydrated.slice(0, 4).map((product: any) => ({
+          type: "product",
+          title: product.name,
+          description: `${product.isActive ? "Active" : "Inactive"} product in ${product.categoryName || "Uncategorized"}`,
+          status: product.isActive ? "active" : "inactive",
+          at: product.updatedAt || product.createdAt,
+        })),
+      ]
+        .filter((item) => item.at)
+        .sort((a, b) => new Date(String(b.at)).getTime() - new Date(String(a.at)).getTime())
+        .slice(0, 12);
+
+      res.json({
+        recentActivity,
+      });
+    } catch (error: any) {
+      console.error("Error building seller activity dashboard section:", error);
+      res.status(400).json({ error: error.message });
     }
   });
 
@@ -17308,10 +17736,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (_req: AuthRequest, res) => {
       try {
         const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
-        const successfulDeliveryFilter = sql`lower(cast(${orders.status} as text)) in ('delivered', 'completed')`;
+        const successfulDeliveryFilter = sql`${paidStatusFilter} and lower(cast(${orders.status} as text)) in ('delivered', 'completed')`;
         const pickupMethodFilter = sql`lower(cast(${orders.deliveryMethod} as text)) in ('pickup', 'store_pickup')`;
 
-        const [orderTotals, userTotals, commissionTotals, promotionTotals, receivedMoneyTotals, successfulTotals] = await Promise.all([
+        const [orderTotals, userTotals, commissionTotals, promotionTotals, receivedMoneyTotals, deliveryTotals] = await Promise.all([
           db.select({ count: sql<number>`count(*)` }).from(orders),
           db.select({ count: sql<number>`count(*)` }).from(users),
           db.select({ total: sql<number>`coalesce(sum(${commissions.commissionAmount}::numeric), 0)` }).from(commissions),
@@ -17321,8 +17749,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .where(and(eq(promotionApplications.paymentConfirmed, true), isNotNull(promotionApplications.approvedAt))),
           db.select({ total: sql<number>`coalesce(sum(${orders.total}::numeric), 0)` }).from(orders).where(paidStatusFilter),
           db.select({
-            deliveries: sql<number>`coalesce(sum(case when not (${pickupMethodFilter}) and ${successfulDeliveryFilter} then 1 else 0 end), 0)`,
-            pickups: sql<number>`coalesce(sum(case when ${pickupMethodFilter} and ${successfulDeliveryFilter} then 1 else 0 end), 0)`,
+            totalDeliveries: sql<number>`coalesce(sum(case when not (${pickupMethodFilter}) then 1 else 0 end), 0)`,
+            totalPickups: sql<number>`coalesce(sum(case when ${pickupMethodFilter} then 1 else 0 end), 0)`,
+            successfulDeliveries: sql<number>`coalesce(sum(case when not (${pickupMethodFilter}) and ${successfulDeliveryFilter} then 1 else 0 end), 0)`,
+            successfulPickups: sql<number>`coalesce(sum(case when ${pickupMethodFilter} and ${successfulDeliveryFilter} then 1 else 0 end), 0)`,
+            successfulOrders: sql<number>`coalesce(sum(case when ${successfulDeliveryFilter} then 1 else 0 end), 0)`,
           }).from(orders),
         ]);
 
@@ -17337,8 +17768,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           promotionRevenueTotal: promotionRevenue,
           platformRevenueTotal: commissionRevenue + promotionRevenue,
           totalReceivedMoney: Number(receivedMoneyTotals[0]?.total ?? 0),
-          deliveries: Number(successfulTotals[0]?.deliveries ?? 0),
-          successfulPickups: Number(successfulTotals[0]?.pickups ?? 0),
+          totalDeliveries: Number(deliveryTotals[0]?.totalDeliveries ?? 0),
+          totalPickups: Number(deliveryTotals[0]?.totalPickups ?? 0),
+          successfulDeliveries: Number(deliveryTotals[0]?.successfulDeliveries ?? 0),
+          successfulPickups: Number(deliveryTotals[0]?.successfulPickups ?? 0),
+          successfulOrders: Number(deliveryTotals[0]?.successfulOrders ?? 0),
         });
       } catch (error: any) {
         res.status(400).json({ error: error.message });

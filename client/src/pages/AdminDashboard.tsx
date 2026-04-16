@@ -118,6 +118,52 @@ export default function AdminDashboard() {
     if (s === "completed" || s === "paid") return "paid";
     return s || "pending";
   };
+  const getDashboardOrderStage = (order: Order) => {
+    const status = normalizeOrderStatus(order.status) || "pending";
+    const paymentStatus = normalizePaymentStatus(order.paymentStatus);
+
+    if (
+      paymentStatus !== "paid" &&
+      !["completed", "delivered", "cancelled", "refunded", "disputed"].includes(status)
+    ) {
+      return "pending";
+    }
+
+    if (["completed", "delivered"].includes(status)) return "completed";
+    if (["cancelled", "disputed"].includes(status)) return status;
+    if (
+      [
+        "processing",
+        "ready",
+        "confirmed",
+        "assigned",
+        "picked_up",
+        "in_transit",
+        "en_route",
+        "searching_rider",
+        "external_dispatch_arranged",
+        "rider_arrived",
+      ].includes(status)
+    ) {
+      return "processing";
+    }
+    return "pending";
+  };
+  const getDashboardOrderStatusLabel = (order: Order) => {
+    const stage = getDashboardOrderStage(order);
+    switch (stage) {
+      case "completed":
+        return "Completed";
+      case "processing":
+        return "Processing";
+      case "cancelled":
+        return "Cancelled";
+      case "disputed":
+        return "Disputed";
+      default:
+        return "Pending";
+    }
+  };
 
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
@@ -262,10 +308,8 @@ export default function AdminDashboard() {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 6);
 
-  const deliveredCount = orders.filter(o => normalizeOrderStatus(o.status) === "delivered").length;
-  const processingCount = orders.filter(o =>
-    ["processing", "ready", "confirmed", "assigned", "picked_up", "en_route"].includes(normalizeOrderStatus(o.status))
-  ).length;
+  const completedCount = orders.filter((order) => getDashboardOrderStage(order) === "completed").length;
+  const processingCount = orders.filter((order) => getDashboardOrderStage(order) === "processing").length;
 
   return (
     <div className="flex h-screen bg-background">
@@ -319,7 +363,7 @@ export default function AdminDashboard() {
                   />
                 <MetricCard
                   title={showInternalRiderFeatures ? "Deliveries" : "Completed Orders"}
-                  value={deliveredCount.toString()}
+                  value={completedCount.toString()}
                   icon={Truck}
                   change={15.3}
                 />
@@ -419,7 +463,7 @@ export default function AdminDashboard() {
                     <div className="text-sm">
                       <p className="font-medium">{showInternalRiderFeatures ? "Delivered Orders" : "Completed Orders"}</p>
                       <p className="text-muted-foreground">
-                        {deliveredCount} {showInternalRiderFeatures ? "delivered" : "completed"}
+                        {completedCount} {showInternalRiderFeatures ? "delivered" : "completed"}
                       </p>
                     </div>
                     <div className="text-sm">
@@ -477,12 +521,12 @@ export default function AdminDashboard() {
                               <div className="flex-1">
                                 <p className="text-xs text-muted-foreground uppercase font-semibold mb-1">Status</p>
                                 <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                                  normalizeOrderStatus(order.status) === 'delivered' ? 'bg-green-100 text-green-800' :
-                                  ['processing', 'ready', 'confirmed', 'assigned', 'picked_up', 'en_route'].includes(normalizeOrderStatus(order.status)) ? 'bg-blue-100 text-blue-800' :
-                                  normalizeOrderStatus(order.status) === 'cancelled' ? 'bg-red-100 text-red-800' :
+                                  getDashboardOrderStage(order) === 'completed' ? 'bg-green-100 text-green-800' :
+                                  getDashboardOrderStage(order) === 'processing' ? 'bg-blue-100 text-blue-800' :
+                                  getDashboardOrderStage(order) === 'cancelled' ? 'bg-red-100 text-red-800' :
                                   'bg-yellow-100 text-yellow-800'
                                 }`}>
-                                  {normalizeOrderStatus(order.status) === "en_route" ? "En Route" : (order.status || "unknown").replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())}
+                                  {getDashboardOrderStatusLabel(order)}
                                 </span>
                               </div>
                               <div className="flex-1">
