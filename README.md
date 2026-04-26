@@ -897,39 +897,468 @@ All settings live in a single row in the `platformSettings` table. Configurable 
 
 ## Deployment
 
-### Frontend → Netlify
+This guide walks you from zero to a fully running production platform — from creating the required accounts through to configuring everything via the Admin Settings UI after your first deploy. Follow the phases in order.
 
-1. Push to `main` branch (or configure Netlify to auto-deploy from GitHub).
-2. Build command: `vite build` (configured in `netlify.toml` or Netlify dashboard).
-3. Publish directory: `client/dist`.
-4. All routes redirect to `index.html` (SPA routing — add a `_redirects` file with `/* /index.html 200`).
-5. Set `VITE_API_URL` if your backend is not on the same domain (typically not needed if using Netlify's proxy or if the frontend calls the Render URL directly).
+> **Tip:** The same guide is also available inside the platform at **Admin → Settings → Deploy Guide** once you are logged in as super admin.
 
-### Backend → Render
+---
 
-Configuration is in `render.yaml`:
-- **Region:** Frankfurt (EU)
-- **Build:** `npm install && npm run build`
-- **Start:** `npm run start` (runs `node dist/server.mjs`)
-- **Health check:** `GET /api/health`
+### Phase 0 — Create Your Accounts First
 
-Set all required environment variables in the Render dashboard. The `FRONTEND_URL` must match the deployed Netlify URL exactly (used for Paystack callback).
+Before doing anything else, create free accounts on each of these services. You will need credentials from all of them before the backend can go live.
 
-### Database → Neon
+| Service | Purpose | URL | Free Tier |
+|---|---|---|---|
+| **GitHub** | Code repository | github.com | Yes |
+| **Neon** | PostgreSQL database | neon.tech | Yes (0.5 GB, auto-pauses) |
+| **Render** | Backend API hosting | render.com | Yes (sleeps after 15 min inactivity) |
+| **Netlify** | Frontend hosting | netlify.com | Yes (100 GB bandwidth/mo) |
+| **Paystack** | Payments (GHS) | paystack.com | Yes (test mode, no verification needed) |
+| **Cloudinary** | Image & video hosting | cloudinary.com | Yes (25 GB storage/bandwidth) |
+| **SMTP provider** | Transactional email | See options below | Varies |
 
-Neon provides a serverless PostgreSQL database. No migrations need to be run manually — the server runs `IF NOT EXISTS` self-heal blocks on startup that ensure all tables and columns exist. For major schema changes, migration files in `migrations/` are applied manually or via `drizzle-kit push`.
+#### Choosing an SMTP Provider
 
-### First Deploy Checklist
+| Provider | Free Emails/Mo | Signup |
+|---|---|---|
+| **Brevo** (recommended for beginners) | 9,000 | brevo.com |
+| **Mailersend** | 3,000 | mailersend.com |
+| **Gmail + App Password** | Unlimited (low sending limits) | Requires 2FA on Google account |
+| **Postmark** | 100 (trial) | postmarkapp.com — best deliverability |
 
-- [ ] All required environment variables set in Render dashboard
+---
+
+### Phase 1 — Local Development Setup
+
+#### 1.1 Clone the Repository
+
+```bash
+git clone https://github.com/YOUR_ORG/Kiyumart-Per.git
+cd Kiyumart-Per
+```
+
+#### 1.2 Install Node.js 18+
+
+Download and install **Node.js LTS** from [nodejs.org](https://nodejs.org). Verify:
+
+```bash
+node --version   # v18.x.x or higher
+npm --version
+```
+
+#### 1.3 Create Your Environment File
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and fill in the minimum required values (see Phase 2–5 for where each credential comes from):
+
+```env
+# ── Required ────────────────────────────────────────
+DATABASE_URL=postgresql://...          # from Neon
+JWT_SECRET=<64-char random hex>
+SESSION_SECRET=<64-char random hex>
+PAYSTACK_SECRET_KEY=sk_test_...
+PAYSTACK_PUBLIC_KEY=pk_test_...
+FRONTEND_URL=http://localhost:5173     # local dev only
+
+# ── Recommended for first boot ──────────────────────
+SUPER_ADMIN_EMAIL=admin@yourdomain.com
+SUPER_ADMIN_PASSWORD=StrongPassword123!
+NODE_ENV=development
+```
+
+Generate a secure secret:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+#### 1.4 Install Dependencies
+
+```bash
+npm install
+```
+
+#### 1.5 Start the Development Server
+
+```bash
+npm run dev
+```
+
+This starts both the Express backend (`:5000`) and the Vite frontend (`:5173`) simultaneously.  
+Open `http://localhost:5173`. On first boot the server automatically:
+- Creates all 42 database tables via self-heal migrations
+- Creates the super admin account if `SUPER_ADMIN_EMAIL`/`SUPER_ADMIN_PASSWORD` are set
+
+Log in at `/auth` with your super admin credentials.
+
+---
+
+### Phase 2 — Neon Database Setup
+
+#### 2.1 Create a Project
+
+1. Log into [console.neon.tech](https://console.neon.tech)
+2. Click **Create a project** → name it `kiyumart-production`
+3. Select region closest to your backend host (e.g. **Europe — Frankfurt** for Render EU)
+4. Click **Create project**
+
+#### 2.2 Get the Connection String
+
+1. In your project → **Connection Details**
+2. Select **Pooled connection** (required — do not use the direct URL)
+3. Copy the string:
+   ```
+   postgresql://username:password@ep-xxxx.eu-central-1.aws.neon.tech/neondb?sslmode=require
+   ```
+
+#### 2.3 Add to `.env`
+
+```env
+DATABASE_URL=postgresql://...your_pooled_neon_url...
+```
+
+> The database schema is created automatically on first server boot. No manual `drizzle-kit push` is required for a fresh deploy.
+
+---
+
+### Phase 3 — Cloudinary Setup
+
+Without Cloudinary, product images are saved to local disk and lost on every Render redeploy.
+
+#### 3.1 Create an Account
+
+1. Go to [cloudinary.com](https://cloudinary.com) → **Sign Up Free**
+2. Complete registration and verify your email
+
+#### 3.2 Copy Your API Credentials
+
+In the Cloudinary dashboard → **Settings → Access Keys**:
+
+| What you need | Where to find it |
+|---|---|
+| Cloud name | Top of the dashboard (e.g. `dxyz123abc`) |
+| API Key | Settings → Access Keys |
+| API Secret | Settings → Access Keys (click reveal) |
+
+#### 3.3 Add to `.env`
+
+```env
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=123456789012345
+CLOUDINARY_API_SECRET=AbCdEfGhIjKlMnOpQrStUvWxYz
+```
+
+> In production these can also be entered in **Admin Settings → Storage** after first login — no redeploy needed.
+
+---
+
+### Phase 4 — Paystack Setup
+
+#### 4.1 Create an Account
+
+1. Go to [paystack.com](https://paystack.com) → **Create a free account**
+2. Verify your email address
+
+#### 4.2 Get Test API Keys
+
+1. Paystack dashboard → **Settings → API Keys & Webhooks**
+2. Copy under **Test Keys**:
+   - Secret key (starts `sk_test_...`)
+   - Public key (starts `pk_test_...`)
+
+#### 4.3 Add to `.env`
+
+```env
+PAYSTACK_SECRET_KEY=sk_test_your_key
+PAYSTACK_PUBLIC_KEY=pk_test_your_key
+```
+
+#### 4.4 Configure the Webhook (After Backend Deploys)
+
+Once your Render URL is known (Phase 6), go to Paystack → **Settings → API Keys & Webhooks** → Webhook URL:
+
+```
+https://your-render-app.onrender.com/api/webhooks/paystack
+```
+
+> **Live payments:** Complete Paystack's business verification to get live keys (`sk_live_...` / `pk_live_...`). Replace test keys in Render env vars and Admin Settings → Payments when ready to accept real GHS.
+
+---
+
+### Phase 5 — SMTP Email Setup
+
+Email is used for order confirmations, application approvals, password resets, and payment reminders.
+
+#### Option A — Brevo (Recommended)
+
+1. Go to [brevo.com](https://www.brevo.com) → Sign Up Free
+2. Go to **SMTP & API → SMTP** → copy your credentials:
+
+```env
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=your_brevo_login_email
+SMTP_PASS=your_brevo_smtp_key
+SMTP_SECURE=false
+SMTP_FROM_EMAIL=noreply@yourdomain.com
+SMTP_FROM_NAME=KiyuMart
+```
+
+#### Option B — Gmail (Quick Testing)
+
+1. Google Account → **Security → App Passwords** (requires 2FA enabled)
+2. Generate an App Password for Mail
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=youremail@gmail.com
+SMTP_PASS=your_16_char_app_password
+SMTP_SECURE=false
+SMTP_FROM_EMAIL=youremail@gmail.com
+SMTP_FROM_NAME=KiyuMart
+```
+
+> SMTP can also be configured in **Admin Settings → Contact** after first login — stored encrypted in the database, no redeploy needed.
+
+---
+
+### Phase 6 — Backend Deployment (Render)
+
+#### 6.1 Push Code to GitHub
+
+```bash
+git add .
+git commit -m "Initial production deployment"
+git push origin main
+```
+
+#### 6.2 Create a Web Service
+
+1. [render.com](https://render.com) → **New → Web Service**
+2. **Connect a repository** → authorize GitHub → select **Kiyumart-Per**
+
+#### 6.3 Configure the Service
+
+| Field | Value |
+|---|---|
+| Name | `kiyumart-api` |
+| Region | Frankfurt (EU) |
+| Runtime | Node |
+| Branch | `main` |
+| Build Command | `npm install && npm run build` |
+| Start Command | `npm run start` |
+| Plan | Free (for testing) or **Starter** (for production — no cold starts) |
+| Health Check Path | `/api/health` |
+
+#### 6.4 Set All Environment Variables
+
+In Render → your service → **Environment**, add:
+
+```
+NODE_ENV                  = production
+DATABASE_URL              = postgresql://...  (Neon pooled URL)
+JWT_SECRET                = <64-char hex>
+SESSION_SECRET            = <64-char hex>
+PAYSTACK_SECRET_KEY       = sk_test_...
+PAYSTACK_PUBLIC_KEY       = pk_test_...
+FRONTEND_URL              = https://your-app.netlify.app   ← fill in AFTER Netlify deploys
+CLOUDINARY_CLOUD_NAME     = your_cloud_name
+CLOUDINARY_API_KEY        = your_api_key
+CLOUDINARY_API_SECRET     = your_api_secret
+SMTP_HOST                 = smtp-relay.brevo.com
+SMTP_PORT                 = 587
+SMTP_USER                 = your_smtp_user
+SMTP_PASS                 = your_smtp_pass
+SMTP_SECURE               = false
+SMTP_FROM_EMAIL           = noreply@yourdomain.com
+SMTP_FROM_NAME            = KiyuMart
+SUPER_ADMIN_EMAIL         = admin@yourdomain.com
+SUPER_ADMIN_PASSWORD      = StrongPassword123!
+SETTINGS_ENCRYPTION_KEY   = <32-byte hex>    ← generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+KIYUMART_USE_EMBEDDED_VITE = false
+```
+
+#### 6.5 Deploy
+
+Click **Create Web Service**. The first deploy takes 3–5 minutes. Watch the logs — success looks like:
+
+```
+Server running on port 5000
+Database connected
+Self-heal migrations complete
+```
+
+Your backend URL will be: `https://kiyumart-api.onrender.com`
+
+#### 6.6 Register the Paystack Webhook
+
+1. Paystack dashboard → **Settings → API Keys & Webhooks**
+2. Webhook URL:
+   ```
+   https://kiyumart-api.onrender.com/api/webhooks/paystack
+   ```
+3. Click **Update**
+
+---
+
+### Phase 7 — Frontend Deployment (Netlify)
+
+#### 7.1 Verify the SPA Redirect Rule
+
+The file `client/public/_redirects` must contain:
+```
+/*    /index.html   200
+```
+This is already included in the repo. Verify it is present before deploying.
+
+#### 7.2 Create a Site on Netlify
+
+1. [netlify.com](https://netlify.com) → **Add new site → Import an existing project**
+2. Click **GitHub** → authorize Netlify → select **Kiyumart-Per**
+
+#### 7.3 Configure Build Settings
+
+| Field | Value |
+|---|---|
+| Base directory | *(leave blank)* |
+| Build command | `npm run build:frontend` |
+| Publish directory | `dist/public` |
+
+#### 7.4 Set the API URL
+
+Netlify → your site → **Site configuration → Environment variables**:
+
+```
+VITE_API_URL = https://kiyumart-api.onrender.com
+```
+
+Replace with your actual Render URL. This tells the frontend where to make API calls.
+
+#### 7.5 Deploy
+
+Click **Deploy site**. Build takes 1–3 minutes. On success you get a URL like:
+```
+https://kiyumart-abc123.netlify.app
+```
+
+**Custom domain (optional):** Netlify → **Domain management → Add custom domain** → follow DNS instructions.
+
+#### 7.6 Update FRONTEND_URL on Render
+
+Critical — without this, Paystack payment redirects will break:
+
+1. Render → your service → **Environment**
+2. Set `FRONTEND_URL` = `https://kiyumart-abc123.netlify.app` (no trailing slash)
+3. Render will automatically redeploy
+
+---
+
+### Phase 8 — Post-Deploy Admin Configuration
+
+Everything below is done in the Admin Settings UI — no code changes or redeployment required.
+
+Open your Netlify URL → `/auth` → log in with `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`.
+
+#### 8.1 Settings → General
+- Set Platform Name and choose Single-Vendor or Multi-Vendor mode
+- Configure Store Display Mode and homepage sections
+
+#### 8.2 Settings → Payments
+- Enter Paystack Public Key and Secret Key (stored encrypted in DB)
+- Set Default Commission Rate and Processing Fee
+
+#### 8.3 Settings → Storage
+- Enter Cloudinary Cloud Name, API Key, and API Secret
+- Set Max Upload Size and allowed file types
+
+#### 8.4 Settings → Contact
+- Fill in Contact Phone, Email, and Address
+- Configure SMTP if not set via environment variables
+- Add social media URLs
+
+#### 8.5 Settings → Advanced Features
+- Choose delivery mode (Internal Riders vs External Delivery)
+- Set Order Auto-Cancel window
+- Configure seller Free Tier Product Limit and upgrade plan pricing
+- Enable/disable Referral System
+
+#### 8.6 Settings → Security Keys
+- Verify Paystack and Cloudinary credentials show as configured
+- Enable Invite-Only Registration if you want controlled onboarding
+
+---
+
+### Phase 9 — Going Live Checklist
+
+Work through this before announcing the platform publicly.
+
+#### Infrastructure
+- [ ] `NODE_ENV=production` is set on Render
 - [ ] `FRONTEND_URL` matches exact Netlify URL (no trailing slash)
-- [ ] `NODE_ENV=production` set
-- [ ] `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` set (creates account on first boot, can remove after)
-- [ ] Paystack webhook URL configured in Paystack dashboard: `https://your-render-url/api/webhooks/paystack`
-- [ ] `robots.txt` and `sitemap.xml` deployed with frontend (already in `client/public/`)
-- [ ] Cloudinary credentials set (or media uploads will use local disk — not suitable for production)
-- [ ] SMTP credentials set (or transactional emails will silently fail)
-- [ ] `SETTINGS_ENCRYPTION_KEY` set if using encrypted DB credentials
+- [ ] `JWT_SECRET` is a 64-character random hex string
+- [ ] `SETTINGS_ENCRYPTION_KEY` is set (encrypts DB-stored credentials)
+- [ ] Render plan is **Starter or higher** if you need no cold starts (Free plan sleeps after 15 min inactivity — first request takes 30–60 s)
+
+#### Payments
+- [ ] Paystack webhook URL is set: `https://your-backend.onrender.com/api/webhooks/paystack`
+- [ ] A test checkout completes end-to-end (order → payment popup → order confirmed)
+- [ ] Live Paystack keys in place before accepting real GHS payments
+- [ ] Paystack business verification complete (required for live mode)
+
+#### Email
+- [ ] A test order confirmation email is received
+- [ ] Password reset email arrives and the link works
+- [ ] `SMTP_FROM_EMAIL` is a domain you control (improves deliverability and avoids spam folder)
+
+#### Media
+- [ ] A test product image upload shows a Cloudinary URL in the product record
+- [ ] Local disk fallback is not in use (verify in Cloudinary dashboard)
+
+#### Frontend
+- [ ] All routes work on page refresh (no 404 — the `_redirects` file is deployed)
+- [ ] PWA installs correctly on mobile (Chrome → install prompt appears)
+- [ ] `VITE_API_URL` points to your production Render URL
+
+#### Security
+- [ ] `.env` is in `.gitignore` and was never committed to git
+- [ ] No test credentials remain in production environment variables
+- [ ] Admin password is strong and not the default from setup
+- [ ] `SUPER_ADMIN_PASSWORD` env var can be removed after first boot (account already exists)
+
+#### SEO
+- [ ] `robots.txt` is deployed (blocks `/admin`, `/seller`, `/rider`, `/api` from crawlers)
+- [ ] `sitemap.xml` is deployed and lists your public product and category pages
+- [ ] Platform name and contact details are filled in Settings
+
+---
+
+### Alternative Hosting Platforms
+
+The stack is not tied to Render or Netlify. Any platform that runs Node.js works for the backend; any static CDN works for the frontend.
+
+#### Backend Alternatives
+
+| Platform | Notes |
+|---|---|
+| **Railway** | No cold starts on Hobby plan ($5/mo), simpler DX |
+| **Fly.io** | Better global latency, requires more config |
+| **DigitalOcean App Platform** | $5–12/mo managed |
+| **VPS (any provider)** | Full control — use PM2 or systemd to manage the process |
+
+Build: `npm install && npm run build` → Start: `npm run start` — same on any platform.
+
+#### Frontend Alternatives
+
+| Platform | Notes |
+|---|---|
+| **Vercel** | Fastest CDN globally, identical build/publish config |
+| **Cloudflare Pages** | Unlimited bandwidth on free plan, very fast CDN |
+| **GitHub Pages** | Free; limited to `.github.io` domain on free plan |
+
+Build command: `npm run build:frontend` — Publish directory: `dist/public` — add `/*  /index.html  200` SPA redirect on any platform.
 
 ---
 

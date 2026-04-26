@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid, Activity,
-  Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive, BarChart2, Server, Zap
+  Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive, BarChart2, Server, Zap, BookOpen, ExternalLink, Copy, ListChecks
 } from "lucide-react";
 import { insertFooterPageSchema, type FooterPage } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -1489,6 +1489,12 @@ export default function AdminSettings() {
                 <TabsTrigger value="hosting" data-testid="tab-hosting" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                   <Server className="h-4 w-4 mr-2" />
                   Hosting
+                </TabsTrigger>
+              )}
+              {user?.role === "super_admin" && (
+                <TabsTrigger value="deploy-guide" data-testid="tab-deploy-guide" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                  <BookOpen className="h-4 w-4 mr-2" />
+                  Deploy Guide
                 </TabsTrigger>
               )}
             </TabsList>
@@ -4065,6 +4071,488 @@ export default function AdminSettings() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {/* ── Deploy Guide ─────────────────────────────────────────────── */}
+            <TabsContent value="deploy-guide" className="space-y-5">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <BookOpen className="h-5 w-5 text-primary" />
+                    Complete Deployment Guide
+                  </CardTitle>
+                  <CardDescription>
+                    Follow these phases in order to go from zero to a fully running production platform. Every credential mentioned here has a corresponding field in this Settings page — no code changes or redeployments are needed once the platform is live.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+
+              {/* Phase 0 */}
+              <CollapsibleDashboardSection
+                title="Phase 0 — Create Your Accounts First"
+                summary="Before writing any config, create free accounts on these 7 services. You need credentials from all of them."
+                defaultOpen={true}
+              >
+                <div className="space-y-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-2 pr-4 font-medium">Service</th>
+                          <th className="text-left py-2 pr-4 font-medium">Purpose</th>
+                          <th className="text-left py-2 pr-4 font-medium">URL</th>
+                          <th className="text-left py-2 font-medium">Free Tier</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {[
+                          { name: "GitHub", purpose: "Code repository", url: "github.com", free: "Yes" },
+                          { name: "Neon", purpose: "PostgreSQL database", url: "neon.tech", free: "Yes (0.5 GB)" },
+                          { name: "Render", purpose: "Backend API hosting", url: "render.com", free: "Yes (sleeps after 15 min)" },
+                          { name: "Netlify", purpose: "Frontend hosting", url: "netlify.com", free: "Yes (100 GB/mo)" },
+                          { name: "Paystack", purpose: "GHS payments", url: "paystack.com", free: "Yes (test mode)" },
+                          { name: "Cloudinary", purpose: "Image & video hosting", url: "cloudinary.com", free: "Yes (25 GB)" },
+                          { name: "SMTP provider", purpose: "Transactional email", url: "See below", free: "Varies" },
+                        ].map((row) => (
+                          <tr key={row.name}>
+                            <td className="py-2 pr-4 font-medium">{row.name}</td>
+                            <td className="py-2 pr-4 text-muted-foreground">{row.purpose}</td>
+                            <td className="py-2 pr-4 text-primary text-xs font-mono">{row.url}</td>
+                            <td className="py-2">
+                              <Badge variant="secondary" className="text-xs">{row.free}</Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 p-4">
+                    <p className="text-sm font-medium mb-2">SMTP Options</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
+                      <div><span className="font-medium text-foreground">Brevo</span> — 9,000 free emails/mo · brevo.com</div>
+                      <div><span className="font-medium text-foreground">Mailersend</span> — 3,000/mo · mailersend.com</div>
+                      <div><span className="font-medium text-foreground">Gmail + App Password</span> — Unlimited (low limits)</div>
+                      <div><span className="font-medium text-foreground">Postmark</span> — Best deliverability · postmarkapp.com</div>
+                    </div>
+                  </div>
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Phase 1 */}
+              <CollapsibleDashboardSection
+                title="Phase 1 — Local Development Setup"
+                summary="Get the platform running on your machine before deploying anywhere."
+                defaultOpen={true}
+              >
+                <div className="space-y-5">
+                  {[
+                    {
+                      step: "1.1",
+                      title: "Clone the Repository",
+                      code: `git clone https://github.com/YOUR_ORG/Kiyumart-Per.git\ncd Kiyumart-Per`,
+                    },
+                    {
+                      step: "1.2",
+                      title: "Install Node.js 18+",
+                      code: `node --version   # must be v18.x.x or higher\nnpm --version`,
+                      note: "Download from nodejs.org — install the LTS version.",
+                    },
+                    {
+                      step: "1.3",
+                      title: "Create Your Environment File",
+                      code: `cp .env.example .env`,
+                      note: "Then open .env and fill in the values from Phases 2–5.",
+                    },
+                    {
+                      step: "1.4",
+                      title: "Generate Secrets",
+                      code: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
+                      note: "Run this twice — once for JWT_SECRET, once for SESSION_SECRET. Use 64-char output.",
+                    },
+                    {
+                      step: "1.5",
+                      title: "Install Dependencies",
+                      code: `npm install`,
+                    },
+                    {
+                      step: "1.6",
+                      title: "Start Development Server",
+                      code: `npm run dev`,
+                      note: "Opens backend on :5000 and frontend on :5173. On first boot: creates all DB tables and your super admin account.",
+                    },
+                  ].map(({ step, title, code, note }) => (
+                    <div key={step} className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Badge className="shrink-0 text-xs px-2 py-0.5">{step}</Badge>
+                        <p className="font-medium text-sm">{title}</p>
+                      </div>
+                      <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">{code}</pre>
+                      {note && <p className="text-xs text-muted-foreground pl-1">{note}</p>}
+                    </div>
+                  ))}
+                  <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-3">
+                    <p className="text-xs text-blue-800 dark:text-blue-300">Log in at <code className="font-mono">http://localhost:5173/auth</code> using the <code className="font-mono">SUPER_ADMIN_EMAIL</code> and <code className="font-mono">SUPER_ADMIN_PASSWORD</code> you set in <code className="font-mono">.env</code>.</p>
+                  </div>
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Phase 2 */}
+              <CollapsibleDashboardSection
+                title="Phase 2 — Neon Database Setup"
+                summary="Serverless PostgreSQL. The schema is created automatically on first boot — no manual migrations needed."
+              >
+                <div className="space-y-4">
+                  <ol className="space-y-3 text-sm">
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">1</span><span>Go to <strong>console.neon.tech</strong> → <strong>Create a project</strong> → name it <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">kiyumart-production</code> → select the region closest to your Render region (Frankfurt EU).</span></li>
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">2</span><span>In your project → <strong>Connection Details</strong> → select <strong>Pooled connection</strong> (not the direct URL — pooled is required).</span></li>
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">3</span><span>Copy the connection string — it looks like:<br/><code className="text-xs font-mono bg-muted px-1 py-0.5 rounded break-all">postgresql://user:pass@ep-xxx.eu-central-1.aws.neon.tech/neondb?sslmode=require</code></span></li>
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">4</span><span>Add to <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">.env</code>: <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">DATABASE_URL=postgresql://...</code><br/>In production: add to Render Environment Variables (Phase 6).</span></li>
+                  </ol>
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Phase 3 */}
+              <CollapsibleDashboardSection
+                title="Phase 3 — Cloudinary Setup"
+                summary="Stores all product images and videos. Without it, uploads are lost on every Render redeploy."
+              >
+                <div className="space-y-4">
+                  <ol className="space-y-3 text-sm">
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">1</span><span>Go to <strong>cloudinary.com</strong> → Sign Up Free → verify your email.</span></li>
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">2</span><span>Dashboard → <strong>Settings → Access Keys</strong> → copy: <strong>Cloud name</strong>, <strong>API Key</strong>, <strong>API Secret</strong>.</span></li>
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">3</span><span>Add to <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">.env</code> locally, or enter directly in <strong>Settings → Storage</strong> here after first login.</span></li>
+                  </ol>
+                  <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-x-auto">{`CLOUDINARY_CLOUD_NAME=your_cloud_name\nCLOUDINARY_API_KEY=123456789012345\nCLOUDINARY_API_SECRET=AbCdEfGhIjKlMnOpQrStUvWxYz`}</pre>
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Phase 4 */}
+              <CollapsibleDashboardSection
+                title="Phase 4 — Paystack Setup"
+                summary="Processes all GHS payments. Test mode works immediately — no business verification required for testing."
+              >
+                <div className="space-y-4">
+                  <ol className="space-y-3 text-sm">
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">1</span><span>Go to <strong>paystack.com</strong> → Create a free account → verify your email.</span></li>
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">2</span><span>Dashboard → <strong>Settings → API Keys & Webhooks</strong> → copy the <strong>Test Keys</strong>: Secret key (<code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">sk_test_...</code>) and Public key (<code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">pk_test_...</code>).</span></li>
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">3</span><span>Add to <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">.env</code> locally, or enter in <strong>Settings → Payments</strong> here after first login.</span></li>
+                    <li className="flex gap-3"><span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold">4</span><span>After backend deploys → set webhook URL in Paystack:<br/><code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">https://your-backend.onrender.com/api/webhooks/paystack</code></span></li>
+                  </ol>
+                  <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 p-3">
+                    <p className="text-xs text-amber-800 dark:text-amber-300"><strong>Live payments:</strong> Complete Paystack business verification to get live keys (<code className="font-mono">sk_live_...</code>). Replace test keys in Render env vars and Settings → Payments when ready to accept real GHS.</p>
+                  </div>
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Phase 5 */}
+              <CollapsibleDashboardSection
+                title="Phase 5 — SMTP Email Setup"
+                summary="Used for order confirmations, application approvals, password resets, and payment reminders."
+              >
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Option A — Brevo (Recommended)</p>
+                    <ol className="space-y-1 text-sm text-muted-foreground list-decimal list-inside">
+                      <li>Go to <strong>brevo.com</strong> → Sign Up Free → verify email</li>
+                      <li>Go to <strong>SMTP & API → SMTP</strong> → copy your SMTP credentials</li>
+                    </ol>
+                    <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-x-auto">{`SMTP_HOST=smtp-relay.brevo.com\nSMTP_PORT=587\nSMTP_USER=your_brevo_login_email\nSMTP_PASS=your_brevo_smtp_key\nSMTP_SECURE=false\nSMTP_FROM_EMAIL=noreply@yourdomain.com\nSMTP_FROM_NAME=KiyuMart`}</pre>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Option B — Gmail (Quick Testing Only)</p>
+                    <ol className="space-y-1 text-sm text-muted-foreground list-decimal list-inside">
+                      <li>Enable 2FA on your Google account</li>
+                      <li>Google Account → <strong>Security → App Passwords</strong> → generate one for Mail</li>
+                    </ol>
+                    <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-x-auto">{`SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USER=youremail@gmail.com\nSMTP_PASS=your_16_char_app_password\nSMTP_SECURE=false`}</pre>
+                  </div>
+                  <p className="text-xs text-muted-foreground">SMTP can also be configured in <strong>Settings → Contact</strong> here — credentials are encrypted in the database and take effect immediately without redeploy.</p>
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Phase 6 */}
+              <CollapsibleDashboardSection
+                title="Phase 6 — Backend Deployment (Render)"
+                summary="Deploy the Express API server. Takes 3–5 minutes on first deploy."
+              >
+                <div className="space-y-5">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>6.1</Badge><p className="text-sm font-medium">Push Code to GitHub</p></div>
+                    <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-x-auto">{`git add .\ngit commit -m "Initial production deployment"\ngit push origin main`}</pre>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>6.2</Badge><p className="text-sm font-medium">Create a Web Service on Render</p></div>
+                    <p className="text-sm text-muted-foreground">render.com → <strong>New → Web Service</strong> → Connect repository → select <strong>Kiyumart-Per</strong></p>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>6.3</Badge><p className="text-sm font-medium">Service Configuration</p></div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <tbody className="divide-y">
+                          {[
+                            ["Name", "kiyumart-api"],
+                            ["Region", "Frankfurt (EU)"],
+                            ["Runtime", "Node"],
+                            ["Branch", "main"],
+                            ["Build Command", "npm install && npm run build"],
+                            ["Start Command", "npm run start"],
+                            ["Plan", "Free (testing) · Starter (production — no cold starts)"],
+                            ["Health Check Path", "/api/health"],
+                          ].map(([field, value]) => (
+                            <tr key={field}>
+                              <td className="py-1.5 pr-4 font-medium text-muted-foreground w-40">{field}</td>
+                              <td className="py-1.5 font-mono">{value}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>6.4</Badge><p className="text-sm font-medium">Set Environment Variables</p></div>
+                    <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap">{`NODE_ENV                   = production
+DATABASE_URL               = postgresql://... (Neon pooled URL)
+JWT_SECRET                 = <64-char hex>
+SESSION_SECRET             = <64-char hex>
+PAYSTACK_SECRET_KEY        = sk_test_...
+PAYSTACK_PUBLIC_KEY        = pk_test_...
+FRONTEND_URL               = https://your-app.netlify.app  ← fill in AFTER Netlify deploys
+CLOUDINARY_CLOUD_NAME      = your_cloud_name
+CLOUDINARY_API_KEY         = your_api_key
+CLOUDINARY_API_SECRET      = your_api_secret
+SMTP_HOST                  = smtp-relay.brevo.com
+SMTP_PORT                  = 587
+SMTP_USER                  = your_smtp_user
+SMTP_PASS                  = your_smtp_pass
+SMTP_SECURE                = false
+SMTP_FROM_EMAIL            = noreply@yourdomain.com
+SMTP_FROM_NAME             = KiyuMart
+SUPER_ADMIN_EMAIL          = admin@yourdomain.com
+SUPER_ADMIN_PASSWORD       = StrongPassword123!
+SETTINGS_ENCRYPTION_KEY    = <32-byte hex>
+KIYUMART_USE_EMBEDDED_VITE = false`}</pre>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>6.5</Badge><p className="text-sm font-medium">Deploy & Set Paystack Webhook</p></div>
+                    <p className="text-sm text-muted-foreground">Click <strong>Create Web Service</strong>. When the build turns green, your backend URL is something like <code className="text-xs font-mono bg-muted px-1 rounded">https://kiyumart-api.onrender.com</code>.</p>
+                    <p className="text-sm text-muted-foreground mt-1">Then in Paystack → <strong>Settings → API Keys & Webhooks</strong> → Webhook URL:</p>
+                    <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-x-auto">{`https://kiyumart-api.onrender.com/api/webhooks/paystack`}</pre>
+                  </div>
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Phase 7 */}
+              <CollapsibleDashboardSection
+                title="Phase 7 — Frontend Deployment (Netlify)"
+                summary="Deploy the React SPA to Netlify's global CDN. Takes 1–3 minutes."
+              >
+                <div className="space-y-5">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>7.1</Badge><p className="text-sm font-medium">Verify the SPA Redirect Rule</p></div>
+                    <p className="text-xs text-muted-foreground">The file <code className="font-mono bg-muted px-1 rounded">client/public/_redirects</code> must contain:</p>
+                    <pre className="bg-muted rounded-lg p-3 text-xs font-mono">/*    /index.html   200</pre>
+                    <p className="text-xs text-muted-foreground">Already included in the repo. This is required for client-side routing (otherwise page refreshes return 404).</p>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>7.2</Badge><p className="text-sm font-medium">Create a Site on Netlify</p></div>
+                    <p className="text-sm text-muted-foreground">netlify.com → <strong>Add new site → Import an existing project → GitHub</strong> → authorize → select <strong>Kiyumart-Per</strong></p>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>7.3</Badge><p className="text-sm font-medium">Build Settings</p></div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <tbody className="divide-y">
+                          {[
+                            ["Base directory", "(leave blank)"],
+                            ["Build command", "npm run build:frontend"],
+                            ["Publish directory", "dist/public"],
+                          ].map(([field, value]) => (
+                            <tr key={field}>
+                              <td className="py-1.5 pr-4 font-medium text-muted-foreground w-40">{field}</td>
+                              <td className="py-1.5 font-mono">{value}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>7.4</Badge><p className="text-sm font-medium">Environment Variable</p></div>
+                    <p className="text-xs text-muted-foreground">Netlify → your site → <strong>Site configuration → Environment variables</strong>:</p>
+                    <pre className="bg-muted rounded-lg p-3 text-xs font-mono">{`VITE_API_URL = https://kiyumart-api.onrender.com`}</pre>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1"><Badge>7.5</Badge><p className="text-sm font-medium">After Deploy — Update FRONTEND_URL on Render</p></div>
+                    <p className="text-sm text-muted-foreground">When Netlify gives you a URL (e.g. <code className="text-xs font-mono bg-muted px-1 rounded">https://kiyumart-abc123.netlify.app</code>), go back to Render → Environment → set <code className="text-xs font-mono bg-muted px-1 rounded">FRONTEND_URL</code> to that exact URL (no trailing slash). Render will redeploy automatically.</p>
+                    <div className="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3">
+                      <p className="text-xs text-red-800 dark:text-red-300"><strong>Critical:</strong> If FRONTEND_URL is wrong, Paystack payment callbacks will redirect to the wrong URL and orders will not complete. Match it exactly — no trailing slash.</p>
+                    </div>
+                  </div>
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Phase 8 */}
+              <CollapsibleDashboardSection
+                title="Phase 8 — Post-Deploy Admin Configuration"
+                summary="Everything here is done through this Settings page — no code or redeploy needed."
+              >
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 p-3">
+                    <p className="text-xs text-green-800 dark:text-green-300">Open your Netlify URL → <code className="font-mono">/auth</code> → log in with <code className="font-mono">SUPER_ADMIN_EMAIL</code> + <code className="font-mono">SUPER_ADMIN_PASSWORD</code>. Then complete each tab below.</p>
+                  </div>
+                  <div className="space-y-3">
+                    {[
+                      { tab: "Settings → General", action: "Set Platform Name, choose Single-Vendor or Multi-Vendor mode, configure Store Display Mode and homepage sections." },
+                      { tab: "Settings → Payments", action: "Enter Paystack Public Key and Secret Key (stored encrypted). Set Default Commission Rate and Processing Fee." },
+                      { tab: "Settings → Storage", action: "Enter Cloudinary Cloud Name, API Key, and API Secret. Set Max Upload Size and allowed file types." },
+                      { tab: "Settings → Contact", action: "Fill in Contact Phone, Email, and Address. Configure SMTP if not already set via env vars. Add social media URLs." },
+                      { tab: "Settings → Advanced Features", action: "Choose Delivery Mode (Internal Riders vs External). Set Order Auto-Cancel window, Free Tier Product Limit, seller upgrade plan pricing, and Referral System settings." },
+                      { tab: "Settings → Security Keys", action: "Verify Paystack and Cloudinary credentials show as configured. Enable Invite-Only Registration to control who can sign up." },
+                    ].map(({ tab, action }) => (
+                      <div key={tab} className="flex gap-3 text-sm">
+                        <Badge variant="outline" className="shrink-0 text-xs">{tab}</Badge>
+                        <p className="text-muted-foreground">{action}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Phase 9 — Checklist */}
+              <CollapsibleDashboardSection
+                title="Phase 9 — Going Live Checklist"
+                summary="Work through every item before announcing the platform publicly."
+                defaultOpen={true}
+              >
+                <div className="space-y-5">
+                  {[
+                    {
+                      category: "Infrastructure",
+                      icon: <Server className="h-4 w-4" />,
+                      items: [
+                        "NODE_ENV=production is set on Render",
+                        "FRONTEND_URL matches exact Netlify URL — no trailing slash",
+                        "JWT_SECRET is a 64-character random hex string",
+                        "SETTINGS_ENCRYPTION_KEY is set (encrypts DB-stored credentials)",
+                        "Render plan is Starter or higher if you need no cold starts (Free plan sleeps after 15 min inactivity)",
+                      ],
+                    },
+                    {
+                      category: "Payments",
+                      icon: <CreditCard className="h-4 w-4" />,
+                      items: [
+                        "Paystack webhook URL is set: https://your-backend.onrender.com/api/webhooks/paystack",
+                        "A test checkout completes end-to-end (order → payment popup → order confirmed)",
+                        "Live Paystack keys (sk_live_...) are in place before accepting real GHS payments",
+                        "Paystack business verification is complete (required for live mode)",
+                      ],
+                    },
+                    {
+                      category: "Email",
+                      icon: <Mail className="h-4 w-4" />,
+                      items: [
+                        "A test order confirmation email is received",
+                        "Password reset email arrives and the link works",
+                        "SMTP_FROM_EMAIL is a domain you control (improves deliverability)",
+                      ],
+                    },
+                    {
+                      category: "Media",
+                      icon: <Cloud className="h-4 w-4" />,
+                      items: [
+                        "A test product image upload shows a Cloudinary URL in the product record",
+                        "Local disk fallback is not in use — verify in Cloudinary dashboard",
+                      ],
+                    },
+                    {
+                      category: "Frontend",
+                      icon: <Globe className="h-4 w-4" />,
+                      items: [
+                        "All routes work on page refresh (no 404 — the _redirects file is deployed)",
+                        "PWA installs correctly on mobile (Chrome → install prompt appears)",
+                        "VITE_API_URL points to your production Render URL",
+                      ],
+                    },
+                    {
+                      category: "Security",
+                      icon: <ShieldCheck className="h-4 w-4" />,
+                      items: [
+                        ".env is in .gitignore and was never committed to git",
+                        "No test credentials remain in production environment variables",
+                        "Admin password is strong and not the setup default",
+                        "SUPER_ADMIN_PASSWORD env var can be removed after first boot (account already exists)",
+                      ],
+                    },
+                    {
+                      category: "SEO",
+                      icon: <Globe2 className="h-4 w-4" />,
+                      items: [
+                        "robots.txt is deployed (blocks /admin, /seller, /rider, /api from crawlers)",
+                        "sitemap.xml is deployed and lists public product and category pages",
+                        "Platform name and contact details are filled in Settings",
+                      ],
+                    },
+                  ].map(({ category, icon, items }) => (
+                    <div key={category} className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        {icon}
+                        {category}
+                      </div>
+                      <ul className="space-y-1.5">
+                        {items.map((item) => (
+                          <li key={item} className="flex items-start gap-2 text-xs text-muted-foreground">
+                            <CheckCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground/50" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleDashboardSection>
+
+              {/* Alternatives */}
+              <CollapsibleDashboardSection
+                title="Alternative Hosting Platforms"
+                summary="Render and Netlify are the defaults but any Node.js host and static CDN work."
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium flex items-center gap-2"><Server className="h-4 w-4" /> Backend Alternatives to Render</p>
+                    <div className="space-y-2 text-sm">
+                      {[
+                        { name: "Railway", note: "No cold starts on Hobby plan ($5/mo), simplest DX" },
+                        { name: "Fly.io", note: "Better global latency, requires more config" },
+                        { name: "DigitalOcean App Platform", note: "$5–12/mo managed, solid SLAs" },
+                        { name: "VPS (any provider)", note: "Full control — run with PM2 or systemd" },
+                      ].map(({ name, note }) => (
+                        <div key={name}>
+                          <p className="font-medium text-xs">{name}</p>
+                          <p className="text-xs text-muted-foreground">{note}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <pre className="bg-muted rounded-lg p-2 text-xs font-mono overflow-x-auto">{`# Same on any platform:\nnpm install && npm run build  # build\nnpm run start                  # start`}</pre>
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium flex items-center gap-2"><Globe className="h-4 w-4" /> Frontend Alternatives to Netlify</p>
+                    <div className="space-y-2 text-sm">
+                      {[
+                        { name: "Vercel", note: "Fastest global CDN, identical build config" },
+                        { name: "Cloudflare Pages", note: "Unlimited bandwidth on free plan" },
+                        { name: "GitHub Pages", note: "Free; limited to .github.io on free plan" },
+                      ].map(({ name, note }) => (
+                        <div key={name}>
+                          <p className="font-medium text-xs">{name}</p>
+                          <p className="text-xs text-muted-foreground">{note}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <pre className="bg-muted rounded-lg p-2 text-xs font-mono overflow-x-auto">{`# Same on any platform:\nBuild:   npm run build:frontend\nPublish: dist/public\nRedirect: /* /index.html 200`}</pre>
+                  </div>
+                </div>
+              </CollapsibleDashboardSection>
+            </TabsContent>
+
           </Tabs>
 
           <div className="flex justify-end gap-4 mt-6">
