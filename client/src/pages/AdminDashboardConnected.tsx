@@ -7,12 +7,14 @@ import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import TrackingMetricsPanel from "@/components/TrackingMetricsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DollarSign, ShoppingBag, Users, Truck, Loader2, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin } from "lucide-react";
+import { DollarSign, ShoppingBag, Users, Truck, Loader2, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin, AlertTriangle, Wrench, PowerOff, Clock, ShieldAlert, RefreshCw, CalendarDays, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { useToast } from "@/hooks/use-toast";
@@ -46,8 +48,11 @@ interface DashboardSummary {
   promotionRevenueTotal?: number;
   platformRevenueTotal?: number;
   totalReceivedMoney?: number;
-  deliveries?: number;
+  totalDeliveries?: number;
+  totalPickups?: number;
+  successfulDeliveries?: number;
   successfulPickups?: number;
+  successfulOrders?: number;
 }
 
 interface SellerPayoutSummary {
@@ -55,6 +60,30 @@ interface SellerPayoutSummary {
   name: string;
   totalPaid: number | string;
   pendingAmount: number | string;
+}
+
+interface MaintenanceStatus {
+  isMaintenanceMode: boolean;
+  isManualMaintenance: boolean;
+  isAutoMaintenance: boolean;
+  autoMaintenanceReason: "restart" | "file_change" | null;
+  autoMaintenanceUntil: string | null;
+  autoSecondsLeft: number;
+  maintenanceMessage: string | null;
+  maintenanceStartedAt: string | null;
+  maintenanceScheduledEnd: string | null;
+}
+
+interface SellerPaymentAlert {
+  payoutId: string;
+  sellerId: string;
+  sellerName: string;
+  amount: string | number;
+  currency: string;
+  status: string;
+  method: string;
+  reason: string;
+  createdAt: string;
 }
 
 interface Order {
@@ -263,6 +292,8 @@ export default function AdminDashboardConnected() {
       setActiveItem("applications");
     } else if (path.includes("/admin/pickup-stations")) {
       setActiveItem("pickup-stations");
+    } else if (path.includes("/admin/pickup-verify")) {
+      setActiveItem("pickup-verify");
     } else if (path.includes("/admin/zones") || path.includes("/admin/delivery-zones")) {
       setActiveItem("zones");
     } else if (path === "/cart") {
@@ -316,6 +347,7 @@ export default function AdminDashboardConnected() {
       id === "applications" ? "/admin/applications" :
       id === "zones" ? "/admin/zones" :
       id === "pickup-stations" ? "/admin/pickup-stations" :
+      id === "pickup-verify" ? "/admin/pickup-verify" :
       id === "my-cart" ? "/cart" :
       id === "my-purchases" ? "/orders" :
       id === "my-wishlist" ? "/wishlist" :
@@ -382,6 +414,61 @@ export default function AdminDashboardConnected() {
     staleTime: 0,
   });
 
+  const { data: maintenanceStatus, refetch: refetchMaintenance } = useQuery<MaintenanceStatus>({
+    queryKey: ["/api/maintenance/status"],
+    queryFn: async () => {
+      const res = await fetch("/api/maintenance/status", { cache: "no-store", credentials: "include" });
+      return res.json();
+    },
+    enabled: isAuthenticated && isSuperAdmin,
+    refetchInterval: 15000,
+    staleTime: 0,
+  });
+
+  const [maintenanceMsg, setMaintenanceMsg] = useState("");
+  const [maintenanceEndDate, setMaintenanceEndDate] = useState<Date | undefined>(undefined);
+  const [maintenanceEndTime, setMaintenanceEndTime] = useState("12:00");
+  const [maintenanceEndOpen, setMaintenanceEndOpen] = useState(false);
+  const [maintenanceToggling, setMaintenanceToggling] = useState(false);
+
+  const toggleMaintenance = async (enable: boolean) => {
+    setMaintenanceToggling(true);
+    try {
+      const body: Record<string, any> = { enable };
+      if (enable && maintenanceMsg.trim()) body.message = maintenanceMsg.trim();
+      if (enable && maintenanceEndDate) {
+        const [h, m] = maintenanceEndTime.split(":").map(Number);
+        const d = new Date(maintenanceEndDate);
+        d.setHours(h ?? 12, m ?? 0, 0, 0);
+        body.scheduledEnd = d.toISOString();
+      }
+      await apiRequest("POST", "/api/admin/maintenance", body);
+      // Show success immediately — the POST worked regardless of what happens next
+      toast({
+        title: enable ? "Maintenance mode enabled" : "Platform is back online",
+        description: enable ? "All users will see the maintenance page." : "Maintenance page removed for all users.",
+      });
+      // Refetch in background — don't let its promise rejection surface as an error toast
+      refetchMaintenance().catch(() => {});
+    } catch {
+      toast({ title: "Failed to toggle maintenance mode", variant: "destructive" });
+    } finally {
+      setMaintenanceToggling(false);
+    }
+  };
+
+  const { data: sellerPaymentAlerts = [] } = useQuery<SellerPaymentAlert[]>({
+    queryKey: ["/api/admin/seller-payment-alerts"],
+    queryFn: async () =>
+      fetchApiJson<SellerPaymentAlert[]>("/api/admin/seller-payment-alerts", {
+        credentials: "include",
+        cache: "no-store",
+      }),
+    enabled: isAuthenticated && isAdminViewer,
+    refetchInterval: 30000,
+    staleTime: 0,
+  });
+
   const { data: dashboardSummary, isLoading: dashboardSummaryLoading } = useQuery<DashboardSummary>({
     queryKey: ["/api/admin/dashboard-summary"],
     queryFn: async () =>
@@ -394,6 +481,30 @@ export default function AdminDashboardConnected() {
     refetchOnWindowFocus: true,
     staleTime: 0,
   });
+
+  interface PeriodStats { orders: number; revenue: number; platformRevenue: number; deliveries: number; pickups: number; newUsers: number; }
+  interface PeriodComparison { current: PeriodStats; previous: PeriodStats; }
+  const { data: periodStats } = useQuery<PeriodComparison>({
+    queryKey: ["/api/admin/dashboard-period-stats"],
+    queryFn: async () => fetchApiJson<PeriodComparison>("/api/admin/dashboard-period-stats", { credentials: "include", cache: "no-store" }),
+    enabled: isAuthenticated && isAdminViewer,
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  const pctChange = (cur: number, prev: number): number | undefined => {
+    if (prev === 0) return cur > 0 ? 100 : undefined;
+    return Math.round(((cur - prev) / prev) * 1000) / 10;
+  };
+
+  const metricChanges = periodStats ? {
+    platformRevenue: pctChange(periodStats.current.platformRevenue, periodStats.previous.platformRevenue),
+    grossCollections: pctChange(periodStats.current.revenue, periodStats.previous.revenue),
+    totalOrders: pctChange(periodStats.current.orders, periodStats.previous.orders),
+    totalUsers: pctChange(periodStats.current.newUsers, periodStats.previous.newUsers),
+    deliveries: pctChange(periodStats.current.deliveries, periodStats.previous.deliveries),
+    pickups: pctChange(periodStats.current.pickups, periodStats.previous.pickups),
+  } : {};
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders", "admin-dashboard", user?.id],
@@ -672,14 +783,16 @@ export default function AdminDashboardConnected() {
     return method === "pickup" || method === "store_pickup";
   };
 
-  const deliveredCount = orders.filter((o) => {
+  const deliveredCountFromOrders = orders.filter((o) => {
     const normalized = sanitizeOrderStatusForExternalMode(o.status);
-    return !isPickupMethod(o.deliveryMethod) && (normalized === "delivered" || normalized === "completed");
+    return !isPickupMethod(o.deliveryMethod) && normalized === "completed";
   }).length;
-  const successfulPickupCount = orders.filter((o) => {
+  const successfulPickupCountFromOrders = orders.filter((o) => {
     const normalized = sanitizeOrderStatusForExternalMode(o.status);
-    return isPickupMethod(o.deliveryMethod) && (normalized === "delivered" || normalized === "completed");
+    return isPickupMethod(o.deliveryMethod) && normalized === "completed";
   }).length;
+  const totalDeliveriesCountFromOrders = orders.filter((o) => !isPickupMethod(o.deliveryMethod)).length;
+  const totalPickupsCountFromOrders = orders.filter((o) => isPickupMethod(o.deliveryMethod)).length;
   const pendingApplicationsCount = pendingApplicationsBadgeData?.count || 0;
   const pendingAssignmentsCount = pendingAssignmentsBadgeData?.count || 0;
   const activeZoneCount = deliveryZones.filter((zone) => zone.isActive !== false).length;
@@ -687,6 +800,14 @@ export default function AdminDashboardConnected() {
   const shouldBlockMetrics = dashboardSummaryLoading && !dashboardSummary && !hasOrdersData;
   const totalOrdersValue = dashboardSummary?.totalOrders ?? analytics?.totalOrders ?? orders.length;
   const totalUsersValue = dashboardSummary?.totalUsers ?? analytics?.totalUsers;
+  const totalDeliveriesValue =
+    dashboardSummary?.successfulDeliveries ?? deliveredCountFromOrders;
+  const totalPickupsValue =
+    dashboardSummary?.successfulPickups ?? successfulPickupCountFromOrders;
+  const successfulDeliveriesValue =
+    dashboardSummary?.successfulDeliveries ?? deliveredCountFromOrders;
+  const successfulPickupValue =
+    dashboardSummary?.successfulPickups ?? successfulPickupCountFromOrders;
   const totalRevenueValue =
     dashboardSummary?.totalRevenue ??
     dashboardSummary?.platformRevenueTotal ??
@@ -719,6 +840,14 @@ export default function AdminDashboardConnected() {
         ? dashboardSummary.platformCommissionTotal
         : financeSummary?.byType?.commission
           ? Number(financeSummary.byType.commission)
+          : 0;
+  const promotionRevenueValue =
+    typeof dashboardSummary?.promotionRevenueTotal === "number"
+      ? dashboardSummary.promotionRevenueTotal
+      : typeof analytics?.promotionRevenueTotal === "number"
+        ? analytics.promotionRevenueTotal
+        : financeSummary?.byType?.promotion
+          ? Number(financeSummary.byType.promotion)
           : 0;
   const processingFeesTotal =
     typeof analytics?.processingFeesTotal === "number"
@@ -886,7 +1015,7 @@ export default function AdminDashboardConnected() {
   };
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background overflow-hidden">
       <DashboardSidebar
         role={isSuperAdmin ? "super_admin" : "admin"}
         activeItem={activeItem}
@@ -909,6 +1038,246 @@ export default function AdminDashboardConnected() {
 
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-7xl mx-auto space-y-6">
+
+            {/* Maintenance Mode Control — Super Admin only */}
+            {isSuperAdmin && (() => {
+              const isActive = !!maintenanceStatus?.isMaintenanceMode;
+              const isAuto   = !!maintenanceStatus?.isAutoMaintenance;
+              const startedAt = maintenanceStatus?.maintenanceStartedAt
+                ? new Date(maintenanceStatus.maintenanceStartedAt).toLocaleString(undefined, {
+                    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+                  })
+                : null;
+              const scheduledEnd = maintenanceStatus?.maintenanceScheduledEnd ?? null;
+              const currentMsg   = maintenanceStatus?.maintenanceMessage ?? null;
+
+              return (
+                <Card className={`border-2 transition-colors ${
+                  isActive
+                    ? "border-destructive/60 bg-destructive/5 dark:bg-destructive/8"
+                    : "border-primary/20 bg-card"
+                }`}>
+                  {/* ── Header row ── */}
+                  <CardHeader className="pb-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                          isActive ? "bg-destructive/15" : "bg-muted"
+                        }`}>
+                          {isActive
+                            ? <ShieldAlert className="h-5 w-5 text-destructive" />
+                            : <Wrench className="h-5 w-5 text-muted-foreground" />}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <CardTitle className="text-base leading-tight">Platform Maintenance Mode</CardTitle>
+                            {isActive && (
+                              <Badge variant="destructive" className="text-xs px-2 py-0.5 animate-pulse">
+                                ACTIVE
+                              </Badge>
+                            )}
+                            {isAuto && (
+                              <Badge variant="outline" className="text-xs gap-1 px-2 py-0.5">
+                                <RefreshCw className="h-3 w-3" /> Auto-triggered
+                              </Badge>
+                            )}
+                          </div>
+                          <CardDescription className="text-xs mt-0.5">
+                            {isActive
+                              ? "The platform is in maintenance mode. All non-admin users are redirected to the maintenance page."
+                              : "Enabling maintenance mode will notify all users and block access to the platform until you restore it."}
+                          </CardDescription>
+                        </div>
+                      </div>
+                      {/* Quick toggle switch */}
+                      <Switch
+                        checked={isActive}
+                        disabled={maintenanceToggling}
+                        onCheckedChange={(checked) => void toggleMaintenance(checked)}
+                        className="mt-1 shrink-0"
+                      />
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="pt-0 space-y-4">
+                    {/* ── ACTIVE STATE ── */}
+                    {isActive && (
+                      <>
+                        {/* Status info grid */}
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          {startedAt && (
+                            <div className="rounded-lg border border-destructive/20 bg-card px-3 py-2.5">
+                              <p className="text-xs text-muted-foreground mb-0.5">Started</p>
+                              <p className="text-sm font-medium">{startedAt}</p>
+                            </div>
+                          )}
+                          <div className="rounded-lg border border-destructive/20 bg-card px-3 py-2.5">
+                            <p className="text-xs text-muted-foreground mb-0.5">Trigger</p>
+                            <p className="text-sm font-medium">
+                              {!isAuto
+                                ? "Manually enabled by admin"
+                                : maintenanceStatus?.autoMaintenanceReason === "file_change"
+                                  ? "Auto — source file change detected (dev)"
+                                  : "Auto — server restart / new deployment"}
+                            </p>
+                          </div>
+                          {isAuto && maintenanceStatus?.autoSecondsLeft > 0 && (
+                            <div className="rounded-lg border border-destructive/20 bg-card px-3 py-2.5">
+                              <p className="text-xs text-muted-foreground mb-0.5">Auto-lifts in</p>
+                              <p className="text-sm font-semibold text-destructive">
+                                {maintenanceStatus.autoSecondsLeft >= 60
+                                  ? `${Math.ceil(maintenanceStatus.autoSecondsLeft / 60)}m`
+                                  : `${maintenanceStatus.autoSecondsLeft}s`}
+                                <span className="text-xs font-normal text-muted-foreground ml-1">
+                                  (auto — no action needed)
+                                </span>
+                              </p>
+                            </div>
+                          )}
+                          {currentMsg && (
+                            <div className="rounded-lg border border-destructive/20 bg-card px-3 py-2.5 sm:col-span-2">
+                              <p className="text-xs text-muted-foreground mb-0.5">Message shown to users</p>
+                              <p className="text-sm italic">"{currentMsg}"</p>
+                            </div>
+                          )}
+                          {scheduledEnd && (
+                            <div className="rounded-lg border border-destructive/20 bg-card px-3 py-2.5 sm:col-span-2">
+                              <p className="text-xs text-muted-foreground mb-0.5">Scheduled End</p>
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <p className="text-sm font-medium">
+                                  {new Date(scheduledEnd).toLocaleString(undefined, {
+                                    weekday: "short", month: "short", day: "numeric",
+                                    hour: "2-digit", minute: "2-digit",
+                                  })}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Restore button */}
+                        <div className="flex items-center gap-3 pt-1">
+                          <Button
+                            size="sm"
+                            disabled={maintenanceToggling}
+                            onClick={() => void toggleMaintenance(false)}
+                            className="gap-2 bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            <CheckCircle className="h-4 w-4" />
+                            {maintenanceToggling ? "Restoring platform..." : "Restore Platform — Bring It Back Online"}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Restoring will immediately lift the maintenance block and notify all users that the platform is back.
+                        </p>
+                      </>
+                    )}
+
+                    {/* ── INACTIVE STATE — setup form ── */}
+                    {!isActive && (
+                      <>
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          {/* Message field */}
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-medium text-foreground/70">
+                              Message to users <span className="text-muted-foreground">(optional)</span>
+                            </label>
+                            <input
+                              type="text"
+                              className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60 transition-all"
+                              placeholder="We're upgrading the platform. Back soon!"
+                              value={maintenanceMsg}
+                              onChange={(e) => setMaintenanceMsg(e.target.value)}
+                            />
+                          </div>
+
+                          {/* Date + time picker */}
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-medium text-foreground/70">
+                              Expected completion time <span className="text-muted-foreground">(optional)</span>
+                            </label>
+                            <div className="flex gap-2">
+                              {/* Calendar date picker */}
+                              <Popover open={maintenanceEndOpen} onOpenChange={setMaintenanceEndOpen}>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    className="flex-1 justify-start gap-2 bg-card border-input hover:bg-muted/60 text-sm font-normal h-10"
+                                  >
+                                    <CalendarDays className="h-4 w-4 text-primary shrink-0" />
+                                    {maintenanceEndDate
+                                      ? maintenanceEndDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                                      : <span className="text-muted-foreground">Pick a date</span>
+                                    }
+                                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0 border-border shadow-xl" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={maintenanceEndDate}
+                                    onSelect={(d) => { setMaintenanceEndDate(d); setMaintenanceEndOpen(false); }}
+                                    disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+
+                              {/* Time picker */}
+                              <div className="relative shrink-0">
+                                <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-primary pointer-events-none" />
+                                <input
+                                  type="time"
+                                  className="h-10 w-[108px] rounded-lg border border-input bg-card pl-8 pr-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60 transition-all"
+                                  value={maintenanceEndTime}
+                                  onChange={(e) => setMaintenanceEndTime(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            {maintenanceEndDate && (
+                              <button
+                                type="button"
+                                className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                                onClick={() => setMaintenanceEndDate(undefined)}
+                              >
+                                × Clear date
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3 pt-1">
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={maintenanceToggling}
+                            onClick={() => void toggleMaintenance(true)}
+                            className="gap-2"
+                          >
+                            <PowerOff className="h-4 w-4" />
+                            {maintenanceToggling ? "Enabling..." : "Enable Maintenance Mode"}
+                          </Button>
+                          {(maintenanceMsg || maintenanceEndDate) && (
+                            <button
+                              type="button"
+                              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              onClick={() => { setMaintenanceMsg(""); setMaintenanceEndDate(undefined); }}
+                            >
+                              Clear all
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          All logged-in users will receive a notification and be shown the maintenance page immediately. Admins retain full access.
+                        </p>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
             {isSuperAdmin && (
               shouldBlockMetrics ? (
                 <div className="space-y-3">
@@ -926,65 +1295,200 @@ export default function AdminDashboardConnected() {
                       <span>Live analytics are still syncing. Showing dashboard totals now.</span>
                     </div>
                   ) : null}
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7 gap-6">
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3">
                   <MetricCard
-                    title="Total Revenue"
+                    title="Platform Revenue"
                     value={typeof totalRevenueValue === "number" ? formatPrice(totalRevenueValue) : "..." }
                     icon={DollarSign}
-                    change={12.5}
+                    change={metricChanges.platformRevenue}
+                    changeLabel="vs last 30 days"
+                    details="Service fees earned + promotion income"
                   />
                   <MetricCard
-                    title="Total Received Money"
+                    title="Gross Order Collections"
                     value={formatPrice(totalReceivedMoney || 0)}
                     icon={Wallet}
-                    change={9.4}
+                    change={metricChanges.grossCollections}
+                    changeLabel="vs last 30 days"
+                    details="Total paid by buyers at checkout (all fees included)"
                   />
                   <MetricCard
                     title="Total Orders"
                     value={totalOrdersValue.toString()}
                     icon={ShoppingBag}
-                    change={8.2}
+                    change={metricChanges.totalOrders}
+                    changeLabel="vs last 30 days"
                   />
                   <MetricCard
                     title="Total Users"
                     value={typeof totalUsersValue === "number" ? totalUsersValue.toString() : "..."}
                     icon={Users}
-                    change={-3.1}
+                    change={metricChanges.totalUsers}
+                    changeLabel="new users vs last 30 days"
                   />
                   <MetricCard
-                    title="Deliveries"
-                    value={deliveredCount.toString()}
+                    title="Successful Deliveries"
+                    value={totalDeliveriesValue.toString()}
                     icon={Truck}
-                    change={15.3}
+                    change={metricChanges.deliveries}
+                    changeLabel="vs last 30 days"
                   />
                   <MetricCard
                     title="Successful Pickups"
-                    value={successfulPickupCount.toString()}
+                    value={totalPickupsValue.toString()}
                     icon={CheckCircle}
-                    change={11.2}
+                    change={metricChanges.pickups}
+                    changeLabel="vs last 30 days"
                   />
                 </div>
                 <CollapsibleDashboardSection
-                  title="Money Reconciliation"
-                  summary="Expand for the full money-flow breakdown from gross checkout collections to verified seller payout."
+                  title="Money Reconciliation — Full Platform Money Flow"
+                  summary="Expand for the complete breakdown of how every buyer payment flows through the platform to sellers, riders, and the platform itself."
                 >
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Gross Submitted</p><p className="mt-2 text-2xl font-semibold">{formatPrice(totalReceivedMoney || 0)}</p></CardContent></Card>
-                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Seller Share Owed</p><p className="mt-2 text-2xl font-semibold">{formatPrice(sellerShareOwed || 0)}</p></CardContent></Card>
-                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Platform Commission</p><p className="mt-2 text-2xl font-semibold">{formatPrice(platformCommissionTotal || 0)}</p></CardContent></Card>
-                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Processing Fees</p><p className="mt-2 text-2xl font-semibold">{formatPrice(processingFeesTotal || 0)}</p></CardContent></Card>
-                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Delivery Fees</p><p className="mt-2 text-2xl font-semibold">{formatPrice(deliveryFeesTotal || 0)}</p></CardContent></Card>
-                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Verified Paid</p><p className="mt-2 text-2xl font-semibold">{formatPrice(verifiedPaidTotal || 0)}</p></CardContent></Card>
-                      <Card className="border-border/60"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Still Pending</p><p className="mt-2 text-2xl font-semibold">{formatPrice(stillPendingTotal || 0)}</p></CardContent></Card>
+                  <div className="space-y-5">
+                    {/* Step-by-step money flow */}
+                    <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+                      <p className="text-sm font-semibold text-foreground">How every buyer payment flows through the platform</p>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
+                          <p className="font-semibold text-foreground">① Buyer pays at checkout</p>
+                          <p className="text-muted-foreground">Product subtotal + platform processing fee (1.95%) + delivery fee. The processing fee is added on top of the order — buyers pay it to cover Paystack's transaction cost.</p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
+                          <p className="font-semibold text-foreground">② Paystack splits instantly (bank sellers)</p>
+                          <p className="text-muted-foreground">For bank-account sellers: Paystack sends the seller's net payout directly to their bank subaccount at checkout. The platform retains the service fee and processing fee in its wallet.</p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
+                          <p className="font-semibold text-foreground">③ Platform holds, then auto-transfers (mobile money)</p>
+                          <p className="text-muted-foreground">For mobile money sellers: the full payment lands in the platform wallet. When the seller requests a withdrawal, the net payout is automatically sent to their mobile money number within ~15 seconds via Paystack transfer.</p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
+                          <p className="font-semibold text-foreground">④ Delivery fee to rider</p>
+                          <p className="text-muted-foreground">The delivery fee paid by the buyer is held in reserve and disbursed to the assigned rider or logistics provider upon delivery completion.</p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="rounded-lg border border-dashed border-border/70 bg-background/60 p-3 text-sm text-muted-foreground">
-                      Gross Submitted = Seller Share Owed + Platform Commission + Processing Fees + Delivery Fees +/- discounts or operational adjustments.
+
+                    {/* Metrics grid */}
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <Card className="border-border/70 bg-card">
+                        <CardContent className="p-4">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Gross Checkout Collections</p>
+                          <p className="mt-2 text-2xl font-bold text-foreground">{formatPrice(totalReceivedMoney || 0)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Everything buyers paid: product subtotals + processing fees + delivery fees. This is the total Paystack collected on behalf of the platform.</p>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/70 bg-card">
+                        <CardContent className="p-4">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Seller Gross Sales</p>
+                          <p className="mt-2 text-2xl font-bold text-foreground">{formatPrice(sellerShareOwed || 0)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Product subtotals minus coupon discounts across all paid orders — the sellers' top-line earnings before the service fee is deducted.</p>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/70 bg-card">
+                        <CardContent className="p-4">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Platform Service Fee</p>
+                          <p className="mt-2 text-2xl font-bold text-foreground">{formatPrice(platformCommissionTotal || 0)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">The platform's % cut per sale, deducted from each seller's gross sales. This is the platform's core revenue (separate from the processing fee).</p>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/70 bg-card">
+                        <CardContent className="p-4">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Checkout Processing Fees</p>
+                          <p className="mt-2 text-2xl font-bold text-foreground">{formatPrice(processingFeesTotal || 0)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Collected from buyers at checkout (1.95% of order subtotal). Covers Paystack's transaction charge — not part of seller earnings and not the platform service fee.</p>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/70 bg-card">
+                        <CardContent className="p-4">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Promotion Revenue</p>
+                          <p className="mt-2 text-2xl font-bold text-foreground">{formatPrice(promotionRevenueValue || 0)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Fees paid by sellers to boost or feature their listings. Combined with the service fee this makes up total platform revenue.</p>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/70 bg-card">
+                        <CardContent className="p-4">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Delivery Fee Reserve</p>
+                          <p className="mt-2 text-2xl font-bold text-foreground">{formatPrice(deliveryFeesTotal || 0)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Delivery fees collected from buyers, held in reserve for rider/logistics payouts. Not platform revenue — passes through to riders.</p>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/70 bg-card">
+                        <CardContent className="p-4">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Seller Payouts Completed</p>
+                          <p className="mt-2 text-2xl font-bold text-foreground">{formatPrice(verifiedPaidTotal || 0)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Net payout amounts already confirmed transferred to seller bank accounts or mobile money wallets.</p>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/70 bg-card">
+                        <CardContent className="p-4">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Seller Payouts Pending</p>
+                          <p className="mt-2 text-2xl font-bold text-foreground">{formatPrice(stillPendingTotal || 0)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Net payout amounts earned by sellers but not yet transferred. Mobile money payouts are queued automatically; bank-account payouts are handled at checkout.</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Formula */}
+                    <div className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-xs text-muted-foreground space-y-2">
+                      <p className="font-semibold text-foreground text-sm">Money reconciliation formula</p>
+                      <p><span className="font-medium text-foreground">Gross Checkout Collections</span> = Seller Gross Sales + Platform Service Fee + Checkout Processing Fees + Delivery Fee Reserve + Promotion Revenue <span className="opacity-70">(± coupon adjustments)</span></p>
+                      <p><span className="font-medium text-foreground">Platform Revenue</span> (main metric card) = Platform Service Fee + Promotion Revenue only — it does not include processing fees or delivery reserves.</p>
+                      <p><span className="font-medium text-foreground">Seller Net Payout</span> = Seller Gross Sales − Platform Service Fee. This is what sellers actually receive in their bank account or mobile money wallet.</p>
+                    </div>
+
+                    {/* Fulfillment stats */}
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                      <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Successful Deliveries</p><p className="mt-2 text-2xl font-bold text-foreground">{successfulDeliveriesValue}</p></CardContent></Card>
+                      <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Successful Pickups</p><p className="mt-2 text-2xl font-bold text-foreground">{successfulPickupValue}</p></CardContent></Card>
+                      <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Successful Orders</p><p className="mt-2 text-2xl font-bold text-foreground">{dashboardSummary?.successfulOrders ?? (successfulDeliveriesValue + successfulPickupValue)}</p></CardContent></Card>
                     </div>
                   </div>
                 </CollapsibleDashboardSection>
                 </div>
               )
+            )}
+
+            {/* Seller Payment Alerts — always visible when there are unpaid sellers */}
+            {sellerPaymentAlerts.length > 0 && (
+              <CollapsibleDashboardSection
+                title={`Seller Payment Alerts — ${sellerPaymentAlerts.length} Seller${sellerPaymentAlerts.length === 1 ? "" : "s"} Not Yet Paid`}
+                summary="Expand to see which sellers have not received their money, with accurate reasons for each."
+                defaultOpen
+              >
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-950/20 p-3 flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      These sellers have completed orders but their settlement has not been fully disbursed. Review each reason and take action where needed. Go to <strong>Admin → Seller Payouts</strong> to process manually.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {sellerPaymentAlerts.map((alert) => (
+                      <div key={alert.payoutId} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-border/60 bg-card p-3 text-sm">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium truncate">{alert.sellerName}</span>
+                            <Badge variant={alert.status === "failed" ? "destructive" : "outline"} className="capitalize text-xs">
+                              {alert.status}
+                            </Badge>
+                            <Badge variant="secondary" className="text-xs capitalize">{alert.method?.replace(/_/g, " ")}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{alert.reason}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-semibold text-primary">{formatPrice(Number(alert.amount) || 0)}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(alert.createdAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => navigate("/admin/sellers-payouts")} className="w-full sm:w-auto">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Manage All Seller Payouts
+                  </Button>
+                </div>
+              </CollapsibleDashboardSection>
             )}
 
             {isSuperAdmin && showInternalRiderFeatures && (
@@ -1018,10 +1522,10 @@ export default function AdminDashboardConnected() {
               </CollapsibleDashboardSection>
             )}
 
-            {showAdminOperationsPanels && showInternalRiderFeatures && (
+            {isSuperAdmin && showAdminOperationsPanels && showInternalRiderFeatures && (
               <TrackingMetricsPanel
-                role={isSuperAdmin ? "super_admin" : "admin"}
-                title={isSuperAdmin ? "Fleet Control Intelligence" : "Zone Dispatch Intelligence"}
+                role="super_admin"
+                title="Fleet Control Intelligence"
               />
             )}
 

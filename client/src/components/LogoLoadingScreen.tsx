@@ -227,7 +227,7 @@ export default function LogoLoadingScreen({
               animate={{ opacity: [0.6, 1, 0.6] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
-              Shop Smart, Live Better ✨
+              Where Quality Meets Affordability
             </motion.p>
           </motion.div>
 

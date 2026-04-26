@@ -148,6 +148,12 @@ export const users = pgTable("users", {
     };
   }>(),
   nationalIdCard: varchar("national_id_card"),
+  isPremiumSeller: boolean("is_premium_seller").default(false),
+  sellerUpgradePlan: text("seller_upgrade_plan"), // "plan_a" | "plan_b" | "plan_c" | null
+  sellerPlanExpiresAt: timestamp("seller_plan_expires_at"), // for plan_b monthly renewal
+  sellerBonusSlots: integer("seller_bonus_slots").default(0), // extra slots from plan_a
+  referralCode: text("referral_code").unique(),
+  lastReferralNotificationAt: timestamp("last_referral_notification_at"),
   ratings: decimal("ratings", { precision: 3, scale: 2 }).default("0"),
   totalRatings: integer("total_ratings").default(0),
   createdAt: timestamp("created_at").defaultNow(),
@@ -175,6 +181,9 @@ export const adminPermissions = pgTable("admin_permissions", {
   canViewAnalytics: boolean("can_view_analytics").default(true),
   canManagePromotions: boolean("can_manage_promotions").default(true),
   canManageReviews: boolean("can_manage_reviews").default(true),
+  canManagePayouts: boolean("can_manage_payouts").default(true),
+  canViewPayouts: boolean("can_view_payouts").default(true),
+  canManageFeatures: boolean("can_manage_features").default(false),
   maxProductsPerDay: integer("max_products_per_day").default(100),
   maxOrdersPerDay: integer("max_orders_per_day").default(500),
   createdAt: timestamp("created_at").defaultNow(),
@@ -224,6 +233,7 @@ export const platformSettings = pgTable("platform_settings", {
   cloudinaryCloudName: text("cloudinary_cloud_name"),
   cloudinaryApiKey: text("cloudinary_api_key"),
   cloudinaryApiSecret: text("cloudinary_api_secret"),
+  cloudinaryAccounts: text("cloudinary_accounts"), // JSON array of extra accounts for rotation
   contactPhone: text("contact_phone").default("+233 XX XXX XXXX"),
   contactEmail: text("contact_email").default("support@kiyumart.com"),
   contactAddress: text("contact_address").default("Accra, Ghana"),
@@ -279,6 +289,47 @@ export const platformSettings = pgTable("platform_settings", {
   allowSharedVariantColorStock: boolean("allow_shared_variant_color_stock").default(false),
   primaryStoreId: varchar("primary_store_id"),
   defaultCommissionRate: decimal("default_commission_rate", { precision: 5, scale: 2 }).default("1.00"), // 1% default
+  isMaintenanceMode: boolean("is_maintenance_mode").default(false),
+  maintenanceMessage: text("maintenance_message"),
+  maintenanceStartedAt: timestamp("maintenance_started_at"),
+  maintenanceScheduledEnd: timestamp("maintenance_scheduled_end"),
+  maintenanceStartedBy: varchar("maintenance_started_by"),
+  // Analytics integrations (free tiers)
+  googleAnalyticsId: text("google_analytics_id"),
+  microsoftClarityId: text("microsoft_clarity_id"),
+  sentryDsn: text("sentry_dsn"),
+  // GA4 Data API credentials (for server-side GA4 reporting dashboard)
+  ga4PropertyId: text("ga4_property_id"),
+  googleCredentialsJson: text("google_credentials_json"),
+  // Sentry REST API credentials (for Sentry Issues dashboard)
+  sentryAuthToken: text("sentry_auth_token"),
+  sentryOrg: text("sentry_org"),
+  sentryProject: text("sentry_project"),
+  // Hosting & deployment
+  renderDeployHookUrl: text("render_deploy_hook_url"),
+  // Operational limits
+  inviteOnlyRegistration: boolean("invite_only_registration").default(false),
+  orderAutoCancelHours: integer("order_auto_cancel_hours").default(0),
+  freeTierProductLimit: integer("free_tier_product_limit").default(20),
+  maxProductsPerSeller: integer("max_products_per_seller").default(0),
+  // Seller upgrade plan pricing (superadmin-managed)
+  upgradePlanAPrice: decimal("upgrade_plan_a_price", { precision: 10, scale: 2 }).default("15"),
+  upgradePlanASlots: integer("upgrade_plan_a_slots").default(10),
+  upgradePlanBPrice: decimal("upgrade_plan_b_price", { precision: 10, scale: 2 }).default("40"),
+  upgradePlanCPrice: decimal("upgrade_plan_c_price", { precision: 10, scale: 2 }).default("100"),
+  // Delivery commission added to zone fee when internal rider mode is on
+  deliveryFeeCommission: decimal("delivery_fee_commission", { precision: 10, scale: 2 }).default("0"),
+  // Referral programme configuration
+  referralEnabled: boolean("referral_enabled").default(false),
+  referralEnabledSingleStore: boolean("referral_enabled_single_store").default(true),
+  referralEnabledMultiVendor: boolean("referral_enabled_multi_vendor").default(true),
+  referralCustomerThreshold: integer("referral_customer_threshold").default(5),
+  referralSellerThreshold: integer("referral_seller_threshold").default(10),
+  referralRewardPercent: decimal("referral_reward_percent", { precision: 5, scale: 2 }).default("10"),
+  referralSellerPromoHours: integer("referral_seller_promo_hours").default(24),
+  // Upload controls
+  maxUploadSizeMb: integer("max_upload_size_mb").default(10),
+  allowedUploadTypes: text("allowed_upload_types").default("jpg,jpeg,png,webp,gif,avif"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -941,6 +992,39 @@ export const securitySettings = pgTable("security_settings", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Referral tracking tables
+export const referrals = pgTable("referrals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  referrerId: varchar("referrer_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  referredUserId: varchar("referred_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("signed_up"), // "signed_up" | "completed"
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  referrerIdx: index("referrals_referrer_idx").on(table.referrerId),
+  referredIdx: index("referrals_referred_idx").on(table.referredUserId),
+}));
+
+export const referralRewards = pgTable("referral_rewards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // "discount" | "promotion"
+  rewardPercent: decimal("reward_percent", { precision: 5, scale: 2 }),
+  rewardDurationHours: integer("reward_duration_hours"),
+  status: text("status").notNull().default("pending"), // "pending" | "claimed" | "expired"
+  claimedAt: timestamp("claimed_at"),
+  expiresAt: timestamp("expires_at"),
+  discountCode: text("discount_code").unique(),
+  promotionType: text("promotion_type"), // "store" | "product"
+  promotionTargetId: text("promotion_target_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userIdx: index("referral_rewards_user_idx").on(table.userId),
+}));
+
+export type Referral = typeof referrals.$inferSelect;
+export type ReferralReward = typeof referralRewards.$inferSelect;
 
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).pick({

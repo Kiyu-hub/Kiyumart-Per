@@ -32,6 +32,7 @@ import {
   stores,
   coupons,
   promotionalAds,
+  promotionPricing,
   promotionApplications,
   promotions,
   featuredListings,
@@ -95,6 +96,15 @@ import { hasSupportFirstResponse, isSupportStaffRole, resolveSupportDisplayName,
 import { canonicalizeOrderStatus } from "./services/orderStateMachine";
 import { getRiderRiskScore, listRiderRiskScores, recordRiderRiskSignal } from "./services/riderRiskEngine";
 import { logSystemActivity } from "./observability";
+import { encryptField, decryptField, isEncrypted } from "./utils/sensitiveEncrypt";
+import {
+  recordReferralSignup,
+  checkAndCompleteReferral,
+  getReferralStats,
+  claimReward,
+  getAdminReferralReport,
+  getOrCreateReferralCode,
+} from "./services/referralService";
 
 const upload = multer({ storage: multer.memoryStorage() });
 const PROFILE_IMAGE_MAX_BYTES = runtimeConfig.upload.profileImageMaxBytes;
@@ -421,7 +431,7 @@ function getPaystackKeyMode(value?: string | null): "test" | "live" | null {
 }
 
 function resolvePaystackKeyPair(settings: { paystackSecretKey?: string | null; paystackPublicKey?: string | null } | null | undefined) {
-  const configuredSecret = String(settings?.paystackSecretKey || "").trim();
+  const configuredSecret = decryptField(String(settings?.paystackSecretKey || "").trim());
   const configuredPublic = String(settings?.paystackPublicKey || "").trim();
   const envSecret = String(process.env.PAYSTACK_SECRET_KEY || "").trim();
   const envPublic = String(process.env.PAYSTACK_PUBLIC_KEY || "").trim();
@@ -511,12 +521,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   const httpServer = createServer(app);
+
+  // Build the Socket.IO allowed-origin list from the same sources as the HTTP CORS policy
+  const socketIoAllowedOrigins = [
+    "http://localhost:5000",
+    "http://localhost:5001",
+    "http://localhost:5173",
+    "http://127.0.0.1:5000",
+    "http://127.0.0.1:5001",
+    "http://127.0.0.1:5173",
+    "https://kiyumart.netlify.app",
+    process.env.FRONTEND_URL,
+  ].filter(Boolean) as string[];
+
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
-    }
+      origin: (origin, callback) => {
+        // Allow no-origin requests (native apps, server-to-server)
+        if (!origin) return callback(null, true);
+        // In dev be permissive
+        if (process.env.NODE_ENV !== "production") return callback(null, true);
+        const isAllowed = socketIoAllowedOrigins.some(
+          (allowed) => origin === allowed || origin.startsWith(allowed.replace(/\/$/, ""))
+        );
+        if (isAllowed) return callback(null, true);
+        callback(new Error("Socket.IO origin not allowed"));
+      },
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
   });
+  // Share io instance so background workers can emit real-time notifications
+  const { setIo: registerIo } = await import("./socketManager");
+  registerIo(io);
+
   const resolveInitialMapProviderMode = (): "mapbox" | "open_source" => {
     const explicit = String(process.env.MAP_PROVIDER_MODE || "").toLowerCase().trim();
     if (explicit === "open_source" || explicit === "open-source" || explicit === "opensource") return "open_source";
@@ -527,6 +565,191 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return envProvider === "PROVIDER_B" ? "open_source" : "mapbox";
   };
   let runtimeMapProviderMode: "mapbox" | "open_source" = resolveInitialMapProviderMode();
+
+  // ─── Maintenance Mode ─────────────────────────────────────────────────────
+  // Two triggers:
+  //   1. Server restart (production only — covers the deployment gap)
+  //   2. Manual admin toggle via POST /api/admin/maintenance
+  //
+  // NOTE: The development file-change watcher was removed. On Windows,
+  // fs.watch fires for file *reads* as well as writes, so tsx's own
+  // compilation phase (which reads every .ts file) triggered a 30-second
+  // maintenance blackout on every hot-reload. This blocked all /api/ calls
+  // immediately after each restart, making data appear not to load.
+  const SERVER_START_AT = Date.now();
+  const IS_PRODUCTION = process.env.NODE_ENV === "production";
+  // When running locally via tsx dev server, skip the 60s maintenance blackout
+  // even if NODE_ENV is set to "production" in .env — it only makes sense on real deploys.
+  const IS_LOCAL_DEV = process.env.KIYUMART_USE_EMBEDDED_VITE === "true" ||
+    process.env.NODE_ENV === "development";
+
+  // Production: auto-enable maintenance for 60s on restart so Render's
+  // rolling deployment doesn't serve a half-ready API.
+  // Development / local dev: disabled — tsx hot-reload is fast enough.
+  // Override with AUTO_MAINTENANCE_DURATION_MS env var (set to 0 to disable).
+  const DEFAULT_RESTART_MAINTENANCE_MS = IS_PRODUCTION && !IS_LOCAL_DEV ? 60_000 : 0;
+  const AUTO_MAINTENANCE_DURATION_MS = process.env.AUTO_MAINTENANCE_DURATION_MS !== undefined
+    ? Number(process.env.AUTO_MAINTENANCE_DURATION_MS)
+    : DEFAULT_RESTART_MAINTENANCE_MS;
+
+  let autoMaintenanceUntil = AUTO_MAINTENANCE_DURATION_MS > 0
+    ? SERVER_START_AT + AUTO_MAINTENANCE_DURATION_MS
+    : 0;
+  let autoMaintenanceReason: "restart" | "file_change" | null =
+    AUTO_MAINTENANCE_DURATION_MS > 0 ? "restart" : null;
+
+  const getMaintenanceStatus = async () => {
+    const now = Date.now();
+    const isAutoMaintenance = autoMaintenanceUntil > 0 && now < autoMaintenanceUntil;
+    const autoSecondsLeft = isAutoMaintenance ? Math.ceil((autoMaintenanceUntil - now) / 1_000) : 0;
+    try {
+      const settings = await storage.getPlatformSettings();
+      return {
+        isMaintenanceMode: !!(settings.isMaintenanceMode) || isAutoMaintenance,
+        isManualMaintenance: !!(settings.isMaintenanceMode),
+        isAutoMaintenance,
+        autoMaintenanceReason: isAutoMaintenance ? autoMaintenanceReason : null,
+        autoMaintenanceUntil: isAutoMaintenance ? new Date(autoMaintenanceUntil).toISOString() : null,
+        autoSecondsLeft,
+        maintenanceMessage: settings.maintenanceMessage || null,
+        maintenanceStartedAt: settings.maintenanceStartedAt
+          ? new Date(settings.maintenanceStartedAt).toISOString()
+          : null,
+        maintenanceScheduledEnd: settings.maintenanceScheduledEnd
+          ? new Date(settings.maintenanceScheduledEnd).toISOString()
+          : null,
+      };
+    } catch {
+      return {
+        isMaintenanceMode: isAutoMaintenance,
+        isManualMaintenance: false,
+        isAutoMaintenance,
+        autoMaintenanceReason: isAutoMaintenance ? autoMaintenanceReason : null,
+        autoMaintenanceUntil: isAutoMaintenance ? new Date(autoMaintenanceUntil).toISOString() : null,
+        autoSecondsLeft,
+        maintenanceMessage: null,
+        maintenanceStartedAt: null,
+        maintenanceScheduledEnd: null,
+      };
+    }
+  };
+
+  // Paths that always work, even during maintenance
+  const MAINTENANCE_WHITELIST = [
+    "/api/maintenance",
+    "/api/health",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/me",
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password",
+    "/api/payments/webhook",
+    "/api/payments/verify-public",
+    "/api/platform-settings",
+    "/api/public/",
+    "/api/admin/maintenance",
+  ];
+
+  app.use(async (req, res, next) => {
+    // Only enforce maintenance on API routes.
+    // Non-API paths (/, /seller, /orders, etc.) always pass through so the
+    // React app can load and render its own animated maintenance page.
+    if (!req.path.startsWith("/api/")) return next();
+
+    const isWhitelisted = MAINTENANCE_WHITELIST.some((p) => req.path === p || req.path.startsWith(p + "/") || req.path.startsWith(p));
+    if (isWhitelisted) return next();
+
+    const status = await getMaintenanceStatus();
+    if (!status.isMaintenanceMode) return next();
+
+    // Let admin/super_admin users through so they can operate the dashboard
+    const token = req.cookies?.token || (req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.substring(7) : null);
+    if (token) {
+      const decoded = verifyToken(token) as any;
+      if (decoded?.role === "admin" || decoded?.role === "super_admin") return next();
+    }
+
+    return res.status(503).json({
+      error: "maintenance",
+      message: status.maintenanceMessage || "The platform is currently undergoing scheduled maintenance. Please check back soon.",
+      maintenanceMode: true,
+      scheduledEnd: status.maintenanceScheduledEnd,
+      autoEnabled: status.isAutoMaintenance,
+    });
+  });
+
+  // Public maintenance status endpoint (always accessible)
+  app.get("/api/maintenance/status", async (_req, res) => {
+    try {
+      const status = await getMaintenanceStatus();
+      return res.json(status);
+    } catch {
+      return res.json({ isMaintenanceMode: false });
+    }
+  });
+
+  // Admin: toggle maintenance mode
+  app.post("/api/admin/maintenance", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { enable, message, scheduledEnd } = req.body as {
+        enable: boolean;
+        message?: string;
+        scheduledEnd?: string | null;
+      };
+
+      const updatePayload: Record<string, any> = {
+        isMaintenanceMode: enable,
+        maintenanceMessage: message || (enable ? "The platform is currently undergoing maintenance. We'll be back shortly." : null),
+        maintenanceStartedAt: enable ? new Date() : null,
+        maintenanceScheduledEnd: scheduledEnd ? new Date(scheduledEnd) : null,
+        maintenanceStartedBy: req.user!.id,
+      };
+
+      await storage.updatePlatformSettings(updatePayload as any);
+
+      // Broadcast notification to all active users
+      try {
+        const allUsers = await db.select({ id: users.id, role: users.role }).from(users);
+        const notifTitle = enable ? "Platform Maintenance" : "Platform Back Online";
+        const notifMessage = enable
+          ? (message || "The platform will undergo maintenance shortly. Please save your work and complete any pending actions.")
+          : "Maintenance is complete. The platform is fully operational again.";
+
+        for (const u of allUsers) {
+          if (u.role === "admin" || u.role === "super_admin") continue; // skip admins
+          try {
+            const notif = await storage.createNotification({
+              userId: u.id,
+              type: "system",
+              title: notifTitle,
+              message: notifMessage,
+            });
+            io.to(u.id).emit("notification", {
+              id: notif.id,
+              type: notif.type,
+              title: notif.title,
+              message: notif.message,
+              createdAt: notif.createdAt,
+              isRead: false,
+            });
+          } catch { /* non-critical */ }
+        }
+      } catch (notifErr) {
+        console.warn("[MAINTENANCE] Could not broadcast notifications:", (notifErr as any)?.message);
+      }
+
+      // If auto-maintenance was running, clear it when admin manually disables
+      if (!enable && autoMaintenanceUntil > Date.now()) {
+        autoMaintenanceUntil = 0;
+      }
+
+      const status = await getMaintenanceStatus();
+      return res.json({ success: true, ...status });
+    } catch (err) {
+      console.error("[MAINTENANCE] Toggle error:", (err as any)?.message || err);
+      return res.status(500).json({ error: "Failed to update maintenance mode" });
+    }
+  });
 
   // Public runtime map config (safe values only) so frontend can initialize map engines
   // even when tokens are provided as server env vars instead of Vite build-time vars.
@@ -616,6 +839,121 @@ export async function registerRoutes(app: Express): Promise<Server> {
           error: "Platform audit artifacts not found. Run npm run audit:platform first.",
           details: error?.message || "Unknown error",
         });
+      }
+    },
+  );
+
+  // POST /api/admin/verify-elevated-access
+  // Super admin must re-enter password to gain elevated access for sensitive settings tabs.
+  // Returns { granted: true, expiresIn: 900 } on success. Client maintains the session timer.
+  app.post(
+    "/api/admin/verify-elevated-access",
+    requireAuth,
+    requireRole("super_admin"),
+    async (req: AuthRequest, res) => {
+      try {
+        const { password } = req.body || {};
+        if (!password || typeof password !== "string") {
+          return res.status(400).json({ error: "Password is required" });
+        }
+
+        const user = await storage.getUser(req.user!.id);
+        if (!user || !user.password) {
+          return res.status(401).json({ error: "Invalid credentials" });
+        }
+
+        const isValid = await comparePassword(password, user.password);
+        if (!isValid) {
+          return res.status(401).json({ error: "Incorrect password. Please try again." });
+        }
+
+        return res.json({ granted: true, expiresIn: 900 }); // 15 minutes
+      } catch (error: any) {
+        console.error("[ELEVATED-ACCESS] Error:", error.message);
+        return res.status(500).json({ error: "Verification failed" });
+      }
+    },
+  );
+
+  // GET /api/admin/encryption-key-status
+  // Returns whether SETTINGS_ENCRYPTION_KEY is configured on the server.
+  app.get(
+    "/api/admin/encryption-key-status",
+    requireAuth,
+    requireRole("super_admin"),
+    async (_req: AuthRequest, res) => {
+      const key = process.env.SETTINGS_ENCRYPTION_KEY || "";
+      return res.json({ isSet: key.length > 0, keyLength: key.length });
+    },
+  );
+
+  // POST /api/admin/push-to-render
+  // Pushes an environment variable to a Render service via the Render API and triggers a redeploy.
+  // All Render credentials are passed per-request and never stored.
+  app.post(
+    "/api/admin/push-to-render",
+    requireAuth,
+    requireRole("super_admin"),
+    async (req: AuthRequest, res) => {
+      const { renderApiKey, renderServiceId, envKey, envValue } = req.body || {};
+
+      if (!renderApiKey || !renderServiceId || !envKey || !envValue) {
+        return res.status(400).json({
+          error: "Missing required fields: renderApiKey, renderServiceId, envKey, envValue",
+        });
+      }
+
+      const renderBase = "https://api.render.com/v1";
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${renderApiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      };
+
+      try {
+        // 1. Fetch all existing env vars so we preserve them
+        const listRes = await fetch(`${renderBase}/services/${renderServiceId}/env-vars`, { headers });
+        if (!listRes.ok) {
+          const errText = await listRes.text().catch(() => listRes.statusText);
+          return res.status(400).json({
+            error: `Render API error fetching env vars (${listRes.status}): ${errText.substring(0, 300)}`,
+          });
+        }
+        const existing: Array<{ key: string; value: string }> = await listRes.json();
+
+        // 2. Upsert the target env var
+        const updated = existing.filter((e) => e.key !== envKey);
+        updated.push({ key: envKey, value: envValue });
+
+        // 3. PUT the full updated env var list back
+        const putRes = await fetch(`${renderBase}/services/${renderServiceId}/env-vars`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify(updated),
+        });
+        if (!putRes.ok) {
+          const errText = await putRes.text().catch(() => putRes.statusText);
+          return res.status(400).json({
+            error: `Render API error updating env vars (${putRes.status}): ${errText.substring(0, 300)}`,
+          });
+        }
+
+        // 4. Trigger a new deploy (so the env var takes effect immediately)
+        const deployRes = await fetch(`${renderBase}/services/${renderServiceId}/deploys`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ clearCache: "do_not_clear" }),
+        });
+        const deployData = deployRes.ok ? await deployRes.json().catch(() => null) : null;
+
+        return res.json({
+          success: true,
+          message: `"${envKey}" pushed to Render${deployData?.id ? ` and deploy triggered (${deployData.id})` : ""}. Your service will restart shortly.`,
+          deployId: deployData?.id ?? null,
+        });
+      } catch (error: any) {
+        console.error("[RENDER-PUSH] Error:", error.message);
+        return res.status(500).json({ error: `Failed to push to Render: ${error.message}` });
       }
     },
   );
@@ -950,7 +1288,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertUserSchema.parse(req.body);
       const existingUser = await storage.getUserByEmail(validatedData.email);
-      
+
       if (existingUser) {
         return res.status(400).json({ error: "Email already exists" });
       }
@@ -958,6 +1296,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const requestedRole = validatedData.role || "buyer";
       if (requestedRole === "admin") {
         return res.status(403).json({ error: "Cannot self-register as admin" });
+      }
+
+      // Enforce invite-only registration if enabled
+      const regSettings = await storage.getPlatformSettings().catch(() => null);
+      if (regSettings?.inviteOnlyRegistration) {
+        return res.status(403).json({ error: "Registration is currently by invitation only. Please contact the platform administrator." });
+      }
+
+      // Enforce strong password for new accounts
+      const pw = validatedData.password || "";
+      if (pw.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters long" });
+      }
+      if (!/[A-Z]/.test(pw)) {
+        return res.status(400).json({ error: "Password must contain at least one uppercase letter" });
+      }
+      if (!/[a-z]/.test(pw)) {
+        return res.status(400).json({ error: "Password must contain at least one lowercase letter" });
+      }
+      if (!/[0-9]/.test(pw)) {
+        return res.status(400).json({ error: "Password must contain at least one number" });
       }
 
       const hashedPassword = await hashPassword(validatedData.password);
@@ -970,6 +1329,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       const user = await storage.createUser(userData);
+
+      // Record referral if a referral code was provided
+      if (req.body.referralCode) {
+        recordReferralSignup(String(req.body.referralCode).trim(), user.id).catch(() => {});
+      }
 
       // Send welcome message from KiyuMart Team
       try {
@@ -2300,7 +2664,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           // Use centralized helper (requireApproval=false allows creation before approval)
           await storage.ensureStoreForSeller(user.id, { requireApproval: false });
-          console.log(`[Approval] Store ensured for seller ${user.id} before approval`);
         } catch (storeError: any) {
           console.error(`[Approval] CRITICAL: Failed to ensure store for seller ${user.id}:`, storeError.message);
           // Store creation failed - DO NOT approve user, return error so admin can retry
@@ -2383,13 +2746,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Emit Socket.IO event for real-time seller dashboard update
       if (targetRole === "seller") {
-        console.log(`[Socket.IO] Emitting seller-approved event for seller ${approvedUser.id}`);
         io.emit(`seller-approved:${approvedUser.id}`, {
           sellerId: approvedUser.id,
           timestamp: new Date().toISOString()
         });
       }
-      
+
+      // Transactional email — application approved (best-effort)
+      if (approvedUser.email) {
+        try {
+          const ps = await storage.getPlatformSettings().catch(() => null);
+          const pName = ps?.platformName || "KiyuMart";
+          const frontendUrl = process.env.FRONTEND_URL || "";
+          const dashLink = targetRole === "seller" ? `${frontendUrl}/seller` : `${frontendUrl}/rider`;
+          const emailSubject = `${pName}: Your ${approvedRoleLabel} Application is Approved!`;
+          const emailText = [
+            `Dear ${approvedUser.name || "Applicant"},`,
+            "",
+            `Congratulations! Your ${approvedRoleLabel} application has been approved.`,
+            `You can now access your ${approvedRoleLabel} dashboard: ${dashLink}`,
+            "",
+            `— ${pName}`,
+          ].join("\n");
+          const emailHtml = `
+            <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;">
+              <h2 style="color:#10b981;">Application Approved 🎉</h2>
+              <p>Dear ${approvedUser.name || "Applicant"},</p>
+              <p>Congratulations! Your <strong>${approvedRoleLabel}</strong> application has been approved.</p>
+              <p style="margin:24px 0;">
+                <a href="${dashLink}" style="background:#10b981;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;">Go to Your Dashboard</a>
+              </p>
+              <p style="font-size:13px;color:#64748b;">— ${pName}</p>
+            </div>`.trim();
+          const { sendEmail } = await import("./email");
+          await sendEmail({ to: approvedUser.email, subject: emailSubject, text: emailText, html: emailHtml });
+        } catch {
+          // non-critical
+        }
+      }
+
       const { password, ...userWithoutPassword } = approvedUser;
       res.json(userWithoutPassword);
     } catch (error: any) {
@@ -2448,6 +2843,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minute: "2-digit",
       });
 
+      // Generate a dedicated Jitsi room for this interview
+      const interviewRoomName = `kiyumart-interview-${updatedUser.id.slice(0, 8)}-${interviewDate.getTime()}`;
+      const sanitizedRoom = interviewRoomName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-");
+      const interviewCallUrl = `https://meet.jit.si/${sanitizedRoom}`;
+
       const message = formatFormalNotification(
         `Dear ${updatedUser.name || "Applicant"},`,
         [
@@ -2460,8 +2860,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             value: formattedDate,
           },
           {
+            label: "Video Call Link",
+            value: `Join via video call at the scheduled time: ${interviewCallUrl}`,
+          },
+          {
             label: "Next Steps",
-            value: "Please be available at the scheduled time and keep your contact channels active for interview communication.",
+            value: "Please be available at the scheduled time. The interviewer will initiate the call, or you may join using the link above.",
           },
         ],
       );
@@ -2475,21 +2879,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
           role: targetRole,
           status: "interview_scheduled",
           interviewScheduledAt: interviewDate.toISOString(),
-          link: "/notifications",
+          interviewCallUrl,
+          link: "/profile",
         } as any,
       });
 
       io.to(updatedUser.id).emit("notification", {
-        type: "system",
+        type: "default",
         title: `${roleLabel} Interview Scheduled`,
-        message,
-        data: {
-          role: targetRole,
-          status: "interview_scheduled",
-          interviewScheduledAt: interviewDate.toISOString(),
-          link: "/notifications",
-        },
+        message: `Your interview is scheduled for ${formattedDate}. A video call link has been sent to you.`,
       });
+
+      // Transactional email — interview scheduled (best-effort)
+      if (updatedUser.email) {
+        try {
+          const ps = await storage.getPlatformSettings().catch(() => null);
+          const pName = ps?.platformName || "KiyuMart";
+          const emailSubject = `${pName}: Your ${roleLabel} Interview is Scheduled`;
+          const emailText = [
+            `Dear ${updatedUser.name || "Applicant"},`,
+            "",
+            `Your ${roleLabel} application interview has been scheduled for:`,
+            formattedDate,
+            "",
+            "Join the video call at the scheduled time using this link:",
+            interviewCallUrl,
+            "",
+            "The interviewer may also initiate the call directly. Please be available at the scheduled time.",
+            "",
+            `— ${pName}`,
+          ].join("\n");
+          const emailHtml = `
+            <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;">
+              <h2>Interview Scheduled</h2>
+              <p>Dear ${updatedUser.name || "Applicant"},</p>
+              <p>Your <strong>${roleLabel}</strong> application interview has been scheduled for:</p>
+              <p style="font-size:18px;font-weight:bold;color:#10b981;">${formattedDate}</p>
+              <p>Join the video call at the scheduled time:</p>
+              <p style="margin:16px 0;">
+                <a href="${interviewCallUrl}" style="background:#10b981;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;display:inline-block;">Join Video Call</a>
+              </p>
+              <p style="font-size:13px;color:#64748b;">The interviewer may also initiate the call directly. Please be available at the scheduled time.</p>
+              <p style="font-size:13px;color:#64748b;">— ${pName}</p>
+            </div>`.trim();
+          const { sendEmail } = await import("./email");
+          await sendEmail({ to: updatedUser.email, subject: emailSubject, text: emailText, html: emailHtml });
+        } catch {
+          // non-critical
+        }
+      }
 
       const { password, ...userWithoutPassword } = updatedUser;
       res.json(userWithoutPassword);
@@ -2826,8 +3264,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
           link: "/support",
         } as any,
       });
-      
-      console.log(`User ${user.id} (${rejectedRole}) pending application rejected by admin`);
+
+      // Transactional email — application rejected (best-effort)
+      if (rejectedUser.email) {
+        try {
+          const ps = await storage.getPlatformSettings().catch(() => null);
+          const pName = ps?.platformName || "KiyuMart";
+          const emailSubject = `${pName}: Update on your ${rejectedRoleLabel} application`;
+          const reasonLine = reason?.trim() ? `\n\nReason: ${reason.trim()}` : "";
+          const emailText = [
+            `Dear ${rejectedUser.name || "Applicant"},`,
+            "",
+            `We have reviewed your ${rejectedRoleLabel} application and are unable to approve it at this time.${reasonLine}`,
+            "",
+            "If you have questions, please contact our support team.",
+            "",
+            `— ${pName}`,
+          ].join("\n");
+          const emailHtml = `
+            <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;">
+              <h2>Application Update</h2>
+              <p>Dear ${rejectedUser.name || "Applicant"},</p>
+              <p>We have reviewed your <strong>${rejectedRoleLabel}</strong> application and are unable to approve it at this time.</p>
+              ${reason?.trim() ? `<p><strong>Reason:</strong> ${reason.trim()}</p>` : ""}
+              <p>If you have questions, please contact our support team.</p>
+              <p style="font-size:13px;color:#64748b;">— ${pName}</p>
+            </div>`.trim();
+          const { sendEmail } = await import("./email");
+          await sendEmail({ to: rejectedUser.email, subject: emailSubject, text: emailText, html: emailHtml });
+        } catch {
+          // non-critical
+        }
+      }
+
+      console.info(`User ${user.id} (${rejectedRole}) pending application rejected by admin`);
       const { password, ...userWithoutPassword } = rejectedUser;
       res.json(userWithoutPassword);
     } catch (error: any) {
@@ -2950,7 +3420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const store = await storage.getStoreByPrimarySeller(req.params.id);
         if (store) {
           await storage.updateStore(store.id, { isActive: false, isApproved: false });
-          console.log(`Deactivated store ${store.id} for seller ${req.params.id}`);
+          console.info(`[STORE] Deactivated ${store.id} seller ${req.params.id}`);
         }
       }
       
@@ -2959,7 +3429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const store = await storage.getStoreByPrimarySeller(req.params.id);
         if (store) {
           await storage.updateStore(store.id, { isActive: true, isApproved: true });
-          console.log(`Reactivated store ${store.id} for seller ${req.params.id}`);
+          console.info(`[STORE] Reactivated ${store.id} seller ${req.params.id}`);
         }
       }
       
@@ -3012,6 +3482,239 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error updating user status:", error);
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Toggle premium seller status — upgrades or downgrades a seller's listing tier
+  app.patch("/api/users/:id/toggle-premium-seller", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_users"), async (req: AuthRequest, res) => {
+    try {
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ error: "User not found" });
+      if (targetUser.role !== "seller") return res.status(400).json({ error: "Only sellers can have a premium tier" });
+
+      const newValue = !(targetUser as any).isPremiumSeller;
+      const updated = await storage.updateUser(req.params.id, { isPremiumSeller: newValue } as any);
+      if (!updated) return res.status(500).json({ error: "Update failed" });
+
+      try {
+        await storage.createNotification({
+          userId: req.params.id,
+          type: "system",
+          title: newValue ? "Premium Seller Activated" : "Premium Seller Deactivated",
+          message: newValue
+            ? "Your account has been upgraded to Premium Seller — you can now list unlimited products on the platform."
+            : "Your Premium Seller status has been removed. Your listings are now subject to the platform free tier limit.",
+          metadata: {} as any,
+        });
+      } catch { /* non-critical */ }
+
+      const { password, ...safe } = updated;
+      res.json(safe);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ── Seller self-service upgrade ─────────────────────────────────────────
+  // plan: "plan_a" (GHS 15, +10 slots), "plan_b" (GHS 40/mo, unlimited monthly),
+  //       "plan_c" (GHS 100 one-time, unlimited permanent), "premium_seller" (legacy)
+  app.post("/api/seller/upgrade/initialize", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const seller = await storage.getUser(req.user!.id);
+      if (!seller) return res.status(404).json({ error: "User not found" });
+
+      const plan: string = req.body?.plan || "premium_seller";
+      const settings = await storage.getPlatformSettings();
+      const { decryptField } = await import("./utils/sensitiveEncrypt");
+      const rawSecret = settings?.paystackSecretKey || process.env.PAYSTACK_SECRET_KEY || "";
+      const paystackSecretKey = decryptField(rawSecret);
+      if (!paystackSecretKey) return res.status(503).json({ error: "Payment gateway not configured" });
+
+      let amountGhs: number;
+      let upgradeType: string;
+      let planLabel: string;
+
+      if (plan === "plan_a") {
+        amountGhs = Number((settings as any)?.upgradePlanAPrice ?? 15);
+        upgradeType = "seller_plan_a";
+        planLabel = "Plan A — Extra Slots";
+      } else if (plan === "plan_b") {
+        amountGhs = Number((settings as any)?.upgradePlanBPrice ?? 40);
+        upgradeType = "seller_plan_b";
+        planLabel = "Plan B — Monthly Unlimited";
+      } else if (plan === "plan_c") {
+        amountGhs = Number((settings as any)?.upgradePlanCPrice ?? 100);
+        upgradeType = "seller_plan_c";
+        planLabel = "Plan C — Unlimited Forever";
+      } else {
+        // Legacy premium_seller path
+        if ((seller as any).isPremiumSeller) return res.status(400).json({ error: "You are already a premium seller" });
+        amountGhs = (settings as any)?.sellerUpgradeFeeGhs ? Number((settings as any).sellerUpgradeFeeGhs) : 5000;
+        upgradeType = "premium_seller";
+        planLabel = "Premium Seller";
+      }
+
+      const amountKobo = Math.round(amountGhs * 100);
+      const reference = `upgrade-${plan}-${req.user!.id}-${Date.now()}`;
+
+      const initRes = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${paystackSecretKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: seller.email,
+          amount: amountKobo,
+          currency: "GHS",
+          reference,
+          metadata: {
+            upgradeType,
+            sellerId: req.user!.id,
+            sellerName: seller.name,
+            planLabel,
+          },
+        }),
+      });
+
+      if (!initRes.ok) {
+        const err = await initRes.json().catch(() => ({}));
+        return res.status(502).json({ error: err?.message || "Payment gateway error" });
+      }
+
+      const initData = await initRes.json();
+      if (!initData.status) return res.status(502).json({ error: initData.message || "Payment initialization failed" });
+
+      const rawPublicKey = settings?.paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || "";
+      const { decryptField: decryptPub } = await import("./utils/sensitiveEncrypt");
+      const publicKey = decryptPub(rawPublicKey) || rawPublicKey;
+
+      res.json({
+        reference,
+        accessCode: initData.data.access_code,
+        authorizationUrl: initData.data.authorization_url,
+        amountGhs,
+        publicKey,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ── Seller self-service promotion payment ──────────────────────────────
+  app.post("/api/seller/promotions/initialize", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const seller = await storage.getUser(req.user!.id);
+      if (!seller) return res.status(404).json({ error: "User not found" });
+
+      const { type, targetId, durationType, duration, sellerNote } = req.body;
+      if (!type || !targetId || !durationType || !duration) {
+        return res.status(400).json({ error: "type, targetId, durationType, and duration are required" });
+      }
+
+      // Look up the pricing row
+      const [pricing] = await db
+        .select()
+        .from(promotionPricing)
+        .where(
+          and(
+            eq(promotionPricing.type, type),
+            eq(promotionPricing.durationType, durationType),
+            eq(promotionPricing.duration, Number(duration)),
+            eq(promotionPricing.isActive, true),
+          ),
+        )
+        .limit(1);
+      if (!pricing) return res.status(404).json({ error: "No active pricing found for this selection" });
+
+      const totalPrice = Number(pricing.price) * Number(duration);
+      const amountKobo = Math.round(totalPrice * 100);
+
+      const settings = await storage.getPlatformSettings();
+      const { decryptField } = await import("./utils/sensitiveEncrypt");
+      const rawSecret = settings?.paystackSecretKey || process.env.PAYSTACK_SECRET_KEY || "";
+      const paystackSecretKey = decryptField(rawSecret);
+      if (!paystackSecretKey) return res.status(503).json({ error: "Payment gateway not configured" });
+
+      // Get target name for the record
+      let targetName = targetId;
+      try {
+        if (type === "store") {
+          const store = await db.select({ name: stores.name }).from(stores).where(eq(stores.id, targetId)).limit(1);
+          if (store[0]) targetName = store[0].name;
+        } else {
+          const prod = await db.select({ name: products.name }).from(products).where(eq(products.id, targetId)).limit(1);
+          if (prod[0]) targetName = prod[0].name;
+        }
+      } catch { /* best-effort */ }
+
+      // Create the application record immediately (pending_payment)
+      const [application] = await db
+        .insert(promotionApplications)
+        .values({
+          sellerId: req.user!.id,
+          type,
+          targetId,
+          targetName,
+          durationType,
+          duration: Number(duration),
+          unitPrice: pricing.price,
+          totalPrice: String(totalPrice),
+          sellerNote: sellerNote || null,
+          status: "pending_payment",
+        })
+        .returning();
+
+      const reference = `promo-${application.id}-${Date.now()}`;
+
+      const initRes = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${paystackSecretKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: seller.email,
+          amount: amountKobo,
+          currency: "GHS",
+          reference,
+          metadata: {
+            upgradeType: "seller_promotion",
+            sellerId: req.user!.id,
+            sellerName: seller.name,
+            applicationId: application.id,
+            promoType: type,
+            targetId,
+            targetName,
+            durationType,
+            duration: Number(duration),
+            totalPrice,
+          },
+        }),
+      });
+
+      if (!initRes.ok) {
+        const err = await initRes.json().catch(() => ({}));
+        return res.status(502).json({ error: err?.message || "Payment gateway error" });
+      }
+
+      const initData = await initRes.json();
+      if (!initData.status) return res.status(502).json({ error: initData.message || "Payment initialization failed" });
+
+      // Store the reference on the application
+      await db
+        .update(promotionApplications)
+        .set({ updatedAt: new Date() } as any)
+        .where(eq(promotionApplications.id, application.id));
+
+      const rawPublicKey = settings?.paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || "";
+      const { decryptField: decryptPub } = await import("./utils/sensitiveEncrypt");
+      const publicKey = decryptPub(rawPublicKey) || rawPublicKey;
+
+      res.json({
+        reference,
+        applicationId: application.id,
+        accessCode: initData.data.access_code,
+        authorizationUrl: initData.data.authorization_url,
+        amountGhs: totalPrice,
+        publicKey,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -3178,13 +3881,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               isApproved: true
             };
             
-            console.log(`Creating store for new seller ${user.id}:`, {
-              name: storeData.name,
-              storeType: storeData.storeType
-            });
-            
             const newStore = await storage.createStore(storeData);
-            console.log(`Successfully created store ${newStore.id} for seller ${user.id}`);
             
             // Initialize categories for this store type
             if (storeType) {
@@ -3197,8 +3894,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (relevantCategories.length === 0) {
                   console.warn(`No categories found for store type: ${storeType}. Seller may need manual category setup.`);
                 } else {
-                  console.log(`Found ${relevantCategories.length} categories for store type "${storeType}":`, 
-                    relevantCategories.map(c => c.name));
                 }
               } catch (catError: any) {
                 console.error(`Failed to query categories for store type ${storeType}:`, catError);
@@ -3602,7 +4297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      console.log(`Starting hard delete for user ${req.params.id} (${user.role})`);
+      console.info(`[ADMIN] Hard delete started user ${req.params.id} (${user.role})`);
       
       // Execute all deletes in a transaction for data integrity
       await db.transaction(async (tx) => {
@@ -3721,7 +4416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await tx.delete(users).where(eq(users.id, userId));
       });
       
-      console.log(`Successfully hard deleted user ${req.params.id} and all related data`);
+      console.info(`[ADMIN] Hard delete completed user ${req.params.id}`);
       res.json({ success: true, message: "User and all related data deleted successfully" });
     } catch (error: any) {
       console.error("Error deleting user:", error);
@@ -4209,6 +4904,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     { name: "video", maxCount: 1 }
   ]), async (req: AuthRequest, res) => {
     try {
+      // Enforce product listing limits (free-tier vs upgrade plan sellers)
+      const prodSettings = await storage.getPlatformSettings().catch(() => null);
+      const sellerRecord = await storage.getUser(req.user!.id);
+      const isPremium = (sellerRecord as any)?.isPremiumSeller === true;
+      const sellerUpgradePlan: string | null = (sellerRecord as any)?.sellerUpgradePlan ?? null;
+      const sellerPlanExpiresAt: Date | null = (sellerRecord as any)?.sellerPlanExpiresAt ?? null;
+      const sellerBonusSlots: number = Number((sellerRecord as any)?.sellerBonusSlots ?? 0);
+      const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)` }).from(products).where(eq(products.sellerId, req.user!.id));
+      const currentCount = Number(cnt);
+      // Hard ceiling (applies to everyone)
+      const hardMax = Number(prodSettings?.maxProductsPerSeller || 0);
+      if (hardMax > 0 && currentCount >= hardMax) {
+        return res.status(403).json({ error: `You have reached the platform maximum of ${hardMax} products.` });
+      }
+      // Determine effective soft limit based on upgrade plan
+      const freeTierLimit = Number(prodSettings?.freeTierProductLimit ?? 20);
+      const planBExpired = sellerUpgradePlan === "plan_b" && sellerPlanExpiresAt && new Date() > new Date(sellerPlanExpiresAt);
+      const hasUnlimited = isPremium || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
+      if (!hasUnlimited) {
+        const softLimit = sellerUpgradePlan === "plan_a" && freeTierLimit > 0
+          ? freeTierLimit + sellerBonusSlots
+          : (freeTierLimit > 0 ? freeTierLimit : 0);
+        if (softLimit > 0 && currentCount >= softLimit) {
+          return res.status(403).json({
+            error: `You have reached your product listing limit of ${softLimit}. Upgrade your plan for more slots or unlimited listings.`,
+            code: "FREE_TIER_LIMIT",
+            limit: softLimit,
+            currentCount,
+          });
+        }
+      }
+
       const files = (req.files as { [fieldname: string]: Express.Multer.File[] } | undefined) || {};
       const parseMaybeJson = (value: any) => {
         if (typeof value !== "string") return value;
@@ -4294,7 +5021,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const sellerStore = await storage.ensureStoreForSeller(req.user!.id, { requireApproval: true });
           storeId = sellerStore.id;
           sellerStoreType = sellerStore.storeType as StoreType | undefined;
-          console.log(`[Product Creation] Using store ${storeId} for seller ${req.user!.id}`);
         } catch (storeError: any) {
           console.error(`[Product Creation] Failed to ensure store for seller ${req.user!.id}:`, storeError.message);
           return res.status(400).json({ 
@@ -4770,17 +5496,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!newPassword) {
           return res.status(400).json({ error: "A new password is required" });
         }
-        if (newPassword.length < 8) {
-          return res.status(400).json({ error: "Password must be at least 8 characters long" });
-        }
-        if (!/[A-Z]/.test(newPassword)) {
-          return res.status(400).json({ error: "Password must contain at least one uppercase letter" });
-        }
-        if (!/[a-z]/.test(newPassword)) {
-          return res.status(400).json({ error: "Password must contain at least one lowercase letter" });
-        }
-        if (!/[0-9]/.test(newPassword)) {
-          return res.status(400).json({ error: "Password must contain at least one number" });
+        // Super admins can set any password with at least 6 characters — no strength restrictions
+        if (newPassword.length < 6) {
+          return res.status(400).json({ error: "Password must be at least 6 characters long" });
         }
 
         const targetUser = await storage.getUser(userId);
@@ -4814,14 +5532,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const notification = await storage.createNotification({
             userId: targetUser.id,
-            type: "security",
+            type: "system",
             title: "Password reset",
             message:
               "Your password was reset by a Super Admin. If you did not request this, please contact support immediately.",
-            metadata: {
-              link: "/profile",
-              action: "admin_password_reset",
-            },
+            metadata: { link: "/profile", action: "admin_password_reset" } as any,
           });
           io.to(targetUser.id).emit("notification", {
             id: notification.id,
@@ -6288,7 +7003,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         processedAt: new Date().toISOString(),
       });
 
-      console.log(`Rider payout ${payoutId} approved by admin ${adminId} for order #${orderNumber}`);
+      console.info(`[PAYOUT] Payout ${payoutId} approved by ${adminId} order #${orderNumber}`);
       res.json({ success: true, payout: updated });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -6346,7 +7061,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         rejectedAt: new Date().toISOString(),
       });
 
-      console.log(`Rider payout ${payoutId} rejected by admin ${adminId} for order #${orderNumber}`);
+      console.info(`[PAYOUT] Payout ${payoutId} rejected by ${adminId} order #${orderNumber}`);
       res.json({ success: true, payout: updated });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -6857,7 +7572,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const created = await storage.createReview(review);
             reviews.push(created);
           } catch (error) {
-            console.log("Review already exists");
           }
         }
       }
@@ -7922,9 +8636,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       attempts,
       failedAt: new Date().toISOString(),
     };
+
+    // Socket event for live admin dashboards
     [...admins, ...superAdmins].forEach((adminUser: any) => {
       io.to(adminUser.id).emit("order_rider_assignment_failed", payload);
     });
+
+    // Persist admin notifications so it survives page reloads
+    await Promise.allSettled([
+      ...[...admins, ...superAdmins].map((adminUser: any) =>
+        storage.createNotification({
+          userId: adminUser.id,
+          type: "order",
+          title: "Rider Assignment Failed",
+          message: `No rider accepted order #${order.orderNumber}. Manual assignment may be required.`,
+          metadata: { orderId: order.id, orderNumber: order.orderNumber, attempts: attempts.length, link: "/admin/orders" } as any,
+        })
+      ),
+      // Notify buyer so they know their order is being handled
+      order.buyerId
+        ? storage.createNotification({
+            userId: order.buyerId,
+            type: "order",
+            title: "Finding Your Rider",
+            message: `We're still working on assigning a rider to your order #${order.orderNumber}. Our team has been alerted and will sort this out shortly.`,
+            metadata: { orderId: order.id, orderNumber: order.orderNumber, link: "/orders" } as any,
+          })
+        : Promise.resolve(),
+    ]);
+
+    // Also emit to buyer so they see it in real time if they're online
+    if (order.buyerId) {
+      io.to(order.buyerId).emit("notification", {
+        type: "order",
+        title: "Finding Your Rider",
+        message: `We're still locating a rider for order #${order.orderNumber}. Please hold on.`,
+        metadata: { orderId: order.id },
+      });
+    }
   };
 
   const dispatchNextRiderOffer = async (orderId: string) => {
@@ -8528,6 +9277,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
     });
+
+    // Notify the pickup agent(s) assigned to this order's station for pickup orders
+    const isPickupDelivery = String(order.deliveryMethod || "").toLowerCase().trim() === "pickup";
+    if (isPickupDelivery && order.deliveryZoneId) {
+      try {
+        const pickupAgents = await storage.getUsersByRole("pickup_agent");
+        const assignedAgents = pickupAgents.filter(
+          (a: any) => a.isActive !== false && String(a.deliveryZoneId || "").trim() === String(order.deliveryZoneId).trim()
+        );
+        assignedAgents.forEach((agent: any) => {
+          io.to(agent.id).emit("order_status_updated", {
+            ...payload,
+            status: canonicalStatus,
+          });
+        });
+      } catch {
+        // non-critical
+      }
+    }
   };
 
   const createRiderPayoutIfMissing = async (order: any, riderId: string | null | undefined) => {
@@ -8682,6 +9450,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       generatedBy: riderId,
       generatedByRole: "rider",
     });
+
+    // Complete referral for buyer on first delivered order
+    if (order.buyerId) {
+      checkAndCompleteReferral(order.buyerId).catch(() => {});
+    }
 
     return updatedOrder;
   };
@@ -9079,7 +9852,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sessionId = result.sessionId;
         createdOrders = result.orders;
         
-        console.log(`✅ Created ${createdOrders.length} orders for multi-vendor checkout (session: ${sessionId})`);
+        console.info(`[ORDER] Created ${createdOrders.length} orders for multi-vendor checkout (session: ${sessionId})`);
       } else {
         // Single vendor: use existing createOrder method
         // For single-vendor, validate coupon if present
@@ -9454,6 +10227,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     },
   );
+
+  // --- Pickup Agent Stats ---
+  const agentShifts = new Map<string, { startedAt: string; verificationsThisShift: number }>();
+
+  app.get("/api/pickup-agent/stats", requireAuth, requireRole("pickup_agent"), async (req: AuthRequest, res) => {
+    try {
+      const pickupAgent = await storage.getUser(req.user!.id);
+      const agentZoneId = String(pickupAgent?.deliveryZoneId || "").trim();
+      if (!agentZoneId) {
+        return res.json({ totalVerifications: 0, verificationsToday: 0, verificationsThisMonth: 0, pendingOrders: 0, zoneName: null, shift: null });
+      }
+      const allOrders = await storage.getAllOrders();
+      const pickupOrders = allOrders.filter((order: any) => {
+        const method = String(order?.deliveryMethod || "").toLowerCase().trim();
+        const zoneId = String(order?.deliveryZoneId || "").trim();
+        return method === "pickup" && zoneId === agentZoneId;
+      });
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const completedOrders = pickupOrders.filter((o: any) => String(o.status || "").toLowerCase() === "completed");
+      const todayCompletions = completedOrders.filter((o: any) => o.updatedAt && new Date(o.updatedAt) >= todayStart);
+      const monthCompletions = completedOrders.filter((o: any) => o.updatedAt && new Date(o.updatedAt) >= monthStart);
+      const pendingOrders = pickupOrders.filter((o: any) => !["completed", "cancelled"].includes(String(o.status || "").toLowerCase())).length;
+      const zones = await storage.getDeliveryZones(true, "pickup_station");
+      const zone = zones.find((z: any) => String(z.id) === agentZoneId);
+      const shift = agentShifts.get(req.user!.id) || null;
+      res.json({
+        totalVerifications: completedOrders.length,
+        verificationsToday: todayCompletions.length,
+        verificationsThisMonth: monthCompletions.length,
+        pendingOrders,
+        zoneName: zone?.name || zone?.city || null,
+        shift: shift ? { onShift: true, startedAt: shift.startedAt, verificationsThisShift: shift.verificationsThisShift } : { onShift: false, startedAt: null, verificationsThisShift: 0 },
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/pickup-agent/shift", requireAuth, requireRole("pickup_agent"), requireRoleFeature("shifts.manage"), async (req: AuthRequest, res) => {
+    const shift = agentShifts.get(req.user!.id);
+    res.json({ onShift: !!shift, startedAt: shift?.startedAt || null, verificationsThisShift: shift?.verificationsThisShift || 0 });
+  });
+
+  app.post("/api/pickup-agent/shift/start", requireAuth, requireRole("pickup_agent"), requireRoleFeature("shifts.manage"), async (req: AuthRequest, res) => {
+    if (agentShifts.has(req.user!.id)) {
+      return res.status(400).json({ error: "You already have an active shift. End your current shift first." });
+    }
+    agentShifts.set(req.user!.id, { startedAt: new Date().toISOString(), verificationsThisShift: 0 });
+    res.json({ onShift: true, startedAt: agentShifts.get(req.user!.id)!.startedAt, verificationsThisShift: 0 });
+  });
+
+  app.post("/api/pickup-agent/shift/end", requireAuth, requireRole("pickup_agent"), requireRoleFeature("shifts.manage"), async (req: AuthRequest, res) => {
+    const shift = agentShifts.get(req.user!.id);
+    if (!shift) {
+      return res.status(400).json({ error: "No active shift to end." });
+    }
+    const summary = { startedAt: shift.startedAt, endedAt: new Date().toISOString(), verificationsThisShift: shift.verificationsThisShift };
+    agentShifts.delete(req.user!.id);
+    res.json({ onShift: false, summary });
+  });
 
   app.get("/api/orders/:id", requireAuth, requireRoleFeature("orders.view"), async (req: AuthRequest, res) => {
     try {
@@ -10083,6 +10918,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
               includeAgents: false,
             }
           );
+
+          // Also notify the pickup agent(s) at the assigned station when order is ready
+          if (isPickupOrder && updatedOrder.deliveryZoneId) {
+            try {
+              const pickupAgents = await storage.getUsersByRole("pickup_agent");
+              const assignedAgents = pickupAgents.filter(
+                (a: any) => a.isActive !== false && String(a.deliveryZoneId || "").trim() === String(updatedOrder.deliveryZoneId).trim()
+              );
+              await Promise.all(
+                assignedAgents.map((agent: any) =>
+                  storage.createNotification({
+                    userId: agent.id,
+                    type: "order",
+                    title: "Pickup Order Ready",
+                    message: `Order #${updatedOrder.orderNumber} is ready for customer pickup at your station. Verify when the customer arrives.`,
+                    metadata: {
+                      orderId: updatedOrder.id,
+                      orderNumber: updatedOrder.orderNumber,
+                      link: "/pickup-agent/verify",
+                    } as any,
+                  })
+                )
+              );
+              assignedAgents.forEach((agent: any) => {
+                io.to(agent.id).emit("notification", {
+                  title: "Pickup Order Ready",
+                  message: `Order #${updatedOrder.orderNumber} is ready for pickup verification.`,
+                  type: "default",
+                });
+              });
+            } catch (agentNotifyErr) {
+              console.error("[PICKUP_AGENT_READY_NOTIFY] Failed:", agentNotifyErr);
+            }
+          }
         } catch (readyNotifyErr) {
           console.error("[ORDER_READY_NOTIFY] Failed to notify ops users:", readyNotifyErr);
         }
@@ -10397,6 +11266,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
 
         await emitOrderStatusUpdateToStakeholders(updatedOrder, "completed");
+
+        // Complete referral for buyer on external delivery completion
+        if (updatedOrder.buyerId) {
+          checkAndCompleteReferral(updatedOrder.buyerId).catch(() => {});
+        }
 
         return res.json({
           ...updatedOrder,
@@ -10791,7 +11665,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         riderId,
         `verification:rider_to_buyer:${verificationMethod}`
       );
-      console.log(`Order ${orderId} delivered by rider ${riderId} via unified completion flow`);
+      console.info(`[ORDER] Order ${orderId} delivered by rider ${riderId}`);
       res.json({
         ...updatedOrder,
         status: mapOrderStatusForViewerRole(updatedOrder as any, req.user!.role),
@@ -11275,6 +12149,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         if (!updated) return res.status(404).json({ error: "Order not found" });
         await emitOrderStatusUpdateToStakeholders(updated, "completed");
+
+        // If verified by a pickup agent, send them a completion DB notification
+        if (actorRole === "pickup_agent") {
+          try {
+            await storage.createNotification({
+              userId: actorId,
+              type: "order",
+              title: "Pickup Verified",
+              message: `You successfully verified order #${updated.orderNumber}. The order is now marked as completed.`,
+              metadata: {
+                orderId: updated.id,
+                orderNumber: updated.orderNumber,
+                link: "/pickup-agent/verify",
+              } as any,
+            });
+          } catch {
+            // non-critical
+          }
+        }
+
         return res.json({ success: true, order: updated });
       } catch (error: any) {
         return res.status((error as any)?.code || 400).json({ error: error.message });
@@ -13607,7 +14501,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Jitsi Meet Video Call Endpoints ============
   
   // Start a call with another user
-  app.post("/api/calls/start", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/calls/start", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const { targetUserId, callType, orderId } = req.body;
       
@@ -13654,6 +14548,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Request a call — non-admin users notify admin/super_admin to initiate a call
+  app.post("/api/calls/request", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { callType = "voice", message: requestMessage } = req.body;
+      const requesterId = req.user!.id;
+      const requester = await storage.getUser(requesterId);
+      if (!requester) return res.status(404).json({ error: "User not found" });
+
+      // Find all admins and super_admins to notify
+      const admins = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          or(
+            eq(sql`lower(cast(${users.role} as text))`, "admin"),
+            eq(sql`lower(cast(${users.role} as text))`, "super_admin"),
+          ),
+        );
+
+      const callTypeLabel = callType === "video" ? "video" : "voice";
+      const title = `Call Request from ${requester.name}`;
+      const msg = requestMessage?.trim()
+        ? `${requester.name} is requesting a ${callTypeLabel} call: "${requestMessage.trim()}"`
+        : `${requester.name} is requesting a ${callTypeLabel} call. Open Messages to call them back.`;
+
+      for (const admin of admins) {
+        await storage.createNotification({
+          userId: admin.id,
+          type: "message",
+          title,
+          message: msg,
+          metadata: {
+            callType,
+            requesterId,
+            requesterName: requester.name,
+            link: `/admin/messages?userId=${requesterId}`,
+          },
+        } as any);
+        io.to(admin.id).emit("notification", { type: "default", title, message: msg });
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -14458,6 +15399,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allowSellerBankPayouts: settings.allowSellerBankPayouts !== false,
         allowSellerDirectSupportMessages: settings.allowSellerDirectSupportMessages !== false,
         contactEmail: String(settings.contactEmail || "support@kiyumart.com").trim() || "support@kiyumart.com",
+        referralEnabled: settings.referralEnabled === true,
       });
     } catch (error: any) {
       console.warn('[ROUTES] Falling back to public platform settings response:', error?.message || error);
@@ -14872,6 +15814,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         delete updateData.smtpSecure;
         delete updateData.smtpFromEmail;
         delete updateData.smtpFromName;
+        delete updateData.freeTierProductLimit;
+        delete updateData.maxProductsPerSeller;
+        delete updateData.orderAutoCancelHours;
+        delete updateData.inviteOnlyRegistration;
       }
 
       // Preserve sensitive fields when placeholders or empty values are submitted
@@ -15003,6 +15949,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updateData.smtpFromName = updateData.smtpFromName.trim();
       }
 
+      // Encrypt sensitive fields at rest using AES-256-GCM (no-op if key not configured)
+      if (updateData.smtpPass && typeof updateData.smtpPass === "string" && !isEncrypted(updateData.smtpPass)) {
+        updateData.smtpPass = encryptField(updateData.smtpPass);
+      }
+      if (updateData.paystackSecretKey && typeof updateData.paystackSecretKey === "string" && !isEncrypted(updateData.paystackSecretKey)) {
+        updateData.paystackSecretKey = encryptField(updateData.paystackSecretKey);
+      }
+      if (updateData.cloudinaryApiSecret && typeof updateData.cloudinaryApiSecret === "string" && !isEncrypted(updateData.cloudinaryApiSecret)) {
+        updateData.cloudinaryApiSecret = encryptField(updateData.cloudinaryApiSecret);
+      }
+
       let settings;
       try {
         settings = await storage.updatePlatformSettings(updateData);
@@ -15121,7 +16078,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           // Multi-vendor mode turned OFF: Keep existing stores but set a flag or notification
           // In single-store mode, all sellers share the platform (no action needed)
-          console.log("Multi-vendor mode disabled - operating in single-store mode");
         }
       }
 
@@ -15613,6 +16569,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Super Admin: Per-Admin Permission Controls ============
+  // Returns the calling admin's own resolved permissions (including defaults when no record exists)
+  app.get("/api/admin/my-permissions", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      if (req.user!.role === "super_admin") {
+        return res.json({
+          canManageUsers: true, canManageProducts: true, canManageOrders: true, canManageStores: true,
+          canManageCategories: true, canManageAdmins: true, canEditPasswords: true, canManageRoles: true,
+          canManagePlatformSettings: true, canViewAnalytics: true, canManagePromotions: true,
+          canManageReviews: true, canManagePayouts: true, canViewPayouts: true, canManageFeatures: true,
+        });
+      }
+      const [row] = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, req.user!.id)).limit(1);
+      const defaults = {
+        canManageUsers: true, canManageProducts: true, canManageOrders: true, canManageStores: true,
+        canManageCategories: true, canManageAdmins: false, canEditPasswords: false, canManageRoles: false,
+        canManagePlatformSettings: true, canViewAnalytics: true, canManagePromotions: true,
+        canManageReviews: true, canManagePayouts: true, canViewPayouts: true, canManageFeatures: false,
+      };
+      res.json({ ...defaults, ...(row ? {
+        canManageUsers: row.canManageUsers ?? defaults.canManageUsers,
+        canManageProducts: row.canManageProducts ?? defaults.canManageProducts,
+        canManageOrders: row.canManageOrders ?? defaults.canManageOrders,
+        canManageStores: row.canManageStores ?? defaults.canManageStores,
+        canManageCategories: row.canManageCategories ?? defaults.canManageCategories,
+        canManageAdmins: row.canManageAdmins ?? defaults.canManageAdmins,
+        canEditPasswords: row.canEditPasswords ?? defaults.canEditPasswords,
+        canManageRoles: row.canManageRoles ?? defaults.canManageRoles,
+        canManagePlatformSettings: row.canManagePlatformSettings ?? defaults.canManagePlatformSettings,
+        canViewAnalytics: row.canViewAnalytics ?? defaults.canViewAnalytics,
+        canManagePromotions: row.canManagePromotions ?? defaults.canManagePromotions,
+        canManageReviews: row.canManageReviews ?? defaults.canManageReviews,
+        canManagePayouts: (row as any).canManagePayouts ?? defaults.canManagePayouts,
+        canViewPayouts: (row as any).canViewPayouts ?? defaults.canViewPayouts,
+        canManageFeatures: (row as any).canManageFeatures ?? defaults.canManageFeatures,
+      } : {}) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/admin/permissions", requireAuth, requireRole("super_admin"), async (_req, res) => {
     try {
       const adminUsers = await db
@@ -15657,6 +16653,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         canViewAnalytics: true,
         canManagePromotions: true,
         canManageReviews: true,
+        canManagePayouts: true,
+        canViewPayouts: true,
+        canManageFeatures: false,
         maxProductsPerDay: 100,
         maxOrdersPerDay: 500,
       };
@@ -15682,6 +16681,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           canViewAnalytics: u.canViewAnalytics ?? defaultPermissions.canViewAnalytics,
           canManagePromotions: u.canManagePromotions ?? defaultPermissions.canManagePromotions,
           canManageReviews: u.canManageReviews ?? defaultPermissions.canManageReviews,
+          canManagePayouts: (u as any).canManagePayouts ?? defaultPermissions.canManagePayouts,
+          canViewPayouts: (u as any).canViewPayouts ?? defaultPermissions.canViewPayouts,
+          canManageFeatures: (u as any).canManageFeatures ?? defaultPermissions.canManageFeatures,
           maxProductsPerDay: u.maxProductsPerDay ?? defaultPermissions.maxProductsPerDay,
           maxOrdersPerDay: u.maxOrdersPerDay ?? defaultPermissions.maxOrdersPerDay,
         },
@@ -15718,6 +16720,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "canViewAnalytics",
         "canManagePromotions",
         "canManageReviews",
+        "canManagePayouts",
+        "canViewPayouts",
+        "canManageFeatures",
       ] as const;
       const numberFields = ["maxProductsPerDay", "maxOrdersPerDay"] as const;
 
@@ -16031,7 +17036,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const configuredPublic = String((settings as any)?.paystackPublicKey || "").trim();
       const secretSource = paystackKeyPair.secretSource;
       const publicSource = paystackKeyPair.publicSource;
-      console.info(`[PAYMENTS] Initializing checkout: secretSource=${secretSource}, publicSource=${publicSource}, inline=${inlineMode}`);
+      console.info(`[PAYMENTS] Initializing checkout: inline=${inlineMode}`);
       if (!paystackSecretKey) {
         return res.status(503).json({ 
           error: "Payment gateway not configured", 
@@ -16199,8 +17204,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const resolverHost = getFrontendUrlSync(`${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
       const frontendHost = (dbFrontend || resolverHost).replace(/\/$/, '');
       const callbackBase = frontendHost || `${req.protocol}://${req.get('host')}`;
+      if (!callbackBase || callbackBase.startsWith('/')) {
+        return res.status(503).json({
+          error: "Frontend URL not configured",
+          userMessage: "Payment cannot be initialized: the platform redirect URL is not configured. Please contact support.",
+        });
+      }
       const callbackUrl = `${callbackBase}/payment/verify`;
-      console.debug('[PAYMENTS] Using callback URL for Paystack initialize:', callbackUrl);
       const {
         isValidGhanaMobileMoneyNumber,
         normalizeGhanaMobileMoneyNumber,
@@ -16340,6 +17350,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           paymentPayload.bearer = "account"; // Platform bears Paystack fees
           paymentPayload.metadata.splitEnabled = true;
           paymentPayload.metadata.commissionRate = commissionRate;
+          // Remove transaction_charge — it only applies to single-subaccount splits,
+          // not Paystack's multi-split (subaccounts array) format.
+          delete paymentPayload.transaction_charge;
         } else {
           // No subaccounts (e.g., all sellers use mobile money); ensure split metadata flags are explicit
           paymentPayload.metadata.splitEnabled = false;
@@ -16412,9 +17425,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   userMessage: `Store ${store.name} has an unsupported payout method.`,
                 });
               }
+            } else {
+              return res.status(400).json({
+                error: "Payment configuration incomplete",
+                userMessage: "Store configuration could not be loaded. Please try again or contact support.",
+              });
             }
           } catch (storeError) {
-            console.warn("Could not fetch store for split payment:", storeError);
+            console.error("Could not fetch store for split payment:", storeError);
+            return res.status(500).json({
+              error: "Payment configuration error",
+              userMessage: "Could not load store configuration for payment. Please try again.",
+            });
           }
         }
       }
@@ -16495,7 +17517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (e) {
           console.warn('[PAYMENTS] Could not associate idempotency key with reference', (e as any).message || e);
         }
-        console.info(`[PAYMENTS] Paystack initialize response: reference=${data?.data?.reference} status=${data?.status}`);
+        // Reference and status logged via logSystemActivity below
         
         if (!data.status) {
           await logSystemActivity({
@@ -16571,7 +17593,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         await Promise.all(updatePromises);
 
-        console.log(`✅ Payment initialized for ${isMultiVendor ? `${orders.length} orders in session ${checkoutSessionId}` : `order ${orders[0].orderNumber}`}`);
+        // Payment initialized — logged via logSystemActivity below
         await logSystemActivity({
           category: "payment",
           severity: "info",
@@ -16837,7 +17859,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error(data.message || "Payment verification failed");
       }
 
-      console.log('[VERIFY] Paystack verify response data:', JSON.stringify(data.data, null, 2));
+      // Paystack verify response logged via logSystemActivity below — raw data not logged to avoid leaking card details
 
       // Determine payment mode based on platform configuration + tolerant metadata parsing
       // Platform setting has higher authority — if platform is single-store, treat payment as single-vendor.
@@ -17342,7 +18364,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const event = req.body as any;
-      console.log('[WEBHOOK] Paystack event received:', event.event);
       await logSystemActivity({
         category: "payment",
         severity: "info",
@@ -17386,6 +18407,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await storage.createIdempotencyKey(idempotencyKey, { reference, metadata: data?.metadata || null });
           }
 
+          // Early-return guard: if already fully processed, respond 200 immediately (Paystack retry safety)
+          if (idemp && (idemp as any).used === true && (idemp as any).usedAt) {
+            return res.json({ status: "success" });
+          }
+
           // Track retry attempts and alert if too many
           const retries = await storage.incrementIdempotencyRetry(idempotencyKey).catch(() => 0);
           if (retries > 5) {
@@ -17406,6 +18432,266 @@ export async function registerRoutes(app: Express): Promise<Server> {
               console.error('[WEBHOOK] notifyAdmins failed', notifyErr);
             }
             console.warn(`[WEBHOOK] Repeated webhook retries for reference ${reference}: ${retries}`);
+          }
+
+          // Handle premium seller upgrade payment
+          if (data?.metadata?.upgradeType === "premium_seller" && data?.metadata?.sellerId) {
+            try {
+              const sellerId = String(data.metadata.sellerId);
+              await storage.updateUser(sellerId, { isPremiumSeller: true } as any);
+              await storage.createNotification({
+                userId: sellerId,
+                type: "system",
+                title: "Premium Seller Activated",
+                message: "Your payment was confirmed. Your account is now upgraded to Premium — you can list unlimited products.",
+                metadata: { upgradeType: "premium_seller", reference, link: "/seller" } as any,
+              });
+              io.to(sellerId).emit("notification", {
+                title: "Premium Seller Activated",
+                message: "Your account is now Premium. Unlimited product listings are now unlocked.",
+                type: "default",
+              });
+              // Email confirmation (best-effort)
+              try {
+                const seller = await storage.getUser(sellerId);
+                if (seller?.email) {
+                  const ps = await storage.getPlatformSettings().catch(() => null);
+                  const pName = ps?.platformName || "KiyuMart";
+                  const { sendEmail } = await import('./email');
+                  await sendEmail({
+                    to: seller.email,
+                    subject: `${pName}: Premium Seller Activated`,
+                    text: `Hi ${seller.name || "there"},\n\nYour Premium Seller upgrade payment has been confirmed. You can now list unlimited products on ${pName}.\n\n— ${pName}`,
+                    html: `<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;"><h2 style="color:#10b981;">Premium Seller Activated ⭐</h2><p>Hi ${seller.name || "there"},</p><p>Your Premium Seller upgrade payment has been confirmed. You can now list unlimited products.</p><p style="font-size:13px;color:#64748b;">— ${pName}</p></div>`,
+                  });
+                }
+              } catch { /* non-critical */ }
+              await storage.markIdempotencyUsed(idempotencyKey, reference);
+              return res.json({ status: "success" });
+            } catch (upgradeErr: any) {
+              console.error("[WEBHOOK] Premium upgrade processing error:", upgradeErr?.message);
+              // Fall through to normal processing as safety net
+            }
+          }
+
+          // Handle Plan A upgrade (+bonus slots)
+          if (data?.metadata?.upgradeType === "seller_plan_a" && data?.metadata?.sellerId) {
+            try {
+              const sellerId = String(data.metadata.sellerId);
+              const ps = await storage.getPlatformSettings().catch(() => null);
+              const addSlots = Number((ps as any)?.upgradePlanASlots ?? 10);
+              const sellerNow = await storage.getUser(sellerId);
+              const currentBonus = Number((sellerNow as any)?.sellerBonusSlots ?? 0);
+              await storage.updateUser(sellerId, {
+                sellerUpgradePlan: "plan_a",
+                sellerBonusSlots: currentBonus + addSlots,
+              } as any);
+              await storage.createNotification({
+                userId: sellerId,
+                type: "system",
+                title: "Plan A Activated",
+                message: `Your Plan A payment was confirmed. ${addSlots} additional product slots have been added to your account.`,
+                metadata: { upgradeType: "seller_plan_a", reference, link: "/seller/products" } as any,
+              });
+              io.to(sellerId).emit("notification", {
+                title: "Plan A Activated",
+                message: `${addSlots} extra product listing slots have been added to your account.`,
+                type: "default",
+              });
+              try {
+                const seller = await storage.getUser(sellerId);
+                if (seller?.email) {
+                  const pName = ps?.platformName || "KiyuMart";
+                  const { sendEmail } = await import('./email');
+                  await sendEmail({
+                    to: seller.email,
+                    subject: `${pName}: Plan A Activated — Extra Slots Added`,
+                    text: `Hi ${seller.name || "there"},\n\nYour Plan A payment has been confirmed. ${addSlots} additional product listing slots have been added to your account.\n\n— ${pName}`,
+                    html: `<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;"><h2 style="color:#10b981;">Plan A Activated</h2><p>Hi ${seller.name || "there"},</p><p>Your Plan A payment has been confirmed. <strong>${addSlots} additional product listing slots</strong> have been added to your account.</p><p style="font-size:13px;color:#64748b;">— ${pName}</p></div>`,
+                  });
+                }
+              } catch { /* non-critical */ }
+              await storage.markIdempotencyUsed(idempotencyKey, reference);
+              return res.json({ status: "success" });
+            } catch (planAErr: any) {
+              console.error("[WEBHOOK] Plan A upgrade processing error:", planAErr?.message);
+            }
+          }
+
+          // Handle Plan B upgrade (unlimited monthly)
+          if (data?.metadata?.upgradeType === "seller_plan_b" && data?.metadata?.sellerId) {
+            try {
+              const sellerId = String(data.metadata.sellerId);
+              const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+              await storage.updateUser(sellerId, {
+                sellerUpgradePlan: "plan_b",
+                sellerPlanExpiresAt: expiresAt,
+              } as any);
+              const ps = await storage.getPlatformSettings().catch(() => null);
+              await storage.createNotification({
+                userId: sellerId,
+                type: "system",
+                title: "Plan B Activated",
+                message: `Your Plan B monthly subscription is now active. Unlimited product listings until ${expiresAt.toLocaleDateString()}.`,
+                metadata: { upgradeType: "seller_plan_b", reference, link: "/seller/products" } as any,
+              });
+              io.to(sellerId).emit("notification", {
+                title: "Plan B Activated",
+                message: `Monthly unlimited listings active until ${expiresAt.toLocaleDateString()}.`,
+                type: "default",
+              });
+              try {
+                const seller = await storage.getUser(sellerId);
+                if (seller?.email) {
+                  const pName = ps?.platformName || "KiyuMart";
+                  const { sendEmail } = await import('./email');
+                  await sendEmail({
+                    to: seller.email,
+                    subject: `${pName}: Plan B Active — Unlimited Listings`,
+                    text: `Hi ${seller.name || "there"},\n\nYour Plan B subscription is now active. You can list unlimited products until ${expiresAt.toLocaleDateString()}. Remember to renew to keep unlimited access.\n\n— ${pName}`,
+                    html: `<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;"><h2 style="color:#10b981;">Plan B Active</h2><p>Hi ${seller.name || "there"},</p><p>Your Plan B monthly subscription is now active. List unlimited products until <strong>${expiresAt.toLocaleDateString()}</strong>.</p><p>Remember to renew before this date to keep your unlimited access.</p><p style="font-size:13px;color:#64748b;">— ${pName}</p></div>`,
+                  });
+                }
+              } catch { /* non-critical */ }
+              await storage.markIdempotencyUsed(idempotencyKey, reference);
+              return res.json({ status: "success" });
+            } catch (planBErr: any) {
+              console.error("[WEBHOOK] Plan B upgrade processing error:", planBErr?.message);
+            }
+          }
+
+          // Handle Plan C upgrade (unlimited permanent)
+          if (data?.metadata?.upgradeType === "seller_plan_c" && data?.metadata?.sellerId) {
+            try {
+              const sellerId = String(data.metadata.sellerId);
+              await storage.updateUser(sellerId, {
+                isPremiumSeller: true,
+                sellerUpgradePlan: "plan_c",
+                sellerPlanExpiresAt: null,
+              } as any);
+              const ps = await storage.getPlatformSettings().catch(() => null);
+              await storage.createNotification({
+                userId: sellerId,
+                type: "system",
+                title: "Plan C Activated — Unlimited Forever",
+                message: "Your one-time Plan C payment has been confirmed. You can now list unlimited products permanently.",
+                metadata: { upgradeType: "seller_plan_c", reference, link: "/seller/products" } as any,
+              });
+              io.to(sellerId).emit("notification", {
+                title: "Plan C Activated",
+                message: "Unlimited product listings unlocked permanently.",
+                type: "default",
+              });
+              try {
+                const seller = await storage.getUser(sellerId);
+                if (seller?.email) {
+                  const pName = ps?.platformName || "KiyuMart";
+                  const { sendEmail } = await import('./email');
+                  await sendEmail({
+                    to: seller.email,
+                    subject: `${pName}: Plan C Activated — Unlimited Listings Forever`,
+                    text: `Hi ${seller.name || "there"},\n\nYour one-time Plan C payment has been confirmed. You can now list unlimited products permanently on ${pName}.\n\n— ${pName}`,
+                    html: `<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;"><h2 style="color:#10b981;">Plan C Activated — Unlimited Forever</h2><p>Hi ${seller.name || "there"},</p><p>Your one-time Plan C payment has been confirmed. You can list <strong>unlimited products permanently</strong>.</p><p style="font-size:13px;color:#64748b;">— ${pName}</p></div>`,
+                  });
+                }
+              } catch { /* non-critical */ }
+              await storage.markIdempotencyUsed(idempotencyKey, reference);
+              return res.json({ status: "success" });
+            } catch (planCErr: any) {
+              console.error("[WEBHOOK] Plan C upgrade processing error:", planCErr?.message);
+            }
+          }
+
+          // Handle self-service promotion payment
+          if (data?.metadata?.upgradeType === "seller_promotion" && data?.metadata?.applicationId) {
+            try {
+              const applicationId = String(data.metadata.applicationId);
+              const sellerId = String(data.metadata.sellerId || "");
+              const promoType = String(data.metadata.promoType || "store");
+              const targetId = String(data.metadata.targetId || "");
+              const durationType = String(data.metadata.durationType || "day");
+              const duration = Number(data.metadata.duration || 1);
+              const totalPrice = Number(data.metadata.totalPrice || 0);
+
+              const startAt = new Date();
+              const endAt = new Date(startAt);
+              if (durationType === "hour") endAt.setHours(endAt.getHours() + duration);
+              else if (durationType === "day") endAt.setDate(endAt.getDate() + duration);
+              else if (durationType === "week") endAt.setDate(endAt.getDate() + duration * 7);
+              else if (durationType === "month") endAt.setMonth(endAt.getMonth() + duration);
+
+              // Create the promotional ad
+              const [ad] = await db.insert(promotionalAds).values({
+                type: promoType as any,
+                targetId,
+                startAt,
+                endAt,
+                isActive: true,
+                createdBy: sellerId || null,
+              }).returning();
+
+              // Activate the application
+              await db.update(promotionApplications).set({
+                status: "active",
+                paymentConfirmed: true,
+                paymentConfirmedAt: new Date(),
+                approvedAt: new Date(),
+                createdPromotionId: ad.id,
+                updatedAt: new Date(),
+              } as any).where(eq(promotionApplications.id, applicationId));
+
+              if (sellerId) {
+                const ps = await storage.getPlatformSettings().catch(() => null);
+                await storage.createNotification({
+                  userId: sellerId,
+                  type: "system",
+                  title: "Promotion Activated",
+                  message: `Your promotion for "${data.metadata.targetName || targetId}" is now live and will run until ${endAt.toLocaleDateString()}.`,
+                  metadata: { upgradeType: "seller_promotion", reference, link: "/seller/promotions" } as any,
+                });
+                io.to(sellerId).emit("notification", {
+                  title: "Promotion Activated",
+                  message: `Your promotion is now live until ${endAt.toLocaleDateString()}.`,
+                  type: "default",
+                });
+                try {
+                  const seller = await storage.getUser(sellerId);
+                  if (seller?.email) {
+                    const pName = ps?.platformName || "KiyuMart";
+                    const { sendEmail } = await import('./email');
+                    await sendEmail({
+                      to: seller.email,
+                      subject: `${pName}: Promotion Activated`,
+                      text: `Hi ${seller.name || "there"},\n\nYour promotion payment was confirmed. Your ${promoType} promotion for "${data.metadata.targetName || targetId}" is now live and will run until ${endAt.toLocaleDateString()}.\n\n— ${pName}`,
+                      html: `<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;"><h2 style="color:#10b981;">Promotion Activated</h2><p>Hi ${seller.name || "there"},</p><p>Your promotion for <strong>"${data.metadata.targetName || targetId}"</strong> is now live and will run until <strong>${endAt.toLocaleDateString()}</strong>.</p><p style="font-size:13px;color:#64748b;">— ${pName}</p></div>`,
+                    });
+                  }
+                } catch { /* non-critical */ }
+              }
+              // Notify admins
+              try {
+                const admins = await db.select({ id: users.id }).from(users)
+                  .where(or(eq(sql`lower(cast(${users.role} as text))`, "admin"), eq(sql`lower(cast(${users.role} as text))`, "super_admin")));
+                for (const admin of admins) {
+                  await storage.createNotification({
+                    userId: admin.id,
+                    type: "system",
+                    title: "New Paid Promotion Active",
+                    message: `A seller promotion for "${data.metadata.targetName || targetId}" is now active (self-service payment confirmed).`,
+                    metadata: { link: "/admin/promotions" } as any,
+                  });
+                  io.to(admin.id).emit("notification", {
+                    title: "New Paid Promotion Active",
+                    message: `Seller promotion for "${data.metadata.targetName || targetId}" activated via self-service payment.`,
+                    type: "default",
+                  });
+                }
+              } catch { /* non-critical */ }
+              await storage.markIdempotencyUsed(idempotencyKey, reference);
+              return res.json({ status: "success" });
+            } catch (promoErr: any) {
+              console.error("[WEBHOOK] Seller promotion processing error:", promoErr?.message);
+            }
           }
 
           // Delegate processing to shared helper
@@ -17461,8 +18747,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             } catch (opsNotifyErr) {
               console.error("[WEBHOOK] Could not send ops notification for paid order:", opsNotifyErr);
             }
-            console.log('[WEBHOOK] Payment processed successfully (charge.success)');
-
             // Mark idempotency record used (associate with reference)
             await storage.markIdempotencyUsed(idempotencyKey, reference).catch(() => {});
           } catch (innerErr: any) {
@@ -17473,7 +18757,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error('[WEBHOOK] Unexpected error while handling charge.success:', outerErr?.message || outerErr);
         }
       } else if (event.event === 'charge.failed') {
-        console.log('[WEBHOOK] Payment failed:', event.data.reference);
+        console.warn('[WEBHOOK] Payment failed for reference:', event?.data?.reference || 'unknown');
       }
 
       res.json({ status: "success" });
@@ -17488,17 +18772,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // CRITICAL: Use atomic transaction method with idempotency
       const { commission, earning } = await storage.createCommissionWithEarning(orderId);
-      
-      console.log(`[COMMISSION] ✅ Recorded commission for order ${orderId}:`);
-      console.log(`  - Order Amount: ${commission.orderAmount}`);
-      console.log(`  - Commission Rate: ${commission.commissionRate}%`);
-      console.log(`  - Platform: ${commission.platformAmount}`);
-      console.log(`  - Seller: ${commission.sellerAmount}`);
-      console.log(`  - Earning ID: ${earning.id}`);
+      console.info(`[COMMISSION] Recorded for order ${orderId}: platform=${commission.platformAmount} seller=${commission.sellerAmount}`);
     } catch (error: any) {
       // Handle idempotent retry (webhook duplicate)
       if (error.code === 'COMMISSION_ALREADY_EXISTS') {
-        console.log(`[COMMISSION] ⏭️  Commission already calculated for order ${orderId}, skipping (idempotent)`);
+        console.info(`[COMMISSION] Already calculated for order ${orderId}, skipping (idempotent)`);
         return; // Safe to ignore - webhook retry
       }
 
@@ -17531,6 +18809,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Seller Payout Routes ============
   
+  // Seller tier info — returns product count, limits, and upgrade plan status
+  app.get("/api/seller/tier-info", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user || req.user.role !== "seller") return res.status(403).json({ error: "Seller access required" });
+      const [platformSettings, sellerRecord, [{ cnt }]] = await Promise.all([
+        storage.getPlatformSettings().catch(() => null),
+        storage.getUser(req.user.id),
+        db.select({ cnt: sql<number>`count(*)` }).from(products).where(eq(products.sellerId, req.user.id)),
+      ]);
+      const isPremium = (sellerRecord as any)?.isPremiumSeller === true;
+      const sellerUpgradePlan: string | null = (sellerRecord as any)?.sellerUpgradePlan ?? null;
+      const sellerPlanExpiresAt: Date | null = (sellerRecord as any)?.sellerPlanExpiresAt ?? null;
+      const sellerBonusSlots: number = Number((sellerRecord as any)?.sellerBonusSlots ?? 0);
+
+      const freeTierLimit = Number(platformSettings?.freeTierProductLimit ?? 20);
+      const hardMax = Number(platformSettings?.maxProductsPerSeller || 0);
+      const planBExpired = sellerUpgradePlan === "plan_b" && sellerPlanExpiresAt && new Date() > new Date(sellerPlanExpiresAt);
+      const hasUnlimited = isPremium || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
+      const effectiveLimit = hasUnlimited
+        ? (hardMax > 0 ? hardMax : 0)
+        : sellerUpgradePlan === "plan_a"
+          ? (freeTierLimit > 0 ? freeTierLimit + sellerBonusSlots : 0)
+          : (freeTierLimit > 0 ? freeTierLimit : 0);
+
+      res.json({
+        isPremiumSeller: isPremium,
+        sellerUpgradePlan,
+        sellerPlanExpiresAt,
+        sellerBonusSlots,
+        planBExpired: !!planBExpired,
+        productCount: Number(cnt),
+        freeTierLimit,
+        hardMax,
+        effectiveLimit,
+        upgradePlanAPrice: Number((platformSettings as any)?.upgradePlanAPrice ?? 15),
+        upgradePlanASlots: Number((platformSettings as any)?.upgradePlanASlots ?? 10),
+        upgradePlanBPrice: Number((platformSettings as any)?.upgradePlanBPrice ?? 40),
+        upgradePlanCPrice: Number((platformSettings as any)?.upgradePlanCPrice ?? 100),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get seller available balance
   app.get("/api/seller/balance", requireAuth, async (req: AuthRequest, res) => {
     try {
@@ -17599,8 +18921,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         notes,
       });
 
-      console.log(`[PAYOUT] ✅ Seller ${user.email} requested payout of ${amount}`);
-      
+      // Mobile money payouts are fully automated via the payout worker.
+      // Advance status to 'processing' immediately so the worker picks it up
+      // within its next polling cycle (~15 seconds) and initiates the Paystack transfer.
+      if (method === 'mobile_money') {
+        const advanced = await storage.updatePayoutStatus(payout.id, 'processing', 'system');
+        console.info(`[PAYOUT] Seller ${user.id} mobile money payout ${payout.id} auto-advanced to processing`);
+        return res.json(advanced ?? payout);
+      }
+
+      console.info(`[PAYOUT] Seller ${user.id} requested payout of ${amount}`);
+
       res.json(payout);
     } catch (error: any) {
       console.error('[PAYOUT] Error creating payout request:', error);
@@ -17658,6 +18989,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Seller payment alerts — sellers with pending/failed payouts and accurate reason
+  app.get("/api/admin/seller-payment-alerts", requireAuth, requireRole("admin", "super_admin"), requirePermission("view_analytics"), async (req: AuthRequest, res) => {
+    try {
+      const pendingPayouts = await storage.getAllPendingPayouts();
+      if (!pendingPayouts.length) return res.json([]);
+
+      // Collect unique seller IDs, then fetch names
+      const sellerIds = Array.from(new Set(pendingPayouts.map((p) => p.sellerId)));
+      const sellerUsers = await Promise.all(sellerIds.map((id) => storage.getUser(id)));
+      const sellerMap: Record<string, string> = {};
+      for (const u of sellerUsers) {
+        if (u) sellerMap[u.id] = u.name || u.email || u.id;
+      }
+
+      const alerts = pendingPayouts.map((p) => {
+        const bd = (p.bankDetails || {}) as Record<string, unknown>;
+        const settlementMode = String(bd.settlementMode || "");
+        let reason = "Payout pending";
+        if (p.status === "pending") {
+          if (!settlementMode) {
+            reason = "Seller has not completed payout setup (no bank account or mobile money verified)";
+          } else if (settlementMode === "split") {
+            reason = "Paystack subaccount split was not confirmed — check seller's subaccount ID";
+          } else {
+            reason = "Awaiting payout setup verification from seller";
+          }
+        } else if (p.status === "processing") {
+          if (settlementMode === "transfer") {
+            reason = "Mobile money transfer initiated — waiting for Paystack transfer confirmation";
+          } else {
+            reason = "Payout is being processed";
+          }
+        } else if (p.status === "failed") {
+          const transferStatus = String(bd.transferStatus || "");
+          reason = transferStatus
+            ? `Transfer failed with status: ${transferStatus} — manual intervention required`
+            : "Transfer attempt failed — check Paystack dashboard and retry manually";
+        }
+        return {
+          payoutId: p.id,
+          sellerId: p.sellerId,
+          sellerName: sellerMap[p.sellerId] || "Unknown Seller",
+          amount: p.amount,
+          currency: p.currency || "GHS",
+          status: p.status,
+          method: p.method,
+          reason,
+          createdAt: p.createdAt,
+        };
+      });
+
+      res.json(alerts);
+    } catch (error) {
+      console.error("[ADMIN-SELLER-ALERTS] Error:", error);
+      res.status(500).json({ error: "Failed to fetch seller payment alerts" });
+    }
+  });
+
   // Process payout (admin only)
   app.patch("/api/admin/payouts/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_orders"), async (req: AuthRequest, res) => {
     try {
@@ -17707,7 +19096,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      console.log(`[ADMIN-PAYOUT] Admin ${req.user!.email} updated payout ${id} to ${status}`);
+      console.info(`[ADMIN-PAYOUT] Admin ${req.user!.id} updated payout ${id} to ${status}`);
       
       res.json(updated);
     } catch (error: any) {
@@ -17736,7 +19125,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (_req: AuthRequest, res) => {
       try {
         const paidStatusFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
-        const successfulDeliveryFilter = sql`${paidStatusFilter} and lower(cast(${orders.status} as text)) in ('delivered', 'completed')`;
+        const successfulDeliveryFilter = sql`${paidStatusFilter} and lower(cast(${orders.status} as text)) = 'completed'`;
         const pickupMethodFilter = sql`lower(cast(${orders.deliveryMethod} as text)) in ('pickup', 'store_pickup')`;
 
         const [orderTotals, userTotals, commissionTotals, promotionTotals, receivedMoneyTotals, deliveryTotals] = await Promise.all([
@@ -17773,6 +19162,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
           successfulDeliveries: Number(deliveryTotals[0]?.successfulDeliveries ?? 0),
           successfulPickups: Number(deliveryTotals[0]?.successfulPickups ?? 0),
           successfulOrders: Number(deliveryTotals[0]?.successfulOrders ?? 0),
+        });
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    },
+  );
+
+  // Public analytics config — GA4 + Clarity IDs for frontend script injection (no auth required)
+  app.get("/api/public/analytics-config", async (_req, res) => {
+    try {
+      const settings = await storage.getPlatformSettings().catch(() => null);
+      res.json({
+        googleAnalyticsId: settings?.googleAnalyticsId || null,
+        microsoftClarityId: settings?.microsoftClarityId || null,
+      });
+    } catch {
+      res.json({ googleAnalyticsId: null, microsoftClarityId: null });
+    }
+  });
+
+  // Trigger a Render deploy via the stored deploy hook URL
+  app.post("/api/admin/trigger-deploy", requireAuth, requireRole("super_admin"), async (_req: AuthRequest, res) => {
+    try {
+      const settings = await storage.getPlatformSettings();
+      const hookUrl = settings?.renderDeployHookUrl?.trim();
+      if (!hookUrl) return res.status(400).json({ error: "No deploy hook URL configured. Set it in Settings → Hosting." });
+      const response = await fetch(hookUrl, { method: "POST" });
+      if (!response.ok) return res.status(502).json({ error: `Deploy hook returned ${response.status}` });
+      res.json({ success: true, message: "Deploy triggered. Your Render service will redeploy shortly." });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to trigger deploy" });
+    }
+  });
+
+  // Period-comparison stats: current 30d vs previous 30d for metric card change arrows.
+  app.get(
+    "/api/admin/dashboard-period-stats",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const now = new Date();
+        const periodStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const prevStart   = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+        const paidFilter = sql`lower(cast(${orders.paymentStatus} as text)) in ('completed', 'paid', 'success')`;
+        const completedFilter = sql`${paidFilter} and lower(cast(${orders.status} as text)) = 'completed'`;
+        const pickupFilter = sql`lower(cast(${orders.deliveryMethod} as text)) in ('pickup', 'store_pickup')`;
+
+        const [cur, prev] = await Promise.all([
+          // current period
+          db.select({
+            orders:     sql<number>`count(*)`,
+            revenue:    sql<number>`coalesce(sum(case when ${paidFilter} then cast(${orders.total} as numeric) else 0 end), 0)`,
+            deliveries: sql<number>`coalesce(sum(case when not (${pickupFilter}) and ${completedFilter} then 1 else 0 end), 0)`,
+            pickups:    sql<number>`coalesce(sum(case when (${pickupFilter}) and ${completedFilter} then 1 else 0 end), 0)`,
+          }).from(orders).where(sql`${orders.createdAt} >= ${periodStart}`),
+          // previous period
+          db.select({
+            orders:     sql<number>`count(*)`,
+            revenue:    sql<number>`coalesce(sum(case when ${paidFilter} then cast(${orders.total} as numeric) else 0 end), 0)`,
+            deliveries: sql<number>`coalesce(sum(case when not (${pickupFilter}) and ${completedFilter} then 1 else 0 end), 0)`,
+            pickups:    sql<number>`coalesce(sum(case when (${pickupFilter}) and ${completedFilter} then 1 else 0 end), 0)`,
+          }).from(orders).where(sql`${orders.createdAt} >= ${prevStart} and ${orders.createdAt} < ${periodStart}`),
+        ]);
+
+        // Commission-based platform revenue per period
+        const [curComm, prevComm] = await Promise.all([
+          db.select({ total: sql<number>`coalesce(sum(${commissions.commissionAmount}::numeric), 0)` })
+            .from(commissions).where(sql`${commissions.createdAt} >= ${periodStart}`),
+          db.select({ total: sql<number>`coalesce(sum(${commissions.commissionAmount}::numeric), 0)` })
+            .from(commissions).where(sql`${commissions.createdAt} >= ${prevStart} and ${commissions.createdAt} < ${periodStart}`),
+        ]);
+
+        // New user registrations per period
+        const [curUsers, prevUsers] = await Promise.all([
+          db.select({ count: sql<number>`count(*)` }).from(users).where(sql`${users.createdAt} >= ${periodStart}`),
+          db.select({ count: sql<number>`count(*)` }).from(users).where(sql`${users.createdAt} >= ${prevStart} and ${users.createdAt} < ${periodStart}`),
+        ]);
+
+        res.json({
+          current: {
+            orders:     Number(cur[0]?.orders ?? 0),
+            revenue:    Number(cur[0]?.revenue ?? 0),
+            platformRevenue: Number(curComm[0]?.total ?? 0),
+            deliveries: Number(cur[0]?.deliveries ?? 0),
+            pickups:    Number(cur[0]?.pickups ?? 0),
+            newUsers:   Number(curUsers[0]?.count ?? 0),
+          },
+          previous: {
+            orders:     Number(prev[0]?.orders ?? 0),
+            revenue:    Number(prev[0]?.revenue ?? 0),
+            platformRevenue: Number(prevComm[0]?.total ?? 0),
+            deliveries: Number(prev[0]?.deliveries ?? 0),
+            pickups:    Number(prev[0]?.pickups ?? 0),
+            newUsers:   Number(prevUsers[0]?.count ?? 0),
+          },
         });
       } catch (error: any) {
         res.status(400).json({ error: error.message });
@@ -18428,6 +19914,154 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ error: error.message });
     }
   });
+  // ─── Auto-Fix: Run safe, non-destructive repairs on known issue patterns ───
+  app.post("/api/admin/system-health/auto-fix", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    const fixes: Array<{ name: string; status: "ok" | "fixed" | "skipped" | "error"; detail?: string }> = [];
+
+    // 1. Re-seed missing role feature defaults
+    try {
+      const roleDefaults: Record<string, Record<string, boolean>> = {
+        admin: {
+          "products.viewAll": true, "orders.view": true, "orders.manage": true,
+          "users.view": true, "settings.view": true, "analytics.view": true,
+          "messages.view": true, "messages.send": true, "support.view": true, "maps.view": true,
+        },
+        seller: {
+          "orders.create": true, "products.create": true, "products.edit": true, "products.delete": true,
+          "orders.view": true, "orders.manage": true, "messages.view": true, "messages.send": true,
+          "store.manage": true, "payouts.request": true, "analytics.view": true, "maps.view": true,
+          "reviews.manage": true, "promotions.manage": true, "categories.manage": true,
+        },
+        buyer: {
+          "orders.create": true, "orders.view": true, "messages.view": true, "messages.send": true,
+          "support.view": true, "wishlist.manage": true, "profile.manage": true, "maps.view": true,
+        },
+        rider: {
+          "orders.view": true, "deliveries.view": true, "deliveries.manage": true,
+          "messages.view": true, "earnings.view": true, "maps.view": true,
+        },
+        agent: {
+          "orders.view": true, "users.view": true, "messages.view": true, "messages.send": true,
+          "support.view": true, "support.manage": true, "profile.manage": true,
+        },
+        pickup_agent: {
+          "orders.view": true, "support.view": true, "profile.manage": true,
+        },
+      };
+      let seeded = 0;
+      for (const [role, features] of Object.entries(roleDefaults)) {
+        const existing = await storage.getRoleFeatures(role).catch(() => []);
+        if (!existing || existing.length === 0) {
+          await storage.updateRoleFeatures(role, features, req.user?.id || "system");
+          seeded++;
+        }
+      }
+      fixes.push({ name: "role_feature_defaults", status: seeded > 0 ? "fixed" : "ok", detail: seeded > 0 ? `Seeded ${seeded} role(s)` : "All roles have features" });
+    } catch (e: any) {
+      fixes.push({ name: "role_feature_defaults", status: "error", detail: e?.message });
+    }
+
+    // 2. Repopulate missing footer sections
+    try {
+      const existing = await storage.getAllFooterPages();
+      const existingGroups = new Set(existing.map((p: any) => p.group || "general"));
+      const keyGroups = ["trust_bar", "quick_links", "customer_service", "legal"];
+      const missing = keyGroups.filter(g => !existingGroups.has(g));
+      if (missing.length > 0) {
+        const defaults = [
+          { title: "Fast Delivery", slug: "fast-delivery", content: "Nationwide shipping", url: "", group: "trust_bar", storeMode: "both", displayOrder: 0, isActive: true, openInNewTab: false },
+          { title: "Secure Shopping", slug: "secure-shopping", content: "100% protected", url: "", group: "trust_bar", storeMode: "both", displayOrder: 1, isActive: true, openInNewTab: false },
+          { title: "Home", slug: "home-link", content: "", url: "/", group: "quick_links", storeMode: "both", displayOrder: 0, isActive: true, openInNewTab: false },
+          { title: "Customer Support", slug: "customer-support", content: "", url: "/support", group: "customer_service", storeMode: "both", displayOrder: 0, isActive: true, openInNewTab: false },
+          { title: "Privacy Policy", slug: "privacy-policy", content: "<h1>Privacy Policy</h1><p>Your privacy is important to us.</p>", url: "", group: "legal", storeMode: "both", displayOrder: 0, isActive: true, openInNewTab: false },
+          { title: "Terms of Service", slug: "terms-of-service", content: "<h1>Terms of Service</h1><p>By using this platform, you agree to our terms.</p>", url: "", group: "legal", storeMode: "both", displayOrder: 1, isActive: true, openInNewTab: false },
+        ];
+        const existingSlugs = new Set(existing.map((p: any) => p.slug));
+        let created = 0;
+        for (const item of defaults) {
+          if (missing.includes(item.group!) && !existingSlugs.has(item.slug)) {
+            try { await storage.createFooterPage(item); created++; } catch {}
+          }
+        }
+        fixes.push({ name: "footer_defaults", status: "fixed", detail: `Created ${created} footer items for sections: ${missing.join(", ")}` });
+      } else {
+        fixes.push({ name: "footer_defaults", status: "ok", detail: "All footer sections present" });
+      }
+    } catch (e: any) {
+      fixes.push({ name: "footer_defaults", status: "error", detail: e?.message });
+    }
+
+    // 3. Release stale rider assignments (stuck in searching_rider for > 30 minutes)
+    try {
+      const staleThresholdMs = 30 * 60 * 1000;
+      const allOrders = await storage.getAllOrders();
+      const stale = allOrders.filter((o: any) => {
+        const status = canonicalizeOrderStatus(o.status);
+        if (status !== "searching_rider") return false;
+        const ageMs = Date.now() - new Date(o.updatedAt || o.createdAt).getTime();
+        return ageMs > staleThresholdMs;
+      });
+      let released = 0;
+      for (const order of stale) {
+        try {
+          if (pendingRiderAssignments.has(order.id)) {
+            const pending = pendingRiderAssignments.get(order.id)!;
+            if (pending.timer) clearTimeout(pending.timer);
+            pendingRiderAssignments.delete(order.id);
+          }
+          await storage.updateOrder(order.id, { status: "processing" } as any);
+          released++;
+        } catch {}
+      }
+      fixes.push({ name: "stale_rider_assignments", status: released > 0 ? "fixed" : "ok", detail: released > 0 ? `Released ${released} stale assignment(s)` : "No stale assignments" });
+    } catch (e: any) {
+      fixes.push({ name: "stale_rider_assignments", status: "error", detail: e?.message });
+    }
+
+    // 4. Warm platform settings cache
+    try {
+      await storage.getPlatformSettings();
+      fixes.push({ name: "settings_cache", status: "ok", detail: "Platform settings cache is warm" });
+    } catch (e: any) {
+      fixes.push({ name: "settings_cache", status: "error", detail: e?.message });
+    }
+
+    // 5. Resolve all info-level system activity logs (keep errors/warnings)
+    try {
+      const infoLogs = await db
+        .select({ id: systemActivityLogs.id })
+        .from(systemActivityLogs)
+        .where(and(eq(systemActivityLogs.isResolved, false), eq(systemActivityLogs.severity, "info")))
+        .limit(200);
+      if (infoLogs.length > 0) {
+        await db
+          .update(systemActivityLogs)
+          .set({ isResolved: true, resolvedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(systemActivityLogs.isResolved, false), eq(systemActivityLogs.severity, "info")));
+        fixes.push({ name: "resolve_info_logs", status: "fixed", detail: `Auto-resolved ${infoLogs.length} info-level log(s)` });
+      } else {
+        fixes.push({ name: "resolve_info_logs", status: "ok", detail: "No unresolved info logs" });
+      }
+    } catch (e: any) {
+      fixes.push({ name: "resolve_info_logs", status: "error", detail: e?.message });
+    }
+
+    const fixedCount = fixes.filter(f => f.status === "fixed").length;
+    const errorCount = fixes.filter(f => f.status === "error").length;
+
+    await logSystemActivity({
+      category: "system",
+      severity: errorCount > 0 ? "warning" : "info",
+      title: "Auto-Fix Run",
+      message: `Auto-fix completed: ${fixedCount} fix(es) applied, ${errorCount} error(s).`,
+      source: "/api/admin/system-health/auto-fix",
+      actorId: req.user?.id || null,
+      actorRole: req.user?.role || null,
+    }).catch(() => {});
+
+    res.json({ success: true, fixedCount, errorCount, fixes });
+  });
+
   console.log('[BOOT] WhatsApp-style messaging services initialized');
 
   io.on("connection", (socket) => {
@@ -20458,15 +22092,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current seller's store (auto-create if missing)
   app.get("/api/stores/my-store", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
     try {
-      console.log(`[/api/stores/my-store] Request from seller ${req.user!.id}`);
       
       try {
         // Use centralized helper (requireApproval=true ensures only approved sellers get stores)
         const store = await storage.ensureStoreForSeller(req.user!.id, { requireApproval: true });
-        console.log(`[/api/stores/my-store] Returning store ${store.id} for seller ${req.user!.id}`);
         res.json(store);
       } catch (storeError: any) {
-        console.log(`[/api/stores/my-store] Failed to ensure store for seller ${req.user!.id}:`, storeError.message);
+        console.warn(`[/api/stores/my-store] Failed to ensure store for seller ${req.user!.id}:`, storeError.message);
         
         // Return appropriate error based on issue
         if (storeError.message.includes("not approved")) {
@@ -21405,6 +23037,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ Enhanced Review Routes ============
+  app.get("/api/seller/reviews", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const products = await storage.getProducts({ sellerId: req.user!.id });
+      if (!products.length) return res.json([]);
+      const reviewArrays = await Promise.all(products.map((p: any) => storage.getProductReviews(p.id)));
+      const productMap = new Map(products.map((p: any) => [p.id, p]));
+      const allReviews = reviewArrays.flat().map((review: any) => {
+        const product = productMap.get(review.productId);
+        return {
+          ...review,
+          productName: product?.name || "Unknown Product",
+          productImage: Array.isArray(product?.images) && product.images.length ? product.images[0] : null,
+        };
+      });
+      allReviews.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      res.json(allReviews);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.post("/api/reviews/:id/reply", requireAuth, requireRole("seller"), requireRoleFeature("reviews.manage"), async (req: AuthRequest, res) => {
     try {
       const { reply } = req.body;
@@ -21678,36 +23331,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Paystack Webhook Handler
-  app.post("/webhooks/paystack", async (req, res) => {
-    try {
-      const signature = req.headers['x-paystack-signature'] as string;
-      const payload = JSON.stringify(req.body);
-
-      const settings = await storage.getPlatformSettings();
-      if (!paystackService.verifyWebhookSignature(payload, signature, settings.paystackSecretKey ?? undefined)) {
-        return res.status(401).json({ error: "Invalid signature" });
-      }
-
-      const event = req.body;
-
-      if (event.event === "charge.success") {
-        const { processPaystackChargeSuccess } = await import('./payments');
-        await processPaystackChargeSuccess(event.data, storage, io);
-        const paidOrderIds = extractOrderIdsFromPaymentPayload(event.data);
-        await startRiderMatchingForPaidOrders(paidOrderIds);
-        await ensureReceiptsForOrders(paidOrderIds, {
-          trigger: "payment_success",
-          generatedBy: null,
-          generatedByRole: "super_admin",
-        });
-      }
-
-      res.status(200).json({ status: "success" });
-    } catch (error: any) {
-      res.status(400).json({ error: error.message });
-    }
-  });
+  // NOTE: Legacy /webhooks/paystack endpoint removed. All webhook traffic must use /api/webhooks/paystack
+  // which has proper rawBody signature verification, idempotency guards, and full audit logging.
 
   // ============ Admin Fix Image Paths Endpoint ============
   app.post("/api/admin/fix-image-paths", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_products"), async (req: AuthRequest, res) => {
@@ -21741,6 +23366,389 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── Referral System ──────────────────────────────────────────────────────
+
+  app.get("/api/referral/stats", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const stats = await getReferralStats(req.user!.id);
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/referral/claim/:rewardId", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const result = await claimReward(req.params.rewardId, req.user!.id, req.body.promoOptions);
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/referral-report", requireAuth, requireRole("super_admin", "admin"), requirePermissionIfAdmin("manage_users"), async (req: AuthRequest, res) => {
+    try {
+      const report = await getAdminReferralReport();
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PLATFORM HEALTH  (Task 8.4)
+  // ─────────────────────────────────────────────────────────────────────────────
+  app.get("/api/admin/platform-health", requireAuth, requireRole("super_admin", "admin"), async (_req: AuthRequest, res) => {
+    try {
+      const dbStart = Date.now();
+      let dbStatus = "healthy";
+      try { await db.execute(sql`SELECT 1`); } catch { dbStatus = "error"; }
+      const dbLatency = Date.now() - dbStart;
+
+      const socketCount = io.sockets.sockets.size;
+
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+
+      const [recentOrderRows, criticalErrorRows, activeUserRows, uptimeRow] = await Promise.allSettled([
+        db.select({
+          id: orders.id,
+          total: orders.total,
+          paymentStatus: orders.paymentStatus,
+          createdAt: orders.createdAt,
+          status: orders.status,
+        }).from(orders).where(gte(orders.createdAt, dayAgo)).limit(200),
+
+        db.select({ count: sql<number>`count(*)` })
+          .from(systemActivityLogs)
+          .where(and(
+            eq(systemActivityLogs.isResolved, false),
+            inArray(systemActivityLogs.severity as any, ["critical", "error"]),
+            gte(systemActivityLogs.createdAt, dayAgo),
+          )),
+
+        db.select({ count: sql<number>`count(*)` })
+          .from(users)
+          .where(eq(users.isActive, true)),
+
+        db.select({ count: sql<number>`count(*)` })
+          .from(systemActivityLogs)
+          .limit(1),
+      ]);
+
+      const recentOrders = recentOrderRows.status === "fulfilled" ? recentOrderRows.value : [];
+      const critCount = criticalErrorRows.status === "fulfilled" ? Number(criticalErrorRows.value[0]?.count ?? 0) : 0;
+      const activeSessions = activeUserRows.status === "fulfilled" ? Number(activeUserRows.value[0]?.count ?? 0) : 0;
+      const hasActivityTable = uptimeRow.status === "fulfilled";
+
+      const successfulPayments = recentOrders.filter((o) =>
+        ["paid", "completed", "success"].includes(String(o.paymentStatus ?? "").toLowerCase()),
+      );
+      const failedPayments = recentOrders.filter((o) =>
+        String(o.paymentStatus ?? "").toLowerCase() === "failed",
+      );
+      const totalRevenue24h = successfulPayments.reduce((s, o) => s + Number(o.total || 0), 0);
+
+      const uptimeSeconds = Math.floor(process.uptime());
+      const uptimeDays = Math.floor(uptimeSeconds / 86400);
+      const uptimeHours = Math.floor((uptimeSeconds % 86400) / 3600);
+      const uptimeMinutes = Math.floor((uptimeSeconds % 3600) / 60);
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        uptime: { seconds: uptimeSeconds, days: uptimeDays, hours: uptimeHours, minutes: uptimeMinutes, label: `${uptimeDays}d ${uptimeHours}h ${uptimeMinutes}m` },
+        database: { status: dbStatus, latencyMs: dbLatency },
+        sockets: { activeConnections: socketCount },
+        sessions: { active30Min: activeSessions },
+        payments: {
+          last24hTotal: recentOrders.length,
+          successful: successfulPayments.length,
+          failed: failedPayments.length,
+          totalRevenue24h,
+        },
+        errors: { criticalLast24h: critCount, monitoringAvailable: hasActivityTable },
+        nodeVersion: process.version,
+        memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // GA4 REPORT  (Task 8.1)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async function getGoogleAccessToken(credentials: { client_email: string; private_key: string }): Promise<string> {
+    const { createSign } = await import("crypto");
+    const now = Math.floor(Date.now() / 1000);
+    const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({
+      iss: credentials.client_email,
+      scope: "https://www.googleapis.com/auth/analytics.readonly",
+      aud: "https://oauth2.googleapis.com/token",
+      iat: now,
+      exp: now + 3600,
+    })).toString("base64url");
+    const sign = createSign("RSA-SHA256");
+    sign.update(`${header}.${payload}`);
+    const signature = sign.sign(credentials.private_key, "base64url");
+    const jwtToken = `${header}.${payload}.${signature}`;
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwtToken}`,
+    });
+    const tokenData = await tokenRes.json() as any;
+    if (!tokenData.access_token) throw new Error(tokenData.error_description || "Token exchange failed");
+    return tokenData.access_token;
+  }
+
+  app.get("/api/admin/ga4-report", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    const settings = await storage.getPlatformSettings();
+    const propertyId = (settings as any).ga4PropertyId || process.env.GA4_PROPERTY_ID;
+    const credJson = (settings as any).googleCredentialsJson || process.env.GOOGLE_CREDENTIALS_JSON;
+    if (!propertyId || !credJson) {
+      return res.json({ configured: false, message: "Configure GA4 Property ID and Google Credentials JSON in Admin Settings → Analytics Integrations to enable GA4 reporting." });
+    }
+    try {
+      const credentials = JSON.parse(credJson);
+      const accessToken = await getGoogleAccessToken(credentials);
+      const dateRange = (req.query.range as string) || "28daysAgo";
+
+      const [mainReport, topPagesReport] = await Promise.all([
+        fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dateRanges: [{ startDate: dateRange, endDate: "today" }],
+            metrics: [
+              { name: "sessions" }, { name: "totalUsers" }, { name: "newUsers" },
+              { name: "screenPageViews" }, { name: "purchaseRevenue" }, { name: "conversions" },
+              { name: "averageSessionDuration" }, { name: "bounceRate" },
+            ],
+            dimensions: [{ name: "date" }],
+            orderBys: [{ dimension: { dimensionName: "date" } }],
+          }),
+        }),
+        fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dateRanges: [{ startDate: dateRange, endDate: "today" }],
+            metrics: [{ name: "screenPageViews" }, { name: "sessions" }],
+            dimensions: [{ name: "pagePath" }, { name: "pageTitle" }],
+            orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
+            limit: 10,
+          }),
+        }),
+      ]);
+
+      const [mainData, topPagesData] = await Promise.all([mainReport.json(), topPagesReport.json()]) as any[];
+
+      const parseRows = (data: any, metricNames: string[]) =>
+        (data.rows || []).map((row: any) => {
+          const obj: Record<string, string> = {};
+          (data.dimensionHeaders || []).forEach((h: any, i: number) => { obj[h.name] = row.dimensionValues?.[i]?.value ?? ""; });
+          metricNames.forEach((m, i) => { obj[m] = row.metricValues?.[i]?.value ?? "0"; });
+          return obj;
+        });
+
+      const metricNames = ["sessions", "totalUsers", "newUsers", "screenPageViews", "purchaseRevenue", "conversions", "averageSessionDuration", "bounceRate"];
+      res.json({
+        configured: true,
+        range: dateRange,
+        timeSeries: parseRows(mainData, metricNames),
+        topPages: parseRows(topPagesData, ["screenPageViews", "sessions"]),
+        totals: mainData.totals?.[0]?.metricValues?.reduce((acc: any, v: any, i: number) => {
+          acc[metricNames[i]] = v.value;
+          return acc;
+        }, {}) ?? {},
+      });
+    } catch (err: any) {
+      res.status(500).json({ configured: true, error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SENTRY ISSUES  (Task 8.2)
+  // ─────────────────────────────────────────────────────────────────────────────
+  app.get("/api/admin/sentry-issues", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    const settings = await storage.getPlatformSettings();
+    const authToken = (settings as any).sentryAuthToken || process.env.SENTRY_AUTH_TOKEN;
+    const org = (settings as any).sentryOrg || process.env.SENTRY_ORG;
+    const project = (settings as any).sentryProject || process.env.SENTRY_PROJECT;
+    if (!authToken || !org || !project) {
+      return res.json({ configured: false, message: "Configure Sentry Auth Token, Org, and Project in Admin Settings → Analytics Integrations to enable Sentry monitoring." });
+    }
+    try {
+      const query = (req.query.q as string) || "is:unresolved";
+      const limit = Math.min(Number(req.query.limit) || 25, 100);
+      const [issuesRes, projectRes] = await Promise.all([
+        fetch(`https://sentry.io/api/0/projects/${org}/${project}/issues/?query=${encodeURIComponent(query)}&limit=${limit}&expand=owners&collapse=stats`, {
+          headers: { "Authorization": `Bearer ${authToken}` },
+        }),
+        fetch(`https://sentry.io/api/0/projects/${org}/${project}/`, {
+          headers: { "Authorization": `Bearer ${authToken}` },
+        }),
+      ]);
+      if (!issuesRes.ok) {
+        const err = await issuesRes.json() as any;
+        return res.status(issuesRes.status).json({ configured: true, error: err.detail || "Sentry API error" });
+      }
+      const [issues, project_info] = await Promise.all([issuesRes.json(), projectRes.json()]) as any[];
+      res.json({ configured: true, issues: Array.isArray(issues) ? issues : [], project: project_info });
+    } catch (err: any) {
+      res.status(500).json({ configured: true, error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SENTRY ISSUE DETAIL (for AI fix context)
+  // ─────────────────────────────────────────────────────────────────────────────
+  app.get("/api/admin/sentry-issues/:issueId/events", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    const settings = await storage.getPlatformSettings();
+    const authToken = (settings as any).sentryAuthToken || process.env.SENTRY_AUTH_TOKEN;
+    const org = (settings as any).sentryOrg || process.env.SENTRY_ORG;
+    if (!authToken || !org) return res.status(503).json({ error: "Sentry not configured" });
+    try {
+      const r = await fetch(`https://sentry.io/api/0/organizations/${org}/issues/${req.params.issueId}/events/latest/`, {
+        headers: { "Authorization": `Bearer ${authToken}` },
+      });
+      const data = await r.json();
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // AI-SUGGESTED FIX FOR SENTRY ISSUE  (Task 8.3)
+  // ─────────────────────────────────────────────────────────────────────────────
+  app.post("/api/admin/sentry-ai-fix", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return res.status(503).json({ error: "ANTHROPIC_API_KEY not configured" });
+
+    const { title, culprit, stacktrace, issueType } = req.body as {
+      title?: string; culprit?: string; stacktrace?: string; issueType?: string;
+    };
+
+    // Attempt to read the culprit file for better context
+    let fileContent = "";
+    let resolvedFilePath = "";
+    if (culprit) {
+      const rawPath = culprit.split(" in ")[0].trim().replace(/^\//, "");
+      const candidates = [
+        path.join(process.cwd(), rawPath),
+        path.join(process.cwd(), "client", "src", rawPath),
+        path.join(process.cwd(), "server", rawPath),
+        path.join(process.cwd(), rawPath.replace(/^client\//, "")),
+      ];
+      for (const candidate of candidates) {
+        try {
+          const content = await fs.readFile(candidate, "utf8");
+          fileContent = content.slice(0, 4000);
+          resolvedFilePath = path.relative(process.cwd(), candidate).replace(/\\/g, "/");
+          break;
+        } catch { /* try next */ }
+      }
+    }
+
+    const prompt = `You are an expert TypeScript/React/Node.js developer reviewing a production error in a KiyuMart e-commerce platform (React 18 + Vite frontend, Express + TypeScript backend, PostgreSQL + Drizzle ORM, Socket.IO, Paystack payments).
+
+**Error:** ${title || "Unknown error"}
+**Type:** ${issueType || "N/A"}
+**Location (culprit):** ${culprit || "Unknown"}
+
+**Stack trace:**
+\`\`\`
+${stacktrace || "No stack trace available"}
+\`\`\`
+
+${resolvedFilePath ? `**Current file content (${resolvedFilePath}):**\n\`\`\`typescript\n${fileContent}\n\`\`\`` : ""}
+
+Analyze this error and provide a specific fix. Respond with ONLY a valid JSON object (no markdown, no extra text):
+{
+  "file": "relative/path/to/file.ts",
+  "explanation": "2-3 sentence explanation of why this error occurs and what the fix does",
+  "originalCode": "the exact code snippet to replace (copy from file content above if available)",
+  "fixedCode": "the corrected replacement code",
+  "safe": true or false (true = auto-apply safe, false = requires manual review),
+  "confidence": "high" | "medium" | "low"
+}`;
+
+    try {
+      const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1500,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const aiData = await aiRes.json() as any;
+      const text: string = aiData.content?.[0]?.text || "";
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return res.json({ success: true, fix: { ...parsed, resolvedFilePath } });
+        } catch { /* fall through */ }
+      }
+      res.json({ success: true, fix: { explanation: text, file: resolvedFilePath || culprit, safe: false, confidence: "low" } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // APPLY AI FIX TO FILE  (Task 8.3)
+  // ─────────────────────────────────────────────────────────────────────────────
+  app.post("/api/admin/apply-fix", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    const { file, originalCode, fixedCode } = req.body as { file?: string; originalCode?: string; fixedCode?: string };
+    if (!file || !fixedCode) return res.status(400).json({ error: "file and fixedCode are required" });
+
+    const normalizedPath = (file as string).replace(/\\/g, "/").replace(/^\/+/, "");
+    const allowedPrefixes = ["client/src/", "server/"];
+    if (!allowedPrefixes.some((p) => normalizedPath.startsWith(p))) {
+      return res.status(403).json({ error: "File path is outside the allowed source directories" });
+    }
+
+    const fullPath = path.join(process.cwd(), normalizedPath);
+    try {
+      const currentContent = await fs.readFile(fullPath, "utf8");
+
+      let updatedContent: string;
+      if (originalCode && currentContent.includes(originalCode.trim())) {
+        updatedContent = currentContent.replace(originalCode.trim(), fixedCode.trim());
+      } else {
+        // originalCode not found (file may have changed) — treat fixedCode as full replacement if it looks complete
+        if (fixedCode.length < 50) return res.status(400).json({ error: "Cannot locate original code in file — please apply manually" });
+        updatedContent = fixedCode;
+      }
+
+      await fs.writeFile(fullPath, updatedContent, "utf8");
+
+      // Optionally trigger a Render deploy hook
+      const deployHook = process.env.RENDER_DEPLOY_HOOK_URL;
+      let redeployTriggered = false;
+      if (deployHook) {
+        fetch(deployHook, { method: "POST" }).catch(() => {});
+        redeployTriggered = true;
+      }
+
+      console.info(`[APPLY-FIX] Applied AI fix to ${normalizedPath} by ${req.user!.email}`);
+      res.json({ success: true, file: normalizedPath, redeployTriggered });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

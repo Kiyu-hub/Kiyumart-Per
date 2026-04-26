@@ -54,7 +54,7 @@ type BecomeSellerFormData = z.infer<ReturnType<typeof getSellerSchema>>;
 export default function BecomeSellerPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const isLoggedIn = !!user;
   const currentRole = String(user?.role || "").toLowerCase();
   const currentRequestedRole = String((user as any)?.requestedRole || "").toLowerCase();
@@ -86,6 +86,12 @@ export default function BecomeSellerPage() {
   const [cardBackPreview, setCardBackPreview] = useState<string>("");
   const [selectedStoreType, setSelectedStoreType] = useState<StoreType | null>(null);
   const [metadataErrors, setMetadataErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!authLoading && !isLoggedIn) {
+      navigate(`/auth?redirect=${encodeURIComponent("/become-seller")}`);
+    }
+  }, [authLoading, isLoggedIn, navigate]);
 
   const form = useForm<BecomeSellerFormData>({
     resolver: zodResolver(getSellerSchema(selectedStoreType)),
@@ -352,7 +358,7 @@ export default function BecomeSellerPage() {
             </Dialog>
           )}
 
-          {!applicationGate && (
+          {!authLoading && isLoggedIn && !applicationGate && (
           <Card>
             <CardHeader>
               <div className="flex items-center gap-3">

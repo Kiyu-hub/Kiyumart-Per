@@ -134,7 +134,7 @@ export default function PaymentPage() {
             inlineMessage,
           ) && data.authorization_url;
         if (canFallbackToHostedCheckout) {
-          window.location.assign(data.authorization_url);
+          window.location.assign(data.authorization_url!);
           return { verified: false, message: "Redirecting to secure payment...", orderId };
         }
         throw inlineError;

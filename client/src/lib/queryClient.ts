@@ -3,9 +3,36 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 const API_CANDIDATE_TIMEOUT_MS = 6000;
 const SAME_ORIGIN_TIMEOUT_MS = 12000;
 
+/** Fires a global event the MaintenanceGuard listens to, so the maintenance
+ *  page shows immediately without waiting for the next 20-second poll. */
+function signalMaintenanceDetected() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("kiyumart:maintenance"));
+  }
+}
+
+/** Returns true if the parsed body looks like a maintenance 503 response. */
+function isMaintenanceBody(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  const b = body as Record<string, unknown>;
+  return b.error === "maintenance" && b.maintenanceMode === true;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
+    // Detect maintenance 503 and immediately signal the UI
+    if (res.status === 503) {
+      try {
+        const parsed = JSON.parse(text);
+        if (isMaintenanceBody(parsed)) {
+          signalMaintenanceDetected();
+          throw new Error("maintenance");
+        }
+      } catch (e) {
+        if ((e as Error).message === "maintenance") throw e;
+      }
+    }
     throw new Error(`${res.status}: ${text}`);
   }
 }
@@ -43,10 +70,13 @@ function getApiCandidates(url: string): string[] {
       addUniqueCandidate(candidates, `${protocol}//${host}:5001${normalizedPath}`);
     }
 
-    addUniqueCandidate(candidates, `http://localhost:5000${normalizedPath}`);
-    addUniqueCandidate(candidates, `http://127.0.0.1:5000${normalizedPath}`);
-    addUniqueCandidate(candidates, `http://localhost:5001${normalizedPath}`);
-    addUniqueCandidate(candidates, `http://127.0.0.1:5001${normalizedPath}`);
+    // Only add localhost fallbacks in development — avoids wasted requests in production
+    if ((import.meta.env as any).DEV) {
+      addUniqueCandidate(candidates, `http://localhost:5000${normalizedPath}`);
+      addUniqueCandidate(candidates, `http://127.0.0.1:5000${normalizedPath}`);
+      addUniqueCandidate(candidates, `http://localhost:5001${normalizedPath}`);
+      addUniqueCandidate(candidates, `http://127.0.0.1:5001${normalizedPath}`);
+    }
   }
 
   return candidates;
@@ -129,6 +159,10 @@ export async function fetchSameOriginJson<T>(url: string, init?: RequestInit): P
   const parsed = text ? JSON.parse(text) : null;
 
   if (!res.ok) {
+    if (res.status === 503 && isMaintenanceBody(parsed)) {
+      signalMaintenanceDetected();
+      throw new Error("maintenance");
+    }
     const message = parsed?.userMessage || parsed?.error || text || res.statusText;
     throw new Error(`${res.status}: ${message}`);
   }
@@ -142,6 +176,10 @@ export async function fetchApiJson<T>(url: string, init?: RequestInit): Promise<
   const parsed = text ? JSON.parse(text) : null;
 
   if (!res.ok) {
+    if (res.status === 503 && isMaintenanceBody(parsed)) {
+      signalMaintenanceDetected();
+      throw new Error("maintenance");
+    }
     const message = parsed?.userMessage || parsed?.error || text || res.statusText;
     throw new Error(`${res.status}: ${message}`);
   }

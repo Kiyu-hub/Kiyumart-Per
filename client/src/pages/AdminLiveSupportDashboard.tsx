@@ -109,8 +109,19 @@ interface MessagingStats {
 }
 
 export default function AdminLiveSupportDashboard() {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [, navigate] = useLocation();
+  const normalizedRole = (() => {
+    const raw = String(user?.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    return raw === "superadmin" ? "super_admin" : raw;
+  })();
+  const isAdminViewer = normalizedRole === "admin" || normalizedRole === "super_admin";
+
+  useEffect(() => {
+    if (!authLoading && (!isAuthenticated || !isAdminViewer)) {
+      navigate("/");
+    }
+  }, [authLoading, isAuthenticated, isAdminViewer, navigate]);
   const { toast } = useToast();
   const socket = useSocket();
   
@@ -222,7 +233,7 @@ export default function AdminLiveSupportDashboard() {
   };
 
   return (
-    <DashboardLayout role={user?.role as 'admin' || 'admin'}>
+    <DashboardLayout role={normalizedRole === "super_admin" ? "super_admin" : "admin"}>
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

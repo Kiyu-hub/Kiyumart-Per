@@ -211,7 +211,8 @@ class MessageDeliveryService {
    * Start the retry loop for pending messages
    */
   private startRetryLoop() {
-    this.retryInterval = setInterval(async () => {
+    this.retryInterval = setInterval(() => {
+      (async () => {
       const now = Date.now();
 
       for (const [messageId, message] of Array.from(pendingMessages.entries())) {
@@ -250,6 +251,9 @@ class MessageDeliveryService {
           this.debugLog(`[MESSAGE-DELIVERY] Message ${messageId} retry ${message.retryCount}/${MAX_RETRIES}, next: ${message.nextRetry.toISOString()}`);
         }
       }
+      })().catch((err) => {
+        console.error("[MESSAGE-DELIVERY] Retry loop error:", (err as any)?.message || err);
+      });
     }, 2000); // Check every 2 seconds
   }
 

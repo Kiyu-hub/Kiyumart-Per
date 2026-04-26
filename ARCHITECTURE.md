@@ -1,1068 +1,668 @@
-# KiyuMart Architecture Documentation
+# KiyuMart Architecture Reference
 
-**Purpose:** Complete technical architecture overview for developers and AI models
-
-**Last Updated:** February 3, 2026  
-**Version:** 1.1.4 (Multi-Vendor Promotional Ads Parity)
+**Purpose:** Deep technical architecture for engineers and AI builders.  
+**Last Updated:** 2026-04-25  
+**Companion:** See `README.md` for the platform overview, feature list, environment variables, and deployment guide. This document covers the *how* and *why* behind each architectural decision.
 
 ---
 
 ## Table of Contents
 
-1. [System Overview](#system-overview)
-2. [Technology Stack](#technology-stack)
-3. [Directory Structure](#directory-structure)
-4. [Database Design](#database-design)
-5. [API Architecture](#api-architecture)
-6. [Frontend Architecture](#frontend-architecture)
-7. [Authentication & Security](#authentication--security)
-8. [Real-time Communication](#real-time-communication)
-9. [File Storage](#file-storage)
-10. [Payment Processing](#payment-processing)
-11. [Deployment Architecture](#deployment-architecture)
+1. [System Topology](#system-topology)
+2. [Data Model](#data-model)
+3. [Order State Machine](#order-state-machine)
+4. [Payment Architecture](#payment-architecture)
+5. [Authentication & Authorization](#authentication--authorization)
+6. [Real-time Architecture (Socket.IO)](#real-time-architecture-socketio)
+7. [Background Workers](#background-workers)
+8. [Services Layer](#services-layer)
+9. [Frontend Architecture](#frontend-architecture)
+10. [API Layer](#api-layer)
+11. [File Storage](#file-storage)
+12. [Email System](#email-system)
+13. [Platform Configuration System](#platform-configuration-system)
+14. [Startup Sequence](#startup-sequence)
+15. [Security Architecture](#security-architecture)
+16. [Performance Design](#performance-design)
+17. [Testing](#testing)
 
 ---
 
-## System Overview
-
-### High-Level Architecture
+## System Topology
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          Frontend (React 18)                     │
-│  - Browser-based SPA with Vite build tool                        │
-│  - Real-time UI updates via Socket.IO                            │
-│  - Multi-currency, multi-language support                        │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ HTTP/WebSocket
-┌────────────────────────────▼────────────────────────────────────┐
-│                    Express.js Backend (Node.js)                  │
-│  - RESTful API endpoints with JWT authentication                 │
-│  - Socket.IO server for real-time events                         │
-│  - Middleware stack (Helmet, CORS, rate-limiting)                │
-│  - Business logic and data validation                            │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ SQL
-┌────────────────────────────▼────────────────────────────────────┐
-│              PostgreSQL Database (Neon Serverless)               │
-│  - Multi-tenant data model with organization isolation           │
-│  - Normalized schema with proper indexes                         │
-│  - Transaction support for financial operations                  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  Browser (React 18 SPA)                                  │
+│  ├── Wouter client-side routing                          │
+│  ├── TanStack Query (server state + cache)               │
+│  ├── Socket.IO client (WebSocket, HTTP-long-poll fallback)│
+│  └── Paystack inline SDK (popup payment)                 │
+└────────────────────────┬────────────────────────────────┘
+                         │ HTTPS + WSS
+┌────────────────────────▼────────────────────────────────┐
+│  Express.js Backend (Render, Frankfurt EU)               │
+│  ├── Helmet + CORS + express-rate-limit                  │
+│  ├── JWT cookie auth + role middleware                    │
+│  ├── Drizzle ORM → Neon PostgreSQL                       │
+│  ├── Socket.IO server (same process)                     │
+│  ├── 4 background workers (setInterval)                  │
+│  └── Multer → Cloudinary (media uploads)                 │
+└────────────────────────┬────────────────────────────────┘
+                         │ SQL (TLS)
+┌────────────────────────▼────────────────────────────────┐
+│  Neon Serverless PostgreSQL (42 tables)                  │
+└─────────────────────────────────────────────────────────┘
 
 External Services:
-- Paystack: Payment processing
-- Cloudinary: Image/video storage
-- OpenStreetMap (Leaflet): Map visualization
+  Paystack API          ← payment initialization + payout transfers
+  Paystack Webhooks  → POST /api/webhooks/paystack
+  Cloudinary            ← image/video upload + CDN
+  Nodemailer / SMTP     ← transactional email
+  OpenStreetMap / Mapbox ← map tiles (Leaflet)
+  Jitsi Meet (public)   ← video calls
+  Sentry (optional)     ← error tracking
+  Prometheus            ← metrics at /api/metrics
 ```
 
-### Platform Modes
+### Design Decisions
 
-**Single-Store Mode:**
-- Admin controls all products
-- Single payment account
-- Sellers exist but have limited access
-- Ideal for startups and brand stores
+**Monorepo:** Frontend and backend share a single `package.json`. The shared `schema.ts` is imported by both sides — the frontend uses the Zod schemas for form validation, the backend uses the Drizzle table definitions. This eliminates type drift between API contracts and UI forms.
 
-**Multi-Vendor Mode:**
-- Multiple sellers independently manage their stores
-- Each seller has complete product control
-- Buyers choose from multiple sellers
-- Platform collects commission/fees
-- Scalable marketplace model
+**One process:** Socket.IO runs inside the Express process. This avoids inter-process messaging complexity but means horizontal scaling requires a Redis adapter if you ever run multiple instances. For the current deployment (Render single instance), this is fine.
 
-Mode is controlled by `multi_vendor_mode` in platform settings (admin-only).
+**No message queue:** Workers use `setInterval`. There is no Bull, BullMQ, or Redis. This is intentional for the free-tier Render deployment — adding a queue requires a Redis instance which costs money. The trade-off is that dropped jobs on server restart are retried on the next interval tick. All critical operations (payouts, order state transitions) are idempotent at the DB level, so a repeated worker run cannot double-process.
 
 ---
 
-## Technology Stack
+## Data Model
 
-### Frontend Stack
+Schema defined in `shared/schema.ts` using Drizzle ORM. PostgreSQL on Neon (serverless, auto-scaling).
+
+### Core Entities
+
+#### `users`
+The central entity. All roles (buyer, seller, rider, admin, etc.) are rows in this table distinguished by `role` enum.
+
+Key columns:
+- `role`: `super_admin | admin | seller | buyer | rider | agent | pickup_agent`
+- `applicationStatus`: `pending | interview_scheduled | approved | rejected` — used for seller/rider onboarding
+- `isApproved`: boolean — must be `true` for sellers and riders to access their dashboards
+- `isActive`: boolean — if `false`, the user is locked out (can only reach support)
+- `roleFeatures`: JSONB — dynamic permission flags (e.g. `{"orders.view": true, "analytics.view": false}`)
+- `isPremiumSeller`: boolean — bypasses `freeTierProductLimit` when `true`
+- `vehicleInfo`: JSONB — rider's vehicle details (type, plate number, etc.)
+
+#### `stores`
+One store per seller in multi-vendor mode. Holds the seller's public storefront data (name, logo, description) and payout configuration (bank account or mobile money details, encrypted).
+
+#### `products`
+Each product belongs to a category and optionally a seller. Key columns:
+- `images`: text array — Cloudinary URLs
+- `videoUrl`: optional Cloudinary video URL
+- `dynamicFields`: JSONB — category-specific custom attributes
+- `stockQuantity`: decremented on order placement
+- Ratings are denormalized: `averageRating` and `totalReviews` are stored on the product row and updated when a review is created/updated.
+
+#### `orders`
+The central transaction record.
+- `status`: enum covering all states from `pending` to `completed`
+- `paymentStatus`: `pending | paid | failed | refunded`
+- `deliveryMethod`: `delivery | pickup`
+- `deliveryMethod === "pickup"` triggers the QR/OTP verification flow at the pickup station
+- `externalDeliveryByBus`, `externalDeliveryType`: flags for external delivery context shown to buyer/seller
+- Fee breakdown: `platformFee`, `deliveryFee`, `couponDiscount`, `processingFee` stored separately for accounting
+
+#### `platformSettings`
+A single row. All platform configuration is stored here. At startup, `server/data/platform-settings-compat.json` is used as a fallback if the DB row does not exist (handles cold-start race conditions on first deploy).
+
+### Table Relationships
+
+```
+users (buyer_id) ──→ orders ←── users (seller_id)
+                      │
+           ┌──────────┤──────────┐
+           ▼          ▼          ▼
+      order_items  transactions  order_status_history
+           │
+           ▼
+        products ──→ product_variants
+           │
+           ▼
+        categories
+
+users (seller_id) ──→ stores
+stores ──→ promotionalAds
+stores ──→ products (multi-vendor)
+
+orders ──→ deliveryZones
+orders ──→ users (rider_id, nullable)
+orders ──→ deliveryTracking (GPS log)
+orders ──→ receipts
+
+users ──→ notifications (recipient_id)
+users ──→ chatMessages (sender_id, recipient_id)
+users ──→ sellerPayouts
+users ──→ riderPayouts
+```
+
+---
+
+## Order State Machine
+
+Defined in `server/services/orderStateMachine.ts`. This is the canonical authority for what transitions are allowed and by whom.
+
+### State Enum (in order)
+
+```
+pending / created
+  → processing         (trigger: successful payment webhook)
+    → packaged         (actor: seller)
+      → ready          (actor: seller — marks order ready for pickup or dispatch)
+        → [pickup path]     → completed (actor: pickup_agent or admin, via QR/OTP)
+        → [internal rider]  → searching_rider → assigned → rider_arrived
+                                              → picked_up → in_transit → en_route
+                                              → delivered → completed
+        → [external delivery] → external_dispatch_arranged → completed
+cancelled                (actor: buyer from pending; admin/seller with reason)
+```
+
+### Transition Rules
+
+- Each transition is validated: the requested `newStatus` must be reachable from `currentStatus`.
+- Each transition is role-gated: only specific roles can trigger each transition.
+- The `order_status_history` table logs every transition with actor ID, timestamp, and optional reason.
+- Payment precondition: status cannot advance past `pending` unless `paymentStatus === 'paid'`.
+
+### External Delivery Flag
+
+When `isExternalRiderSystemEnabled: true` in platform settings, the `searching_rider` transition is never triggered. `ready → external_dispatch_arranged` is the only path forward, and it requires an admin action via a dedicated API endpoint.
+
+---
+
+## Payment Architecture
+
+### Initialization
+
+```
+Client                     Backend                      Paystack API
+  │                           │                              │
+  │── POST /api/payments/     │                              │
+  │   initialize ────────────▶│                              │
+  │                           │── POST /transaction/        │
+  │                           │   initialize ───────────────▶│
+  │                           │◀── { accessCode, reference } ─│
+  │◀── { accessCode,          │                              │
+  │     reference } ──────────│                              │
+  │                           │                              │
+  │── Open Paystack popup     │                              │
+  │   (using accessCode)      │                              │
+  │                           │                              │
+```
+
+### Webhook Flow
+
+```
+Paystack                   Backend                       DB
+  │                           │                           │
+  │── POST /api/webhooks/     │                           │
+  │   paystack ──────────────▶│                           │
+  │                           │── Verify HMAC-SHA512      │
+  │                           │── Check idempotencyKeys ──▶│
+  │                           │◀── { used: false } ───────│
+  │                           │── processPaystackCharge   │
+  │                           │   Success()               │
+  │                           │   ├── Update order status │
+  │                           │   ├── Credit sellerPayout │
+  │                           │   ├── Record commission   │
+  │                           │   ├── Send buyer email    │
+  │                           │   ├── Send seller email   │
+  │                           │   ├── Emit socket events  │
+  │                           │   └── Mark idempotency key│
+  │◀── 200 OK ────────────────│                           │
+```
+
+### Idempotency
+
+The `idempotencyKeys` table stores `{ key, used, usedAt }`. Every webhook handler checks this before processing. If `used === true`, the handler returns 200 immediately. This prevents double-processing of duplicate webhook deliveries.
+
+The key is the Paystack `reference` field.
+
+### Premium Seller Upgrade
+
+Sellers can pay to become premium (bypasses the free-tier product limit). The flow uses the same Paystack webhook. The webhook detects `metadata.upgradeType === "premium_seller"` before calling `processPaystackChargeSuccess`, updates `users.isPremiumSeller = true`, sends notifications, and returns.
+
+### Seller Payouts
+
+Seller payouts are **not manual requests**. They are created automatically when an order is paid (`processPaystackChargeSuccess` creates a `sellerPayouts` record). The payout worker picks them up every 15 seconds and initiates Paystack Transfer API calls to the seller's configured bank account or mobile money number.
+
+---
+
+## Authentication & Authorization
+
+### JWT Flow
+
+1. Client sends credentials to `POST /api/auth/login`.
+2. Backend hashes password with bcrypt (10 salt rounds), compares.
+3. On match, generates JWT: `{ userId, role }`, signed with `JWT_SECRET`, 7-day expiry.
+4. JWT is set as an `httpOnly`, `secure` (production), `sameSite: strict` cookie.
+5. Client includes cookie automatically on all same-origin requests.
+6. Each protected route runs `requireAuth`, which extracts the cookie, verifies the JWT, fetches the user from DB, and attaches to `req.user`.
+
+### Middleware Chain
+
+```
+requireAuth
+  └── requireRole("admin", "super_admin")
+        └── requireRoleFeature("orders.view")
+              └── handler
+```
+
+`requireRoleFeature` checks `req.user.roleFeatures[featureKey] !== false`. Undefined means the feature is allowed (opt-out rather than opt-in). Only explicitly `false` blocks access. `super_admin` bypasses all feature gates.
+
+### Role Normalization
+
+The string `"superadmin"` (without underscore) is normalized to `"super_admin"` in both `DashboardSidebar.tsx` and `DashboardLayout.tsx`. This handles legacy JWT tokens or inconsistent role strings.
+
+### Password Reset
+
+`POST /api/auth/forgot-password` creates a `passwordResetTokens` record with a random token and 1-hour expiry. An email with the reset link is sent. `POST /api/auth/reset-password` validates the token and updates the password hash.
+
+---
+
+## Real-time Architecture (Socket.IO)
+
+Socket.IO runs on the same HTTP server as Express. Upgrade from HTTP to WebSocket happens transparently.
+
+### Authentication
+
+The Socket.IO `connection` handler reads the JWT from the cookie header (or `auth.token` in handshake data). Invalid tokens result in immediate disconnection.
+
+### Room Strategy
+
+On successful connection, the socket joins:
+- `user:{userId}` — personal room for targeted notifications
+- `role:{role}` — role room for broadcast events (e.g. new seller application → all admins)
+
+This means `io.to("user:abc123").emit(...)` reaches exactly one user regardless of how many tabs they have open.
+
+### Event Reference
+
+| Event | Direction | Emitted by | Consumed by |
+|---|---|---|---|
+| `notification` | S→C | Backend on any notification create | User's personal room |
+| `order_status_updated` | S→C | Order state machine | Buyer + Seller personal rooms |
+| `order_rider_assignment_failed` | S→C | Rider matching service | Admin role room + Buyer personal room |
+| `rider_location_update` | S→C | Rider GPS submit handler | Buyer on active delivery |
+| `new_message` | S→C | Chat message handler | Recipient personal room |
+| `message_read` | S→C | Read receipt handler | Sender personal room |
+| `typing` | C→S→C | Client | Conversation partner |
+| `support_message` | S→C | Support handler | Agent + Buyer personal rooms |
+| `maintenance_status` | S→C | Admin toggle handler | All connected clients |
+| `presence_update` | S→C | Presence heartbeat | Conversation partners |
+| `seller-approved:{userId}` | S→C | Application handler | Admin room |
+
+### Presence System
+
+`server/services/presenceService.ts` maintains an in-memory map of `userId → { status, lastSeen }`. Clients must emit a `heartbeat` event every 5–10 seconds to stay online. A sweep runs periodically and marks users whose last heartbeat is stale as offline. This is entirely in-memory — presence state does not survive server restarts.
+
+---
+
+## Background Workers
+
+All workers are started in `server/index.ts` inside try/catch blocks. A failed worker import does not crash the server.
 
 ```typescript
-Framework & Build:
-├── React 18.x
-├── TypeScript (strict mode)
-├── Vite (build tool + dev server)
-└── Wouter (lightweight routing)
-
-State Management:
-├── TanStack Query v5 (server state + caching)
-├── Zustand (client state)
-└── Context API (theme, language, auth)
-
-UI & Styling:
-├── Shadcn UI (Radix UI + Tailwind)
-├── Tailwind CSS
-├── Lucide React (icons)
-└── React Icons
-
-Forms & Validation:
-├── React Hook Form
-└── Zod (schema validation)
-
-Real-time & Communication:
-├── Socket.IO Client
-└── Native Fetch API
-
-Maps & Visualization:
-├── Leaflet.js
-├── React QR Code
-└── Chart.js (analytics)
-
-Utilities:
-├── date-fns (date handling)
-├── clsx (class name merging)
-└── nanoid (unique IDs)
+// Pattern used for each worker:
+try {
+  const { runXWorker } = await import('./workers/xWorker');
+  runXWorker();
+} catch (e) {
+  console.error('Worker failed to start:', e);
+}
 ```
 
-### Backend Stack
+### Graceful Shutdown
 
 ```typescript
-Runtime & Framework:
-├── Node.js (LTS recommended)
-├── Express.js (web framework)
-└── TypeScript (tsx for runtime)
-
-Database:
-├── PostgreSQL (primary database)
-├── Drizzle ORM (type-safe queries)
-├── Migrations system
-└── Connection pooling
-
-Authentication & Security:
-├── JWT (JSON Web Tokens)
-├── Bcrypt (password hashing)
-├── express-session (session management)
-├── Helmet (security headers)
-├── express-rate-limit (rate limiting)
-└── CORS (cross-origin control)
-
-Real-time Communication:
-├── Socket.IO (WebSocket fallback)
-├── Socket.IO namespaces
-└── Event-based architecture
-
-Validation & Middleware:
-├── Zod (runtime validation)
-├── zod-validation-error (error formatting)
-└── Express middleware stack
-
-File Upload:
-├── Multer (file handling)
-└── Cloudinary SDK (cloud storage)
-
-External Integrations:
-├── Paystack (payment gateway)
-├── Cloudinary (image/video storage)
-└── OpenStreetMap (map tiles)
-
-Development & Testing:
-├── Playwright (e2e testing)
-└── TypeScript (type safety)
+process.on("SIGTERM", () => { setTimeout(() => process.exit(0), 8000).unref(); });
+process.on("SIGINT",  () => { setTimeout(() => process.exit(0), 8000).unref(); });
 ```
+
+This gives in-flight HTTP requests up to 8 seconds to complete before the process exits. Workers are not explicitly stopped — the process exit terminates them.
 
 ---
 
-## Directory Structure
+## Services Layer
 
-```
-/workspaces/Kiyumart-Per/
-├── client/                           # Frontend React application
-│   ├── index.html                    # Entry HTML
-│   ├── src/
-│   │   ├── App.tsx                   # Root component
-│   │   ├── main.tsx                  # Vite entry point
-│   │   ├── components/               # Reusable UI components
-│   │   │   ├── ProductCard.tsx
-│   │   │   ├── OrderTracker.tsx
-│   │   │   ├── CategorySelector.tsx
-│   │   │   └── ...
-│   │   ├── pages/                    # Page components (full screens)
-│   │   │   ├── HomePage.tsx
-│   │   │   ├── AdminDashboard.tsx
-│   │   │   ├── SellerDashboard.tsx
-│   │   │   ├── RiderDashboard.tsx
-│   │   │   ├── CheckoutPage.tsx
-│   │   │   └── ...
-│   │   ├── hooks/                    # Custom React hooks
-│   │   │   ├── useWebRTC.ts         # WebRTC calls
-│   │   │   ├── useGroupCall.ts      # Group video calls
-│   │   │   ├── useAuth.ts           # Authentication logic
-│   │   │   └── ...
-│   │   ├── lib/                      # Utility functions
-│   │   │   ├── api.ts               # API client setup
-│   │   │   ├── socket.ts            # Socket.IO setup
-│   │   │   ├── validators.ts        # Zod schemas
-│   │   │   └── ...
-│   │   ├── styles/                   # Global styles
-│   │   └── contexts/                 # React contexts
-│   │       ├── AuthContext.tsx
-│   │       ├── ThemeContext.tsx
-│   │       └── LanguageContext.tsx
-│   ├── public/                       # Static assets
-│   └── vite.config.ts               # Vite configuration
-│
-├── server/                           # Backend Express application
-│   ├── index.ts                     # Server entry point
-│   ├── routes.ts                    # All API route definitions (~6000 lines)
-│   ├── auth.ts                      # Authentication logic
-│   ├── payments.ts                  # Paystack integration
-│   ├── paystack.ts                  # Paystack SDK wrapper
-│   ├── cloudinary.ts                # Cloudinary integration
-│   ├── currency.ts                  # Currency conversion
-│   ├── metrics.ts                   # Analytics calculations
-│   ├── storage.ts                   # Database abstraction layer
-│   ├── seed.ts                      # Seed data generation
-│   ├── seedMediaLibrary.ts          # Product media generation
-│   ├── vite.ts                      # Vite integration
-│   ├── __tests__/                   # Unit & integration tests
-│   ├── services/                    # Business logic services
-│   ├── workers/                     # Background workers (payouts)
-│   └── scripts/                     # Database utilities
-│
-├── db/                              # Database configuration
-│   └── index.ts                     # Drizzle ORM setup
-│
-├── shared/                          # Shared code between frontend & backend
-│   ├── schema.ts                    # Drizzle database schema
-│   └── storeTypes.ts               # Shared TypeScript types
-│
-├── migrations/                      # SQL migrations
-│   ├── 0001_chat_message_status.sql
-│   ├── 0002_create_idempotency_keys.sql
-│   ├── 0003_add_social_toggles.sql
-│   └── ...
-│
-├── e2e/                            # End-to-end tests
-│   └── admin-settings.spec.ts
-│
-├── scripts/                        # Utility scripts
-│   ├── seed-admins.ts             # Create admin accounts
-│   ├── seed-banners.ts            # Create banners
-│   ├── check-migrations.ts        # Verify migrations
-│   └── ...
-│
-├── docs/                           # Documentation
-│   └── cryptocurrency-payment-integration.md
-│
-├── attached_assets/                # Marketing & guide materials
-├── archive/                        # Old files & documentation
-│
-├── Configuration Files:
-├── package.json                    # Dependencies & scripts
-├── tsconfig.json                   # TypeScript configuration
-├── vite.config.ts                 # Vite build configuration
-├── drizzle.config.ts              # Drizzle ORM configuration
-├── tailwind.config.ts             # Tailwind CSS configuration
-├── postcss.config.js              # PostCSS plugins
-├── playwright.config.ts           # E2E testing configuration
-├── components.json                # Shadcn UI configuration
-│
-├── Documentation Files:
-├── README.md                       # Main project documentation
-├── ARCHITECTURE.md                 # This file
-├── PRODUCTION_ASSESSMENT.md        # Production readiness report
-├── PRODUCTION_READY.md            # Deployment checklist
-├── DEVELOPMENT.md                  # Development guide
-├── DEPLOYMENT.md                   # Deployment instructions
-├── design_guidelines.md            # UI/UX guidelines
-├── ADMIN_LOGIN_CREDENTIALS.md     # Admin credentials (dev only)
-├── ADMIN_SETUP.md                 # Admin setup guide
-└── SETUP_COMPLETE.md              # Setup completion checklist
-```
+`server/services/` contains stateless (or in-memory) business logic modules that multiple route handlers import.
 
----
+### `orderStateMachine.ts`
+Pure functions: `canTransition(from, to, role): boolean`, `transition(orderId, newStatus, actor)`. The transition function writes to both `orders.status` and `order_status_history`. It is the only place order status is updated.
 
-## Database Design
+### `messageDeliveryService.ts`
+Manages the lifecycle of chat messages: `sent → delivered → read`. Uses a retry queue for messages sent to offline users. Exponential backoff: 1s, 2s, 4s, 8s, 16s (max 5 retries). After 5 failures, the message is marked `failed` and the sender is notified.
 
-### Schema Overview
+### `chatPermissionService.ts`
+Enforces who can chat with whom. Rules:
+- Rider ↔ Buyer: only if there is an active order between them
+- Seller ↔ Buyer: only if there is an order linking them
+- Buyer ↔ Agent: always (support tickets)
+- Admin: can initiate with any user
+- Sellers → sellers: not permitted
 
-The database uses PostgreSQL with Drizzle ORM for type safety. Key tables:
+### `supportMessagingService.ts`
+Handles the support thread context. When an admin or agent replies in a support thread, their display name is shown as "Live Support" to non-staff members. Their real name is visible to other staff. This is a privacy design decision.
 
-```sql
--- User Management
-users                    # All users (customers, sellers, riders, admins)
-  ├── id (UUID)
-  ├── email (unique)
-  ├── password_hash (bcrypt)
-  ├── role (super_admin, admin, seller, buyer, rider, agent)
-  ├── profile_picture_url (Cloudinary)
-  ├── is_verified
-  └── created_at
+### `jitsiMeetService.ts`
+Generates a Jitsi room URL for a given context (order ID, chat thread ID). Supports the public `meet.jit.si` domain (no auth needed) and a self-hosted instance with JWT room tokens.
 
--- Products
-products
-  ├── id (UUID)
-  ├── title
-  ├── description
-  ├── category_id
-  ├── seller_id (for multi-vendor)
-  ├── cost_price
-  ├── selling_price
-  ├── stock_quantity
-  ├── images (array of Cloudinary URLs)
-  ├── video_url (optional)
-  ├── created_at
+### `presenceService.ts`
+In-memory only. Tracks `{ userId → { status: "online"|"away"|"offline", lastSeen: Date, typing: boolean } }`. No DB writes. Resets on restart.
 
-product_variants
-  ├── id (UUID)
-  ├── product_id
-  ├── option (size, color, etc.)
-  ├── value
-  └── stock_quantity
-
--- Orders & Payments
-orders
-  ├── id (UUID)
-  ├── order_number (unique)
-  ├── buyer_id
-  ├── seller_id (if multi-vendor)
-  ├── status (pending, confirmed, shipped, delivered, cancelled)
-  ├── total_amount
-  ├── currency
-  ├── payment_status
-  ├── delivery_zone_id
-  ├── rider_id
-  ├── created_at
-
-order_items
-  ├── id (UUID)
-  ├── order_id
-  ├── product_id
-  ├── quantity
-  ├── unit_price
-  └── subtotal
-
-payments
-  ├── id (UUID)
-  ├── order_id
-  ├── amount
-  ├── currency
-  ├── paystack_reference
-  ├── status (pending, successful, failed)
-  ├── created_at
-
--- Delivery Management
-delivery_zones
-  ├── id (UUID)
-  ├── name
-  ├── area_description
-  ├── delivery_fee
-  ├── estimated_days
-  ├── is_active
-  └── created_at
-
--- Platform Settings
-platform_settings
-  ├── id (UUID)
-  ├── multi_vendor_mode (boolean)
-  ├── platform_name
-  ├── default_currency
-  ├── paystack_public_key
-  ├── paystack_secret_key
-  ├── cloudinary_cloud_name
-  ├── cloudinary_api_key
-  ├── cloudinary_api_secret
-  ├── primary_color
-  ├── footer_description
-  └── social_media_links (JSON)
-
--- Real-time Features
-chat_messages
-  ├── id (UUID)
-  ├── sender_id
-  ├── recipient_id
-  ├── message_text
-  ├── is_read
-  ├── created_at
-
--- Financial Tracking
-earnings
-  ├── id (UUID)
-  ├── seller_id
-  ├── order_id
-  ├── amount
-  ├── currency
-  ├── status (pending, paid)
-  ├── payout_date
-  └── created_at
-
-payouts
-  ├── id (UUID)
-  ├── seller_id
-  ├── amount
-  ├── currency
-  ├── status (pending, approved, completed, rejected)
-  ├── request_date
-  └── completion_date
-```
-
-### Key Relationships
-
-```
-users (1) ──→ (many) orders (as buyer)
-users (1) ──→ (many) orders (as seller, in multi-vendor mode)
-users (1) ──→ (many) products (seller_id in multi-vendor)
-
-products (1) ──→ (many) product_variants
-products (1) ──→ (many) order_items
-
-orders (1) ──→ (many) order_items
-orders (1) ──→ (1) payments
-orders (1) ──→ (1) delivery_zones
-orders (1) ──→ (1) users (rider_id, nullable)
-
-categories (1) ──→ (many) products
-
-chat_messages (many) ──→ (1) users (sender)
-chat_messages (many) ──→ (1) users (recipient)
-
-earnings (many) ──→ (1) users (seller)
-earnings (many) ──→ (1) orders
-```
-
-### Indexing Strategy
-
-Critical indexes for performance:
-
-```sql
--- User lookups
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_role ON users(role);
-
--- Product queries
-CREATE INDEX idx_products_seller_id ON products(seller_id);
-CREATE INDEX idx_products_category_id ON products(category_id);
-
--- Order tracking
-CREATE INDEX idx_orders_buyer_id ON orders(buyer_id);
-CREATE INDEX idx_orders_seller_id ON orders(seller_id);
-CREATE INDEX idx_orders_status ON orders(status);
-CREATE INDEX idx_orders_created_at ON orders(created_at);
-
--- Payment tracking
-CREATE INDEX idx_payments_order_id ON payments(order_id);
-CREATE INDEX idx_payments_paystack_ref ON payments(paystack_reference);
-
--- Earnings & Payouts
-CREATE INDEX idx_earnings_seller_id ON earnings(seller_id);
-CREATE INDEX idx_payouts_seller_id ON payouts(seller_id);
-```
-
----
-
-## API Architecture
-
-### RESTful Endpoints Structure
-
-```
-AUTH ENDPOINTS (/api/auth)
-├── POST /login              - Authenticate user
-├── POST /register           - Create new account
-├── POST /logout             - Logout (invalidate session)
-├── GET  /me                 - Get current user profile
-├── PUT  /me                 - Update profile
-└── POST /refresh-token      - Refresh JWT token
-
-PRODUCTS (/api/products)
-├── GET  /                   - List products (with filters)
-├── GET  /:id                - Get product details
-├── POST /                   - Create product (seller/admin)
-├── PUT  /:id                - Update product
-├── DELETE /:id              - Delete product
-└── POST /:id/images         - Upload product images
-
-ORDERS (/api/orders)
-├── GET  /                   - List user's orders
-├── GET  /:id                - Get order details
-├── POST /                   - Create new order
-├── PUT  /:id/status         - Update order status
-├── PUT  /:id/cancel         - Cancel order
-├── POST /:id/refund         - Request refund
-└── GET  /:id/track          - Real-time order tracking
-
-PAYMENTS (/api/payments)
-├── POST /initialize         - Initialize Paystack payment
-├── POST /verify             - Verify payment status
-├── GET  /history            - Payment history
-└── GET  /receipts/:id       - Get payment receipt
-
-ADMIN (/api/admin)
-├── GET  /dashboard          - Dashboard metrics
-├── GET  /users              - List all users
-├── PUT  /users/:id/role     - Change user role
-├── GET  /settings           - Get platform settings
-├── PUT  /settings           - Update platform settings
-├── GET  /orders             - All orders (admin view)
-├── GET  /analytics          - Detailed analytics
-└── POST /export             - Export data (CSV/PDF)
-
-SELLERS (/api/sellers)
-├── GET  /dashboard          - Seller dashboard
-├── GET  /earnings           - Seller earnings
-├── POST /payouts            - Request payout
-├── GET  /payouts            - Payout history
-└── GET  /analytics          - Seller-specific analytics
-
-RIDERS (/api/riders)
-├── GET  /dashboard          - Delivery dashboard
-├── GET  /assignments        - Assigned deliveries
-├── PUT  /assignments/:id    - Update delivery status
-├── POST /track              - Start route tracking
-└── GET  /earnings           - Rider earnings
-
-DELIVERY ZONES (/api/delivery-zones)
-├── GET  /                   - List all zones
-├── GET  /:id                - Zone details
-├── POST /                   - Create zone (admin)
-├── PUT  /:id                - Update zone
-├── DELETE /:id              - Delete zone
-└── GET  /:id/coverage       - Zone coverage area
-
-SEED ENDPOINTS (/api/seed) **PRODUCTION GUARDED**
-├── POST /test-users         - Create test users
-├── POST /complete-marketplace - Full marketplace setup
-├── POST /islamic-fashion    - Create fashion products
-├── POST /marketplace-setup  - Setup delivery zones
-└── POST /sample-data        - Sample seller data
-    └── ⚠️  All return 403 in production mode
-
-HEALTH & UTILITIES
-├── GET  /api/health         - Health check
-├── GET  /api/metrics        - Server metrics
-└── POST /api/currency-convert - Convert between currencies
-```
-
-### Request/Response Patterns
-
-```typescript
-// Successful Response
-{
-  "status": 200,
-  "data": { /* payload */ },
-  "message": "Operation successful"
-}
-
-// Error Response
-{
-  "status": 400,
-  "error": "Descriptive error message",
-  "code": "ERROR_CODE",
-  "details": { /* validation errors */ }
-}
-
-// Paginated Response
-{
-  "status": 200,
-  "data": [ /* items */ ],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 150,
-    "pages": 8
-  }
-}
-```
-
-### Authentication & Authorization
-
-```
-Request Header:
-Authorization: Bearer <JWT_TOKEN>
-
-OR
-
-Cookie:
-token=<JWT_TOKEN> (httpOnly, secure, sameSite)
-
-JWT Payload:
-{
-  "userId": "<user-id>",
-  "email": "<user-email>",
-  "role": "<role>",
-  "iat": 1234567890,
-  "exp": 1234571490
-}
-
-Role-Based Access Control (RBAC):
-├── super_admin    - Full platform control
-├── admin          - Limited admin functions
-├── seller         - Manage own products & orders
-├── buyer          - Purchase products
-├── rider          - Manage deliveries
-└── agent          - Customer support (optional)
-```
+### `riderRiskEngine.ts`
+Scores riders on risk signals: GPS dropout, impossible speed (teleportation), manual cancellations, late pickups. Score decays at 0.96× per hour (so a score of 10 becomes ~1 after 56 hours with no new signals). When a rider's score exceeds `RIDER_RISK_BLOCK_THRESHOLD` (default 8), they are flagged for admin review.
 
 ---
 
 ## Frontend Architecture
 
-### Component Hierarchy
+### Routing
 
-```
-App.tsx (Root)
-├── AuthLayout
-│   ├── LoginPage
-│   └── RegisterPage
-├── MainLayout
-│   ├── Header (Navigation)
-│   ├── Sidebar (Mobile/Desktop)
-│   ├── Router
-│   │   ├── HomePage
-│   │   ├── ProductDetailsPage
-│   │   ├── CartPage
-│   │   ├── CheckoutPage
-│   │   ├── OrdersPage
-│   │   ├── ProfilePage
-│   │   └── [Role-specific pages]
-│   └── Footer
-└── AdminLayout
-    ├── AdminDashboard
-    ├── ProductManagement
-    ├── OrderManagement
-    ├── UserManagement
-    ├── Settings
-    └── Analytics
+`client/src/App.tsx` is the single file that defines every route. Wouter's `<Route>` components are used. Route guards are HOCs applied inline:
+
+```tsx
+// Example guard pattern
+const GuardedAdminRoute = withAdminRouteGuard(AdminPage);
+// ...
+<Route path="/admin/page" component={GuardedAdminRoute} />
 ```
 
-### State Management Strategy
+Guards implemented in App.tsx:
+- `withAdminRouteGuard` — redirects to `/auth` if not `admin` or `super_admin`
+- `withExternalRiderRouteGuard` — renders null if `isExternalRiderSystemEnabled` is true
+- `withAdminExternalRiderFeatureGuard` — same, for admin rider-management pages
+
+### Dashboard Layout
+
+`DashboardLayout.tsx` is the shared shell used by all role dashboards. It:
+- Reads the current URL via `useLocation()` from Wouter
+- Maps URL to a `menuId` via `routeToMenuId` lookup
+- Passes `activeItem` and `onItemClick` to `DashboardSidebar`
+- `onItemClick` calls `setLocation(...)` (Wouter navigation) — never `window.location.href`
+- Handles `InactiveAccountNotice` for deactivated sellers/riders
+- Runs `useSellerProfileGuard` to enforce profile completion for sellers
+
+`AdminDashboardConnected.tsx` is the main admin dashboard page. It has its **own** `DashboardSidebar` instance (not using `DashboardLayout`) because it renders its own full-page layout with live metrics. It maintains its own `activeItem` state and `handleItemClick` handler that mirrors the URL mapping.
+
+### State Management
+
+```
+Server state  → TanStack Query v5
+  queryClient.invalidateQueries()  ← preferred for refreshing
+  Never: window.location.reload()  ← BANNED
+
+UI state      → Zustand (theme, ephemeral UI)
+Auth state    → React Context (AuthContext) + TanStack Query (/api/auth/me)
+Platform mode → usePlatformSettings() hook → /api/settings query
+Notifications → NotificationContext + Socket.IO
+```
+
+### `queryClient.ts`
+
+`apiRequest(method, url, body)` is the centralized fetch helper used by all mutations. It:
+- Includes `credentials: "include"` (sends JWT cookie)
+- Throws if response is not ok (TanStack Query mutation will catch and surface the error)
+
+`fetchApiJson<T>(url, options)` is the query function helper — adds timeout handling.
+
+### Platform Settings Hook
 
 ```typescript
-// Server State (TanStack Query)
-// Handles: API data, caching, revalidation
-useQuery({ queryKey: ['products'], queryFn: fetchProducts })
-useMutation({ mutationFn: updateProduct })
-
-// Client State (Zustand)
-// Handles: UI state, user preferences
-const store = useStore(state => state.theme)
-store.setTheme('dark')
-
-// Context State (Context API)
-// Handles: Global config, auth
-<AuthProvider>
-  <ThemeProvider>
-    <LanguageProvider>
-      <App />
-    </LanguageProvider>
-  </ThemeProvider>
-</AuthProvider>
+const {
+  isMultiVendor,
+  isExternalRiderSystemEnabled,
+  hasResolvedSettings,
+  freeTierProductLimit,
+  ...
+} = usePlatformSettings();
 ```
 
-### Real-time Features (Socket.IO)
+This hook queries `/api/settings` and memoizes the result. `hasResolvedSettings` is `false` until the first fetch completes. Guards that depend on platform mode wait for `hasResolvedSettings` before rendering to avoid flicker.
 
-```typescript
-// Client-side
-socket.on('order:status-updated', (orderData) => {
-  queryClient.invalidateQueries(['orders'])
-})
+### No Page Reloads
 
-socket.emit('product:view', { productId })
-
-// Server-side
-io.on('connection', (socket) => {
-  socket.on('product:view', (data) => {
-    // Update product view count
-  })
-  
-  socket.emit('order:status-updated', orderData)
-})
-```
+`window.location.reload()` was removed from the entire codebase. All data refresh is done via `queryClient.invalidateQueries()`. This is critical for:
+- Backend recovery after cold start: the health poller in `App.tsx` calls `invalidateQueries()` when the backend comes back, not `reload()`
+- Maintenance mode exit: `MaintenancePage.tsx` calls `invalidateQueries()` when `isMaintenanceMode` flips to false
+- Manual refresh buttons: call `invalidateQueries()` with a spinner state
 
 ---
 
-## Authentication & Security
+## API Layer
 
-### Security Layers
+All ~300 API endpoints are in `server/routes.ts` (≈21,750 lines). This is a deliberate architectural choice — one file to grep.
 
-```
-1. Request Level
-   ├── Rate limiting (5 attempts per 15 min for auth)
-   ├── Request size limits (10MB max)
-   ├── Timeout protection (30 seconds)
-   └── CORS configuration
-
-2. Application Level
-   ├── JWT token validation
-   ├── Role-based access control (RBAC)
-   ├── Input validation (Zod schemas)
-   ├── SQL injection prevention (Drizzle ORM)
-   └── XSS protection (React escaping + CSP)
-
-3. Transportation Level
-   ├── HTTPS enforcement (HSTS)
-   ├── Security headers (Helmet)
-   ├── CORS headers
-   └── SameSite cookie policy
-
-4. Data Level
-   ├── Password hashing (Bcrypt)
-   ├── Sensitive field masking
-   ├── PII encryption recommendations
-   └── Audit logging
-```
-
-### Helmet Security Headers (Production)
+### Middleware Stack (per request)
 
 ```
-Content-Security-Policy: 
-  default-src 'self'; script-src 'self' 'unsafe-inline' cdn.example.com
-
-Strict-Transport-Security: 
-  max-age=31536000; includeSubDomains; preload
-
-X-Content-Type-Options: 
-  nosniff
-
-X-Frame-Options: 
-  DENY
-
-X-XSS-Protection: 
-  1; mode=block
-
-Referrer-Policy: 
-  strict-origin-when-cross-origin
+helmet()                     ← security headers
+cors()                       ← origin check
+express.json({ limit: "10mb" })
+cookieParser()
+express-session
+rateLimiter (role-aware)
+│
+▼
+Route handler
+  requireAuth               ← JWT validation
+  requireRole(...)          ← role check
+  requireRoleFeature(...)   ← feature flag check
+  Business logic
+  storage.x() calls         ← DB via Drizzle
+  io.to(...).emit(...)      ← socket events
+  res.json(...)
 ```
 
-### Password Security
-
-```
-Algorithm: bcrypt with 10 salt rounds
-Min Length: 8 characters
-Requirements:
-  - At least one uppercase letter
-  - At least one lowercase letter
-  - At least one number
-  - At least one special character
-
-Session Timeout: 24 hours
-Token Refresh: Available before expiration
-Logout: Invalidates all sessions
-```
-
----
-
-## Real-time Communication
-
-### Socket.IO Architecture
+### Rate Limiting
 
 ```typescript
-// Namespaces
-/orders            - Order status updates
-/chat              - Messaging
-/notifications     - Alerts & notifications
-/tracking          - Live map tracking
-/analytics         - Real-time metrics
+// Auth routes
+authLimiter = rateLimit({ windowMs: 15min, max: 5 })
 
-// Key Events
-Order Updates:
-- order:created
-- order:status-changed
-- order:cancelled
-- order:delivered
-
-Messaging:
-- message:new
-- message:read
-- typing-indicator
-
-Tracking:
-- location:updated
-- rider:location
-- eta:updated
-
-Notifications:
-- notification:new
-- notification:read
+// API routes (tiered by role, applied after auth)
+super_admin / admin: 1000 per 15min
+seller / rider:      500  per 15min
+agent:               300  per 15min
+buyer:               100  per 15min
 ```
+
+### Context Parameter
+
+Many list endpoints accept `?context=admin|seller|buyer`. This changes which fields are returned and which filters are applied. For example, `GET /api/orders?context=admin` returns all orders with full detail, while `?context=seller` returns only the authenticated seller's orders.
 
 ---
 
 ## File Storage
 
-### Cloudinary Integration
+### Cloudinary (Production)
+
+Images and videos are uploaded via Multer to a temporary buffer, then pushed to Cloudinary via the Node.js SDK. The returned Cloudinary URL is stored in the DB. Cloudinary handles CDN, compression, and resizing.
+
+Upload size limit: controlled by `maxUploadSizeMb` in platform settings (default 10MB).  
+Allowed types: `jpg, jpeg, png, webp, gif, avif` (configurable in platform settings).
+
+### Local Disk (Development / Fallback)
+
+If Cloudinary credentials are not configured, Multer stores files in `/uploads`. These are served statically. Not suitable for production (not persistent across Render deploys).
+
+### 3D Models
+
+`client/public/assets/vehicles/` contains GLB 3D models used as map markers for rider type (car, motorcycle, bicycle). These are loaded by Leaflet/Three.js in the live delivery tracking view.
+
+---
+
+## Email System
+
+`server/email.ts` exports `sendEmail({ to, subject, html })`.
+
+SMTP config resolution order:
+1. `platformSettings.smtpHost` (DB, potentially encrypted)
+2. `SMTP_HOST` environment variable
+
+The function creates a transporter on each call (not cached) so SMTP config changes in the admin UI take effect immediately.
+
+All email sends in route handlers and workers are:
+- Fully wrapped in `try/catch`
+- Non-blocking (the main operation succeeds even if email fails)
+- Using dynamic `import('./email')` when called from `payments.ts` to avoid circular import issues
+
+---
+
+## Platform Configuration System
+
+`platformSettings` is a single-row table. It is the operational control panel for the entire platform — no code redeploy is needed to change fees, enable features, or update SMTP credentials.
+
+### Read Path
+
+`GET /api/settings` returns the full settings object. This is cached by TanStack Query on the frontend and accessed via `usePlatformSettings()`. The `staleTime` is short so changes propagate within a few seconds.
+
+### Write Path
+
+`PATCH /api/settings` merges the request body into the existing settings. The middleware strips super_admin-only fields from non-super_admin requests:
 
 ```typescript
-// Image Upload Flow
-1. Client uploads to Cloudinary directly
-   - 100MB max file size
-   - Supports: JPG, PNG, GIF, WebP, PDF
-   
-2. Server validates upload
-   - Verify file exists
-   - Store URL in database
-   - Generate thumbnails
-
-3. CDN Distribution
-   - Global edge locations
-   - Automatic optimization
-   - Responsive image sizing
-
-// URL Format
-https://res.cloudinary.com/{cloud_name}/image/upload/
-  /c_fill,w_400,h_400,q_auto/
-  {public_id}.{format}
+if (req.user.role !== 'super_admin') {
+  delete updateData.freeTierProductLimit;
+  delete updateData.maxProductsPerSeller;
+  delete updateData.orderAutoCancelHours;
+  delete updateData.inviteOnlyRegistration;
+}
 ```
+
+### Cold Start Fallback
+
+`server/data/platform-settings-compat.json` is loaded if the DB settings row doesn't exist (race condition on first deploy). It provides sensible defaults so the server can respond to health checks and initial requests before the DB is fully initialized.
 
 ---
 
-## Payment Processing
+## Startup Sequence
 
-### Paystack Integration
+`server/index.ts` executes in this order:
 
-```typescript
-// Payment Flow
-1. Customer initiates checkout
-   └─ Amount validated & formatted
+1. Load environment variables (`dotenv`)
+2. Create Express app, configure middleware (Helmet, CORS, rate limiting, sessions)
+3. Connect to Neon PostgreSQL via Drizzle
+4. Run **schema self-heal migrations** — `DO $$ BEGIN ... IF NOT EXISTS ... END $$` blocks for every column and table added since the initial schema. This is safe to run on every boot.
+5. Register all routes (`server/routes.ts`)
+6. In development: embed Vite dev server middleware
+7. In production: serve `client/dist` as static files
+8. Start listening on `PORT` (default 5000)
+9. Register background workers: payout, promotional, orderAutoCancel, notificationReminder
+10. Set up graceful shutdown handlers (SIGTERM, SIGINT → 8-second drain)
 
-2. Client calls /api/payments/initialize
-   └─ Backend calls Paystack API
-   └─ Returns authorization_url
-
-3. Customer redirected to Paystack
-   └─ Enters card details securely
-
-4. Paystack redirects to callback_url
-   └─ Payment verified via webhook
-   └─ Order status updated
-
-5. Database records transaction
-   └─ Earnings credited to seller
-   └─ Platform fee deducted
-
-// Error Handling
-- Failed payment: Order remains pending
-- Duplicate transaction: Idempotency checks
-- Refund: Via Paystack API or manual review
-```
+If any worker fails to import (e.g. missing dependency), the error is logged and the server continues.
 
 ---
 
-## Deployment Architecture
+## Security Architecture
 
-### Environment Configuration
-
-```
-Development:
-- NODE_ENV=development
-- Debug logging enabled
-- Seed endpoints available
-- CORS: localhost:*
-- Rate limiting: disabled for testing
-
-Production:
-- NODE_ENV=production
-- Error logging only
-- Seed endpoints: BLOCKED (403)
-- CORS: Specified domains only
-- Rate limiting: Strict enforcement
-- Security headers: Maximum
-- HTTPS: Mandatory
-```
-
-### Deployment Options
+### Defense in Depth
 
 ```
-Netlify (Frontend):
-- Frontend builds to static files
-- Deployed to CDN
-- Environment: NODE_ENV=production
+Layer 1 — Network
+  ├── HTTPS enforced via HSTS header
+  ├── CORS: only FRONTEND_URL allowed in production
+  └── Rate limiting: 5 auth attempts per 15min
 
-Render (Backend):
-- Express server containerized
-- 512MB-2GB RAM recommended
-- PostgreSQL connection via Neon
-- Environment variables via Render dashboard
+Layer 2 — Transport
+  ├── httpOnly cookies (XSS cannot steal JWT)
+  ├── secure cookie flag (HTTPS only in production)
+  └── sameSite: strict (CSRF mitigation)
 
-Database (Neon Serverless):
-- PostgreSQL compatible
-- Auto-scaling
-- Automatic backups
-- Point-in-time recovery
+Layer 3 — Application
+  ├── JWT signature validation on every request
+  ├── Role checks (requireRole)
+  ├── Feature flag checks (requireRoleFeature)
+  ├── Zod input validation (all API inputs)
+  └── Drizzle ORM (parameterized queries — no raw SQL injection vectors)
 
-CDN (Cloudinary):
-- Image optimization
-- Global distribution
-- Automatic format detection
+Layer 4 — Data
+  ├── bcrypt (10 rounds) for all passwords
+  ├── AES-256-GCM for sensitive DB fields (when SETTINGS_ENCRYPTION_KEY set)
+  ├── No PII in server logs (user emails, payment details stripped from logs)
+  └── Idempotency keys prevent duplicate payment processing
+
+Layer 5 — External
+  ├── Paystack webhook HMAC-SHA512 verification
+  └── Seed endpoints return 403 in production
 ```
+
+### Sensitive Field Encryption
+
+When `SETTINGS_ENCRYPTION_KEY` is set, the following `platformSettings` fields are encrypted at rest using AES-256-GCM before writing to the DB and decrypted on read:
+- `cloudinaryApiSecret`
+- `paystackSecretKey`
+- `smtpPass`
+
+The encryption key must be exactly 32 bytes (256 bits). If the key is changed, existing encrypted values cannot be decrypted — set the key once and never change it in production.
 
 ---
 
-## Performance Considerations
+## Performance Design
 
-### Optimization Strategies
+### Frontend
 
-```
-Frontend:
-├── Code splitting (route-based)
-├── Image lazy loading
-├── Caching with React Query
-├── Virtual scrolling (long lists)
-├── Memoization (useMemo, useCallback)
-└── Asset compression & minification
+- **No page reloads** — all state refresh via `queryClient.invalidateQueries()`
+- **React Query caching** — API responses cached by query key, with configurable `staleTime`
+- **React.lazy() code splitting** — all 100+ pages are loaded on demand. Only 5 pages are eagerly loaded (Home, MultiVendorHome, AuthPage, MaintenancePage, NotFound). Initial JS payload is ~783 kB vs 4.1 MB pre-split.
+- **Suspense boundary** — `<React.Suspense fallback={<RouteGateLoader />}>` wraps the entire route tree; each lazy chunk shows a spinner while loading.
+- **Image lazy loading** — product images use `loading="lazy"` by default
+- **Maintenance polling** — reduced from 20s to 60s (`refetchInterval: 60000, staleTime: 55000`) to halve background API calls during idle
+- **PWA** — `vite-plugin-pwa` generates a service worker for offline-capable shell caching (precache limit set to 5 MB to accommodate the main bundle)
 
-Backend:
-├── Database query optimization
-├── Connection pooling
-├── Response caching
-├── Pagination (prevent large responses)
-├── Indexing strategy
-└── Query result limiting
+### Backend
 
-Infrastructure:
-├── CDN for static assets
-├── Database read replicas (future)
-├── API rate limiting
-├── Request batching (GraphQL future)
-└── Monitoring & alerting
-```
+- **Gzip compression** — `compression` middleware applied before all routes; reduces response payload by 60-80%
+- **Drizzle query builder** — generates efficient parameterized SQL; no N+1 by design
+- **Multi-vendor order lookup** — uses individual `getOrder(id)` calls per order ID rather than a full table scan (`getAllOrders()`)
+- **Context-filtered queries** — `?context=admin|seller|buyer` minimizes unnecessary data transfer
+- **Neon serverless** — connection pooling handled by Neon's serverless driver; no manual pool management needed
+- **Prometheus metrics** — `GET /api/metrics` exposes request counts, latency histograms, and error rates for monitoring
+- **No production console.log** — all debug logging removed from route handlers; only `console.info` (prefixed `[STORE]`, `[ADMIN]`, `[PAYOUT]`) and `console.error`/`console.warn` remain
 
-### Monitoring & Logging
+### Free Tier Constraints
 
-```
-Application Metrics:
-- Request latency (p50, p95, p99)
-- Error rate by endpoint
-- Database query time
-- Active connections
-- Memory usage
-
-Business Metrics:
-- Orders per hour
-- Revenue per currency
-- Seller count
-- Product inventory
-- Payment success rate
-
-Alerting:
-- High error rate (>5%)
-- Database down
-- API response time >5s
-- Payment gateway unreachable
-- Disk space critical
-```
+The platform is designed to run on free tiers:
+- Render free plan (backend) — can cold-start; frontend detects this and re-fetches data on recovery
+- Neon free plan (database) — auto-pauses after inactivity; connection wakes it on first query
+- Netlify free plan (frontend) — static CDN, always available
+- Cloudinary free plan (media) — 25GB storage, 25GB bandwidth/month
 
 ---
 
-## Security Hardening (v1.1.1)
+## Testing
 
-### Recent Security Improvements
+### End-to-End (Playwright)
 
-```
-✅ Request Size Limits
-   - 10MB max for JSON bodies
-   - 10MB max for URL-encoded forms
-   - Prevents payload-based DoS
+Tests in `e2e/`. Run with `npm run test:e2e`. Covers admin settings flows.
 
-✅ Helmet Security Headers
-   - CSP (Content Security Policy)
-   - HSTS (HTTP Strict Transport Security)
-   - X-Frame-Options (clickjacking protection)
-   - X-Content-Type-Options (MIME type sniffing)
+### Unit / Integration
 
-✅ Request Timeout Handling
-   - 30-second timeout per request
-   - Returns 408 status on timeout
-   - Prevents connection hanging
+Test files in `server/__tests__/`. Notable:
+- `paystack-integration.test.ts` — verifies Paystack webhook HMAC validation and idempotency logic
+- Run with `npm run test:integration`
 
-✅ Seed Endpoint Protection
-   - All seed endpoints guarded
-   - 403 response in production
-   - Prevents accidental data reset
+### Type Safety
 
-✅ Rate Limiting
-   - Auth endpoints: 5 attempts per 15 minutes
-   - API endpoints: Configurable per role
-   - DDoS protection layer
-```
+`npm run typecheck` runs TypeScript compilation across the full monorepo (frontend + backend + shared). This is the primary code correctness gate — all contributions should pass typecheck with zero errors.
+
+### Platform Audit Script
+
+`npm run audit:platform` runs `scripts/generate-platform-audit.ts` which produces:
+- `docs/platform-audit-report.json` — machine-readable feature inventory
+- `docs/platform-audit-log.jsonl` — line-delimited audit entries
+- Updates the `<!-- PLATFORM_AUDIT:START -->` section in `README.md`
 
 ---
 
-## Development Workflow
-
-### Getting Started
-
-```bash
-# Install dependencies
-npm install
-
-# Setup environment
-cp .env.example .env.local
-
-# Start development server
-npx tsx server/index.ts
-
-# In separate terminal, start frontend
-npm run dev:frontend
-
-# Run tests
-npm run test:unit
-npm run test:e2e
-
-# Build for production
-npm run build:frontend
-```
-
-### Common Development Tasks
-
-```bash
-# Check migrations
-npm run check-migrations
-
-# Seed database
-npm run seed-admins
-npm run seed-banners
-
-# Run integration tests
-npm run test:integration
-
-# Verify production ready
-npm run test:e2e
-```
-
----
-
-## Troubleshooting Guide
-
-### Common Issues
-
-**Issue:** Server won't start  
-**Solution:** Check `node_modules`, `npm install`, verify `.env` variables
-
-**Issue:** Database connection fails  
-**Solution:** Verify `DATABASE_URL`, check PostgreSQL connection limits
-
-**Issue:** Payment integration fails  
-**Solution:** Verify Paystack keys, check webhook URL configuration
-
-**Issue:** Image upload fails  
-**Solution:** Verify Cloudinary credentials, check file size limits
-
----
-
-## Future Improvements
-
-```
-Short-term:
-- Enhanced error logging (Sentry)
-- Advanced pagination
-- Database query timeouts
-- Input sanitization (trim)
-- Console.log optimization
-
-Medium-term:
-- GraphQL API layer
-- Advanced analytics dashboard
-- Machine learning recommendations
-- Mobile app (React Native)
-- WhatsApp integration
-
-Long-term:
-- Global payment methods
-- Blockchain for transparency
-- AI-powered search
-- Predictive inventory
-- Marketplace federation
-```
-
+*Last updated: 2026-04-26. Update this file whenever the architecture changes.*

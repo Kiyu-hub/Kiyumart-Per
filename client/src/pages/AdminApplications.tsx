@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, ZoomIn, ZoomOut, RotateCw, Tag } from "lucide-react";
+import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, ZoomIn, ZoomOut, RotateCw, Tag, Users, Clock, TrendingUp, Megaphone } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { PageLoadingState } from "@/components/ui/loading-state";
@@ -919,11 +919,19 @@ export default function AdminApplications() {
               </div>
             </div>
 
-            <div className="grid gap-3 xl:min-w-[210px]">
-              <div className="rounded-2xl border border-border/70 bg-muted/20 p-3">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Readiness</p>
-                <p className="mt-2 text-xl font-semibold">{completedChecks}/{completionChecks.length}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Required fields completed</p>
+            <div className="grid gap-3 xl:min-w-[200px]">
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Readiness</p>
+                  <span className="text-xs font-semibold text-foreground">{completedChecks}/{completionChecks.length}</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${completedChecks === completionChecks.length ? "bg-emerald-500" : completedChecks >= completionChecks.length * 0.7 ? "bg-amber-500" : "bg-rose-500"}`}
+                    style={{ width: `${(completedChecks / completionChecks.length) * 100}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">Required fields filled</p>
               </div>
               <div className="flex flex-col gap-2">
                 <Button
@@ -1125,95 +1133,129 @@ export default function AdminApplications() {
 
   return (
     <DashboardLayout role={user?.role as any}>
-      <div className="space-y-5 p-4 md:p-6">
-        <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
-          <CardContent className="p-5 md:p-6">
-            <div className="flex items-center gap-4">
+      <div className="space-y-6 p-4 md:p-6">
+        {/* Page header */}
+        <div className="relative overflow-hidden rounded-2xl border bg-card shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-transparent to-primary/4 pointer-events-none" />
+          <div className="relative p-5 md:p-6">
+            <div className="flex items-start gap-4">
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => window.history.back()}
                 data-testid="button-back"
+                className="shrink-0 mt-0.5"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <div className="flex-1">
-                <h1 className="text-2xl font-bold text-foreground md:text-3xl" data-testid="heading-applications">
-                  Applications Center
-                </h1>
-                <p className="text-muted-foreground mt-1">
-                  Review onboarding applications and seller promotion requests from one operations workspace.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">Operations Queue</Badge>
-                  <Badge variant="outline" className="border-border/70">
-                    {showInternalRiderFeatures ? "Seller + Rider Intake" : "Seller Intake Only"}
-                  </Badge>
-                  <Badge variant="outline" className="border-border/70">Promotion Review</Badge>
+              <div className="flex items-center gap-4 flex-1 min-w-0">
+                <div className="hidden sm:flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
+                  <Users className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-2xl font-bold tracking-tight md:text-3xl" data-testid="heading-applications">
+                    Applications Center
+                  </h1>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Onboarding review, interview scheduling, and promotion campaign management
+                  </p>
+                </div>
+                <div className="hidden md:flex flex-col items-end gap-0.5 shrink-0">
+                  <span className="text-2xl font-bold text-primary tabular-nums">{pendingTotal + interviewTotal}</span>
+                  <span className="text-xs text-muted-foreground">Active in queue</span>
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+            <div className="mt-4 ml-12 sm:ml-[76px] flex flex-wrap gap-2">
+              <Badge variant="outline" className="border-primary/25 bg-primary/8 text-primary text-xs font-medium">Operations Queue</Badge>
+              <Badge variant="outline" className="text-xs">
+                {showInternalRiderFeatures ? "Seller + Rider Intake" : "Seller Intake Only"}
+              </Badge>
+              <Badge variant="outline" className="text-xs">Promotion Review</Badge>
+            </div>
+          </div>
+        </div>
 
         <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as "applications" | "promotion")} className="w-full">
-          <TabsList className="grid h-auto w-full grid-cols-1 gap-3 bg-transparent p-0 md:grid-cols-2">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-muted/40 border rounded-xl p-1">
             <TabsTrigger
               value="applications"
-              className="rounded-2xl border border-border/70 bg-card px-5 py-4 text-left data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10"
+              className="flex items-center gap-3 rounded-lg px-4 py-3 text-left transition-all data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/70"
             >
-              <div className="flex w-full items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Applications</p>
-                  <p className="text-xs text-muted-foreground">Seller and rider onboarding review</p>
-                </div>
-                <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                  {pendingTotal + interviewTotal + rejectedTotal}
-                </span>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 border border-sky-500/20">
+                <Store className="h-4 w-4 text-sky-600 dark:text-sky-400" />
               </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-semibold leading-none">Applications</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Seller & rider onboarding</p>
+              </div>
+              <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-xs font-bold tabular-nums ml-auto shrink-0">
+                {pendingTotal + interviewTotal + rejectedTotal}
+              </span>
             </TabsTrigger>
             <TabsTrigger
               value="promotion"
-              className="rounded-2xl border border-border/70 bg-card px-5 py-4 text-left data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10"
+              className="flex items-center gap-3 rounded-lg px-4 py-3 text-left transition-all data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/70"
             >
-              <div className="flex w-full items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Promotion</p>
-                  <p className="text-xs text-muted-foreground">Seller promotion requests and live campaigns</p>
-                </div>
-                <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                  {promotionTotal + activePromotionApplications.length + expiredPromotionApplications.length}
-                </span>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-500/10 border border-purple-500/20">
+                <Megaphone className="h-4 w-4 text-purple-600 dark:text-purple-400" />
               </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-semibold leading-none">Promotions</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Campaigns & requests</p>
+              </div>
+              <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-xs font-bold tabular-nums ml-auto shrink-0">
+                {promotionTotal + activePromotionApplications.length + expiredPromotionApplications.length}
+              </span>
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="applications" className="mt-5 space-y-5">
             <div className={`grid gap-3 ${showInternalRiderFeatures ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
-              <Card className="border-border/70 bg-card/95 shadow-sm">
-                <CardContent className="p-4">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Pending Sellers</p>
-                  <p className="mt-2 text-2xl font-semibold">{pendingSellerApplications.length}</p>
+              <Card className="border-border/70 bg-card shadow-sm overflow-hidden">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 border border-sky-500/20">
+                    <Store className="h-5 w-5 text-sky-600 dark:text-sky-400" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Pending Sellers</p>
+                    <p className="text-2xl font-bold tabular-nums">{pendingSellerApplications.length}</p>
+                  </div>
                 </CardContent>
               </Card>
               {showInternalRiderFeatures ? (
-                <Card className="border-border/70 bg-card/95 shadow-sm">
-                  <CardContent className="p-4">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Pending Riders</p>
-                    <p className="mt-2 text-2xl font-semibold">{pendingRiderApplications.length}</p>
+                <Card className="border-border/70 bg-card shadow-sm overflow-hidden">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
+                      <Bike className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Pending Riders</p>
+                      <p className="text-2xl font-bold tabular-nums">{pendingRiderApplications.length}</p>
+                    </div>
                   </CardContent>
                 </Card>
               ) : null}
-              <Card className="border-border/70 bg-card/95 shadow-sm">
-                <CardContent className="p-4">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Interviews</p>
-                  <p className="mt-2 text-2xl font-semibold">{interviewTotal}</p>
+              <Card className="border-border/70 bg-card shadow-sm overflow-hidden">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 border border-blue-500/20">
+                    <CalendarClock className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Interviews</p>
+                    <p className="text-2xl font-bold tabular-nums">{interviewTotal}</p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card className="border-border/70 bg-card/95 shadow-sm">
-                <CardContent className="p-4">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Rejected</p>
-                  <p className="mt-2 text-2xl font-semibold">{rejectedTotal}</p>
+              <Card className="border-border/70 bg-card shadow-sm overflow-hidden">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 border border-rose-500/20">
+                    <X className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Rejected</p>
+                    <p className="text-2xl font-bold tabular-nums">{rejectedTotal}</p>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -1378,22 +1420,37 @@ export default function AdminApplications() {
 
           <TabsContent value="promotion" className="mt-5 space-y-5">
             <div className="grid gap-3 md:grid-cols-3">
-              <Card className="border-border/70 bg-card/95 shadow-sm">
-                <CardContent className="p-4">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Pending Applications</p>
-                  <p className="mt-2 text-2xl font-semibold">{pendingPromotionApplications.length}</p>
+              <Card className="border-border/70 bg-card shadow-sm overflow-hidden">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
+                    <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Pending</p>
+                    <p className="text-2xl font-bold tabular-nums">{pendingPromotionApplications.length}</p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card className="border-border/70 bg-card/95 shadow-sm">
-                <CardContent className="p-4">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Active</p>
-                  <p className="mt-2 text-2xl font-semibold">{activePromotionApplications.length}</p>
+              <Card className="border-border/70 bg-card shadow-sm overflow-hidden">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                    <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Active</p>
+                    <p className="text-2xl font-bold tabular-nums">{activePromotionApplications.length}</p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card className="border-border/70 bg-card/95 shadow-sm">
-                <CardContent className="p-4">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Expired</p>
-                  <p className="mt-2 text-2xl font-semibold">{expiredPromotionApplications.length}</p>
+              <Card className="border-border/70 bg-card shadow-sm overflow-hidden">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-500/10 border border-zinc-500/20">
+                    <Megaphone className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Expired</p>
+                    <p className="text-2xl font-bold tabular-nums">{expiredPromotionApplications.length}</p>
+                  </div>
                 </CardContent>
               </Card>
             </div>

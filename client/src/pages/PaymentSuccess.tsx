@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { CheckCircle, Package, MapPin, Clock, Star, MessageSquare } from "lucide-react";
@@ -13,7 +13,7 @@ import QRCodeDisplay from "@/components/QRCodeDisplay";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
 import { clearAllPersistedCheckoutCoupons } from "@/lib/checkoutCoupon";
-import { queryClient } from "@/lib/queryClient";
+import { fetchSameOrigin, fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 
 interface Order {
   id: string;
@@ -33,16 +33,24 @@ export default function PaymentSuccess() {
   const [, navigate] = useLocation();
   const { formatPrice } = useLanguage();
   const { toast } = useToast();
-  const searchParams = new URLSearchParams(window.location.search);
-  const orderId = searchParams.get("orderId");
+  const cleanupCompletedRef = useRef(false);
+  const orderId =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("orderId")
+      : null;
 
   const [selectedProductForReview, setSelectedProductForReview] = useState<string | null>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
 
-  const { data: order, isLoading } = useQuery<Order>({
+  const { data: order, isLoading, isError } = useQuery<Order>({
     queryKey: [`/api/orders/${orderId}`],
+    queryFn: () => fetchSameOriginJson<Order>(`/api/orders/${orderId}`),
     enabled: !!orderId,
+    // Retry generously — the server may still be processing the payment when we land here
+    retry: 6,
+    retryDelay: 1500,
+    staleTime: 0,
   });
   const isPickupOrder = ((order?.deliveryMethod || "").toLowerCase() === "pickup");
 
@@ -53,6 +61,15 @@ export default function PaymentSuccess() {
     price: string;
   }>>({
     queryKey: [`/api/orders/${orderId}/items`],
+    queryFn: () =>
+      fetchSameOriginJson<
+        Array<{
+          productId: string;
+          productName: string;
+          quantity: number;
+          price: string;
+        }>
+      >(`/api/orders/${orderId}/items`),
     enabled: !!orderId,
   });
 
@@ -85,16 +102,23 @@ export default function PaymentSuccess() {
   });
 
   useEffect(() => {
-    if (order) {
+    if (!order || cleanupCompletedRef.current) {
+      return;
+    }
+
+    cleanupCompletedRef.current = true;
       clearAllPersistedCheckoutCoupons();
       queryClient.setQueryData(["/api/cart"], []);
-      void fetch("/api/cart", {
+      void fetchSameOrigin("/api/cart", {
         method: "DELETE",
         credentials: "include",
       }).catch(() => {});
       void queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
       void queryClient.refetchQueries({ queryKey: ["/api/cart"], type: "active" });
-      // Show in-app notification
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem("kiyumart.checkout.lastPaidOrderId");
+      }
+
       toast({
         title: "Payment Successful! 🎉",
         description: `Order ${order.orderNumber} has been confirmed. You'll receive updates on your order status.`,
@@ -108,7 +132,6 @@ export default function PaymentSuccess() {
           icon: "/logo.png",
         });
       }
-    }
   }, [order, toast]);
 
   if (!orderId) {
@@ -132,10 +155,48 @@ export default function PaymentSuccess() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading order details...</p>
-        </div>
+        <Card className="w-full max-w-md text-center">
+          <CardHeader>
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mx-auto mb-2">
+              <CheckCircle className="h-9 w-9 text-primary" />
+            </div>
+            <CardTitle>Payment Confirmed!</CardTitle>
+            <CardDescription>Your payment was successful. Loading your order details…</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+            <Button variant="outline" onClick={() => navigate("/orders")} className="w-full">
+              View My Orders
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isError && !order) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader>
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mx-auto mb-2">
+              <CheckCircle className="h-9 w-9 text-primary" />
+            </div>
+            <CardTitle>Payment Successful!</CardTitle>
+            <CardDescription>
+              Your payment went through. We're having trouble loading the order details right now —
+              your order is safely recorded. Check your orders page or wait a moment and refresh.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button onClick={() => navigate("/orders")} className="w-full">
+              View My Orders
+            </Button>
+            <Button variant="outline" onClick={() => window.location.reload()} className="w-full">
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -143,13 +204,14 @@ export default function PaymentSuccess() {
   if (!order) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="w-full max-w-md">
+        <Card className="w-full max-w-md text-center">
           <CardHeader>
-            <CardTitle className="text-destructive">Order Not Found</CardTitle>
-            <CardDescription>Unable to retrieve order information</CardDescription>
+            <CardTitle>Loading Order…</CardTitle>
+            <CardDescription>Please wait while we retrieve your order details.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => navigate("/orders")} className="w-full">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+            <Button variant="outline" onClick={() => navigate("/orders")} className="w-full">
               View My Orders
             </Button>
           </CardContent>
@@ -306,6 +368,44 @@ export default function PaymentSuccess() {
             </CardContent>
           </Card>
 
+          {/* Finance Note — collapsible explainer */}
+          <Card className="mb-6 border-border/60">
+            <details>
+              <summary className="cursor-pointer list-none px-6 py-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-semibold text-sm">Understanding Your Payment Breakdown</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Expand to see how your total is split between products, delivery, and platform fees</p>
+                  </div>
+                  <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+                </div>
+              </summary>
+              <CardContent className="pt-0 space-y-3 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                    <p className="font-medium mb-1">Order Total</p>
+                    <p className="text-muted-foreground text-xs">The full amount charged to your payment method. Includes product subtotal, delivery fee, and any platform processing fee.</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                    <p className="font-medium mb-1">Processing Fee</p>
+                    <p className="text-muted-foreground text-xs">A small fee (typically 1–2 % of subtotal) to cover secure payment processing via Paystack. This is kept by the platform.</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                    <p className="font-medium mb-1">Delivery Fee</p>
+                    <p className="text-muted-foreground text-xs">Covers the cost of getting your order to your address or pickup station. Goes to the logistics provider or rider.</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                    <p className="font-medium mb-1">Seller Payment</p>
+                    <p className="text-muted-foreground text-xs">The seller receives payment for your purchase directly to their account. Your money goes to the seller when you buy their product.</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground rounded-lg border border-dashed border-border/50 bg-background/60 px-3 py-2">
+                  <strong>Order Total = Product Subtotal + Delivery Fee + Processing Fee − Coupon Discount.</strong> No hidden charges beyond what was shown at checkout.
+                </p>
+              </CardContent>
+            </details>
+          </Card>
+
           {/* Review Section */}
           {orderItems.length > 0 && (
             <Card className="mb-6">
@@ -342,7 +442,7 @@ export default function PaymentSuccess() {
                 {selectedProductForReview && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/50" onClick={() => setSelectedProductForReview(null)} />
-                    <Card className="w-full max-w-md relative">
+                    <Card className="w-full max-w-md relative max-h-[90vh] overflow-y-auto">
                       <CardHeader>
                         <CardTitle>Write a Review</CardTitle>
                         <CardDescription>

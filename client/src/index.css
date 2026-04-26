@@ -313,3 +313,151 @@
 .active-elevate-2:active {
   transform: translateX(3px) scale(0.98);
 }
+
+/* ─── PWA / Mobile-First Global Rules ─── */
+
+/* Respect iOS notch and Android gesture bar */
+:root {
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
+}
+
+html {
+  /* Prevent font size inflation on mobile */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Smooth scrolling everywhere */
+  scroll-behavior: smooth;
+}
+
+body {
+  /* Native-feel overscroll on iOS */
+  overscroll-behavior-y: none;
+  /* Remove blue tap highlight on Android */
+  -webkit-tap-highlight-color: transparent;
+  /* iOS momentum scrolling */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* All interactive elements must meet 44px minimum touch target (WCAG 2.5.5) */
+button, a, [role="button"], [role="link"],
+input[type="submit"], input[type="button"], input[type="reset"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Inputs should have adequate height on mobile to prevent iOS zoom */
+input, select, textarea {
+  font-size: 16px; /* prevents iOS auto-zoom */
+}
+
+/* Prevent overscroll bounce from showing white gaps */
+#root {
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+}
+
+/* ─── Mobile Sidebar Overlay ─── */
+
+.mobile-sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 40;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: fadeIn 0.2s ease;
+}
+
+.mobile-sidebar-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(280px, 85vw);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: slideInLeft 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── Mobile-specific dashboard header adjustments ─── */
+@media (max-width: 767px) {
+  /* Ensure dashboard header respects notch */
+  [data-dashboard-surface] > .flex-1 > header {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  }
+
+  /* Tighter padding on mobile for content areas */
+  [data-route-scroll-container] {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Cards should not have excessive horizontal padding on mobile */
+  .max-w-7xl {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+}
+
+/* ─── iOS-style action sheet / bottom sheet ─── */
+.bottom-sheet {
+  border-radius: 20px 20px 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+  box-shadow: 0 -8px 40px rgba(0,0,0,0.15);
+}
+
+/* ─── Smooth page transitions ─── */
+.page-enter {
+  animation: pageFadeUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pageFadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Native-feel card press on mobile ─── */
+@media (hover: none) {
+  .hover-elevate:active {
+    transform: scale(0.97);
+    transition: transform 0.08s ease;
+  }
+}
+
+/* ─── Mobile bottom nav clearance (storefront pages) ─── */
+@media (max-width: 767px) {
+  /* Pages that use min-h-screen get bottom padding so content isn't behind the nav bar.
+     Dashboard surfaces manage their own spacing via data-dashboard-surface. */
+  .min-h-screen:not([data-dashboard-surface]):not([data-dashboard-surface] *) {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ─── PWA standalone mode tweaks ─── */
+@media (display-mode: standalone) {
+  /* Extra top padding for status bar in standalone */
+  body {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* Hide browser-specific UI hints */
+  .pwa-hide-in-standalone {
+    display: none !important;
+  }
+}

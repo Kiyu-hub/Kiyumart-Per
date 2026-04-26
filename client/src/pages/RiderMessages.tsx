@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, MessageSquare, Send, ArrowLeft, Headphones } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
+import { TypingIndicator } from "@/components/TypingIndicator";
 import { useSocket } from "@/contexts/NotificationContext";
 import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
@@ -58,6 +59,7 @@ export default function RiderMessages() {
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
 
   const urlParams = new URLSearchParams(window.location.search);
   const userIdFilter = urlParams.get("userId");
@@ -75,9 +77,15 @@ export default function RiderMessages() {
       if (msg.receiverId === user?.id) {
         socket.emit("message_delivered", { messageId: msg.id });
       }
-      const isMessageForCurrentUser = msg.senderId === user?.id || msg.receiverId === user?.id;
-      if (isMessageForCurrentUser || msg.senderId === selectedUserId || msg.receiverId === selectedUserId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedUserId] });
+      if (msg.senderId === selectedUserId || msg.receiverId === selectedUserId) {
+        if (!seenMessageIdsRef.current.has(msg.id)) {
+          seenMessageIdsRef.current.add(msg.id);
+          queryClient.setQueryData<Message[]>(["/api/messages", selectedUserId], (old) => {
+            if (!old) return [msg];
+            if (old.some((m) => m.id === msg.id)) return old;
+            return [...old, msg];
+          });
+        }
       }
     };
 
@@ -144,6 +152,7 @@ export default function RiderMessages() {
       typingTimeoutRef.current = null;
     }
     isTypingRef.current = false;
+    seenMessageIdsRef.current.clear();
   }, [selectedUserId]);
 
   const { data: users = [], isLoading: usersLoading } = useQuery<UserData[]>({
@@ -469,10 +478,17 @@ export default function RiderMessages() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-lg">{selectedUser?.name || "Support Agent"}</h3>
-                      <p className={`text-xs ${isPeerTyping ? "text-primary" : getPresenceMeta(selectedUserPresence.presence).textClass}`}>
-                        {isPeerTyping
-                          ? "typing..."
-                          : getPresenceMeta(selectedUserPresence.presence).label}
+                      <p className={`text-xs ${isPeerTyping ? "text-primary font-medium" : getPresenceMeta(selectedUserPresence.presence).textClass}`}>
+                        {isPeerTyping ? (
+                          <span className="inline-flex items-center gap-0.5">
+                            typing
+                            <span className="inline-flex gap-px ml-0.5">
+                              <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{animationDelay:"0ms",animationDuration:"900ms"}}/>
+                              <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{animationDelay:"200ms",animationDuration:"900ms"}}/>
+                              <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{animationDelay:"400ms",animationDuration:"900ms"}}/>
+                            </span>
+                          </span>
+                        ) : getPresenceMeta(selectedUserPresence.presence).label}
                       </p>
                     </div>
                   </div>
@@ -522,6 +538,11 @@ export default function RiderMessages() {
                             </div>
                           </div>
                         ))}
+                        {isPeerTyping && (
+                          <div className="flex justify-start">
+                            <TypingIndicator />
+                          </div>
+                        )}
                         <div ref={messagesEndRef} />
                       </div>
                     )}

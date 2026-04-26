@@ -36,7 +36,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (data: { email: string; password: string; name: string; role?: string }) => Promise<void>;
+  signup: (data: { email: string; password: string; name: string; role?: string; referralCode?: string }) => Promise<void>;
   logout: () => Promise<void>;
   ensureAuthenticated: (options?: { force?: boolean }) => Promise<User | null>;
   isAuthenticated: boolean;
@@ -134,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const signupMutation = useMutation({
-    mutationFn: async (data: { email: string; password: string; name: string; role?: string }) => {
+    mutationFn: async (data: { email: string; password: string; name: string; role?: string; referralCode?: string }) => {
       return fetchSameOriginJson<{ user: User }>("/api/auth/signup", {
         method: "POST",
         headers: {
@@ -166,7 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loginMutation.mutateAsync({ email, password });
   };
 
-  const signup = async (data: { email: string; password: string; name: string; role?: string }) => {
+  const signup = async (data: { email: string; password: string; name: string; role?: string; referralCode?: string }) => {
     await signupMutation.mutateAsync(data);
   };
 

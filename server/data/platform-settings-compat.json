@@ -2,7 +2,19 @@
   "allowSellerBankPayouts": false,
   "allowSharedVariantColorStock": false,
   "isExternalRiderSystemEnabled": true,
-  "showCheckoutDeliveryMap": false,
+  "showCheckoutDeliveryMap": true,
   "allowPickupAgentAdminChat": true,
-  "allowSellerDirectSupportMessages": true
+  "allowSellerDirectSupportMessages": true,
+  "upgradePlanAPrice": "15",
+  "upgradePlanASlots": 10,
+  "upgradePlanBPrice": "40",
+  "upgradePlanCPrice": "100",
+  "deliveryFeeCommission": "0",
+  "referralRewardPercent": "10",
+  "referralEnabled": false,
+  "referralEnabledSingleStore": true,
+  "referralEnabledMultiVendor": true,
+  "referralCustomerThreshold": 5,
+  "referralSellerThreshold": 10,
+  "referralSellerPromoHours": 24
 }

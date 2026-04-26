@@ -291,7 +291,7 @@ export default function StoreDetailsPage() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="products">Products</TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
-            <TabsTrigger value="finance">Finance</TabsTrigger>
+            {user?.role === "super_admin" && <TabsTrigger value="finance">Finance</TabsTrigger>}
             <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
 
@@ -429,7 +429,7 @@ export default function StoreDetailsPage() {
             ))}
           </TabsContent>
 
-          <TabsContent value="finance" className="space-y-6">
+          {user?.role === "super_admin" && (<TabsContent value="finance" className="space-y-6">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Card><CardContent className="p-5"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Gross Revenue</span><DollarSign className="h-4 w-4 text-muted-foreground" /></div><p className="mt-3 text-2xl font-semibold">{formatPrice(summary.totalRevenue)}</p></CardContent></Card>
               <Card><CardContent className="p-5"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Completed Payouts</span><Wallet className="h-4 w-4 text-muted-foreground" /></div><p className="mt-3 text-2xl font-semibold">{formatPrice(summary.completedPayoutValue)}</p></CardContent></Card>
@@ -480,7 +480,7 @@ export default function StoreDetailsPage() {
                 </CardContent>
               </Card>
             </div>
-          </TabsContent>
+          </TabsContent>)}
 
           <TabsContent value="activity" className="space-y-6">
             <Card>

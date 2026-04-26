@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import compression from "compression";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import fs from "fs";
@@ -110,6 +111,9 @@ const allowedOrigins = [
   'http://127.0.0.1:5173',
   process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
+
+// Gzip compress all responses — reduces payload size 60-80%
+app.use(compression());
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -527,6 +531,72 @@ app.use(cookieParser());
     await db.execute(sql`CREATE INDEX IF NOT EXISTS receipts_order_id_idx ON receipts(order_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS receipts_generated_by_idx ON receipts(generated_by)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS receipts_updated_at_idx ON receipts(updated_at)`);
+    // Phase 4 — seller upgrade plans, promo self-service, delivery commission, referral reward
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_a_price decimal(10,2) DEFAULT 15`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_a_slots integer DEFAULT 10`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_b_price decimal(10,2) DEFAULT 40`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_c_price decimal(10,2) DEFAULT 100`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS delivery_fee_commission decimal(10,2) DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_reward_percent decimal(5,2) DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS seller_upgrade_plan text`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS seller_plan_expires_at timestamp`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS seller_bonus_slots integer DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE promotion_applications ADD COLUMN IF NOT EXISTS paystack_reference text`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS cloudinary_accounts text`);
+    // Referral programme
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_enabled_single_store boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_enabled_multi_vendor boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_customer_threshold integer DEFAULT 5`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_seller_threshold integer DEFAULT 10`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_seller_promo_hours integer DEFAULT 24`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_referral_notification_at timestamp`);
+    // Admin permissions extended columns
+    await db.execute(sql`ALTER TABLE admin_permissions ADD COLUMN IF NOT EXISTS can_manage_payouts boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE admin_permissions ADD COLUMN IF NOT EXISTS can_view_payouts boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE admin_permissions ADD COLUMN IF NOT EXISTS can_manage_features boolean DEFAULT false`);
+    // GA4 Data API + Sentry API credentials stored in DB
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS ga4_property_id text`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS google_credentials_json text`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sentry_auth_token text`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sentry_org text`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sentry_project text`);
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'referrals') THEN
+          CREATE TABLE referrals (
+            id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+            referrer_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            referred_user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status text NOT NULL DEFAULT 'signed_up',
+            completed_at timestamp,
+            created_at timestamp DEFAULT now()
+          );
+          CREATE INDEX IF NOT EXISTS referrals_referrer_idx ON referrals(referrer_id);
+          CREATE INDEX IF NOT EXISTS referrals_referred_idx ON referrals(referred_user_id);
+        END IF;
+      END $$`);
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'referral_rewards') THEN
+          CREATE TABLE referral_rewards (
+            id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            type text NOT NULL,
+            reward_percent decimal(5,2),
+            reward_duration_hours integer,
+            status text NOT NULL DEFAULT 'pending',
+            claimed_at timestamp,
+            expires_at timestamp,
+            discount_code text UNIQUE,
+            promotion_type text,
+            promotion_target_id text,
+            created_at timestamp DEFAULT now()
+          );
+          CREATE INDEX IF NOT EXISTS referral_rewards_user_idx ON referral_rewards(user_id);
+        END IF;
+      END $$`);
   } catch (e: any) {
     console.warn("[STARTUP] Could not run schema self-heal compatibility checks:", e?.message || String(e));
   }
@@ -842,6 +912,34 @@ app.use(cookieParser());
   } catch (e) {
     console.warn('[BOOT] Could not start promotional worker:', (e as any)?.message ?? String(e));
   }
+
+  // Start order auto-cancel worker (optional — only active when orderAutoCancelHours > 0)
+  try {
+    const { runOrderAutoCancelWorker } = await import('./workers/orderAutoCancelWorker');
+    runOrderAutoCancelWorker();
+  } catch (e) {
+    console.warn('[BOOT] Could not start order auto-cancel worker:', (e as any)?.message ?? String(e));
+  }
+
+  // Start notification reminder worker (5-hr payment reminders + interview reminders)
+  try {
+    const { runNotificationReminderWorker } = await import('./workers/notificationReminderWorker');
+    runNotificationReminderWorker();
+  } catch (e) {
+    console.warn('[BOOT] Could not start notification reminder worker:', (e as any)?.message ?? String(e));
+  }
+
 })().catch((error) => {
   console.error("[BOOT] Fatal bootstrap error:", error?.stack || error?.message || error);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on("SIGTERM", () => {
+  console.info("[SHUTDOWN] SIGTERM received — shutting down gracefully");
+  setTimeout(() => process.exit(0), 8000).unref();
+});
+process.on("SIGINT", () => {
+  console.info("[SHUTDOWN] SIGINT received — shutting down gracefully");
+  setTimeout(() => process.exit(0), 8000).unref();
 });

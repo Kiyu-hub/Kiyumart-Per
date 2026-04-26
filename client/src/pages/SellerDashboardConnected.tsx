@@ -7,7 +7,9 @@ import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DollarSign, Package, ShoppingBag, TrendingUp, Loader2, AlertCircle, Plus, Pencil, Trash2, Tag, Truck } from "lucide-react";
+import { DollarSign, Package, ShoppingBag, TrendingUp, Loader2, AlertCircle, Plus, Pencil, Trash2, Tag, Truck, Star, Crown, Zap } from "lucide-react";
+import { PaystackInlineService } from "@/lib/paystackInline";
+import { SellerUpgradeModal } from "@/components/SellerUpgradeModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState, SectionLoadingState } from "@/components/ui/loading-state";
+import ReferralTracker from "@/components/ReferralTracker";
 import { useToast } from "@/hooks/use-toast";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useForm } from "react-hook-form";
@@ -40,12 +43,15 @@ interface Analytics {
 
 interface SellerDashboardMetricSnapshot {
   totalRevenue: number;
-  totalDeliveries: number;
-  totalPickups: number;
+  pendingDeliveryOrders: number;
+  pendingPickupOrders: number;
+  completedDeliveryOrders: number;
+  completedPickupOrders: number;
+  cancelledFulfillmentOrders: number;
+  awaitingPaymentOrders: number;
   sellerOrdersCount: number;
   pendingOrders: number;
   remainingStockUnits: number;
-  successfulOrders: number;
 }
 
 interface SellerOrdersResponse {
@@ -75,6 +81,8 @@ interface Order {
   sellerId: string;
   createdAt?: string;
   total?: string | number | null;
+  subtotal?: string | number | null;
+  couponDiscount?: string | number | null;
   paymentStatus?: string | null;
   deliveryMethod?: string | null;
   riderId?: string | null;
@@ -91,6 +99,8 @@ interface SellerProfileSummary {
 interface PublicPlatformSettings {
   allowSellerBankPayouts?: boolean;
   allowSellerDirectSupportMessages?: boolean;
+  isMultiVendor?: boolean;
+  referralEnabled?: boolean;
 }
 
 interface Coupon {
@@ -194,6 +204,7 @@ const SELLER_NAV_ROUTES: Record<string, string> = {
   analytics: "/seller/analytics",
   settings: "/seller/settings",
   notifications: "/seller/notifications",
+  reviews: "/seller/reviews",
   "my-cart": "/cart",
   "my-purchases": "/orders",
   "my-wishlist": "/wishlist",
@@ -219,6 +230,8 @@ export default function SellerDashboardConnected() {
   const bankPayoutsAllowed = publicSettings?.allowSellerBankPayouts !== false;
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lastGoodMetrics, setLastGoodMetrics] = useState<SellerDashboardMetricSnapshot | null>(null);
   const metricsStorageKey = user?.id ? `seller-dashboard-metrics:${user.id}` : null;
 
@@ -257,6 +270,8 @@ export default function SellerDashboardConnected() {
       setActiveItem("support");
     } else if (path.includes("/seller/analytics")) {
       setActiveItem("analytics");
+    } else if (path.includes("/seller/reviews")) {
+      setActiveItem("reviews");
     } else if (path.includes("/seller/settings")) {
       setActiveItem("settings");
     } else if (path.includes("/seller/notifications")) {
@@ -307,6 +322,9 @@ export default function SellerDashboardConnected() {
         break;
       case "analytics":
         navigate("/seller/analytics");
+        break;
+      case "reviews":
+        navigate("/seller/reviews");
         break;
       case "settings":
         navigate("/seller/settings");
@@ -440,6 +458,27 @@ export default function SellerDashboardConnected() {
     refetchOnWindowFocus: true,
     refetchOnMount: "always",
     staleTime: 0,
+  });
+
+  interface TierInfo {
+    isPremiumSeller: boolean;
+    sellerUpgradePlan: string | null;
+    sellerPlanExpiresAt: string | null;
+    sellerBonusSlots: number;
+    planBExpired: boolean;
+    productCount: number;
+    freeTierLimit: number;
+    hardMax: number;
+    effectiveLimit: number;
+    upgradePlanAPrice: number;
+    upgradePlanASlots: number;
+    upgradePlanBPrice: number;
+    upgradePlanCPrice: number;
+  }
+  const { data: tierInfo } = useQuery<TierInfo>({
+    queryKey: ["/api/seller/tier-info"],
+    enabled: isAuthenticated && user?.role === "seller",
+    staleTime: 60000,
   });
 
   const {
@@ -636,22 +675,15 @@ export default function SellerDashboardConnected() {
     return <PageLoadingState title="Checking seller access" description="Confirming your store status and dashboard availability." />;
   }
 
-  const safeProducts = (Array.isArray(products) ? products : []).filter((product) => !product?.dynamicFields?.archived);
-  const safeOrders = Array.isArray(sellerOrdersResponse?.orders) ? sellerOrdersResponse.orders : [];
-  const safeCoupons = Array.isArray(coupons) ? coupons : [];
-  const safeAnalytics: Analytics = {
-    totalOrders: safeNumber((analytics as any)?.totalOrders),
-    totalRevenue: safeNumber((analytics as any)?.totalRevenue),
-    sellerSettlementTotal: safeNumber((analytics as any)?.sellerSettlementTotal),
-    platformCommissionTotal: safeNumber((analytics as any)?.platformCommissionTotal),
-    processingFeesTotal: safeNumber((analytics as any)?.processingFeesTotal),
-    pendingPayoutValue: safeNumber((analytics as any)?.pendingPayoutValue),
-    availableBalance: safeNumber((analytics as any)?.availableBalance),
-    completedPayoutValue: safeNumber((analytics as any)?.completedPayoutValue),
-    totalDeliveries: safeNumber((analytics as any)?.totalDeliveries),
-    totalPickups: safeNumber((analytics as any)?.totalPickups),
-  };
+  const handleUpgrade = () => setShowUpgradeModal(true);
 
+  const safeProducts = (Array.isArray(products) ? products : []).filter((product) => !product?.dynamicFields?.archived);
+  const safeOrders = Array.from(
+    new Map(
+      (Array.isArray(sellerOrdersResponse?.orders) ? sellerOrdersResponse.orders : []).map((o: any) => [o.id, o])
+    ).values()
+  ) as Order[];
+  const safeCoupons = Array.isArray(coupons) ? coupons : [];
   const requiresSellerAction = (order?: Order) => {
     if (!order || order.sellerId !== user.id) return false;
 
@@ -684,46 +716,109 @@ export default function SellerDashboardConnected() {
 
   const pendingOrders = safeOrders.filter((o) => requiresSellerAction(o)).length;
 
-  const successfulOrders = safeOrders.filter((o) => {
-    if (o?.sellerId !== user.id) return false;
-    const normalizedStatus = normalizeOrderStatus(o?.status);
-    return ["delivered", "completed"].includes(normalizedStatus);
-  }).length;
-
   const sellerOrdersCount = safeNumber(sellerOrdersResponse?.total ?? safeOrders.length);
   const remainingStockUnits = safeProducts.reduce((sum, product) => {
     return sum + getProductRemainingStock(product);
   }, 0);
+  const isPaidSellerOrder = (order?: Order) => {
+    const paymentStatus = normalizeOrderStatus(order?.paymentStatus ?? undefined);
+    return ["paid", "completed", "success"].includes(paymentStatus);
+  };
+  const getSellerFulfillmentMode = (order?: Order) => {
+    const deliveryMethod = normalizeOrderStatus(order?.deliveryMethod ?? undefined);
+    return deliveryMethod === "pickup" ? "pickup" : "delivery";
+  };
+  // Gross product revenue: prefer the analytics API value (uses subtotal - couponDiscount from DB,
+  // which excludes delivery fees and processing fees that don't belong to the seller).
+  // Fall back to a client-side sum using subtotal - couponDiscount (never use order.total which includes fees).
   const paidRevenueFromOrders = safeOrders
     .filter((order) => {
       if (order?.sellerId !== user.id) return false;
-      const normalizedPaymentStatus = normalizeOrderStatus(order.paymentStatus ?? undefined);
-      return ["paid", "completed", "success"].includes(normalizedPaymentStatus);
+      return isPaidSellerOrder(order);
     })
-    .reduce((sum, order) => sum + safeNumber(order.total), 0);
-  const totalRevenue = safeAnalytics.totalRevenue || paidRevenueFromOrders;
-  const totalDeliveries = safeOrders.filter(
+    .reduce((sum, order) => {
+      const sub = safeNumber(order.subtotal ?? order.total);
+      const disc = safeNumber(order.couponDiscount ?? 0);
+      return sum + Math.max(0, sub - disc);
+    }, 0);
+  const totalRevenue = typeof analytics?.totalRevenue === "number" && analytics.totalRevenue >= 0
+    ? analytics.totalRevenue
+    : paidRevenueFromOrders;
+  // Net payout = totalRevenue minus the platform service fee, recorded in commissions table
+  const netPayout = typeof analytics?.sellerSettlementTotal === "number" && analytics.sellerSettlementTotal >= 0
+    ? analytics.sellerSettlementTotal
+    : null;
+  const isCompletedSellerOrder = (order?: Order) => {
+    const status = normalizeOrderStatus(order?.status);
+    return status === "completed" || status === "delivered";
+  };
+  const isClosedSellerOrder = (order?: Order) => {
+    const status = normalizeOrderStatus(order?.status);
+    return ["completed", "delivered", "cancelled", "failed", "refunded"].includes(status);
+  };
+  const pendingDeliveryOrders = safeOrders.filter(
     (order) =>
       order?.sellerId === user.id &&
-      normalizeOrderStatus(order.deliveryMethod ?? undefined) !== "pickup",
+      isPaidSellerOrder(order) &&
+      getSellerFulfillmentMode(order) === "delivery" &&
+      !isClosedSellerOrder(order),
   ).length;
-  const totalPickups = safeOrders.filter(
+  const pendingPickupOrders = safeOrders.filter(
     (order) =>
       order?.sellerId === user.id &&
-      normalizeOrderStatus(order.deliveryMethod ?? undefined) === "pickup",
+      isPaidSellerOrder(order) &&
+      getSellerFulfillmentMode(order) === "pickup" &&
+      !isClosedSellerOrder(order),
+  ).length;
+  const completedDeliveryOrders = safeOrders.filter(
+    (order) =>
+      order?.sellerId === user.id &&
+      isPaidSellerOrder(order) &&
+      getSellerFulfillmentMode(order) === "delivery" &&
+      isCompletedSellerOrder(order),
+  ).length;
+  const completedPickupOrders = safeOrders.filter(
+    (order) =>
+      order?.sellerId === user.id &&
+      isPaidSellerOrder(order) &&
+      getSellerFulfillmentMode(order) === "pickup" &&
+      isCompletedSellerOrder(order),
+  ).length;
+  const cancelledFulfillmentOrders = safeOrders.filter((order) => {
+    if (order?.sellerId !== user.id) return false;
+    if (!isPaidSellerOrder(order)) return false;
+    const status = normalizeOrderStatus(order?.status);
+    return ["cancelled", "failed", "refunded", "disputed"].includes(status);
+  }).length;
+  const awaitingPaymentOrders = safeOrders.filter(
+    (order) => order?.sellerId === user.id && !isPaidSellerOrder(order)
   ).length;
   const liveMetrics: SellerDashboardMetricSnapshot = {
     totalRevenue,
-    totalDeliveries,
-    totalPickups,
+    pendingDeliveryOrders,
+    pendingPickupOrders,
+    completedDeliveryOrders,
+    completedPickupOrders,
+    cancelledFulfillmentOrders,
+    awaitingPaymentOrders,
     sellerOrdersCount,
     pendingOrders,
     remainingStockUnits,
-    successfulOrders,
   };
   const visibleMetrics: SellerDashboardMetricSnapshot = {
+    ...{
+      totalRevenue: safeNumber(lastGoodMetrics?.totalRevenue),
+      pendingDeliveryOrders: safeNumber(lastGoodMetrics?.pendingDeliveryOrders),
+      pendingPickupOrders: safeNumber(lastGoodMetrics?.pendingPickupOrders),
+      completedDeliveryOrders: safeNumber(lastGoodMetrics?.completedDeliveryOrders),
+      completedPickupOrders: safeNumber(lastGoodMetrics?.completedPickupOrders),
+      cancelledFulfillmentOrders: safeNumber(lastGoodMetrics?.cancelledFulfillmentOrders),
+      awaitingPaymentOrders: safeNumber(lastGoodMetrics?.awaitingPaymentOrders),
+      sellerOrdersCount: safeNumber(lastGoodMetrics?.sellerOrdersCount),
+      pendingOrders: safeNumber(lastGoodMetrics?.pendingOrders),
+      remainingStockUnits: safeNumber(lastGoodMetrics?.remainingStockUnits),
+    },
     ...liveMetrics,
-    ...(lastGoodMetrics ?? {}),
   };
   const recentOrders = [...safeOrders]
     .filter((o) => requiresSellerAction(o))
@@ -755,24 +850,28 @@ export default function SellerDashboardConnected() {
     if (!metricsStorageKey) return;
     const hasMeaningfulMetrics =
       liveMetrics.totalRevenue > 0 ||
-      liveMetrics.totalDeliveries > 0 ||
-      liveMetrics.totalPickups > 0 ||
+      liveMetrics.pendingDeliveryOrders > 0 ||
+      liveMetrics.pendingPickupOrders > 0 ||
+      liveMetrics.completedDeliveryOrders > 0 ||
+      liveMetrics.completedPickupOrders > 0 ||
       liveMetrics.sellerOrdersCount > 0 ||
       liveMetrics.pendingOrders > 0 ||
-      liveMetrics.remainingStockUnits > 0 ||
-      liveMetrics.successfulOrders > 0;
+      liveMetrics.remainingStockUnits > 0;
 
     if (!hasMeaningfulMetrics) return;
 
     const unchanged =
       lastGoodMetrics &&
       lastGoodMetrics.totalRevenue === liveMetrics.totalRevenue &&
-      lastGoodMetrics.totalDeliveries === liveMetrics.totalDeliveries &&
-      lastGoodMetrics.totalPickups === liveMetrics.totalPickups &&
+      lastGoodMetrics.pendingDeliveryOrders === liveMetrics.pendingDeliveryOrders &&
+      lastGoodMetrics.pendingPickupOrders === liveMetrics.pendingPickupOrders &&
+      lastGoodMetrics.completedDeliveryOrders === liveMetrics.completedDeliveryOrders &&
+      lastGoodMetrics.completedPickupOrders === liveMetrics.completedPickupOrders &&
+      lastGoodMetrics.cancelledFulfillmentOrders === liveMetrics.cancelledFulfillmentOrders &&
+      lastGoodMetrics.awaitingPaymentOrders === liveMetrics.awaitingPaymentOrders &&
       lastGoodMetrics.sellerOrdersCount === liveMetrics.sellerOrdersCount &&
       lastGoodMetrics.pendingOrders === liveMetrics.pendingOrders &&
-      lastGoodMetrics.remainingStockUnits === liveMetrics.remainingStockUnits &&
-      lastGoodMetrics.successfulOrders === liveMetrics.successfulOrders;
+      lastGoodMetrics.remainingStockUnits === liveMetrics.remainingStockUnits;
 
     if (unchanged) return;
 
@@ -786,11 +885,14 @@ export default function SellerDashboardConnected() {
     }
   }, [
     liveMetrics.pendingOrders,
-    liveMetrics.totalDeliveries,
-    liveMetrics.totalPickups,
+    liveMetrics.pendingDeliveryOrders,
+    liveMetrics.pendingPickupOrders,
+    liveMetrics.completedDeliveryOrders,
+    liveMetrics.completedPickupOrders,
+    liveMetrics.cancelledFulfillmentOrders,
+    liveMetrics.awaitingPaymentOrders,
     liveMetrics.remainingStockUnits,
     liveMetrics.sellerOrdersCount,
-    liveMetrics.successfulOrders,
     liveMetrics.totalRevenue,
     lastGoodMetrics,
     metricsStorageKey,
@@ -807,7 +909,7 @@ export default function SellerDashboardConnected() {
   }, [activeItem, isAuthenticated, refetchAnalytics, refetchOrders, refetchProducts, user?.role]);
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background overflow-hidden">
       <DashboardSidebar
         role="seller"
         activeItem={activeItem}
@@ -818,7 +920,7 @@ export default function SellerDashboardConnected() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="border-b p-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
-            {activeItem === "coupons" ? "Coupon Management" : "Seller Dashboard"}
+            {activeItem === "coupons" ? "Coupon Management" : activeItem === "reviews" ? "Ratings & Reviews" : "Seller Dashboard"}
           </h1>
           <div className="flex items-center gap-2">
             <ThemeToggle />
@@ -885,6 +987,136 @@ export default function SellerDashboardConnected() {
             
             {activeItem === "dashboard" && (
               <>
+                {/* Low stock alert */}
+                {(() => {
+                  const LOW_STOCK = 5;
+                  const lowStockItems = safeProducts.filter((p) => getProductRemainingStock(p) <= LOW_STOCK && getProductRemainingStock(p) >= 0 && p.isActive);
+                  if (!lowStockItems.length) return null;
+                  return (
+                    <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="h-5 w-5 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-orange-900 dark:text-orange-100 mb-1">
+                            Low Stock Alert — {lowStockItems.length} product{lowStockItems.length !== 1 ? "s" : ""} running low
+                          </h3>
+                          <p className="text-sm text-orange-800 dark:text-orange-200 mb-2">
+                            {lowStockItems.slice(0, 3).map((p) => `${p.name} (${getProductRemainingStock(p)} left)`).join(", ")}
+                            {lowStockItems.length > 3 ? ` and ${lowStockItems.length - 3} more` : ""}
+                          </p>
+                          <Button size="sm" onClick={() => navigate("/seller/products")} className="bg-orange-600 hover:bg-orange-700 text-white">
+                            Manage Products
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Seller tier / upgrade prompt */}
+                {tierInfo && (() => {
+                  const { isPremiumSeller, sellerUpgradePlan, planBExpired, sellerBonusSlots, productCount, effectiveLimit, freeTierLimit } = tierInfo;
+                  const hasUnlimited = isPremiumSeller || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
+                  const displayLimit = effectiveLimit > 0 ? effectiveLimit : null;
+                  const atLimit = displayLimit !== null && productCount >= displayLimit;
+                  const nearLimit = !atLimit && displayLimit !== null && productCount >= Math.floor(displayLimit * 0.8);
+
+                  if (hasUnlimited) {
+                    const planLabel = isPremiumSeller && sellerUpgradePlan === "plan_c" ? "Plan C (Unlimited Forever)" :
+                      sellerUpgradePlan === "plan_b" ? "Plan B (Monthly Unlimited)" :
+                      isPremiumSeller ? "Premium Seller" : "";
+                    return (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-800 p-3 flex items-center gap-3">
+                        <span className="text-lg">👑</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-amber-900 dark:text-amber-100">{planLabel || "Premium Seller"}</p>
+                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                            Unlimited product listings.
+                            {productCount > 0 ? ` Currently listing ${productCount} product${productCount !== 1 ? "s" : ""}.` : ""}
+                            {sellerUpgradePlan === "plan_b" && tierInfo.sellerPlanExpiresAt
+                              ? ` Renews ${new Date(tierInfo.sellerPlanExpiresAt).toLocaleDateString()}.`
+                              : ""}
+                          </p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={handleUpgrade} className="gap-1.5 text-xs">
+                          <Zap className="h-3.5 w-3.5" /> Upgrade
+                        </Button>
+                      </div>
+                    );
+                  }
+
+                  if (planBExpired) {
+                    return (
+                      <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 p-4">
+                        <div className="flex items-start gap-3">
+                          <span className="text-xl flex-shrink-0">⏰</span>
+                          <div className="flex-1">
+                            <h3 className="font-semibold mb-1 text-red-900 dark:text-red-100">Plan B Expired</h3>
+                            <p className="text-sm mb-3 text-red-800 dark:text-red-200">
+                              Your monthly unlimited plan has expired. Renew Plan B or upgrade to Plan C for permanent unlimited listings.
+                            </p>
+                            <Button size="sm" onClick={handleUpgrade} className="gap-2">
+                              <Crown className="h-4 w-4" /> Renew or Upgrade
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (sellerUpgradePlan === "plan_a") {
+                    return (atLimit || nearLimit) ? (
+                      <div className={`rounded-lg border p-4 ${atLimit ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"}`}>
+                        <div className="flex items-start gap-3">
+                          <span className="text-xl flex-shrink-0">{atLimit ? "🚫" : "⭐"}</span>
+                          <div className="flex-1">
+                            <h3 className={`font-semibold mb-1 ${atLimit ? "text-red-900 dark:text-red-100" : "text-yellow-900 dark:text-yellow-100"}`}>
+                              {atLimit ? "Listing Limit Reached" : "Approaching Listing Limit"}
+                            </h3>
+                            <p className={`text-sm mb-3 ${atLimit ? "text-red-800 dark:text-red-200" : "text-yellow-800 dark:text-yellow-200"}`}>
+                              {productCount} of {displayLimit} products listed ({freeTierLimit} free + {sellerBonusSlots} bonus slots).
+                              Upgrade to Plan B or C for unlimited listings.
+                            </p>
+                            <Button size="sm" onClick={handleUpgrade} className="gap-2">
+                              <Crown className="h-4 w-4" /> Upgrade Plan
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null;
+                  }
+
+                  if (!atLimit && !nearLimit) return null;
+                  return (
+                    <div className={`rounded-lg border p-4 ${atLimit ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"}`}>
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl flex-shrink-0">{atLimit ? "🚫" : "⭐"}</span>
+                        <div className="flex-1">
+                          <h3 className={`font-semibold mb-1 ${atLimit ? "text-red-900 dark:text-red-100" : "text-yellow-900 dark:text-yellow-100"}`}>
+                            {atLimit ? "Listing Limit Reached" : "Approaching Your Listing Limit"}
+                          </h3>
+                          <p className={`text-sm mb-3 ${atLimit ? "text-red-800 dark:text-red-200" : "text-yellow-800 dark:text-yellow-200"}`}>
+                            {productCount} of {displayLimit} products listed.{" "}
+                            {atLimit ? "Choose an upgrade plan to continue listing products." : "You're almost at your limit."}
+                          </p>
+                          <Button size="sm" onClick={handleUpgrade} className="gap-2">
+                            <Crown className="h-4 w-4" /> View Upgrade Plans
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <SellerUpgradeModal
+                  open={showUpgradeModal}
+                  onClose={() => setShowUpgradeModal(false)}
+                  onUpgraded={() => {
+                    queryClient.invalidateQueries({ queryKey: ["/api/seller/tier-info"] });
+                    queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+                  }}
+                />
+
                 {analyticsLoading && !lastGoodMetrics ? (
                   <div className="flex justify-center p-8">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -892,24 +1124,49 @@ export default function SellerDashboardConnected() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     <MetricCard
-                      title="Total Revenue"
+                      title="Gross Sales"
                       value={formatPrice(visibleMetrics.totalRevenue)}
                       icon={DollarSign}
+                      details={
+                        netPayout !== null ? (
+                          <span>Net payout: <strong>{formatPrice(netPayout)}</strong> (after service fee)</span>
+                        ) : undefined
+                      }
                     />
                     <MetricCard
-                      title="Total Deliveries"
-                      value={visibleMetrics.totalDeliveries.toString()}
+                      title="Pending Fulfillment"
+                      value={(visibleMetrics.pendingDeliveryOrders + visibleMetrics.pendingPickupOrders).toString()}
+                      details={
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                          <span>Deliveries: {visibleMetrics.pendingDeliveryOrders}</span>
+                          <span>Pickups: {visibleMetrics.pendingPickupOrders}</span>
+                        </div>
+                      }
                       icon={Truck}
                     />
                     <MetricCard
-                      title="Total Pickups"
-                      value={visibleMetrics.totalPickups.toString()}
+                      title="Completed Fulfillment"
+                      value={(visibleMetrics.completedDeliveryOrders + visibleMetrics.completedPickupOrders).toString()}
+                      details={
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                          <span>Deliveries: {visibleMetrics.completedDeliveryOrders}</span>
+                          <span>Pickups: {visibleMetrics.completedPickupOrders}</span>
+                        </div>
+                      }
                       icon={Package}
                     />
                     <MetricCard
                       title="Total Orders"
                       value={visibleMetrics.sellerOrdersCount.toString()}
                       icon={Package}
+                      details={
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                          <span>Active: {visibleMetrics.pendingDeliveryOrders + visibleMetrics.pendingPickupOrders}</span>
+                          <span>Completed: {visibleMetrics.completedDeliveryOrders + visibleMetrics.completedPickupOrders}</span>
+                          {visibleMetrics.cancelledFulfillmentOrders > 0 && <span>Cancelled: {visibleMetrics.cancelledFulfillmentOrders}</span>}
+                          {visibleMetrics.awaitingPaymentOrders > 0 && <span>Unpaid: {visibleMetrics.awaitingPaymentOrders}</span>}
+                        </div>
+                      }
                     />
                     <MetricCard
                       title="Orders Requiring Action"
@@ -921,88 +1178,107 @@ export default function SellerDashboardConnected() {
                       value={visibleMetrics.remainingStockUnits.toString()}
                       icon={TrendingUp}
                     />
-                    <MetricCard
-                      title="Successful Orders"
-                      value={visibleMetrics.successfulOrders.toString()}
-                      icon={Tag}
-                    />
                   </div>
                 )}
 
                 <CollapsibleDashboardSection
-                  title="What These Seller Numbers Mean"
-                  summary="Expand to see what each seller dashboard number means and how payouts are calculated."
+                  title="Dashboard Metrics Explained"
+                  summary="Expand to see what each number on your seller dashboard means."
                 >
                   <div className="space-y-4">
+                    {/* Earnings explanation banner */}
+                    <div className="rounded-xl border border-primary/25 bg-primary/5 p-4 space-y-2">
+                      <p className="text-sm font-semibold text-foreground">Understanding your earnings</p>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-xs">
+                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
+                          <p className="font-semibold text-foreground">Gross Sales</p>
+                          <p className="text-muted-foreground">Your total product revenue — product prices minus any coupon discounts. This is your top-line figure before the platform service fee.</p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
+                          <p className="font-semibold text-foreground">Platform Service Fee</p>
+                          <p className="text-muted-foreground">A small % deducted from your gross sales per transaction. This is the only reduction to your earnings — delivery and processing fees are paid by buyers, not you.</p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
+                          <p className="font-semibold text-foreground">Net Payout = what you receive</p>
+                          <p className="text-muted-foreground">Gross Sales minus the service fee. For bank accounts, your payout arrives automatically the moment the buyer pays. For mobile money, request a withdrawal and the transfer is processed instantly by Paystack — no manual approval needed.</p>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="grid gap-3 md:grid-cols-2">
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                        <p className="text-sm font-medium">Total Revenue</p>
+                      <div className="rounded-xl border border-border/70 bg-card p-4">
+                        <p className="text-sm font-medium text-foreground">Gross Sales</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          This is the full amount from orders with confirmed payment. It shows the order money before seller payouts are sent out.
+                          The total value of your product sales from all paid orders — product prices minus any coupon discounts. Delivery fees and the checkout processing fee are paid by buyers on top of your product price and are never included in this figure. Your actual payout will be slightly less after the platform service fee is deducted (shown as <strong className="text-foreground">Net Payout</strong>).
                         </p>
                       </div>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                        <p className="text-sm font-medium">Total Deliveries</p>
+                      <div className="rounded-xl border border-border/70 bg-card p-4">
+                        <p className="text-sm font-medium text-foreground">Pending Fulfillment</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          This shows how many of your seller orders are moving through delivery handoff instead of store pickup.
+                          Every paid order that is still open and not yet completed. Inside the card, deliveries and pickups are shown separately so you can see what is still waiting under each fulfillment method.
                         </p>
                       </div>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                        <p className="text-sm font-medium">Total Pickups</p>
+                      <div className="rounded-xl border border-border/70 bg-card p-4">
+                        <p className="text-sm font-medium text-foreground">Completed Fulfillment</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          This shows how many of your seller orders are set for pickup from the store or pickup point.
+                          Paid orders that have already been fully completed and handed off to buyers. Deliveries and pickups are shown separately so you can compare finished orders by fulfillment method.
                         </p>
                       </div>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                        <p className="text-sm font-medium">Total Orders</p>
+                      <div className="rounded-xl border border-border/70 bg-card p-4">
+                        <p className="text-sm font-medium text-foreground">Total Orders</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          This counts all orders linked to your seller account.
+                          All orders placed by buyers for your products, across every status — paid, pending, processing, and completed.
                         </p>
                       </div>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                        <p className="text-sm font-medium">Orders Requiring Action</p>
+                      <div className="rounded-xl border border-border/70 bg-card p-4">
+                        <p className="text-sm font-medium text-foreground">Orders Requiring Action</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          These are the paid orders that still need your attention, such as packaging, preparing, or making them ready.
+                          Paid open orders that still need your attention — packaging, preparing, or marking items ready for pickup or dispatch. These are a subset of Pending Fulfillment.
                         </p>
                       </div>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                        <p className="text-sm font-medium">Remaining Stock</p>
+                      <div className="rounded-xl border border-border/70 bg-card p-4">
+                        <p className="text-sm font-medium text-foreground">Remaining Stock</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          This is the total stock units left across your current products and variants.
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                        <p className="text-sm font-medium">Successful Orders</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          These are your orders that have already been completed successfully.
+                          Total stock units remaining across all your active products and their variants.
                         </p>
                       </div>
                     </div>
 
-                    <div className={`grid gap-3 ${bankPayoutsAllowed ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                        <p className="text-sm font-medium">Paystack Checkout Fee</p>
+                    <div className={`grid gap-3 ${bankPayoutsAllowed ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
+                      <div className="rounded-xl border border-border/70 bg-card p-4">
+                        <p className="text-sm font-medium text-foreground">Your Net Payout</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          This is the normal payment processing charge during checkout. It goes to Paystack as the payment provider, not to the platform and not to your payout.
+                          What you actually receive: your Gross Sales minus the platform service fee. The service fee is the only deduction from your product earnings — delivery fees and the 1.95% checkout processing fee are charged to buyers separately and never touch your payout. For <strong className="text-foreground">bank accounts</strong>, your payout arrives automatically the moment the buyer's payment is confirmed. For <strong className="text-foreground">mobile money</strong>, request a withdrawal and the Paystack transfer is processed automatically within seconds — no manual action is required from the platform.
                         </p>
                       </div>
-                      <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                        <p className="text-sm font-medium">Your Payout Amount</p>
+                      <div className="rounded-xl border border-border/70 bg-card p-4">
+                        <p className="text-sm font-medium text-foreground">How Payouts Work</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Your payout amount is based on your seller settlement, which is the part left for you after the order deductions.
+                          Your earnings are sent automatically as soon as a buyer completes payment — no manual request needed. Your net amount goes straight to your configured bank account or mobile money wallet.
                         </p>
                       </div>
-                      {bankPayoutsAllowed && (
-                        <div className="rounded-xl border border-border/70 bg-background/80 p-4">
-                          <p className="text-sm font-medium">Paystack Payout Fee</p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            This is the service-provider charge for sending money to you. It depends on the payout method, such as mobile money or bank transfer, and it is not platform money.
-                          </p>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </CollapsibleDashboardSection>
+
+                {publicSettings?.referralEnabled && (
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border bg-primary/5 p-4 text-sm text-muted-foreground">
+                      {publicSettings?.isMultiVendor ? (
+                        <p>
+                          <span className="font-semibold text-foreground">Earn free promotion time.</span>{" "}
+                          Refer 10 new customers who make a purchase from any store on the platform and you'll earn free promotional time for your store or a product listing. Track your progress below.
+                        </p>
+                      ) : (
+                        <p>
+                          <span className="font-semibold text-foreground">Grow your customer base.</span>{" "}
+                          Share your referral link and earn rewards every time a referred customer makes their first purchase. Rewards are funded by the platform to support your growth.
+                        </p>
+                      )}
+                    </div>
+                    <ReferralTracker />
+                  </div>
+                )}
 
                 <div>
                   <div className="flex items-center justify-between mb-4">

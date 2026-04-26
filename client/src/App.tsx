@@ -10,102 +10,123 @@ import { NotificationProvider } from "@/contexts/NotificationContext";
 import { useBranding } from "@/hooks/useBranding";
 import LogoLoadingScreen from "@/components/LogoLoadingScreen";
 
+// Eagerly loaded — needed on first paint or used by route guards
 import Home from "@/pages/HomeConnected";
-import ProductDetails from "@/pages/ProductDetails";
-import Cart from "@/pages/Cart";
+import MultiVendorHome from "@/pages/MultiVendorHome";
 import AuthPage from "@/pages/AuthPage";
-import ResetPassword from "@/pages/ResetPassword";
-import AdminDashboard from "@/pages/AdminDashboardRouter";
-import SellerDashboard from "@/pages/SellerDashboardConnected";
-import RiderDashboard from "@/pages/RiderDashboard";
-import BuyerDashboard from "@/pages/BuyerDashboard";
-import PickupAgentDashboard from "@/pages/PickupAgentDashboard";
-import AgentDashboard from "@/pages/AgentDashboard";
-import AgentCustomers from "@/pages/AgentCustomers";
-import AgentNotifications from "@/pages/AgentNotifications";
-import ChatPage from "@/pages/ChatPageConnected";
-import OrderTracking from "@/pages/OrderTracking";
-import LiveTracking from "@/pages/LiveTracking";
-import Checkout from "@/pages/CheckoutConnected";
-import PaymentPage from "@/pages/PaymentPage";
-import PaymentVerifyPage from "@/pages/PaymentVerifyPage";
-import PaymentSuccess from "@/pages/PaymentSuccess";
-import PaymentFailure from "@/pages/PaymentFailure";
-import Notifications from "@/pages/Notifications";
-import Profile from "@/pages/Profile";
-import Settings from "@/pages/Settings";
-import ChangePassword from "@/pages/ChangePassword";
-import AdminSettings from "@/pages/AdminSettings";
-import AdminStoreManager from "@/pages/AdminStoreManager";
-import AdminBranding from "@/pages/AdminBranding";
-import AdminDeliveryTracking from "@/pages/AdminDeliveryTracking";
-import AdminDeliveryZones from "@/pages/AdminDeliveryZones";
-import AdminPickupStations from "@/pages/AdminPickupStations";
-import AdminBannerManager from "@/pages/AdminBannerManager";
-import AdminHeroBanners from "@/pages/AdminHeroBanners";
-import AdminPromotions from "@/pages/AdminPromotions";
-import AdminCategoryManager from "@/pages/AdminCategoryManager";
-import AdminFooterPagesManager from "@/pages/AdminFooterPagesManager";
-import AdminPlatformEarnings from "@/pages/AdminPlatformEarnings";
-import AdminSellersPayouts from "@/pages/AdminSellersPayouts";
-import AdminRiderPayouts from "@/pages/AdminRiderPayouts";
-import AdminProducts from "@/pages/AdminProducts";
-import AdminOrders from "@/pages/AdminOrders";
-import AdminOrderActionPage from "@/pages/AdminOrderActionPage";
-import AdminUsers from "@/pages/AdminUsers";
-import AdminSellers from "@/pages/AdminSellers";
-import AdminRiders from "@/pages/AdminRiders";
-import AdminManualRiderAssignment from "@/pages/AdminManualRiderAssignment";
-import AdminAgents from "@/pages/AdminAgents";
-import AdminMessages from "@/pages/AdminMessages";
-import AdminAnalytics from "@/pages/AdminAnalytics";
-import AdminSystemActivities from "@/pages/AdminSystemActivities";
-import AdminMediaLibrary from "@/pages/AdminMediaLibrary";
-import AdminNotifications from "@/pages/AdminNotifications";
-import SellerMediaLibrary from "@/pages/SellerMediaLibrary";
-import SellerProducts from "@/pages/SellerProducts";
-import SellerCategories from "@/pages/SellerCategories";
-import SellerOrders from "@/pages/SellerOrders";
-import SellerPromotions from "@/pages/SellerPromotions";
-import SellerDeliveries from "@/pages/SellerDeliveries";
-import SellerNotifications from "@/pages/SellerNotifications";
-import SellerMessages from "@/pages/SellerMessages";
-import SellerAnalytics from "@/pages/SellerAnalytics";
-import SellerSettings from "@/pages/SellerSettings";
-import SellerPaymentSetup from "@/pages/SellerPaymentSetup";
-import RiderDeliveries from "@/pages/RiderDeliveries";
-import RiderActiveRoute from "@/pages/RiderActiveRoute";
-import RiderNotifications from "@/pages/RiderNotifications";
-import RiderMessages from "@/pages/RiderMessages";
-import RiderEarnings from "@/pages/RiderEarnings";
-import RiderSettings from "@/pages/RiderSettings";
-import CategoryPage from "@/pages/CategoryPage";
-import Wishlist from "@/pages/Wishlist";
-import Orders from "@/pages/Orders";
-import CustomerSupport from "@/pages/CustomerSupport";
+import MaintenancePage from "@/pages/MaintenancePage";
 import NotFound from "@/pages/not-found";
-import AllProducts from "@/pages/AllProducts";
-import BrowseStores from "@/pages/BrowseStores";
-import SellerStorePage from "@/pages/SellerStorePage";
-import BecomeSellerPage from "@/pages/BecomeSellerPage";
-import BecomeRiderPage from "@/pages/BecomeRiderPage";
-import AdminStoresList from "@/pages/AdminStoresList";
-import AdminUserEdit from "@/pages/AdminUserEdit";
-import AdminUserCreate from "@/pages/AdminUserCreate";
-import RiderEdit from "@/pages/RiderEdit";
-import RiderDetailsPage from "@/pages/RiderDetailsPage";
-import SellerDetailsPage from "@/pages/SellerDetailsPage";
-import BuyerDetailsPage from "@/pages/BuyerDetailsPage";
-import StoreDetailsPage from "@/pages/StoreDetailsPage";
-import AdminApplications from "@/pages/AdminApplications";
-import AdminProductEdit from "@/pages/AdminProductEdit";
-import AdminProductCreate from "@/pages/AdminProductCreate";
-import SuperAdminPermissions from "@/pages/SuperAdminPermissions";
-import DynamicPage from "@/pages/DynamicPage";
-import TrackOrder from "@/pages/TrackOrder";
-import EReceipt from "@/pages/EReceipt";
+
+// Lazy-loaded — split into separate chunks, loaded on demand
+const ProductDetails = React.lazy(() => import("@/pages/ProductDetails"));
+const Cart = React.lazy(() => import("@/pages/Cart"));
+const ResetPassword = React.lazy(() => import("@/pages/ResetPassword"));
+const AdminDashboardConnected = React.lazy(() => import("@/pages/AdminDashboardConnected"));
+const SellerDashboard = React.lazy(() => import("@/pages/SellerDashboardConnected"));
+const RiderDashboard = React.lazy(() => import("@/pages/RiderDashboard"));
+const BuyerDashboard = React.lazy(() => import("@/pages/BuyerDashboard"));
+const BuyerOrders = React.lazy(() => import("@/pages/buyer/BuyerOrders"));
+const PickupAgentDashboard = React.lazy(() => import("@/pages/PickupAgentDashboard"));
+const AgentDashboard = React.lazy(() => import("@/pages/AgentDashboard"));
+const AgentTickets = React.lazy(() => import("@/pages/AgentTickets"));
+const AgentCustomers = React.lazy(() => import("@/pages/AgentCustomers"));
+const AgentNotifications = React.lazy(() => import("@/pages/AgentNotifications"));
+const ChatPage = React.lazy(() => import("@/pages/ChatPageConnected"));
+const OrderTracking = React.lazy(() => import("@/pages/OrderTracking"));
+const LiveTracking = React.lazy(() => import("@/pages/LiveTracking"));
+const Checkout = React.lazy(() => import("@/pages/CheckoutConnected"));
+const PaymentPage = React.lazy(() => import("@/pages/PaymentPage"));
+const PaymentVerifyPage = React.lazy(() => import("@/pages/PaymentVerifyPage"));
+const PaymentSuccess = React.lazy(() => import("@/pages/PaymentSuccess"));
+const PaymentFailure = React.lazy(() => import("@/pages/PaymentFailure"));
+const Notifications = React.lazy(() => import("@/pages/Notifications"));
+const Profile = React.lazy(() => import("@/pages/Profile"));
+const Settings = React.lazy(() => import("@/pages/Settings"));
+const ChangePassword = React.lazy(() => import("@/pages/ChangePassword"));
+const AdminSettings = React.lazy(() => import("@/pages/AdminSettings"));
+const AdminStoreManager = React.lazy(() => import("@/pages/AdminStoreManager"));
+const AdminBranding = React.lazy(() => import("@/pages/AdminBranding"));
+const AdminDeliveryTracking = React.lazy(() => import("@/pages/AdminDeliveryTracking"));
+const AdminDeliveryZones = React.lazy(() => import("@/pages/AdminDeliveryZones"));
+const AdminPickupStations = React.lazy(() => import("@/pages/AdminPickupStations"));
+const AdminBannerManager = React.lazy(() => import("@/pages/AdminBannerManager"));
+const AdminHeroBanners = React.lazy(() => import("@/pages/AdminHeroBanners"));
+const AdminPromotions = React.lazy(() => import("@/pages/AdminPromotions"));
+const AdminCategoryManager = React.lazy(() => import("@/pages/AdminCategoryManager"));
+const AdminFooterPagesManager = React.lazy(() => import("@/pages/AdminFooterPagesManager"));
+const AdminPlatformEarnings = React.lazy(() => import("@/pages/AdminPlatformEarnings"));
+const AdminSellersPayouts = React.lazy(() => import("@/pages/AdminSellersPayouts"));
+const AdminRiderPayouts = React.lazy(() => import("@/pages/AdminRiderPayouts"));
+const AdminProducts = React.lazy(() => import("@/pages/AdminProducts"));
+const AdminOrders = React.lazy(() => import("@/pages/AdminOrders"));
+const AdminOrderActionPage = React.lazy(() => import("@/pages/AdminOrderActionPage"));
+const AdminUsers = React.lazy(() => import("@/pages/AdminUsers"));
+const AdminSellers = React.lazy(() => import("@/pages/AdminSellers"));
+const AdminRiders = React.lazy(() => import("@/pages/AdminRiders"));
+const AdminManualRiderAssignment = React.lazy(() => import("@/pages/AdminManualRiderAssignment"));
+const AdminAgents = React.lazy(() => import("@/pages/AdminAgents"));
+const AdminMessages = React.lazy(() => import("@/pages/AdminMessages"));
+const AdminLiveSupportDashboard = React.lazy(() => import("@/pages/AdminLiveSupportDashboard"));
+const AdminAnalytics = React.lazy(() => import("@/pages/AdminAnalytics"));
+const AdminSystemActivities = React.lazy(() => import("@/pages/AdminSystemActivities"));
+const AdminMediaLibrary = React.lazy(() => import("@/pages/AdminMediaLibrary"));
+const AdminNotifications = React.lazy(() => import("@/pages/AdminNotifications"));
+const SellerMediaLibrary = React.lazy(() => import("@/pages/SellerMediaLibrary"));
+const SellerProducts = React.lazy(() => import("@/pages/SellerProducts"));
+const SellerCategories = React.lazy(() => import("@/pages/SellerCategories"));
+const SellerOrders = React.lazy(() => import("@/pages/SellerOrders"));
+const SellerPromotions = React.lazy(() => import("@/pages/SellerPromotions"));
+const SellerDeliveries = React.lazy(() => import("@/pages/SellerDeliveries"));
+const SellerNotifications = React.lazy(() => import("@/pages/SellerNotifications"));
+const SellerMessages = React.lazy(() => import("@/pages/SellerMessages"));
+const SellerAnalytics = React.lazy(() => import("@/pages/SellerAnalytics"));
+const SellerSettings = React.lazy(() => import("@/pages/SellerSettings"));
+const SellerPaymentSetup = React.lazy(() => import("@/pages/SellerPaymentSetup"));
+const RiderDeliveries = React.lazy(() => import("@/pages/RiderDeliveries"));
+const RiderActiveRoute = React.lazy(() => import("@/pages/RiderActiveRoute"));
+const RiderNotifications = React.lazy(() => import("@/pages/RiderNotifications"));
+const RiderMessages = React.lazy(() => import("@/pages/RiderMessages"));
+const RiderEarnings = React.lazy(() => import("@/pages/RiderEarnings"));
+const RiderSettings = React.lazy(() => import("@/pages/RiderSettings"));
+const CategoryPage = React.lazy(() => import("@/pages/CategoryPage"));
+const Wishlist = React.lazy(() => import("@/pages/Wishlist"));
+const Orders = React.lazy(() => import("@/pages/Orders"));
+const CustomerSupport = React.lazy(() => import("@/pages/CustomerSupport"));
+const AllProducts = React.lazy(() => import("@/pages/AllProducts"));
+const BrowseStores = React.lazy(() => import("@/pages/BrowseStores"));
+const SellerStorePage = React.lazy(() => import("@/pages/SellerStorePage"));
+const BecomeSellerPage = React.lazy(() => import("@/pages/BecomeSellerPage"));
+const BecomeRiderPage = React.lazy(() => import("@/pages/BecomeRiderPage"));
+const AdminStoresList = React.lazy(() => import("@/pages/AdminStoresList"));
+const AdminUserEdit = React.lazy(() => import("@/pages/AdminUserEdit"));
+const AdminUserCreate = React.lazy(() => import("@/pages/AdminUserCreate"));
+const RiderEdit = React.lazy(() => import("@/pages/RiderEdit"));
+const RiderDetailsPage = React.lazy(() => import("@/pages/RiderDetailsPage"));
+const SellerDetailsPage = React.lazy(() => import("@/pages/SellerDetailsPage"));
+const BuyerDetailsPage = React.lazy(() => import("@/pages/BuyerDetailsPage"));
+const StoreDetailsPage = React.lazy(() => import("@/pages/StoreDetailsPage"));
+const AdminApplications = React.lazy(() => import("@/pages/AdminApplications"));
+const AdminProductEdit = React.lazy(() => import("@/pages/AdminProductEdit"));
+const AdminProductCreate = React.lazy(() => import("@/pages/AdminProductCreate"));
+const SuperAdminPermissions = React.lazy(() => import("@/pages/SuperAdminPermissions"));
+const DynamicPage = React.lazy(() => import("@/pages/DynamicPage"));
+const SearchPage = React.lazy(() => import("@/pages/SearchPage"));
+const BuyerOrderTracking = React.lazy(() => import("@/pages/BuyerOrderTracking"));
+const EReceipt = React.lazy(() => import("@/pages/EReceipt"));
+const SellerRatings = React.lazy(() => import("@/pages/SellerRatings"));
+const PickupAgentEarnings = React.lazy(() => import("@/pages/PickupAgentEarnings"));
+const PickupAgentShift = React.lazy(() => import("@/pages/PickupAgentShift"));
+const PickupAgentVerifyPage = React.lazy(() => import("@/pages/PickupAgentVerifyPage"));
+const AdminPickupVerifyPage = React.lazy(() => import("@/pages/AdminPickupVerifyPage"));
+const AdminPlatformHealth = React.lazy(() => import("@/pages/AdminPlatformHealth"));
+const AdminSentryIssues = React.lazy(() => import("@/pages/AdminSentryIssues"));
+const AdminPlatformAnalytics = React.lazy(() => import("@/pages/AdminPlatformAnalytics"));
 import { Loader2 } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth";
+import PWAInstallPrompt from "@/components/PWAInstallPrompt";
+import MobileStorefrontNav from "@/components/MobileStorefrontNav";
 
 function RouteGateLoader() {
   return (
@@ -113,6 +134,42 @@ function RouteGateLoader() {
       <Loader2 className="h-8 w-8 animate-spin text-primary" />
     </div>
   );
+}
+
+// Injects GA4 and Microsoft Clarity scripts from DB settings — no hardcoded IDs needed
+function AnalyticsInjector() {
+  const { data } = useQuery<{ googleAnalyticsId: string | null; microsoftClarityId: string | null }>({
+    queryKey: ["/api/public/analytics-config"],
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  React.useEffect(() => {
+    const gaId = data?.googleAnalyticsId;
+    if (gaId && !document.getElementById("ga4-script")) {
+      const s1 = document.createElement("script");
+      s1.id = "ga4-script";
+      s1.async = true;
+      s1.src = `https://www.googletagmanager.com/gtag/js?id=${gaId}`;
+      document.head.appendChild(s1);
+      const s2 = document.createElement("script");
+      s2.id = "ga4-inline";
+      s2.textContent = `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${gaId}');`;
+      document.head.appendChild(s2);
+    }
+  }, [data?.googleAnalyticsId]);
+
+  React.useEffect(() => {
+    const clarityId = data?.microsoftClarityId;
+    if (clarityId && !document.getElementById("clarity-script")) {
+      const s = document.createElement("script");
+      s.id = "clarity-script";
+      s.textContent = `(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y)})(window,document,"clarity","script","${clarityId}");`;
+      document.head.appendChild(s);
+    }
+  }, [data?.microsoftClarityId]);
+
+  return null;
 }
 
 function withExternalRiderRouteGuard(Component: React.ComponentType) {
@@ -198,6 +255,53 @@ const GuardedAdminDeliveryZones = withAdminExternalRiderFeatureGuard(AdminDelive
 const GuardedSellerPromotions = withSellerFeatureRouteGuard(SellerPromotions, { requireMultiVendor: true });
 const GuardedSellerDeliveries = withSellerFeatureRouteGuard(SellerDeliveries, { requireInternalRider: true });
 
+function MaintenanceGuard({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const [forceMaintenance, setForceMaintenance] = React.useState(false);
+
+  // Listen for instant maintenance signal from any API call that receives a 503
+  React.useEffect(() => {
+    const handler = () => setForceMaintenance(true);
+    window.addEventListener("kiyumart:maintenance", handler);
+    return () => window.removeEventListener("kiyumart:maintenance", handler);
+  }, []);
+
+  const { data: maintenance, refetch } = useQuery<{ isMaintenanceMode: boolean; isAutoMaintenance: boolean; maintenanceMessage: string | null; maintenanceScheduledEnd: string | null }>({
+    queryKey: ["/api/maintenance/status"],
+    queryFn: async () => {
+      const res = await fetch("/api/maintenance/status", { cache: "no-store" });
+      if (!res.ok) return { isMaintenanceMode: false, isAutoMaintenance: false, maintenanceMessage: null, maintenanceScheduledEnd: null };
+      return res.json();
+    },
+    refetchInterval: 60000,
+    staleTime: 55000,
+    retry: false,
+  });
+
+  // When the event fires, immediately refetch to get full maintenance status
+  React.useEffect(() => {
+    if (forceMaintenance) refetch();
+  }, [forceMaintenance, refetch]);
+
+  // Clear force flag once server confirms maintenance is off
+  React.useEffect(() => {
+    if (maintenance && !maintenance.isMaintenanceMode) setForceMaintenance(false);
+  }, [maintenance]);
+
+  // While the first status check is in-flight, show nothing — the LogoLoadingScreen
+  // is already covering the screen during app init, so there's no visible blank gap.
+  // Once the prefetch in App.initializeApp resolves, `maintenance` will be defined
+  // immediately and this guard renders in one pass without any flash.
+  if (!maintenance && !forceMaintenance) return null;
+
+  if ((forceMaintenance || maintenance?.isMaintenanceMode) && !isAdmin) {
+    return <MaintenancePage />;
+  }
+
+  return <>{children}</>;
+}
+
 function RouteScrollManager() {
   const [location] = useLocation();
 
@@ -228,6 +332,11 @@ function RouteScrollManager() {
   return null;
 }
 
+function HomeRouter() {
+  const { isMultiVendor } = usePlatformSettings();
+  return isMultiVendor ? <MultiVendorHome /> : <Home />;
+}
+
 function Router() {
   // Apply branding colors from database settings
   useBranding();
@@ -235,8 +344,10 @@ function Router() {
   return (
     <>
       <RouteScrollManager />
+      <React.Suspense fallback={<RouteGateLoader />}>
       <Switch>
-        <Route path="/" component={Home} />
+        <Route path="/" component={HomeRouter} />
+      <Route path="/search" component={SearchPage} />
       <Route path="/products" component={AllProducts} />
       <Route path="/stores" component={BrowseStores} />
       <Route path="/sellers/:id" component={SellerStorePage} />
@@ -256,12 +367,12 @@ function Router() {
       <Route path="/change-password" component={ChangePassword} />
       <Route path="/wishlist" component={Wishlist} />
       <Route path="/orders/:id/receipt" component={EReceipt} />
-      <Route path="/orders/:id" component={TrackOrder} />
+      <Route path="/orders/:id" component={OrderTracking} />
       <Route path="/orders" component={Orders} />
       <Route path="/support" component={CustomerSupport} />
       <Route path="/become-seller" component={BecomeSellerPage} />
       <Route path="/become-rider" component={GuardedBecomeRiderPage} />
-      <Route path="/admin" component={AdminDashboard} />
+      <Route path="/admin" component={AdminDashboardConnected} />
       <Route path="/admin/stores" component={AdminStoresList} />
       <Route path="/admin/stores/:id" component={StoreDetailsPage} />
       <Route path="/admin/store" component={AdminStoreManager} />
@@ -273,6 +384,7 @@ function Router() {
       <Route path="/admin/zones" component={GuardedAdminDeliveryZones} />
       <Route path="/admin/delivery-zones" component={GuardedAdminDeliveryZones} />
       <Route path="/admin/pickup-stations" component={AdminPickupStations} />
+      <Route path="/admin/pickup-verify" component={AdminPickupVerifyPage} />
       <Route path="/admin/banners" component={AdminBannerManager} />
       <Route path="/admin/hero-banners" component={AdminHeroBanners} />
       <Route path="/admin/promotions" component={AdminPromotions} />
@@ -299,9 +411,12 @@ function Router() {
       <Route path="/admin/applications" component={AdminApplications} />
       <Route path="/admin/permissions" component={SuperAdminPermissions} />
        <Route path="/admin/messages" component={AdminMessages} />
-       <Route path="/admin/live-support" component={CustomerSupport} />
+       <Route path="/admin/live-support" component={AdminLiveSupportDashboard} />
        <Route path="/admin/system-activities" component={AdminSystemActivities} />
        <Route path="/admin/analytics" component={AdminAnalytics} />
+       <Route path="/admin/platform-health" component={AdminPlatformHealth} />
+       <Route path="/admin/sentry" component={AdminSentryIssues} />
+       <Route path="/admin/platform-analytics" component={AdminPlatformAnalytics} />
       <Route path="/admin/notifications" component={AdminNotifications} />
       <Route path="/seller/products" component={SellerProducts} />
       <Route path="/seller/categories" component={SellerCategories} />
@@ -321,6 +436,7 @@ function Router() {
       <Route path="/seller/payouts" component={SellerPaymentSetup} />
       <Route path="/seller/settings" component={SellerSettings} />
       <Route path="/seller/payment-setup" component={SellerPaymentSetup} />
+      <Route path="/seller/reviews" component={SellerRatings} />
       <Route path="/seller" component={SellerDashboard} />
       <Route path="/rider" component={GuardedRiderDashboard} />
       <Route path="/rider/deliveries" component={GuardedRiderDeliveries} />
@@ -330,12 +446,17 @@ function Router() {
       <Route path="/rider/earnings" component={GuardedRiderEarnings} />
       <Route path="/rider/settings" component={GuardedRiderSettings} />
       <Route path="/buyer" component={BuyerDashboard} />
+      <Route path="/buyer/orders" component={BuyerOrders} />
+      <Route path="/buyer/tracking/:orderId" component={BuyerOrderTracking} />
       <Route path="/pickup-agent" component={PickupAgentDashboard} />
+      <Route path="/pickup-agent/verify" component={PickupAgentVerifyPage} />
+      <Route path="/pickup-agent/earnings" component={PickupAgentEarnings} />
+      <Route path="/pickup-agent/shift" component={PickupAgentShift} />
       <Route path="/pickup-agent/support" component={CustomerSupport} />
       <Route path="/pickup-agent/notifications" component={Notifications} />
       <Route path="/pickup-agent/settings" component={Settings} />
       <Route path="/agent" component={AgentDashboard} />
-      <Route path="/agent/tickets" component={CustomerSupport} />
+      <Route path="/agent/tickets" component={AgentTickets} />
       <Route path="/agent/messages" component={CustomerSupport} />
       <Route path="/agent/customers" component={AgentCustomers} />
       <Route path="/agent/notifications" component={AgentNotifications} />
@@ -347,6 +468,7 @@ function Router() {
       <Route path="/page/:slug" component={DynamicPage} />
         <Route component={NotFound} />
       </Switch>
+      </React.Suspense>
     </>
   );
 }
@@ -365,7 +487,17 @@ function App() {
     const initializeApp = async () => {
       try {
         // Warm the cache without blocking the whole application if a request is slow.
+        // Maintenance status is fetched first so MaintenanceGuard has data the moment
+        // the loading screen lifts — prevents any flash of normal app during maintenance.
         await Promise.allSettled([
+          withTimeout(queryClient.prefetchQuery({
+            queryKey: ["/api/maintenance/status"],
+            queryFn: async () => {
+              const res = await fetch("/api/maintenance/status", { cache: "no-store" });
+              if (!res.ok) return { isMaintenanceMode: false, isAutoMaintenance: false, maintenanceMessage: null, maintenanceScheduledEnd: null };
+              return res.json();
+            },
+          }), 3000),
           withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/platform-settings"] }), 5000),
           withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/public/platform-settings"] }), 5000),
           withTimeout(queryClient.prefetchQuery({ queryKey: ["/api/categories"] }), 5000),
@@ -403,13 +535,6 @@ function App() {
   React.useEffect(() => {
     let isMounted = true;
 
-    const recoverPlatformData = async () => {
-      await Promise.allSettled([
-        queryClient.invalidateQueries(),
-        queryClient.refetchQueries({ type: "active" }),
-      ]);
-    };
-
     const checkBackendHealth = async () => {
       try {
         const response = await fetch("/api/health", {
@@ -419,8 +544,10 @@ function App() {
         const isHealthy = response.ok;
 
         if (isHealthy && !backendRecoveredRef.current && isMounted) {
+          // Server just came back — invalidate all cached queries so data refreshes
+          // without a full page reload, preserving the user's current position.
           backendRecoveredRef.current = true;
-          await recoverPlatformData();
+          queryClient.invalidateQueries();
         } else if (!isHealthy) {
           backendRecoveredRef.current = false;
         }
@@ -452,7 +579,12 @@ function App() {
                 message="Preparing your experience"
               />
               <Toaster />
-              <Router />
+              <MaintenanceGuard>
+                <Router />
+              </MaintenanceGuard>
+              <AnalyticsInjector />
+              <MobileStorefrontNav />
+              <PWAInstallPrompt />
             </TooltipProvider>
           </NotificationProvider>
         </AuthProvider>

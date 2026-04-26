@@ -1,685 +1,997 @@
-﻿# KiyuMart Platform Manual
+# KiyuMart
 
-This is the single operational and technical manual for the KiyuMart platform.
-It is written for:
+**KiyuMart** is a full-stack, multi-role commerce and logistics platform built for the Ghanaian market. It supports both single-store and multi-vendor (marketplace) modes, handles real-time order tracking and live chat, processes payments through Paystack, and coordinates physical delivery through either an internal rider fleet or an external logistics provider.
 
-- Developers
-- Super Admins and Admins
-- Agents and support operators
-- Riders, Sellers, and Buyer-operation teams
-- AI builders/assistants (Claude, Codex, and similar tools)
-- Auditors and compliance reviewers
-- Future contributors
-- Newbies (including first-time platform operators)
+> **This file is the sole source of truth for the platform.** Every feature, route, configuration field, and architectural decision is documented here. It is updated on every significant change and is the first document any developer or AI assistant should read.
+
+---
 
 ## Table of Contents
 
-1. What This Platform Is
-2. How To Read This Manual
-3. Core Rules (Source of Truth)
-4. System Architecture
-5. Role Map and Permission Model
-6. Dashboard Guide (Role by Role)
-7. End-to-End Order Lifecycle
-8. Store Operating Modes (Single Store vs Multi-Vendor)
-9. Live Map and Dispatch System (Uber-like Operations)
-10. Messaging, Support, and Calls
-11. Finance, Fees, Commissions, and Payouts
-12. Platform Settings Reference
-13. Data Model and Canonical Statuses
-14. Realtime and Event Consistency
-15. API and Workflow Health Checks
-16. Setup, Environment, and Developer Commands
-17. Audit System and Living README
-18. Production Smoke Checklist
-19. Troubleshooting Playbook
-20. Source-of-Truth File Index
-
-## 1) What This Platform Is
-
-KiyuMart is a role-based commerce + logistics platform. It combines:
-
-- Marketplace ordering
-- Seller packaging and readiness workflows
-- Rider assignment and live dispatch tracking
-- Buyer order tracking and support
-- Super Admin command-center control
-- Finance operations (processing fees, commissions, payouts)
-
-In plain words:
-
-- Buyer places order
-- Seller prepares order
-- Rider picks up and delivers
-- Admin roles monitor, validate, and control the flow
-- Everything important is stored and validated on the backend
-
-## 2) How To Read This Manual
-
-If you are new, read in this order:
-
-1. `Core Rules`
-2. `Dashboard Guide`
-3. `Order Lifecycle`
-4. `Live Map and Dispatch`
-5. `Finance and Payouts`
-
-If you are a developer or AI assistant:
-
-1. Start at `Source-of-Truth File Index`
-2. Verify behavior in code before changing UI
-3. Never assume state; use backend responses and canonical transitions
-
-## 3) Core Rules (Source of Truth)
-
-These are platform design rules enforced by architecture:
-
-- Backend is authoritative for business state
-- UI reflects backend state; UI does not invent transitions
-- Role access is enforced server-side (`requireAuth`, `requireRole`, `requirePermission`, role features)
-- Realtime state is derived from live presence/GPS/heartbeat, not stale toggles
-- Order transitions must pass state-machine validation
-- Rider map visibility depends on freshness and role-feature access
-
-## 4) System Architecture
-
-### Frontend
-
-- React + TypeScript
-- Wouter routing (`client/src/App.tsx`)
-- TanStack Query for server-state
-- Role dashboards and pages for super_admin/admin/agent/seller/rider/buyer
-- Map rendering:
-  - Mapbox GL mode (`client/src/tracking/mapbox/MapboxFleetMap.tsx`)
-  - Open-source tile mode (Leaflet presets)
-
-### Backend
-
-- Express + TypeScript
-- Central route layer (`server/routes.ts`)
-- Service-layer policies (state machine, messaging, permissions)
-- RBAC and role-feature checks (`server/auth.ts`)
-
-### Data + Realtime
-
-- PostgreSQL schema contracts (`shared/schema.ts`)
-- Socket.IO live channels for map, chat, support, and notifications
-- Presence and heartbeat services for online/offline consistency
-
-## 5) Role Map and Permission Model
-
-Roles:
-
-- `super_admin`
-- `admin`
-- `agent`
-- `seller`
-- `rider`
-- `buyer`
-
-Permission layers:
-
-- Authentication: `requireAuth`
-- Role validation: `requireRole`
-- Admin permission gates: `requirePermission`
-- Feature toggles per role: `requireRoleFeature`
-
-Important map rule:
-
-- Riders always keep `maps.view` enabled by policy fallback
-- Other roles can have map access toggled by super admin role-feature settings
-
-## 6) Dashboard Guide (Role by Role)
-
-All route definitions come from `client/src/App.tsx`.
-
-### Super Admin Dashboard
-
-Primary purpose:
-
-- Platform governance
-- Global permission and map-access control
-- Live command center monitoring
-
-Key areas:
-
-- `/admin`
-- `/admin/permissions`
-- `/admin/delivery-tracking`
-- `/admin/analytics`
-- `/admin/settings`
-
-Core actions:
-
-- Enable/disable role feature access
-- Control map provider mode
-- Review payouts, analytics, and operational alerts
-
-### Admin Dashboard
-
-Primary purpose:
-
-- Day-to-day operations
-
-Key areas:
-
-- `/admin/orders`
-- `/admin/users`
-- `/admin/sellers`
-- `/admin/riders`
-- `/admin/zones`
-- `/admin/payouts` routes and earnings screens
-
-Core actions:
-
-- Manage orders and assignments
-- Manage users, approvals, zones, and store operations
-- Process payout workflows
-
-### Agent Dashboard
-
-Primary purpose:
-
-- Support operations and customer issue handling
-
-Key areas:
-
-- `/agent`
-- `/agent/tickets`
-- `/agent/messages`
-- `/agent/customers`
-
-Core actions:
-
-- Resolve support conversations
-- Communicate with users under support rules
-
-### Seller Dashboard
-
-Primary purpose:
-
-- Store operations and order preparation
-
-Key areas:
-
-- `/seller/products`
-- `/seller/orders`
-- `/seller/deliveries`
-- `/seller/promotions`
-- `/seller/payment-setup`
-
-Core actions:
-
-- Manage catalog and promotions
-- Move paid orders through seller-side preparation states
-- Configure payout setup
-
-### Rider Dashboard
-
-Primary purpose:
-
-- Delivery execution and live routing
-
-Key areas:
-
-- `/rider/deliveries`
-- `/rider/route`
-- `/rider/messages`
-- `/rider/earnings`
-
-Core actions:
-
-- Accept/reject assignments
-- Execute pickup and delivery state transitions
-- Use live map routing and comms
-
-### Buyer Dashboard
-
-Primary purpose:
-
-- Shopping, checkout, payment, tracking, support
-
-Key areas:
-
-- `/buyer`
-- `/orders`
-- `/checkout`
-- `/payment/:orderId`
-- `/support`
-
-Core actions:
-
-- Place and pay for orders
-- Track order journey
-- Contact support
-
-## 7) End-to-End Order Lifecycle
-
-Canonical state logic lives in `server/services/orderStateMachine.ts`.
-
-Canonical statuses:
-
-- `created`
-- `searching_rider`
-- `confirmed`
-- `ready`
-- `processing`
-- `assigned`
-- `rider_arrived`
-- `picked_up`
-- `in_transit`
-- `en_route`
-- `delivered`
-- `completed`
-- `cancelled`
-- `disputed`
-
-Legacy aliases are normalized:
-
-- `pending -> created`
-- `delivering -> en_route`
-- several legacy delivery aliases are mapped to canonical statuses
-
-High-level delivery flow:
-
-1. Buyer creates order and pays
-2. Seller confirms/processes
-3. Seller marks ready
-4. Rider matching and assignment
-5. Rider arrives/picks up
-6. In-transit and en-route tracking
-7. Delivered and completed
-
-High-level pickup flow:
-
-1. Buyer creates and pays
-2. Seller processes and marks ready
-3. Pickup verification and completion (no rider transit path)
-
-Transition safety:
-
-- Every status move checks role + preconditions
-- Invalid moves return deterministic errors (for example: `Cannot transition from X to Y`)
-
-## 8) Store Operating Modes (Single Store vs Multi-Vendor)
-
-Source of truth:
-
-- `platform_settings.is_multi_vendor`
-- `platform_settings.primary_store_id`
-
-### Single Store Mode
-
-- `isMultiVendor = false`
-- Platform uses `primaryStoreId`
-- Catalog and checkout are scoped to the primary store model
-
-### Multi-Vendor Mode
-
-- `isMultiVendor = true`
-- Orders may span multiple sellers
-- Checkout/payment metadata carries multi-order/session context
-- Commission and subaccount logic is applied per seller as configured
-
-Where this is wired:
-
-- Backend branching in `server/routes.ts` around product loading, checkout creation, and payment verification
-- Admin controls in `client/src/pages/AdminSettings.tsx` and `client/src/pages/AdminStoreManager.tsx`
-
-## 9) Live Map and Dispatch System (Uber-like Operations)
-
-Core files:
-
-- `client/src/components/RealTimeRiderMap.tsx`
-- `client/src/tracking/mapbox/MapboxFleetMap.tsx`
-- `client/src/tracking/mapbox/mapboxLoader.ts`
-- `client/src/tracking/components/MapTileLayer.tsx`
-- `client/src/tracking/hooks/useAnimatedFleetPositions.ts`
-
-### Provider model
-
-- `mapbox` mode: Mapbox GL pipeline
-- `open_source` mode: Leaflet + open presets
-- Runtime provider config from `/api/public/map-provider-config`
-- Provider mode persisted in local storage key: `map_provider_mode`
-
-### Mapbox 3D rider models
-
-3D model mapping is data-driven for supported vehicle types:
-
-- `car -> /assets/vehicles/car_textured.glb`
-- `motorcycle -> /assets/vehicles/moto_textured.glb`
-- `bicycle -> /assets/vehicles/bycicle_textured.glb`
-
-Unsupported/invalid vehicle types are not rendered as 3D models in the Mapbox 3D layer.
-
-### Open-source map presets (Leaflet)
-
-Current preset catalog includes:
-
-- Voyager
-- Positron
-- OpenStreetMap
-- Humanitarian
-- Topo
-- Cycle
-- Esri Satellite
-- Esri Topo
-- Dark
-
-### Camera and controls
-
-Implemented controls include:
-
-- Zoom in/out
-- Street zoom quick action
-- Recenter/Fit
-- Focus anchor
-- Reset bearing (north)
-- 2D/3D pitch toggle
-
-Auto-focus behavior:
-
-- Camera refits/focuses on available rider/destination points
-- User interactions temporarily lock auto-camera before next auto adjustment
-
-### Realtime rider visibility and freshness
-
-Operational behavior in live map logic:
-
-- Rider snapshots are normalized and deduplicated
-- Online status uses presence + GPS recency interpretation
-- Riders without GPS are separated into dedicated no-GPS panels
-- Active order count is surfaced per rider to avoid visual duplication
-
-### Role map access enforcement
-
-- Riders: map access is always available
-- Other roles: map access controlled by `maps.view` feature toggle
-- Super admin can update role map access controls
-
-## 10) Messaging, Support, and Calls
-
-Core files:
-
-- `server/services/chatPermissionService.ts`
-- `server/services/messageDeliveryService.ts`
-- `server/services/supportMessagingService.ts`
-- `server/services/jitsiMeetService.ts`
-- messaging and support routes in `server/routes.ts`
-
-### Chat permission model
-
-- Admin/Super Admin: full chat access
-- Agent: support access across users
-- Buyer/Seller/Rider chat is constrained by active order relationships
-- Support contact with agent/admin roles is allowed by policy
-
-### Message delivery reliability
-
-Message delivery service tracks states with retry behavior:
-
-- queued
-- sent
-- delivered
-- read
-- failed (after max retries)
-
-It also supports reconnect delivery for pending queues.
-
-### Support conversations
-
-Support module manages:
-
-- conversation lifecycle (`open`, `assigned`, `resolved`)
-- first-response analytics
-- role-scoped support visibility
-- optional identity masking rules for support display
-
-### Calls
-
-Jitsi service provides room/session generation for call-enabled workflows.
-
-## 11) Finance, Fees, Commissions, and Payouts
-
-Primary schemas (`shared/schema.ts`):
-
-- `commissions`
-- `seller_payouts`
-- `rider_payouts`
-- `platform_earnings`
-
-### Processing fee
-
-- Configurable by `platform_settings.processing_fee_percent`
-- Applied in checkout and payment totals
-
-### Seller commission accounting
-
-- Commission rows are created per order as payout source
-- Seller payout requests consume pending commission balances
-- Exact-composition validation is enforced for payout amount composition
-
-### Rider payout lifecycle
-
-- Rider payouts are queued from delivery-completion events
-- Admin/Super Admin approval/rejection endpoints update payout states
-- Notifications and realtime events are emitted on payout decision
-
-### Platform earnings
-
-- Platform earnings are recorded with commission linkage
-- Admin earnings views aggregate by type/date
-
-### Paystack integration
-
-- Payment initialize + verify + webhook flows implemented
-- Supports seller payout setup/subaccount flows
-- Supports bank-account and mobile-money payout types for stores
-
-## 12) Platform Settings Reference
-
-Source:
-
-- `platform_settings` table in `shared/schema.ts`
-- Settings UI in `client/src/pages/AdminSettings.tsx`
-
-Major setting groups:
-
-- Branding and theme colors
-- Mode toggles (`isMultiVendor`, `primaryStoreId`)
-- Currency and frontend callback URL
-- Mapbox token/style/version
-- Processing fee and default commission rate
-- Paystack keys
-- Cloudinary keys
-- Registration gates for seller/rider
-- Contact/social/footer/ads toggles
-- Homepage/banner/shop display controls
-
-Security handling:
-
-- Secret fields are masked in API responses
-- Env import helpers can backfill missing settings safely
-
-## 13) Data Model and Canonical Statuses
-
-Critical enums and core tables are in `shared/schema.ts`:
-
-- user roles
-- order status
-- delivery method
-- payment status
-- support status
-- payout types
-- notification types
-
-Entity highlights:
-
-- Users include role/approval/vehicle/location preference fields
-- Orders hold delivery coordinates, payment state, and lifecycle status
-- Delivery tracking stores GPS snapshots per order/rider
-- Role features store per-role feature flags used at runtime
-
-## 14) Realtime and Event Consistency
-
-Realtime behavior combines:
-
-- Socket.IO channels for state push
-- TanStack Query invalidation and re-fetch
-- Presence services for online/offline truth
-
-Consistency goals:
-
-- No stale state from UI-only assumptions
-- Role dashboards consume same backend truth
-- Map and dashboard counters should reconcile via shared data streams
-
-## 15) API and Workflow Health Checks
-
-Use these checkpoints during operations:
-
-- Verify route exists in `client/src/App.tsx`
-- Verify backend endpoint exists and has role guards
-- Verify order transition is permitted by state machine
-- Verify query invalidation/realtime events after action
-- Verify role feature access (`maps.view`, support features, etc.)
-
-## 16) Setup, Environment, and Developer Commands
+1. [What KiyuMart Is](#what-kiyumart-is)
+2. [Platform Modes](#platform-modes)
+3. [Who Uses It — The 7 Roles](#who-uses-it--the-7-roles)
+4. [Feature Map](#feature-map)
+5. [Technology Stack](#technology-stack)
+6. [Project Structure](#project-structure)
+7. [Getting Started (Local Development)](#getting-started-local-development)
+8. [Environment Variables](#environment-variables)
+9. [Core Concepts](#core-concepts)
+   - [Order Lifecycle](#order-lifecycle)
+   - [Payment Flow](#payment-flow)
+   - [Delivery Modes](#delivery-modes)
+   - [Permission System](#permission-system)
+10. [Database Overview](#database-overview)
+11. [API Routes Overview](#api-routes-overview)
+12. [Frontend Routes](#frontend-routes)
+13. [Background Workers](#background-workers)
+14. [Email System](#email-system)
+15. [Real-time Events (Socket.IO)](#real-time-events-socketio)
+16. [Platform Settings](#platform-settings)
+17. [Deployment](#deployment)
+18. [Scripts Reference](#scripts-reference)
+19. [Security](#security)
+20. [Known Constraints](#known-constraints)
+
+---
+
+## What KiyuMart Is
+
+KiyuMart is an e-commerce and last-mile logistics platform. Buyers browse products, add to cart, and pay via Paystack. Sellers list products and receive automatic payouts when orders are fulfilled. Admins operate the platform and manage users, permissions, content, and finances.
+
+**Currency:** Ghana Cedis (GHS) exclusively.  
+**Language:** English only.  
+**Region:** Ghana — Paystack (GHS), Neon PostgreSQL (EU region).
+
+The platform is designed to be operated entirely through its web dashboards without any code changes — product listings, delivery zones, commission rates, promotional ads, platform branding, SMTP config, and feature flags are all configurable by an authenticated super admin through the UI.
+
+---
+
+## Platform Modes
+
+Two runtime modes are set by the super admin in **Settings → General**.
+
+### Single-Vendor Mode (`isMultiVendor: false`)
+
+One store, one seller identity. The admin manages all products. Buyers see a unified storefront without any store-switching. The primary store is set via `primaryStoreId` in platform settings. Best for brand stores, single-operator businesses.
+
+### Multi-Vendor Mode (`isMultiVendor: true`)
+
+Multiple independent sellers each manage their own store, products, and payouts. Buyers browse a marketplace. Sellers see only their own data. The platform earns commission on each transaction (configurable, default 1%). Promotional ads and store-level branding are available. Best for marketplaces.
+
+**Switching modes does not delete data** — it changes the UI routes exposed to buyers and the filtering applied to data queries.
+
+---
+
+## Who Uses It — The 7 Roles
+
+| Role | Dashboard Entry | What They Do |
+|---|---|---|
+| `super_admin` | `/admin` | Full platform control — settings, permissions, all features unlocked. Cannot be restricted by role-feature gates. |
+| `admin` | `/admin` | Platform management with role-feature gates applied. Can manage orders, users, products, analytics — gated by super admin. |
+| `seller` | `/seller` | Lists products, views their orders, manages payouts, uploads media, creates coupons and promotions. |
+| `buyer` | `/buyer` | Shops, checks out, tracks orders, messages sellers, leaves reviews. |
+| `rider` | `/rider` | Manages assigned deliveries, updates order status (pickup → in transit → delivered). Internal rider mode only. |
+| `pickup_agent` | `/pickup-agent` | Verifies pickup orders at a pickup station using QR code or 6-digit OTP. Manages work shifts. |
+| `agent` | `/agent` | Customer support — handles support tickets, looks up customers, responds in support threads. |
+
+Every role except `super_admin` has a **role-feature map**: a DB-stored set of boolean flags (e.g. `products.create`, `orders.view`, `analytics.view`) that the super admin can toggle per-user through the Permissions page. This means two sellers can have different capabilities without any code change.
+
+---
+
+## Feature Map
+
+### Buyer Features
+- Product browsing by category, store, search
+- Cart with quantity management and variant selection
+- Paystack inline payment (popup — no external redirect)
+- Order tracking with live status updates
+- Real-time map tracking for rider deliveries
+- Wishlist
+- Product reviews and ratings
+- Support ticket creation and live chat with agents
+- Digital e-receipt after payment
+- Order history with full detail view
+
+### Seller Features
+- Product management: create, edit, delete, with image/video upload
+- Product variants (size, color) with per-variant stock and images
+- Category assignment per product
+- Coupon creation (discount codes, min purchase, expiry, usage limits)
+- Promotional ad campaigns (multi-vendor mode)
+- Media library: upload and reuse images across products
+- Order management: view, process, package, mark ready
+- Payout setup (bank account or mobile money)
+- Automatic payouts when orders are fulfilled (no manual request needed)
+- Sales analytics (charts, date filters, export CSV/PDF)
+- Store profile and branding
+- Chat with buyers (if enabled by admin)
+- Seller ratings and reviews received
+- Free tier product limit with optional premium upgrade
+
+### Admin / Super Admin Features
+- User directory: create, edit, activate/deactivate, change roles
+- Seller and rider application approvals with email notifications
+- Per-user role-feature permission management
+- Product catalog management (all sellers)
+- Order oversight with full status control
+- Manual rider assignment (internal rider mode)
+- Live delivery map with real-time GPS tracking
+- Delivery zone management
+- Pickup station configuration
+- Pickup order verification (QR / OTP)
+- Promotional ad management with pricing tiers
+- Banner management (hero banners, carousel banners, sidebar ads)
+- Seller payout management and approval
+- Rider payout management
+- Platform earnings and commission tracking
+- Analytics dashboard (revenue, orders, users, delivery metrics)
+- Report export (CSV and PDF)
+- Support ticket oversight and live support dashboard
+- Bulk notification dispatch
+- System activity audit log with severity and resolution tracking
+- Maintenance mode (manual on/off + auto on server restart)
+- Platform settings (branding, SMTP, fees, Paystack keys, feature flags)
+- Footer CMS (custom pages for Terms, Privacy, etc.)
+- Sentry DSN and Google Analytics configuration
+
+### Rider Features (Internal Rider Mode Only)
+- View and accept assigned deliveries
+- Update delivery status (assigned → arrived → picked up → in transit → delivered)
+- Live route map with navigation
+- Earnings dashboard
+- Chat with buyers
+- Rating received from buyers
+
+### Pickup Agent Features
+- Verify pickup orders by scanning QR code or entering OTP
+- View shift schedule
+- Performance and earnings tracking
+
+---
+
+## Technology Stack
+
+| Layer | Technology | Notes |
+|---|---|---|
+| Frontend framework | React 18.3 + TypeScript | Strict mode |
+| Build tool | Vite | With PWA plugin (`vite-plugin-pwa`) |
+| Frontend routing | Wouter 3.3 | Lightweight, no React Router |
+| Server state | TanStack Query v5 | All API data, invalidated not reloaded |
+| Client state | Zustand 5 | UI-only state |
+| UI components | Radix UI + Tailwind CSS | Via Shadcn UI conventions |
+| Icons | Lucide React | Primary icon set |
+| Charts | Recharts | Analytics dashboards |
+| Forms | React Hook Form + Zod | Validation at form and API level |
+| Animations | Framer Motion | Page transitions and UI motion |
+| Maps | Leaflet / React-Leaflet | OpenStreetMap tiles (default); Mapbox optional |
+| QR | html5-qrcode (scan) + react-qr-code (generate) | |
+| Compression | `compression` (gzip) | Applied server-side to all Express responses — 60-80% payload reduction |
+| Backend framework | Express 4.21 + TypeScript | |
+| Runtime | Node.js (LTS) via `tsx` in dev, `esbuild` bundle in prod | |
+| ORM | Drizzle ORM 0.39 | Type-safe, no raw SQL for core queries |
+| Database | PostgreSQL (Neon serverless) | |
+| Real-time | Socket.IO 4.8 | WebSocket with HTTP-long-poll fallback |
+| Auth | JWT (jsonwebtoken) + bcryptjs | 7-day tokens, httpOnly cookies |
+| Payments | Paystack | Inline popup (primary) |
+| Email | Nodemailer | SMTP — configurable per platform settings |
+| Media | Cloudinary | Image/video hosting and CDN |
+| File uploads | Multer | To Cloudinary or local disk |
+| Security | Helmet, express-rate-limit, CORS | |
+| Error tracking | Sentry (optional) | DSN configurable in platform settings |
+| Metrics | Prometheus (`prom-client`) | `/api/metrics` endpoint |
+| Deployment | Render (backend) + Netlify (frontend) | |
+
+---
+
+## Project Structure
+
+```
+Kiyumart-Per/
+├── client/                        # React frontend (Vite)
+│   ├── index.html
+│   ├── public/
+│   │   ├── robots.txt             # SEO: blocks /admin, /seller, /rider, /api
+│   │   ├── sitemap.xml            # Lists public pages
+│   │   ├── favicon.png
+│   │   ├── icons/                 # PWA icons (192px, 512px, Apple touch)
+│   │   └── assets/
+│   │       ├── vehicles/          # 3D GLB models for map markers
+│   │       └── stock_images/      # Banner image library (~80 images)
+│   └── src/
+│       ├── App.tsx                # Root — all client routes defined here
+│       ├── main.tsx               # Vite entry, mounts ErrorBoundary
+│       ├── index.css              # Global styles, CSS variables
+│       ├── components/            # Shared UI components
+│       │   ├── ui/                # Radix/Shadcn primitives
+│       │   ├── DashboardLayout.tsx  # Shared dashboard shell (sidebar + header)
+│       │   ├── DashboardSidebar.tsx # Role-aware sidebar navigation
+│       │   ├── Header.tsx
+│       │   ├── Footer.tsx
+│       │   ├── ErrorBoundary.tsx
+│       │   └── ...
+│       ├── pages/                 # One file per page/route (~88 pages)
+│       ├── hooks/                 # Custom React hooks
+│       ├── contexts/              # React contexts (auth, language, notifications)
+│       ├── lib/
+│       │   ├── queryClient.ts     # TanStack Query setup + apiRequest helper
+│       │   ├── auth.ts            # useAuth hook, auth state
+│       │   └── utils.ts           # cn(), formatting helpers
+│       └── assets/                # Imported images and SVGs
+│
+├── server/                        # Express backend
+│   ├── index.ts                   # Entry: middleware, routes, workers, startup migrations
+│   ├── routes.ts                  # All ~300 API endpoints (~21,750 lines)
+│   ├── storage.ts                 # DB access layer (~5,186 lines)
+│   ├── auth.ts                    # JWT middleware, password hashing
+│   ├── payments.ts                # Paystack webhook handling, order settlement
+│   ├── paystack.ts                # Paystack API wrapper
+│   ├── email.ts                   # Nodemailer setup, sendEmail()
+│   ├── cloudinary.ts              # Cloudinary upload helpers
+│   ├── currency.ts                # Currency conversion utilities
+│   ├── metrics.ts                 # Prometheus metrics
+│   ├── workers/
+│   │   ├── payoutWorker.ts        # Seller payout processing (every 15s)
+│   │   ├── promotionalWorker.ts   # Ad expiry (every 60s)
+│   │   ├── orderAutoCancelWorker.ts  # Stale order cancellation (every 5min)
+│   │   └── notificationReminderWorker.ts  # Payment/interview reminders (every 30min)
+│   ├── services/
+│   │   ├── orderStateMachine.ts   # Canonical order status transitions + validation
+│   │   ├── messageDeliveryService.ts  # WhatsApp-style delivery lifecycle
+│   │   ├── supportMessagingService.ts  # Support thread roles and identity masking
+│   │   ├── chatPermissionService.ts   # Role-based chat access control
+│   │   ├── jitsiMeetService.ts    # Video call room generation
+│   │   ├── presenceService.ts     # Online/offline status tracking
+│   │   └── riderRiskEngine.ts     # Rider risk scoring with time decay
+│   └── data/
+│       └── platform-settings-compat.json  # Fallback settings for cold starts
+│
+├── shared/
+│   ├── schema.ts                  # Drizzle ORM schema — all 42 tables and enums
+│   └── storeTypes.ts              # Shared TypeScript types
+│
+├── db/
+│   └── index.ts                   # Drizzle + Neon DB connection
+│
+├── migrations/                    # SQL migration files
+├── scripts/                       # Utility scripts (seeding, audit, type checks)
+├── docs/                          # Generated audit reports
+├── e2e/                           # Playwright end-to-end tests
+│
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+├── drizzle.config.ts
+├── tailwind.config.ts
+├── render.yaml                    # Render deployment config
+├── README.md                      # This file — sole source of truth
+└── ARCHITECTURE.md                # Deep technical architecture reference
+```
+
+---
+
+## Getting Started (Local Development)
 
 ### Prerequisites
 
-- Node.js 18+
-- npm
-- PostgreSQL
+- Node.js LTS (18+)
+- A PostgreSQL database (Neon free tier works)
+- A Paystack account (test keys sufficient)
+- Cloudinary account (optional — falls back to local uploads)
 
-### Local run
+### Setup
 
 ```bash
+# 1. Install all dependencies
 npm install
-npm run dev:backend
-npm run dev:frontend
+
+# 2. Copy the environment template and fill in your values
+cp .env.example .env
+
+# 3. Start development — runs both backend and Vite frontend simultaneously
+npm run dev
 ```
 
-### Quality checks
+The backend starts on `http://localhost:5000`. Vite proxies `/api` and `/socket.io` requests to it. The frontend is available at `http://localhost:5173`.
 
-```bash
-npm run typecheck
-npm run build:frontend
-npm run test:unit
-npm run test:e2e
-```
+On first boot, `server/index.ts` runs **schema self-heal migrations** — `IF NOT EXISTS` SQL blocks that create any missing columns or tables without destroying data. This means you generally do not need to run migrations manually in development.
 
-### Platform audit
+### Creating an Admin Account
 
-```bash
-npm run audit:platform
-npm run audit:platform:check
-```
-
-## 17) Audit System and Living README
-
-Audit generator:
-
-- `scripts/generate-platform-audit.ts`
-
-Generated artifacts:
-
-- `docs/platform-audit-report.json`
-- `docs/platform-audit-log.jsonl`
-- `docs/platform-living-readme.md`
-
-API controls:
-
-- `POST /api/admin/platform-audit/run`
-- `GET /api/admin/platform-audit`
-- `GET /api/agent/platform-audit`
-
-Behavior:
-
-- Scans routes, dashboard coverage, feature keyword matches, dependencies, and health findings
-- Injects/updates the `PLATFORM_AUDIT` section in this README
-
-## 18) Production Smoke Checklist
-
-Run this before release:
-
-1. Login as Super Admin and open `/admin/delivery-tracking`
-2. Toggle map provider between Mapbox and open-source mode
-3. Confirm rider markers appear in both modes for fresh GPS riders
-4. Click rider marker and confirm rider detail dialog opens
-5. Verify no-GPS panel entries match riders missing live coordinates
-6. Validate map access toggle behavior for non-rider roles
-7. Validate seller order status buttons only allow legal transitions
-8. Validate rider assignment and active route updates in realtime
-9. Validate payout approval/rejection flows update rider/seller views
-10. Run `npm run audit:platform:check` and resolve blockers
-
-## 19) Troubleshooting Playbook
-
-### Map is blank or freezing
-
-- Validate provider mode and Mapbox token/style settings
-- Validate Mapbox GL version supports 3D model layers
-- Check browser console for model/layer load errors
-- Confirm rider GPS data is fresh and valid
-
-### Transition error (example: processing -> ready)
-
-- Check order current canonical status
-- Check actor role and permissions
-- Check state-machine preconditions for target status
-
-### Online counters look wrong
-
-- Verify presence heartbeat inputs
-- Verify GPS timestamps and freshness gating
-- Verify dashboards consume same backend stream
-
-### Payment verification fails
-
-- Check Paystack keys in platform settings
-- Confirm webhook signature and idempotency handling
-- Confirm order/payment metadata consistency
-
-## 20) Source-of-Truth File Index
-
-Use this index before making any change.
-
-| Domain | Source of truth |
-| --- | --- |
-| App route definitions | `client/src/App.tsx` |
-| Dashboard layout/sidebar wiring | `client/src/components/DashboardLayout.tsx` |
-| Auth, RBAC, role features | `server/auth.ts` |
-| API routes and workflow handlers | `server/routes.ts` |
-| Order lifecycle state machine | `server/services/orderStateMachine.ts` |
-| Chat permission rules | `server/services/chatPermissionService.ts` |
-| Support identity and masking | `server/services/supportMessagingService.ts` |
-| Message retry/delivery state machine | `server/services/messageDeliveryService.ts` |
-| Presence and heartbeat state | `server/services/presenceService.ts` |
-| Shared DB schema contracts | `shared/schema.ts` |
-| Data access implementation | `server/storage.ts` |
-| Super admin live map UI | `client/src/components/RealTimeRiderMap.tsx` |
-| Mapbox 3D fleet map renderer | `client/src/tracking/mapbox/MapboxFleetMap.tsx` |
-| Map runtime loader/provider mode | `client/src/tracking/mapbox/mapboxLoader.ts` |
-| Open-source map presets | `client/src/tracking/components/MapTileLayer.tsx` |
-| Fleet animation hook | `client/src/tracking/hooks/useAnimatedFleetPositions.ts` |
-| Platform audit generator | `scripts/generate-platform-audit.ts` |
+Set `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` in your `.env`. On first boot the server will create the super admin account automatically if it does not already exist.
 
 ---
 
-This document is intentionally operational and strict. If a feature exists in code, it must be documented here and in generated audit output.
+## Environment Variables
+
+### Required
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Neon (or any PostgreSQL) connection string |
+| `JWT_SECRET` | Secret for signing JWTs — use a 64-char random string |
+| `SESSION_SECRET` | Express session secret — can be the same as `JWT_SECRET` |
+| `PAYSTACK_SECRET_KEY` | Paystack secret key (`sk_live_...` or `sk_test_...`) |
+| `PAYSTACK_PUBLIC_KEY` | Paystack public key (`pk_live_...` or `pk_test_...`) |
+| `FRONTEND_URL` | Full public URL of the frontend (e.g. `https://kiyumart.netlify.app`) — used for Paystack callback URLs |
+
+### Recommended for Production
+
+| Variable | Description |
+|---|---|
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name |
+| `CLOUDINARY_API_KEY` | Cloudinary API key |
+| `CLOUDINARY_API_SECRET` | Cloudinary API secret |
+| `SMTP_HOST` | SMTP server hostname |
+| `SMTP_PORT` | SMTP port (typically 465 or 587) |
+| `SMTP_USER` | SMTP username / email address |
+| `SMTP_PASS` | SMTP password or app password |
+| `SMTP_SECURE` | `true` for SSL/TLS, `false` for STARTTLS |
+| `SMTP_FROM_EMAIL` | From email address (e.g. `noreply@kiyumart.com`) |
+| `SMTP_FROM_NAME` | Sender display name (e.g. `KiyuMart`) |
+| `SETTINGS_ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM encryption of sensitive DB fields |
+| `SUPER_ADMIN_EMAIL` | Super admin email to auto-create on first boot |
+| `SUPER_ADMIN_PASSWORD` | Super admin password (set once on first boot) |
+| `NODE_ENV` | Set to `production` — enables HTTPS cookies, disables seed endpoints |
+
+### Optional / Feature-specific
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `5000` | Backend server port |
+| `HOST` | `0.0.0.0` | Bind address |
+| `KIYUMART_USE_EMBEDDED_VITE` | `false` | `true` in dev to embed Vite into Express |
+| `API_VERBOSE_LOGS` | — | Enable detailed API request logging |
+| `SOCKET_VERBOSE_LOGS` | — | Enable Socket.IO debug logs |
+| `RIDER_GPS_FRESHNESS_MS` | `10000` | Max age (ms) of rider GPS data before marked stale |
+| `RIDER_LAST_KNOWN_RETENTION_MS` | `86400000` | How long to retain last known rider location (24h) |
+| `RIDER_DEFAULT_MAX_CAPACITY` | `3` | Max order items a rider can carry simultaneously |
+| `RIDER_RISK_BLOCK_THRESHOLD` | `8` | Risk score above which a rider is auto-suspended |
+| `ENABLE_SOFT_ZONE_MATCH` | — | Allow delivery orders to nearby zones if exact zone unavailable |
+| `PAYOUT_WORKER_INTERVAL_MS` | `15000` | How often the payout worker runs |
+| `PROMO_WORKER_INTERVAL_MS` | `60000` | How often the promotional ad expiry worker runs |
+| `VITE_MAP_PROVIDER` | `PROVIDER_A` | Map provider: `PROVIDER_A` (Leaflet/OSM) or `PROVIDER_B` (Mapbox) |
+| `MAPBOX_PUBLIC_TOKEN` | — | Mapbox public token (if using Mapbox) |
+| `MAPBOX_ACCESS_TOKEN` | — | Mapbox access token (if using Mapbox) |
+| `JITSI_APP_ID` | — | Jitsi Meet app ID (for self-hosted Jitsi JWT auth) |
+| `JITSI_SECRET` | — | Jitsi Meet secret (for self-hosted Jitsi JWT auth) |
+| `ADMIN_EMAIL` | — | Auto-create a demo admin on boot |
+| `ADMIN_PASSWORD` | — | Demo admin password |
+
+> **Note:** SMTP config and Paystack keys can also be stored encrypted in the `platform_settings` database table and configured through the Admin Settings UI. Environment variables serve as a fallback and are used during initial setup before the DB is configured.
 
 ---
 
-The section below is auto-generated by the platform audit script. Do not edit it manually.
+## Core Concepts
+
+### Order Lifecycle
+
+Every order flows through a canonical state machine defined in `server/services/orderStateMachine.ts`. Transitions are enforced by role — only the correct role can move an order to the next state.
+
+```
+CREATED / PENDING
+  └── (buyer pays) ──→ PROCESSING
+        └── (seller packages) ──→ PACKAGED
+              └── (seller marks ready) ──→ READY
+                    │
+                    ├── [Internal rider mode]
+                    │     └── SEARCHING_RIDER
+                    │           └── ASSIGNED (rider accepted)
+                    │                 └── RIDER_ARRIVED
+                    │                       └── PICKED_UP
+                    │                             └── IN_TRANSIT / EN_ROUTE
+                    │                                   └── DELIVERED
+                    │                                         └── COMPLETED
+                    │
+                    ├── [External delivery mode]
+                    │     └── EXTERNAL_DISPATCH_ARRANGED (admin confirms handover)
+                    │           └── COMPLETED (super admin marks delivered)
+                    │
+                    └── [Pickup order]
+                          └── (buyer arrives, agent scans QR or enters OTP)
+                                └── COMPLETED
+```
+
+Orders can also be `CANCELLED` from `pending/created` (buyer) or `processing` (admin/seller with reason).
+
+### Payment Flow
+
+Payments are processed exclusively through **Paystack inline popup**. There is no external page redirect as a primary flow.
+
+1. Buyer clicks "Pay" on checkout.
+2. Frontend calls `POST /api/payments/initialize` with cart total and order ID.
+3. Backend validates, calls Paystack API, returns `{ accessCode, reference }`.
+4. Frontend opens the Paystack popup using the access code.
+5. Buyer enters card details inside the popup (no redirect).
+6. Paystack sends a webhook to `POST /api/webhooks/paystack`.
+7. Backend verifies the webhook signature (HMAC-SHA512), checks idempotency, then calls `processPaystackChargeSuccess()`.
+8. Orders transition to `processing`, seller earnings are credited, buyer gets a confirmation email.
+9. If the Paystack SDK fails to load, the frontend falls back to redirecting to `authorization_url` (emergency fallback only).
+
+**Idempotency:** Every webhook call is checked against the `idempotencyKeys` table. Duplicate webhooks return 200 immediately without reprocessing.
+
+**Premium seller upgrade:** Sellers can upgrade to premium via `POST /api/seller/upgrade/initialize`. On payment, the webhook sets `isPremiumSeller: true`, bypassing the `freeTierProductLimit`.
+
+### Delivery Modes
+
+Controlled by `isExternalRiderSystemEnabled` in platform settings.
+
+#### Internal Rider Mode (`false` — default)
+
+- The platform operates its own fleet of riders registered as `role: rider`.
+- After payment, `startRiderMatchingForPaidOrders` runs and broadcasts an assignment request.
+- Riders accept and the order tracks through the full rider flow.
+- The Rider Dashboard, rider applications, manual rider assignment, rider payouts, and delivery zone pages are all active.
+
+#### External Delivery Mode (`true`)
+
+- No internal riders are used. Rider-specific pages and routes are hidden from all dashboards.
+- After the seller marks an order ready, admin uses `POST /api/admin/orders/:id/arrange-external-delivery` to move it to `external_dispatch_arranged`.
+- Super admin uses `POST /api/admin/orders/:id/mark-external-delivered` to complete it.
+- Buyers and sellers see contextual notifications explaining the external courier (e.g. VIP Bus or third-party).
+
+### Permission System
+
+Access control has three layers:
+
+**1. Route guards (frontend):** `App.tsx` wraps admin/seller/rider routes in guards that check the current user's role. Some routes are additionally gated by platform mode (e.g. rider routes hidden in external delivery mode).
+
+**2. API middleware (backend):**
+- `requireAuth` — validates JWT, attaches `req.user`.
+- `requireRole(...roles)` — rejects if user's role is not in the allowed list.
+- `requirePermission(feature)` — checks `req.user.roleFeatures[feature] !== false`.
+- `requireRoleFeature(feature)` — same as above, used for finer-grained gating.
+
+**3. Role-feature map (DB-driven):** The super admin can toggle individual capabilities per user through `/admin/permissions`. These are stored in the `roleFeatures` JSONB column on the `users` table. `super_admin` bypasses all feature gates.
+
+**Protected settings fields:** Only `super_admin` can write `freeTierProductLimit`, `maxProductsPerSeller`, `orderAutoCancelHours`, and `inviteOnlyRegistration` via the settings API. Non-super-admin writes to these fields are silently stripped.
+
+---
+
+## Database Overview
+
+42 tables managed by Drizzle ORM. Schema source of truth: `shared/schema.ts`.
+
+| Table | Purpose |
+|---|---|
+| `users` | All accounts. Fields: role, isApproved, isActive, applicationStatus, vehicleInfo, roleFeatures (JSONB), isPremiumSeller |
+| `stores` | One per seller in multi-vendor mode. Logo, description, payout details |
+| `products` | Catalog. Images array, video, stock, category, dynamic fields, ratings |
+| `product_variants` | Color/size variants with per-variant stock, images, price override |
+| `categories` | Product categories with custom fields (e.g. "Size" for clothing) |
+| `orders` | Order records: status, paymentStatus, deliveryMethod, total, fee breakdown |
+| `order_items` | Line items (product, variant, quantity, unit price) |
+| `order_status_history` | Audit log of every status transition with actor and reason |
+| `deliveryZones` | Delivery areas with fees and pickup station flag |
+| `deliveryTracking` | GPS coordinates logged during active delivery |
+| `deliveryAssignments` | Rider-to-order assignment records |
+| `coupons` | Seller discount codes |
+| `cart` | Buyer shopping cart (persisted in DB) |
+| `wishlist` | Buyer saved products |
+| `reviews` | Product reviews with rating, text, images, seller response |
+| `riderReviews` | Buyer ratings of rider delivery quality |
+| `chatMessages` | Direct messages between users, with media attachments |
+| `supportConversations` | Buyer–agent support threads |
+| `supportMessages` | Messages within support threads |
+| `transactions` | Paystack payment records (reference, amount, status) |
+| `notifications` | In-app notifications for all roles |
+| `platformSettings` | Single-row config table (see Platform Settings section) |
+| `adminPermissions` | Role-level permission presets |
+| `adminWalletTransactions` | Admin commission ledger entries |
+| `commissions` | Commission record per fulfilled order |
+| `sellerPayouts` | Seller settlement records (created on payment, processed by worker) |
+| `riderPayouts` | Rider earning settlement records |
+| `platformEarnings` | Daily aggregated platform revenue |
+| `promotionalAds` | Time-limited promoted stores/products |
+| `promotionPricing` | Pricing tiers for promo applications |
+| `promotionApplications` | Seller applications to run promotions |
+| `heroBanners` | Hero section images with CTA |
+| `bannerCollections` | Groups of banners for carousels |
+| `marketplaceBanners` | Marketplace-wide promotional banners |
+| `footerPages` | CMS pages (Terms, Privacy, etc.) |
+| `mediaLibrary` | Global uploaded media assets |
+| `passwordResetTokens` | One-time reset links with expiry |
+| `reportActivityLogs` | Audit of who generated which reports |
+| `systemActivityLogs` | Platform events with severity, fingerprinting, resolution |
+| `receipts` | E-receipt records linked to orders |
+| `idempotencyKeys` | Deduplication for payment webhooks |
+
+---
+
+## API Routes Overview
+
+All routes are defined in `server/routes.ts`. Base prefix: `/api`.
+
+### Authentication
+```
+POST /api/auth/register        Create account
+POST /api/auth/login           Authenticate, returns JWT cookie
+POST /api/auth/logout          Clears session
+GET  /api/auth/me              Current user profile
+PATCH /api/auth/me             Update profile
+POST /api/auth/forgot-password Send reset email
+POST /api/auth/reset-password  Apply new password with token
+POST /api/auth/change-password Change password (authenticated)
+```
+
+### Products
+```
+GET    /api/products                    List (filters: search, category, seller, sort)
+GET    /api/products/:id                Product detail with variants
+POST   /api/products                    Create (seller/admin)
+PATCH  /api/products/:id               Update
+DELETE /api/products/:id               Delete
+POST   /api/products/:id/images        Upload images to Cloudinary
+POST   /api/products/:id/variants      Add variant
+PATCH  /api/products/:id/variants/:vid Update variant
+DELETE /api/products/:id/variants/:vid Delete variant
+```
+
+### Orders
+```
+GET    /api/orders                               List (filtered by role/context)
+GET    /api/orders/:id                           Order detail
+POST   /api/orders                               Create order
+PATCH  /api/orders/:id/status                    Transition status
+POST   /api/orders/:id/cancel                    Cancel (buyer/admin)
+POST   /api/orders/:id/verify-customer-pickup    Verify pickup (QR/OTP)
+POST   /api/admin/orders/:id/arrange-external-delivery   Move to external_dispatch_arranged
+POST   /api/admin/orders/:id/mark-external-delivered     Complete external delivery
+```
+
+### Payments
+```
+POST /api/payments/initialize             Initialize Paystack transaction
+POST /api/webhooks/paystack               Paystack webhook (HMAC verified, idempotent)
+POST /api/seller/upgrade/initialize       Initialize premium seller upgrade payment
+```
+
+### Users & Applications
+```
+GET   /api/users                          List users (admin)
+GET   /api/users/:id                      User detail
+PATCH /api/users/:id                      Update user (admin)
+PATCH /api/users/:id/interview            Schedule interview (admin → applicant)
+PATCH /api/users/:id/approve             Approve seller/rider application
+PATCH /api/users/:id/reject              Reject application with reason
+PATCH /api/users/:id/deactivate          Deactivate account
+```
+
+### Admin
+```
+GET  /api/admin/dashboard           Dashboard metrics (orders, revenue, users)
+GET  /api/admin/analytics           Detailed analytics
+GET  /api/admin/pending-orders      Orders needing rider assignment
+GET  /api/admin/system-activities   System event log
+GET  /api/admin/system-activities/summary  Issues count (used by sidebar badge)
+```
+
+### Platform Settings
+```
+GET   /api/settings                 Get all platform settings
+PATCH /api/settings                 Update settings (admin/super_admin)
+```
+
+### Notifications
+```
+GET  /api/notifications                  List user's notifications
+GET  /api/notifications/unread-count     Count for sidebar badge
+PATCH /api/notifications/:id/read       Mark read
+PATCH /api/notifications/read-all       Mark all read
+POST /api/admin/notifications/broadcast  Send to all users (admin)
+```
+
+### Delivery & Zones
+```
+GET    /api/zones                         List delivery zones
+POST   /api/zones                         Create zone (admin)
+PATCH  /api/zones/:id                     Update zone
+DELETE /api/zones/:id                     Delete zone
+GET    /api/rider/location/:orderId       Get rider's current GPS position
+POST   /api/rider/location               Submit rider GPS update
+```
+
+### Chat & Support
+```
+GET  /api/messages/:userId         Conversation with a user
+POST /api/messages                 Send message
+GET  /api/support/conversations    Support threads (agent/admin)
+POST /api/support/conversations    Create support ticket
+POST /api/support/messages         Reply in support thread
+```
+
+### Seller-Specific
+```
+GET  /api/seller/earnings          Earnings history
+GET  /api/seller/payouts           Payout records
+GET  /api/seller/analytics         Sales analytics
+POST /api/seller/payout-setup      Configure bank/mobile money
+GET  /api/coupons                  List seller's coupons
+POST /api/coupons                  Create coupon
+```
+
+### Health & Monitoring
+```
+GET /api/health          Health check (DB ping, returns { ok: true })
+GET /api/metrics         Prometheus metrics
+```
+
+---
+
+## Frontend Routes
+
+All routes are defined in `client/src/App.tsx`.
+
+### Public (no auth required)
+```
+/                    Homepage (single-vendor: product grid; multi-vendor: marketplace)
+/products            All products browse
+/stores              Browse all stores (multi-vendor mode)
+/sellers/:id         Individual seller storefront
+/product/:id         Product detail
+/category/:id        Category browse
+/auth                Login / register
+/reset-password      Password recovery
+/become-seller       Seller application form
+/become-rider        Rider application (hidden if external rider mode enabled)
+/page/:slug          Dynamic CMS footer pages
+/track/:id           Public order tracking (no login required)
+/track               Track by order number
+```
+
+### Buyer
+```
+/cart                    Shopping cart
+/checkout                Checkout flow
+/payment/:orderId        Paystack payment initiation
+/payment/verify          Paystack callback handler
+/payment/success         Order confirmed page
+/payment/failure         Payment failed page
+/orders                  Order history
+/orders/:id              Order detail and tracking
+/orders/:id/receipt      Digital e-receipt
+/wishlist                Saved products
+/buyer                   Buyer dashboard
+/buyer/orders            Orders list (alternative entry)
+```
+
+### Seller
+```
+/seller                  Dashboard with quick stats
+/seller/products         Product management (CRUD)
+/seller/categories       Category assignment
+/seller/orders           Order list
+/seller/orders/:id       Order detail
+/seller/coupons          Coupon management
+/seller/promotions       Promo campaigns (multi-vendor only)
+/seller/deliveries       Delivery management (internal rider only)
+/seller/media-library    Media uploads
+/seller/notifications    Notifications
+/seller/messages         Chat with buyers (if platform allows)
+/seller/analytics        Sales reports and charts
+/seller/payment-setup    Payout bank/mobile money setup
+/seller/settings         Store profile and preferences
+/seller/reviews          Ratings received
+```
+
+### Rider (all hidden when external rider mode is enabled)
+```
+/rider                   Delivery dashboard
+/rider/deliveries        Active deliveries
+/rider/route             Current route map
+/rider/earnings          Commission history
+/rider/notifications     Delivery alerts
+/rider/messages          Chat with buyers
+/rider/settings          Preferences
+/become-rider            Application form
+```
+
+### Pickup Agent
+```
+/pickup-agent            Dashboard
+/pickup-agent/verify     QR/OTP verification
+/pickup-agent/earnings   Commissions
+/pickup-agent/shift      Shift management
+/pickup-agent/support    Support tickets
+/pickup-agent/notifications  Alerts
+/pickup-agent/settings   Settings
+```
+
+### Support Agent
+```
+/agent                   Agent dashboard
+/agent/tickets           Support queue
+/agent/customers         Customer directory
+/agent/messages          Ticket chats
+/agent/notifications     Alerts
+/agent/settings          Settings
+```
+
+### Admin / Super Admin
+```
+/admin                         Main dashboard (KPIs, recent orders, maintenance mode)
+/admin/settings                Platform config (all settings fields)
+/admin/branding                Logo, colors, social links
+/admin/users                   User directory
+/admin/users/create            Create user
+/admin/users/:id/edit          Edit user
+/admin/users/:id               User detail
+/admin/sellers                 Seller directory
+/admin/sellers/:id             Seller detail
+/admin/riders                  Rider directory (internal rider only)
+/admin/riders/:id/edit         Edit rider profile (internal rider only)
+/admin/riders/:id              Rider detail (internal rider only)
+/admin/products                All products
+/admin/products/create         Create product
+/admin/products/:id/edit       Edit product
+/admin/orders                  All orders with full controls
+/admin/orders/:id/action       Order state transition page
+/admin/agents                  Support agent management
+/admin/applications            Seller/rider application queue
+/admin/permissions             Per-user role-feature management (super_admin only)
+/admin/categories              Category manager
+/admin/zones                   Delivery zone manager (internal rider only)
+/admin/delivery-zones          (alias for /admin/zones)
+/admin/pickup-stations         Pickup point configuration
+/admin/pickup-verify           Admin pickup verification (QR/OTP)
+/admin/delivery-tracking       Live delivery map (internal rider only)
+/admin/manual-rider-assignment Assign orders to riders manually (internal rider only)
+/admin/sellers-payouts         Seller settlement management
+/admin/riders-payouts          Rider payout management (internal rider only)
+/admin/platform-earnings       Commission and fee tracking
+/admin/analytics               Full analytics dashboard
+/admin/promotions              Promotional ad management
+/admin/banners                 Carousel banner management
+/admin/hero-banners            Hero section banners
+/admin/footer-pages            CMS footer pages
+/admin/media-library           Global media asset library
+/admin/notifications           Bulk notification sender
+/admin/messages                Message conversations
+/admin/live-support            Support thread overview
+/admin/system-activities       System event audit log
+```
+
+### Shared (all authenticated roles)
+```
+/profile               User profile
+/settings              Account settings
+/change-password       Password change
+/notifications         Notification center
+/chat                  Direct messaging
+/support               Support ticket creation
+/live-tracking         Open map tracker
+```
+
+---
+
+## Background Workers
+
+Four workers are started at boot in `server/index.ts`. All use `setInterval` — there is no external queue or cron daemon.
+
+### Payout Worker (`server/workers/payoutWorker.ts`)
+- **Interval:** Every 15 seconds (configurable via `PAYOUT_WORKER_INTERVAL_MS`)
+- **What it does:** Processes seller payouts with `status: pending`. Calls Paystack Transfers API to initiate bank or mobile money transfers. Updates payout records to `completed` or `failed`. Notifies seller via socket and DB notification. Supports split-settlement mode.
+
+### Promotional Ad Worker (`server/workers/promotionalWorker.ts`)
+- **Interval:** Every 60 seconds (configurable via `PROMO_WORKER_INTERVAL_MS`)
+- **What it does:** Scans `promotionalAds` for records where `endAt < now()`. Marks expired ads as inactive. Notifies admin. Gracefully skips if the promotions table does not yet exist (handles migration lag on first deploy).
+
+### Order Auto-Cancel Worker (`server/workers/orderAutoCancelWorker.ts`)
+- **Interval:** Every 5 minutes
+- **What it does:** Cancels orders that are `pending` with `paymentStatus: pending` and were created more than `orderAutoCancelHours` hours ago. Set `orderAutoCancelHours` to `0` in platform settings to disable. Default is disabled.
+
+### Notification Reminder Worker (`server/workers/notificationReminderWorker.ts`)
+- **Interval:** Every 30 minutes
+- **What it does:**
+  - Sends a **5-hour payment reminder** to buyers for unpaid orders that are 5–24 hours old. Deduplicates via `reminderKey` in notification metadata so the reminder is sent exactly once.
+  - Sends **interview schedule reminders** to applicants with `applicationStatus: interview_scheduled`: a day-before reminder (20–28h window) and an hour-before reminder (45–75min window).
+  - Both types also send optional email notifications via `sendEmail()`.
+
+---
+
+## Email System
+
+Configured in `server/email.ts`. Uses Nodemailer with SMTP.
+
+SMTP credentials are resolved in this order:
+1. Platform settings from the database (`platformSettings.smtpHost`, etc.)
+2. Environment variables (`SMTP_HOST`, `SMTP_PORT`, etc.)
+
+Transactional emails sent by the platform:
+
+| Trigger | Recipient | Content |
+|---|---|---|
+| Payment confirmed | Buyer | Order summary with items, total, "Track Your Orders" link |
+| Payment confirmed | Each seller | "New Paid Order" notification with order detail |
+| Seller/rider application interview scheduled | Applicant | Interview date and time |
+| Seller/rider application approved | Applicant | Approval notice with link to dashboard |
+| Seller/rider application rejected | Applicant | Rejection notice with optional reason |
+| Unpaid order (5 hours old) | Buyer | Payment reminder with order number |
+| Interview approaching (day before / hour before) | Applicant | Reminder notice |
+| Password reset | User | Reset link (expires in 1 hour) |
+| Seller payout completed | Seller | Settlement confirmation with amount and destination |
+
+---
+
+## Real-time Events (Socket.IO)
+
+Socket.IO runs on the same Express server. Clients authenticate via JWT on connection. Each user is joined to a personal room (`io.to(userId).emit(...)`) for targeted events.
+
+### Key events emitted to clients
+
+| Event | Emitted to | Description |
+|---|---|---|
+| `notification` | User | New in-app notification (all types) |
+| `order_status_updated` | Buyer + Seller | Order status changed |
+| `order_rider_assignment_failed` | Admins | No rider found for order |
+| `rider_location_update` | Buyer (on active order) | Rider GPS coordinates |
+| `new_message` | Recipient | Chat message received |
+| `message_read` | Sender | Their message was read |
+| `typing` | Conversation partner | Typing indicator |
+| `support_message` | Agent + Buyer | New support thread message |
+| `maintenance_status` | All connected | Maintenance mode toggled |
+| `seller-approved:{userId}` | Admin | Seller/rider application approved |
+
+### Presence
+
+`presenceService.ts` tracks online/away/offline status using heartbeats. Clients ping the server every 5–10 seconds. Missing a heartbeat for longer than the timeout period marks the user offline. Typing indicators are also handled here.
+
+---
+
+## Platform Settings
+
+All settings live in a single row in the `platformSettings` table. Configurable by admin/super_admin through `/admin/settings`. The following fields exist:
+
+### Branding
+`platformName`, `logo`, `primaryColor`, `secondaryColor`, `accentColor`, `lightBgColor`, `lightTextColor`, `darkBgColor`, `darkTextColor`, `lightCardColor`, `darkCardColor`
+
+### Store & Mode
+`isMultiVendor`, `primaryStoreId`, `shopDisplayMode` (`by-store` | `by-category`), `categoryDisplayStyle`, `showShopBySection`, `showHomepageFeaturedSection`, `showHomepageNewArrivalSection`
+
+### Access Control
+`allowSellerRegistration`, `allowRiderRegistration`, `inviteOnlyRegistration` *(super_admin only)*
+
+### Product Limits *(super_admin only fields)*
+`freeTierProductLimit` (default 20), `maxProductsPerSeller` (0 = unlimited), `maxProductsPerDay`
+
+### Order Settings *(super_admin only)*
+`orderAutoCancelHours` (0 = disabled)
+
+### Payments & Fees
+`paystackPublicKey`, `paystackSecretKey`, `defaultCommissionRate` (1%), `processingFeePercent` (1.95%), `allowSellerBankPayouts`
+
+### Delivery
+`isExternalRiderSystemEnabled`, `showCheckoutDeliveryMap`
+
+### Advertising & Banners
+`adsEnabled`, `heroBannerEnabled`, `sidebarAdEnabled`, `footerAdEnabled`, `productPageAdEnabled`, `activeBannerCollectionId`, `heroBannerAdImage`, `heroBannerAdUrl`, `sidebarAdImage`, `sidebarAdUrl`, `footerAdImage`, `footerAdUrl`, `productPageAdImage`, `productPageAdUrl`
+
+### Maps
+`mapboxPublicToken`, `mapboxStyleUrl`, `mapboxGlVersion`
+
+### Messaging
+`allowSellerDirectSupportMessages` (if true: sellers use messages tab; if false: sellers use support tab), `allowPickupAgentAdminChat`
+
+### SMTP / Email
+`smtpHost`, `smtpPort`, `smtpUser`, `smtpPass`, `smtpSecure`, `smtpFromEmail`, `smtpFromName`
+
+### Analytics & Monitoring
+`googleAnalyticsId`, `microsoftClarityId`, `sentryDsn`, `renderDeployHookUrl`
+
+### GA4 Data API Credentials (server-side reporting dashboard)
+`ga4PropertyId`, `googleCredentialsJson`
+
+### Sentry REST API Credentials (Sentry Issues dashboard)
+`sentryAuthToken`, `sentryOrg`, `sentryProject`
+
+### Contact & Social
+`contactPhone`, `contactEmail`, `contactAddress`, `facebookUrl`, `instagramUrl`, `twitterUrl`, `linkedinUrl`, `youtubeUrl`, `tiktokUrl`, `pinterestUrl`, `whatsappPage` (each with a `showX` toggle), `footerDescription`, `footerLinks`, `footerPaymentIcons`
+
+### Media
+`maxUploadSizeMb` (10), `allowedUploadTypes` (`jpg,jpeg,png,webp,gif,avif`)
+
+### Cloudinary
+`cloudinaryCloudName`, `cloudinaryApiKey`, `cloudinaryApiSecret`
+
+---
+
+## Deployment
+
+### Frontend → Netlify
+
+1. Push to `main` branch (or configure Netlify to auto-deploy from GitHub).
+2. Build command: `vite build` (configured in `netlify.toml` or Netlify dashboard).
+3. Publish directory: `client/dist`.
+4. All routes redirect to `index.html` (SPA routing — add a `_redirects` file with `/* /index.html 200`).
+5. Set `VITE_API_URL` if your backend is not on the same domain (typically not needed if using Netlify's proxy or if the frontend calls the Render URL directly).
+
+### Backend → Render
+
+Configuration is in `render.yaml`:
+- **Region:** Frankfurt (EU)
+- **Build:** `npm install && npm run build`
+- **Start:** `npm run start` (runs `node dist/server.mjs`)
+- **Health check:** `GET /api/health`
+
+Set all required environment variables in the Render dashboard. The `FRONTEND_URL` must match the deployed Netlify URL exactly (used for Paystack callback).
+
+### Database → Neon
+
+Neon provides a serverless PostgreSQL database. No migrations need to be run manually — the server runs `IF NOT EXISTS` self-heal blocks on startup that ensure all tables and columns exist. For major schema changes, migration files in `migrations/` are applied manually or via `drizzle-kit push`.
+
+### First Deploy Checklist
+
+- [ ] All required environment variables set in Render dashboard
+- [ ] `FRONTEND_URL` matches exact Netlify URL (no trailing slash)
+- [ ] `NODE_ENV=production` set
+- [ ] `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` set (creates account on first boot, can remove after)
+- [ ] Paystack webhook URL configured in Paystack dashboard: `https://your-render-url/api/webhooks/paystack`
+- [ ] `robots.txt` and `sitemap.xml` deployed with frontend (already in `client/public/`)
+- [ ] Cloudinary credentials set (or media uploads will use local disk — not suitable for production)
+- [ ] SMTP credentials set (or transactional emails will silently fail)
+- [ ] `SETTINGS_ENCRYPTION_KEY` set if using encrypted DB credentials
+
+---
+
+## Scripts Reference
+
+```bash
+npm run dev            # Start backend + Vite dev server together (development)
+npm run build          # Production build: Vite frontend + esbuild backend bundle
+npm run start          # Start production server (runs dist/server.mjs)
+npm run typecheck      # TypeScript type check across all workspaces
+npm run test:e2e       # Run Playwright end-to-end tests
+npm run audit:platform # Generate platform audit report (docs/)
+```
+
+---
+
+## Security
+
+### What is in place
+
+- **JWT authentication** — `httpOnly`, `secure` (production), `sameSite` cookies. 7-day expiry.
+- **RBAC** — every API route guarded by `requireAuth`, `requireRole`, or `requireRoleFeature`.
+- **Rate limiting** — auth routes: 5 attempts per 15 minutes. API routes: role-tiered limits (super_admin/admin: 1000/15min; buyer: 100/15min).
+- **Helmet** — Content-Security-Policy, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy.
+- **CORS** — restricted to `FRONTEND_URL` origin in production.
+- **Input validation** — Zod schemas on all API inputs; Drizzle ORM prevents SQL injection.
+- **Paystack webhook HMAC** — every webhook verified with `PAYSTACK_SECRET_KEY` SHA-512 signature.
+- **Idempotency** — webhook deduplication via `idempotencyKeys` table.
+- **Sensitive field encryption** — Cloudinary and SMTP credentials in DB are AES-256-GCM encrypted when `SETTINGS_ENCRYPTION_KEY` is set.
+- **Seed endpoint protection** — all `/api/seed/*` endpoints return 403 in production (`NODE_ENV=production`).
+- **No security-sensitive logging** — user emails and payment details are not written to logs.
+
+### What you must do before going live
+
+- Rotate all credentials if `.env` was ever committed to git.
+- Set `SETTINGS_ENCRYPTION_KEY` and verify DB credentials are stored encrypted.
+- Confirm `NODE_ENV=production` is set on Render.
+- Confirm Paystack webhook URL is set to the production backend URL.
+- Never share or commit `.env` or any file containing live API keys.
+
+---
+
+## Known Constraints
+
+- **GHS only** — the platform does not support multiple currencies at runtime. All prices, payouts, and fees are in Ghana Cedis.
+- **English only** — localization infrastructure exists (a `localizationStrings` table and a `LanguageContext`) but is not fully implemented.
+- **Single webhook endpoint** — the only valid Paystack webhook is `POST /api/webhooks/paystack`. Any legacy `/webhooks/paystack` path was removed.
+- **No automatic DB migrations** — schema changes beyond the self-heal blocks require manual `drizzle-kit push` or SQL migration files.
+- **Render free tier cold starts** — the backend on Render's free plan may sleep after inactivity. First requests after a cold start may take 30–60 seconds. The `/api/health` check on the frontend detects this and uses `queryClient.invalidateQueries()` (not a page reload) to refresh data once the backend is back.
+- **`window.location.reload()` is banned** — all data refresh is done via `queryClient.invalidateQueries()` to preserve user state.
+- **No external task queue** — background work uses `setInterval`. There is no Bull, BullMQ, or similar queue. If the server restarts, in-flight jobs are dropped (they will be retried on next interval).
+
+---
+
+*Last updated: 2026-04-26. Update this file whenever a feature is added, removed, or changed.*
 
 <!-- PLATFORM_AUDIT:START -->
 
 ## Platform Living Audit README
 
-Generated version: `v12`
-Generated at: `2026-03-16T10:03:23.710Z`
+Generated version: `v19`
+Generated at: `2026-04-26T20:59:15.281Z`
 
 ### 1. Platform Overview
 - Continuous internal audit for routes, dashboards, features, flows, services, and dependencies.
@@ -691,25 +1003,25 @@ Generated at: `2026-03-16T10:03:23.710Z`
 - Realtime: Socket.IO and live-tracking map telemetry.
 
 ### 3. Dashboards (Fully Detailed)
-- Super Admin Dashboard: 37 routes, entry /admin, exits 8, APIs 69
-- Admin Dashboard: 37 routes, entry /admin, exits 8, APIs 69
+- Super Admin Dashboard: 46 routes, entry /admin, exits 7, APIs 99
+- Admin Dashboard: 46 routes, entry /admin, exits 7, APIs 99
 - Agent Dashboard: 6 routes, entry /agent, exits 1, APIs 6
-- Seller Dashboard: 15 routes, entry /seller, exits 12, APIs 26
-- Rider Dashboard: 7 routes, entry /rider, exits 6, APIs 14
-- Customer / Buyer Dashboard: 1 routes, entry /buyer, exits 2, APIs 1
+- Seller Dashboard: 20 routes, entry /seller, exits 12, APIs 36
+- Rider Dashboard: 7 routes, entry /rider, exits 5, APIs 15
+- Customer / Buyer Dashboard: 3 routes, entry /buyer, exits 9, APIs 2
 
 ### 4. Features (By Module)
-- Order Management: 195 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 232
-- Rider Delivery: 104 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 229
-- Agent-Assisted Handling: 68 files, dashboards Admin Dashboard, Agent Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 226
-- BUS Delivery Logic: 35 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 220
-- Pickup Logic: 23 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 216
-- Zone & Region Logic: 28 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 222
-- Real-time Tracking & Maps: 80 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Super Admin Dashboard, APIs 225
-- Messaging & Calls: 142 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 230
-- Reporting, Analytics & Receipts: 35 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 222
-- Verification (QR / OTP): 26 files, dashboards Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, APIs 220
-- User Management & Roles: 68 files, dashboards Admin Dashboard, Agent Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 230
+- Order Management: 228 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 313
+- Rider Delivery: 119 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 309
+- Agent-Assisted Handling: 92 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 306
+- BUS Delivery Logic: 48 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 305
+- Pickup Logic: 58 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 303
+- Zone & Region Logic: 49 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 305
+- Real-time Tracking & Maps: 101 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 308
+- Messaging & Calls: 179 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 311
+- Reporting, Analytics & Receipts: 44 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 302
+- Verification (QR / OTP): 45 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 298
+- User Management & Roles: 83 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 311
 
 ### 5. Delivery Logic
 - Rider delivery, BUS/pickup keywords, assignment, verification, and tracking are scanned from backend and UI sources.
@@ -751,9 +1063,9 @@ Generated at: `2026-03-16T10:03:23.710Z`
 | `@radix-ui/react-toggle` | MIT | free_or_self_hosted | yes |
 | `@radix-ui/react-toggle-group` | MIT | free_or_self_hosted | yes |
 | `@radix-ui/react-tooltip` | MIT | free_or_self_hosted | yes |
-| `@replit/vite-plugin-cartographer` | unknown | unknown | no |
-| `@replit/vite-plugin-dev-banner` | unknown | unknown | no |
-| `@replit/vite-plugin-runtime-error-modal` | unknown | unknown | no |
+| `@sentry/node` | MIT | free_or_self_hosted | yes |
+| `@sentry/react` | MIT | free_or_self_hosted | yes |
+| `@sentry/vite-plugin` | MIT | free_or_self_hosted | yes |
 | `@tailwindcss/typography` | MIT | free_or_self_hosted | yes |
 | `@tailwindcss/vite` | MIT | free_or_self_hosted | yes |
 | `@tanstack/react-query` | MIT | free_or_self_hosted | yes |
@@ -807,6 +1119,7 @@ Generated at: `2026-03-16T10:03:23.710Z`
 | `mongoose` | MIT | free_or_self_hosted | yes |
 | `multer` | MIT | free_or_self_hosted | yes |
 | `next-themes` | MIT | free_or_self_hosted | yes |
+| `nodemailer` | MIT-0 | free_or_self_hosted | yes |
 | `passport` | MIT | free_or_self_hosted | yes |
 | `passport-local` | MIT | free_or_self_hosted | yes |
 | `pg` | MIT | free_or_self_hosted | yes |
@@ -833,11 +1146,12 @@ Generated at: `2026-03-16T10:03:23.710Z`
 | `typescript` | Apache-2.0 | free_or_self_hosted | yes |
 | `vaul` | MIT | free_or_self_hosted | yes |
 | `vite` | MIT | free_or_self_hosted | yes |
+| `vite-plugin-pwa` | MIT | free_or_self_hosted | yes |
+| `workbox-window` | MIT | free_or_self_hosted | yes |
 | `wouter` | Unlicense | free_or_self_hosted | yes |
 | `ws` | MIT | free_or_self_hosted | yes |
 | `zod` | MIT | free_or_self_hosted | yes |
 | `zod-validation-error` | MIT | free_or_self_hosted | yes |
-| `zustand` | MIT | free_or_self_hosted | yes |
 
 ### 8. Configuration & Environment
 - Run audit: `npm run audit:platform`
@@ -851,8 +1165,7 @@ Generated at: `2026-03-16T10:03:23.710Z`
 - Audit log: `docs/platform-audit-log.jsonl`
 
 ### Health Findings
-- [medium] ORPHAN_PAGES: 12 orphan pages (client/src/pages/AdminDashboardConnected.tsx, client/src/pages/AdminDashboardRouter.tsx, client/src/pages/AdminLiveSupportDashboard.tsx, client/src/pages/AgentTickets.tsx, client/src/pages/ChatPageConnected.tsx, client/src/pages/ChatPageSimple.tsx, client/src/pages/CheckoutConnected.tsx, client/src/pages/HomeConnected.tsx, client/src/pages/MultiVendorHome.tsx, client/src/pages/not-found.tsx)
-- [high] NON_FREE_OR_UNKNOWN_DEPENDENCIES: 4 non-free or unknown dependencies (@replit/vite-plugin-cartographer, @replit/vite-plugin-dev-banner, @replit/vite-plugin-runtime-error-modal, cloudinary)
+- [medium] ORPHAN_PAGES: 11 orphan pages (client/src/pages/AdminDashboard.tsx, client/src/pages/ChatPageConnected.tsx, client/src/pages/CheckoutConnected.tsx, client/src/pages/HomeConnected.tsx, client/src/pages/MaintenancePage.tsx, client/src/pages/MultiVendorHome.tsx, client/src/pages/ProductPageAd.tsx, client/src/pages/SellerCoupons.tsx, client/src/pages/SellerDashboardConnected.tsx, client/src/pages/SellerDeliveries.tsx)
+- [medium] NON_FREE_OR_UNKNOWN_DEPENDENCIES: 1 non-free or unknown dependencies (cloudinary)
 
 <!-- PLATFORM_AUDIT:END -->
-

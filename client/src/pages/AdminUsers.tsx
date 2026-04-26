@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Loader2, Search, Edit, Ban, MessageSquare, Trash2, ArrowLeft, CheckCircle, XCircle, UserCog, Phone, Video, KeyRound } from "lucide-react";
+import { Loader2, Search, Edit, Ban, MessageSquare, Trash2, ArrowLeft, CheckCircle, XCircle, UserCog, Phone, Video, KeyRound, Crown } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
@@ -30,6 +30,7 @@ interface UserData {
   profileImage?: string | null;
   isActive: boolean;
   isApproved: boolean;
+  isPremiumSeller?: boolean;
   createdAt: string;
 }
 
@@ -103,6 +104,26 @@ export default function AdminUsers() {
         variant: "destructive",
       });
       setConfirmDeleteUser(null);
+    },
+  });
+
+  const togglePremiumMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return apiRequest("PATCH", `/api/users/${userId}/toggle-premium-seller`, {});
+    },
+    onSuccess: (_data, userId) => {
+      const target = users.find(u => u.id === userId);
+      const nowPremium = !target?.isPremiumSeller;
+      toast({
+        title: nowPremium ? "Premium Activated" : "Premium Removed",
+        description: nowPremium
+          ? "Seller upgraded to Premium — unlimited listings enabled."
+          : "Seller returned to free tier.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to update premium status", variant: "destructive" });
     },
   });
 
@@ -351,15 +372,21 @@ export default function AdminUsers() {
                 </Badge>
               )
             )}
+            {userData.role === "seller" && userData.isPremiumSeller && (
+              <Badge className="bg-amber-500 text-white flex items-center gap-1">
+                <Crown className="h-3 w-3" />
+                Premium
+              </Badge>
+            )}
             <span className="text-xs text-muted-foreground" data-testid={`text-joined-${userData.id}`}>
               Joined {new Date(userData.createdAt).toLocaleDateString()}
             </span>
           </div>
         </div>
         <div className="flex gap-2" onClick={(event) => event.stopPropagation()}>
-          {(user?.role === "admin" || user?.role === "super_admin") && (
-            <Button 
-              variant="ghost" 
+          {user?.role === "super_admin" && (
+            <Button
+              variant="ghost"
               size="icon"
               data-testid={`button-change-role-${userData.id}`}
               title="Promote / demote role"
@@ -368,13 +395,23 @@ export default function AdminUsers() {
                 setTargetRole(userData.role);
                 setRoleDialogOpen(true);
               }}
-              disabled={user?.role !== "super_admin" && userData.role === "super_admin"}
             >
               <UserCog className="h-4 w-4 text-primary" />
             </Button>
           )}
-          <Button 
-            variant="ghost" 
+          {(user?.role === "admin" || user?.role === "super_admin") && userData.role === "seller" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              title={userData.isPremiumSeller ? "Remove Premium status" : "Grant Premium Seller (unlimited listings)"}
+              disabled={togglePremiumMutation.isPending}
+              onClick={() => togglePremiumMutation.mutate(userData.id)}
+            >
+              <Crown className={`h-4 w-4 ${userData.isPremiumSeller ? "text-amber-500 fill-amber-500" : "text-muted-foreground"}`} />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
             size="icon"
             onClick={() => void startJitsiCall(userData, "voice")}
             data-testid={`button-call-voice-${userData.id}`}
@@ -393,15 +430,17 @@ export default function AdminUsers() {
           >
             <Video className="h-4 w-4 text-primary" />
           </Button>
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => navigate(`/admin/users/${userData.id}/edit`)}
-            data-testid={`button-edit-${userData.id}`}
-            title="Edit user"
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
+          {user?.role === "super_admin" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate(`/admin/users/${userData.id}/edit`)}
+              data-testid={`button-edit-${userData.id}`}
+              title="Edit user"
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+          )}
           {user?.role === "super_admin" && (
             <Button
               variant="ghost"
@@ -417,16 +456,18 @@ export default function AdminUsers() {
               <KeyRound className="h-4 w-4 text-primary" />
             </Button>
           )}
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => handleBanUser(userData)}
-            disabled={toggleUserStatusMutation.isPending}
-            data-testid={`button-ban-${userData.id}`}
-            title={userData.isActive ? "Ban user" : "Activate user"}
-          >
-            <Ban className="h-4 w-4" />
-          </Button>
+          {user?.role === "super_admin" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleBanUser(userData)}
+              disabled={toggleUserStatusMutation.isPending}
+              data-testid={`button-ban-${userData.id}`}
+              title={userData.isActive ? "Ban user" : "Activate user"}
+            >
+              <Ban className="h-4 w-4" />
+            </Button>
+          )}
           <Button 
             variant="ghost" 
             size="icon"
@@ -436,16 +477,18 @@ export default function AdminUsers() {
           >
             <MessageSquare className="h-4 w-4" />
           </Button>
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => handleDeleteUser(userData)}
-            disabled={deleteUserMutation.isPending}
-            data-testid={`button-delete-${userData.id}`}
-            title="Delete user"
-          >
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
+          {user?.role === "super_admin" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleDeleteUser(userData)}
+              disabled={deleteUserMutation.isPending}
+              data-testid={`button-delete-${userData.id}`}
+              title="Delete user"
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          )}
         </div>
       </div>
     </Card>
@@ -479,14 +522,16 @@ export default function AdminUsers() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Button
-                onClick={() => navigate("/admin/users/create")}
-                data-testid="button-add-account"
-                className="gap-2"
-              >
-                <UserCog className="h-4 w-4" />
-                Add an Account
-              </Button>
+              {user?.role === "super_admin" && (
+                <Button
+                  onClick={() => navigate("/admin/users/create")}
+                  data-testid="button-add-account"
+                  className="gap-2"
+                >
+                  <UserCog className="h-4 w-4" />
+                  Add an Account
+                </Button>
+              )}
             </div>
           </div>
 
@@ -689,6 +734,9 @@ export default function AdminUsers() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+              As super admin you can set any password with a minimum of 6 characters — no strength requirements.
+            </p>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground" htmlFor="reset-password-input">
                 New password
@@ -698,7 +746,7 @@ export default function AdminUsers() {
                 type="password"
                 value={resetPasswordValue}
                 onChange={(e) => setResetPasswordValue(e.target.value)}
-                placeholder="Enter a strong password"
+                placeholder="Minimum 6 characters"
                 data-testid="input-reset-password"
               />
             </div>
@@ -715,7 +763,10 @@ export default function AdminUsers() {
                 data-testid="input-reset-password-confirm"
               />
             </div>
-            {resetPasswordValue && resetPasswordConfirm && resetPasswordValue !== resetPasswordConfirm && (
+            {resetPasswordValue.length > 0 && resetPasswordValue.length < 6 && (
+              <p className="text-sm text-destructive">Password must be at least 6 characters.</p>
+            )}
+            {resetPasswordValue.length >= 6 && resetPasswordConfirm && resetPasswordValue !== resetPasswordConfirm && (
               <p className="text-sm text-destructive">Passwords do not match.</p>
             )}
           </div>
@@ -726,12 +777,12 @@ export default function AdminUsers() {
             <Button
               onClick={() => {
                 if (!resetPasswordTarget) return;
-                if (!resetPasswordValue || resetPasswordValue !== resetPasswordConfirm) return;
+                if (!resetPasswordValue || resetPasswordValue.length < 6 || resetPasswordValue !== resetPasswordConfirm) return;
                 resetPasswordMutation.mutate({ userId: resetPasswordTarget.id, password: resetPasswordValue });
               }}
               disabled={
                 !resetPasswordTarget ||
-                !resetPasswordValue ||
+                resetPasswordValue.length < 6 ||
                 resetPasswordValue !== resetPasswordConfirm ||
                 resetPasswordMutation.isPending
               }

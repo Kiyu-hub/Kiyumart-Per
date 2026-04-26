@@ -4,13 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { fetchApiJson } from "@/lib/queryClient";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Package, MapPin, Loader2, ShoppingBag, Receipt } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Package, MapPin, Loader2, ShoppingBag, Receipt, Heart, DollarSign } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import ReferralTracker from "@/components/ReferralTracker";
 
 interface Order {
   id: string;
@@ -41,10 +42,18 @@ export default function BuyerDashboard() {
     queryKey: ["/api/orders", "buyer-dashboard", user?.id],
     queryFn: async () => fetchApiJson<Order[]>("/api/orders?context=buyer&includeItems=false"),
     enabled: isAuthenticated && user?.role === "buyer",
-    refetchInterval: 10000,
-    refetchOnWindowFocus: true,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
     refetchOnMount: "always",
-    staleTime: 0,
+    staleTime: 12_000,
+  });
+
+  const { data: wishlistItems = [] } = useQuery<Array<{ id: string; name: string; price: string; images: string[] }>>({
+    queryKey: ["/api/wishlist", "buyer-dashboard"],
+    queryFn: async () => fetchApiJson<any[]>("/api/wishlist"),
+    enabled: isAuthenticated && user?.role === "buyer",
+    staleTime: 30000,
   });
 
   if (authLoading || !isAuthenticated || user?.role !== "buyer") {
@@ -80,12 +89,12 @@ export default function BuyerDashboard() {
       return "processing";
     }
 
-    if (isExternalManualFlow && ["rider_arrived", "delivered", "completed"].includes(status)) {
+    if (status === "completed") {
       return "completed";
     }
 
-    if (["completed", "delivered"].includes(status)) {
-      return "completed";
+    if (status === "delivered") {
+      return "processing";
     }
 
     if (["cancelled", "disputed"].includes(status)) {
@@ -160,10 +169,15 @@ export default function BuyerDashboard() {
     };
   };
 
+  const totalSpent = orders
+    .filter((o) => normalizePaymentStatus(o.paymentStatus) === "paid")
+    .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+
   const stats = {
     totalOrders: orders.length,
     pendingOrders: orders.filter((o) => getBuyerOrderStage(o) === "pending").length,
     completedOrders: orders.filter((o) => getBuyerOrderStage(o) === "completed").length,
+    cancelledOrders: orders.filter((o) => ["cancelled", "disputed"].includes(getBuyerOrderStage(o))).length,
     pendingPayments: orders.filter((o) => {
       const paymentStatus = normalizePaymentStatus(o.paymentStatus);
       return paymentStatus === "pending" || paymentStatus === "failed" || paymentStatus === "processing";
@@ -204,6 +218,48 @@ export default function BuyerDashboard() {
           </CardContent>
         </Card>
 
+        {/* Collapsible dashboard metrics explainer */}
+        <Card className="border-border/60 bg-card/95">
+          <details>
+            <summary className="cursor-pointer list-none px-6 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold">Dashboard Metrics Explained</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Expand to understand what each number on your buyer dashboard means</p>
+                </div>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+              </div>
+            </summary>
+            <CardContent className="pt-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2 text-sm">
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Total Orders</p>
+                  <p className="text-muted-foreground text-xs">All orders you have ever placed on the platform, across all statuses including pending, delivered, and cancelled.</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Pending Delivery</p>
+                  <p className="text-muted-foreground text-xs">Orders that have been paid for and are currently being prepared, dispatched, or are in transit to you.</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Completed Orders</p>
+                  <p className="text-muted-foreground text-xs">Orders you have fully received — either collected from a pickup station or delivered to your address.</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Payment Pending</p>
+                  <p className="text-muted-foreground text-xs">Orders where payment has not yet been confirmed. These orders are on hold until payment is completed.</p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                <p className="font-medium mb-1">Wishlist</p>
+                <p className="text-muted-foreground text-xs">Items you have saved for later. Click an item to view the product and add it to your cart when you're ready to buy.</p>
+              </div>
+              <div className="mt-3 rounded-lg border border-dashed border-border/50 bg-background/60 px-3 py-2 text-xs text-muted-foreground sm:col-span-2">
+                <strong>About payment &amp; processing fees:</strong> A 1.95% processing fee is added at checkout to cover payment gateway costs. This fee is a one-time charge — if you pay by mobile money, <strong>no additional mobile money charges</strong> will be deducted from your wallet beyond the amount shown at checkout. Your payment is processed securely and automatically by Paystack, with no manual approval required.
+              </div>
+            </CardContent>
+          </details>
+        </Card>
+
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Card data-testid="card-total-orders" className="border-l-4 border-l-primary">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -212,7 +268,12 @@ export default function BuyerDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.totalOrders}</div>
-              <p className="text-xs text-muted-foreground">All your orders so far</p>
+              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                <span>Active: {openOrders}</span>
+                <span>Completed: {stats.completedOrders}</span>
+                {stats.cancelledOrders > 0 && <span>Cancelled: {stats.cancelledOrders}</span>}
+                {stats.pendingPayments > 0 && <span>Unpaid: {stats.pendingPayments}</span>}
+              </div>
             </CardContent>
           </Card>
 
@@ -244,7 +305,56 @@ export default function BuyerDashboard() {
             </CardContent>
           </Card>
 
+          <Card data-testid="card-wishlist" className="border-l-4 border-l-pink-500">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Wishlist</CardTitle>
+              <Heart className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{(wishlistItems as any[]).length}</div>
+              <p className="text-xs text-muted-foreground">
+                <button className="underline hover:text-foreground" onClick={() => navigate("/wishlist")}>View saved items</button>
+              </p>
+            </CardContent>
+          </Card>
+
         </div>
+
+        {/* Wishlist preview */}
+        {(wishlistItems as any[]).length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold">Saved to Wishlist</h2>
+              <Button size="sm" variant="outline" onClick={() => navigate("/wishlist")}>
+                <Heart className="h-4 w-4 mr-2" />
+                View All
+              </Button>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {(wishlistItems as any[]).slice(0, 6).map((item: any) => (
+                <Card
+                  key={item.id}
+                  className="shrink-0 w-36 cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => navigate(`/product/${item.id}`)}
+                >
+                  <CardContent className="p-3">
+                    {item.images?.[0] ? (
+                      <img src={item.images[0]} alt={item.name} className="w-full h-24 object-cover rounded-md mb-2" />
+                    ) : (
+                      <div className="w-full h-24 rounded-md bg-muted flex items-center justify-center mb-2">
+                        <ShoppingBag className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                    )}
+                    <p className="text-xs font-medium truncate">{item.name}</p>
+                    <p className="text-xs text-primary font-semibold">{formatPrice(Number(item.price) || 0)}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <ReferralTracker />
 
         <div className="flex items-center justify-between">
           <div>

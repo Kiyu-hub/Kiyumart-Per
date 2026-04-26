@@ -155,38 +155,61 @@ export function requirePermission(...permissions: string[]) {
         .from(adminPermissions)
         .where(eq(adminPermissions.userId, req.user.id));
 
-      if (!userPermissions) {
-        return res.status(403).json({ error: "No permissions configured for this admin" });
-      }
+      // Default admin permissions — full access except the super_admin-only gates
+      const ADMIN_DEFAULTS: Record<string, boolean> = {
+        canManageUsers: true,
+        canManageProducts: true,
+        canManageOrders: true,
+        canManageStores: true,
+        canManageCategories: true,
+        canManageAdmins: false,        // super_admin only
+        canEditPasswords: false,       // super_admin only
+        canManageRoles: false,         // super_admin only
+        canManagePlatformSettings: true,
+        canViewAnalytics: true,
+        canManagePromotions: true,
+        canManageReviews: true,
+        canManagePayouts: true,
+        canViewPayouts: true,
+        canManageFeatures: false,      // super_admin only
+      };
+
+      const perms = userPermissions ?? ADMIN_DEFAULTS;
 
       const hasPermission = permissions.every((permission) => {
         switch (permission) {
           case "manage_users":
-            return userPermissions.canManageUsers;
+            return perms.canManageUsers ?? ADMIN_DEFAULTS.canManageUsers;
           case "manage_products":
-            return userPermissions.canManageProducts;
+            return perms.canManageProducts ?? ADMIN_DEFAULTS.canManageProducts;
           case "manage_orders":
-            return userPermissions.canManageOrders;
+            return perms.canManageOrders ?? ADMIN_DEFAULTS.canManageOrders;
           case "manage_stores":
-            return userPermissions.canManageStores;
+            return perms.canManageStores ?? ADMIN_DEFAULTS.canManageStores;
           case "manage_categories":
-            return userPermissions.canManageCategories;
+            return perms.canManageCategories ?? ADMIN_DEFAULTS.canManageCategories;
           case "manage_admins":
-            return userPermissions.canManageAdmins;
+            return perms.canManageAdmins ?? ADMIN_DEFAULTS.canManageAdmins;
           case "edit_passwords":
-            return userPermissions.canEditPasswords;
+            return perms.canEditPasswords ?? ADMIN_DEFAULTS.canEditPasswords;
           case "manage_roles":
-            return userPermissions.canManageRoles;
+            return perms.canManageRoles ?? ADMIN_DEFAULTS.canManageRoles;
           case "manage_platform_settings":
-            return userPermissions.canManagePlatformSettings;
+            return perms.canManagePlatformSettings ?? ADMIN_DEFAULTS.canManagePlatformSettings;
           case "view_analytics":
-            return userPermissions.canViewAnalytics;
+            return perms.canViewAnalytics ?? ADMIN_DEFAULTS.canViewAnalytics;
           case "manage_promotions":
-            return userPermissions.canManagePromotions;
+            return perms.canManagePromotions ?? ADMIN_DEFAULTS.canManagePromotions;
           case "manage_reviews":
-            return userPermissions.canManageReviews;
+            return perms.canManageReviews ?? ADMIN_DEFAULTS.canManageReviews;
+          case "manage_payouts":
+            return (perms as any).canManagePayouts ?? ADMIN_DEFAULTS.canManagePayouts;
+          case "view_payouts":
+            return (perms as any).canViewPayouts ?? ADMIN_DEFAULTS.canViewPayouts;
+          case "manage_features":
+            return (perms as any).canManageFeatures ?? ADMIN_DEFAULTS.canManageFeatures;
           default:
-            return false;
+            return true; // Unknown permissions default to allowed for admins
         }
       });
 

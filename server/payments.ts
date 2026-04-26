@@ -70,10 +70,11 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
     let orders: any[] = [];
 
     if (isMultiVendor) {
-      const orderIds = metadata.orderIds || [];
-      // Fetch all orders and pick matching ones (storage does not provide by-ids helper)
-      const allOrders = await storage.getAllOrders();
-      orders = allOrders.filter((o: any) => orderIds.includes(o.id));
+      const orderIds: string[] = (metadata.orderIds || []).filter(Boolean);
+      if (orderIds.length === 0) throw new Error('No order IDs in multi-vendor webhook metadata');
+      // Fetch each order by ID individually to avoid loading the full table
+      const fetched = await Promise.all(orderIds.map((id: string) => storage.getOrder(id).catch(() => null)));
+      orders = fetched.filter(Boolean);
 
       if (orders.length === 0) {
         throw new Error('No orders found for multi-vendor webhook');
@@ -206,9 +207,17 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
           .map(async (order: any) => {
             const deliveryMethod = String(order.deliveryMethod || "").toLowerCase().trim();
             const isPickup = deliveryMethod === "pickup" || deliveryMethod === "store_pickup";
+            const isExternalDelivery = order.externalDeliveryByBus === true
+              || ["bus", "third_party"].includes(String(order.externalDeliveryType || "").toLowerCase().trim());
+            const externalLabel = (order.externalDeliveryByBus === true
+              || String(order.externalDeliveryType || "").toLowerCase().trim() === "bus")
+              ? "VIP Bus Delivery"
+              : "Third-Party Delivery";
             const sellerMessage = isPickup
               ? `A new order #${order.orderNumber} has been placed and paid. Package it and mark it ready for pickup when it is prepared.`
-              : `A new order #${order.orderNumber} has been placed and paid. Start packaging and mark it ready when dispatch preparation is complete.`;
+              : isExternalDelivery
+                ? `A new order #${order.orderNumber} has been placed and paid. Package and mark it ready — admin will arrange ${externalLabel}.`
+                : `A new order #${order.orderNumber} has been placed and paid. Start packaging and mark it ready when dispatch preparation is complete.`;
             await storage.createNotification({
               userId: order.sellerId,
               type: "order",
@@ -242,6 +251,115 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
           })
         )
       );
+
+      // Notify pickup agents whose station matches any pickup order in this payment
+      const pickupOrders = orders.filter((o: any) =>
+        String(o.deliveryMethod || "").toLowerCase().trim() === "pickup" && o.deliveryZoneId
+      );
+      if (pickupOrders.length > 0) {
+        try {
+          const pickupAgents = await storage.getUsersByRole("pickup_agent");
+          for (const order of pickupOrders) {
+            const assignedAgents = pickupAgents.filter(
+              (a: any) => a.isActive !== false && String(a.deliveryZoneId || "").trim() === String(order.deliveryZoneId).trim()
+            );
+            await Promise.all(
+              assignedAgents.map((agent: any) =>
+                storage.createNotification({
+                  userId: agent.id,
+                  type: "order",
+                  title: "New Pickup Order",
+                  message: `Order #${order.orderNumber} has been paid and assigned to your pickup station. The seller will prepare it for collection.`,
+                  metadata: {
+                    orderId: order.id,
+                    orderNumber: order.orderNumber,
+                    link: "/pickup-agent/verify",
+                  } as any,
+                })
+              )
+            );
+            assignedAgents.forEach((agent: any) => {
+              io.to(agent.id).emit("notification", {
+                title: "New Pickup Order",
+                message: `Order #${order.orderNumber} is incoming to your station.`,
+                type: "default",
+              });
+            });
+          }
+        } catch {
+          // non-critical
+        }
+      }
+
+      // Transactional email — payment confirmed (non-blocking, best-effort)
+      try {
+        const { sendEmail } = await import('./email');
+        const platformSettings = await storage.getPlatformSettings().catch(() => null);
+        const platformName = platformSettings?.platformName || 'KiyuMart';
+        const frontendUrl = process.env.FRONTEND_URL || '';
+
+        if (buyer?.email) {
+          const orderList = orders.map((o: any) => `• Order #${o.orderNumber}`).join('\n');
+          const subject = `${platformName}: Payment confirmed — ${orderNumbers}`;
+          const text = [
+            `Hi ${buyer.name || 'there'},`,
+            '',
+            `Payment of ${eventData.currency} ${totalPaid} has been confirmed for:`,
+            orderList,
+            '',
+            'Your seller(s) have been notified and will begin preparing your order(s).',
+            `Track your orders: ${frontendUrl}/orders`,
+            '',
+            `— ${platformName}`,
+          ].join('\n');
+          const html = `
+            <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;">
+              <h2 style="color:#10b981;">Payment Confirmed ✓</h2>
+              <p>Hi ${buyer.name || 'there'},</p>
+              <p>Payment of <strong>${eventData.currency} ${totalPaid}</strong> has been confirmed for:</p>
+              <ul>${orders.map((o: any) => `<li>Order <strong>#${o.orderNumber}</strong></li>`).join('')}</ul>
+              <p>Your seller(s) have been notified and will begin preparing your order(s).</p>
+              <p style="margin:24px 0;">
+                <a href="${frontendUrl}/orders" style="background:#10b981;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;">Track Your Orders</a>
+              </p>
+              <p style="font-size:13px;color:#64748b;">— ${platformName}</p>
+            </div>`.trim();
+          await sendEmail({ to: buyer.email, subject, text, html });
+        }
+
+        // Email to each seller
+        for (const order of orders) {
+          try {
+            const seller = await storage.getUser(order.sellerId);
+            if (!seller?.email) continue;
+            const subject = `${platformName}: New paid order #${order.orderNumber}`;
+            const text = [
+              `Hi ${seller.name || 'there'},`,
+              '',
+              `A new order #${order.orderNumber} has been placed and payment confirmed.`,
+              'Please prepare the order and mark it ready for dispatch.',
+              `View orders: ${frontendUrl}/seller/orders`,
+              '',
+              `— ${platformName}`,
+            ].join('\n');
+            const html = `
+              <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;">
+                <h2>New Paid Order #${order.orderNumber}</h2>
+                <p>Hi ${seller.name || 'there'},</p>
+                <p>A new order has been placed and payment confirmed. Please prepare and mark it ready for dispatch.</p>
+                <p style="margin:24px 0;">
+                  <a href="${frontendUrl}/seller/orders" style="background:#10b981;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;">View Orders</a>
+                </p>
+                <p style="font-size:13px;color:#64748b;">— ${platformName}</p>
+              </div>`.trim();
+            await sendEmail({ to: seller.email, subject, text, html });
+          } catch {
+            // non-critical
+          }
+        }
+      } catch {
+        // email is best-effort — never block order flow
+      }
 
       // Emit events
       io.to(primaryOrder.buyerId).emit('payment_completed', {

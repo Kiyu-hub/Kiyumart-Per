@@ -27,6 +27,8 @@ type OrderRow = {
   status: string;
   paymentStatus?: string;
   total: string;
+  subtotal?: string | number | null;
+  couponDiscount?: string | number | null;
   deliveryMethod: string;
   createdAt: string;
   deliveredAt?: string | null;
@@ -89,15 +91,16 @@ export default function SellerAnalytics() {
   const { formatPrice } = useLanguage();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
-  const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
+  const [range, setRange] = useState<"7d" | "30d" | "90d" | "all">("all");
   const [exporting, setExporting] = useState<"none" | "csv" | "pdf">("none");
 
   const { data: stats, isLoading: statsLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
     enabled: !!user && user.role === "seller",
-    refetchInterval: 10000,
-    refetchOnWindowFocus: true,
-    staleTime: 0,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
+    staleTime: 55_000,
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<OrderRow[]>({
@@ -109,9 +112,10 @@ export default function SellerAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: !!user && user.role === "seller",
-    refetchInterval: 10000,
-    refetchOnWindowFocus: true,
-    staleTime: 0,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
+    staleTime: 55_000,
   });
 
   const { data: receipts = [] } = useQuery<ReceiptSummary[]>({
@@ -123,10 +127,14 @@ export default function SellerAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: !!user && user.role === "seller",
-    refetchInterval: 20000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
+    staleTime: 55_000,
   });
 
   const startDate = useMemo(() => {
+    if (range === "all") return new Date(0);
     const d = new Date();
     d.setDate(d.getDate() - (range === "7d" ? 6 : range === "30d" ? 29 : 89));
     d.setHours(0, 0, 0, 0);
@@ -136,10 +144,15 @@ export default function SellerAnalytics() {
   const scoped = useMemo(() => orders.filter((o) => new Date(o.createdAt) >= startDate), [orders, startDate]);
   const paidCompleted = useMemo(() => scoped.filter((o) => paid(o.paymentStatus) && completed(o.status)), [scoped]);
 
+  // Gross product revenue = subtotal - couponDiscount (excludes delivery fee and processing fee
+  // since those go to riders/platform, not the seller).
+  const productRevenue = (o: OrderRow) =>
+    Math.max(0, num(o.subtotal ?? o.total) - num(o.couponDiscount ?? 0));
+
   const totals = useMemo(() => {
     const completedCount = scoped.filter((o) => completed(o.status)).length;
     const cancelledCount = scoped.filter((o) => ["cancelled", "disputed"].includes(n(o.status))).length;
-    const revenue = paidCompleted.reduce((sum, o) => sum + num(o.total), 0);
+    const revenue = paidCompleted.reduce((sum, o) => sum + productRevenue(o), 0);
     const aov = paidCompleted.length ? revenue / paidCompleted.length : 0;
     const paidRate = scoped.length ? (paidCompleted.length / scoped.length) * 100 : 0;
     return { completedCount, cancelledCount, revenue, aov, paidRate };
@@ -150,7 +163,7 @@ export default function SellerAnalytics() {
     paidCompleted.forEach((o) => {
       const k = dayKey(o.deliveredAt || o.createdAt);
       const row = map.get(k) || { revenue: 0, orders: 0 };
-      row.revenue += num(o.total);
+      row.revenue += productRevenue(o);
       row.orders += 1;
       map.set(k, row);
     });
@@ -681,9 +694,10 @@ export default function SellerAnalytics() {
             <div className="flex flex-wrap items-center gap-2">
                <Badge className="border-sky-200 bg-sky-50 text-sky-700 dark:border-white/30 dark:bg-white/20 dark:text-white">Live DB Data</Badge>
                <select className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground dark:border-white/30 dark:bg-white/10 dark:text-white" value={range} onChange={(e) => setRange(e.target.value as any)}>
-                <option value="7d" className="text-black">7 days</option>
-                <option value="30d" className="text-black">30 days</option>
-                <option value="90d" className="text-black">90 days</option>
+                <option value="all" className="text-black">All Time</option>
+                <option value="7d" className="text-black">Last 7 days</option>
+                <option value="30d" className="text-black">Last 30 days</option>
+                <option value="90d" className="text-black">Last 90 days</option>
               </select>
                <Button variant="outline" size="sm" className="border-border bg-background/90 text-foreground hover:bg-muted dark:border-white/35 dark:bg-transparent dark:text-white dark:hover:bg-white/10" onClick={() => void handleExportCsv()} disabled={exporting !== "none"}>
                 <Download className="h-4 w-4 mr-2" />
@@ -705,18 +719,20 @@ export default function SellerAnalytics() {
         ) : (
           <>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <Card><CardHeader className="pb-2"><CardDescription>Revenue Earned</CardDescription><CardTitle className="text-2xl">{formatPrice(totals.revenue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />All paid completed orders</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Seller Settlement</CardDescription><CardTitle className="text-2xl">{formatPrice(sellerSettlementTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Net amount after platform split</CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardDescription>Gross Sales</CardDescription><CardTitle className="text-2xl">{formatPrice(totals.revenue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Product subtotals minus coupon discounts (before service fee)</CardContent></Card>
+              <Card><CardHeader className="pb-2"><CardDescription>Net Payout (Settlement)</CardDescription><CardTitle className="text-2xl">{formatPrice(sellerSettlementTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />What you receive after the platform service fee</CardContent></Card>
               <Card><CardHeader className="pb-2"><CardDescription>Pending Payout</CardDescription><CardTitle className="text-2xl">{formatPrice(pendingPayoutTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Paid order money not yet sent out</CardContent></Card>
               <Card><CardHeader className="pb-2"><CardDescription>Seller Wallet</CardDescription><CardTitle className="text-2xl">{formatPrice(sellerWalletTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Money already paid to your seller account</CardContent></Card>
               <Card><CardHeader className="pb-2"><CardDescription>Orders Completed</CardDescription><CardTitle className="text-2xl">{totals.completedCount}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><ShoppingCart className="h-4 w-4" />Vs {totals.cancelledCount} cancelled</CardContent></Card>
               <Card><CardHeader className="pb-2"><CardDescription>Conversion Quality</CardDescription><CardTitle className="text-2xl">{totals.paidRate.toFixed(1)}%</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><TrendingUp className="h-4 w-4" />Paid completed ratio</CardContent></Card>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-3">
-              <Card><CardContent className="p-4"><p className="text-sm font-medium">Checkout Processing Fee</p><p className="mt-1 text-sm text-muted-foreground">This covers only the exact Paystack checkout fee charged to the customer. It stays outside seller settlement.</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="text-sm font-medium">Pending Payout</p><p className="mt-1 text-sm text-muted-foreground">This is paid order money that still has not been transferred to your seller payout account yet.</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="text-sm font-medium">Seller Wallet</p><p className="mt-1 text-sm text-muted-foreground">This is the total money already paid out to your seller account and successfully received.</p></CardContent></Card>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Gross Sales</p><p className="mt-1 text-sm text-muted-foreground">Your top-line product revenue — product prices minus any coupon discounts you applied. Delivery fees and the checkout processing fee are paid by buyers on top of your price and are <strong className="text-foreground">never included</strong> in this figure. The platform service fee is not yet deducted here.</p></CardContent></Card>
+              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Net Payout (Settlement)</p><p className="mt-1 text-sm text-muted-foreground">What you actually receive: Gross Sales minus the platform service fee. <strong className="text-foreground">Bank account:</strong> your net payout is split to your bank instantly when the buyer pays. <strong className="text-foreground">Mobile money:</strong> request a withdrawal and the transfer is sent to your wallet automatically within seconds — fully automated.</p></CardContent></Card>
+              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Pending Payout</p><p className="mt-1 text-sm text-muted-foreground">Your net earnings that have been confirmed but not yet transferred to your payout account. Once your bank or mobile money details are verified, these funds will be released.</p></CardContent></Card>
+              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Seller Wallet</p><p className="mt-1 text-sm text-muted-foreground">The total net amount already paid out and successfully received in your bank account or mobile money.</p></CardContent></Card>
+              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Checkout Processing Fee — paid by buyers</p><p className="mt-1 text-sm text-muted-foreground">Buyers pay an additional 1.95% on top of your product price at checkout to cover Paystack's transaction cost. This fee is shown separately on the buyer's receipt and goes to the platform. It is <strong className="text-foreground">never deducted from your earnings</strong> and has no effect on your Gross Sales or Net Payout.</p></CardContent></Card>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">

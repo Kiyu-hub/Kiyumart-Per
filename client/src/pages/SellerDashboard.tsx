@@ -82,7 +82,6 @@ export default function SellerDashboard() {
     },
   });
 
-  // Fetch real analytics data instead of using hardcoded values
   const { data: analytics = { totalOrders: 0, totalRevenue: 0 }, isLoading: analyticsLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics", user?.id, user?.role],
     queryFn: async () => {
@@ -93,7 +92,6 @@ export default function SellerDashboard() {
     enabled: !!user?.id && user?.role === "seller" && user?.isApproved === true,
   });
 
-  // Fetch real products instead of hardcoded mock data
   const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["/api/products", user?.id],
     queryFn: async () => {

@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { ReactNode } from "react";
 import { LucideIcon } from "lucide-react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
@@ -8,6 +9,7 @@ interface MetricCardProps {
   icon: LucideIcon;
   change?: number;
   changeLabel?: string;
+  details?: ReactNode;
 }
 
 export default function MetricCard({
@@ -16,6 +18,7 @@ export default function MetricCard({
   icon: Icon,
   change,
   changeLabel = "vs last month",
+  details,
 }: MetricCardProps) {
   const isPositive = change !== undefined && change >= 0;
 
@@ -33,6 +36,7 @@ export default function MetricCard({
         <div className="min-w-0 text-3xl font-bold leading-tight break-words" data-testid="text-metric-value">
           {value}
         </div>
+        {details ? <div className="mt-2 text-sm text-muted-foreground">{details}</div> : null}
         {change !== undefined && (
           <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 text-sm">
             {isPositive ? (

@@ -11,9 +11,10 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, MessageSquare, Send, ArrowLeft } from "lucide-react";
+import { Loader2, MessageSquare, Send, ArrowLeft, Phone } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
+import { TypingIndicator } from "@/components/TypingIndicator";
 import { useSocket } from "@/contexts/NotificationContext";
 import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
@@ -59,6 +60,7 @@ export default function SellerMessages() {
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
 
   // Get userId from URL search params
   const urlParams = new URLSearchParams(window.location.search);
@@ -82,13 +84,18 @@ export default function SellerMessages() {
     if (!socket || !selectedUserId) return;
 
     const handleNewMessage = (msg: Message) => {
-      // Receiver acknowledges delivery so sender gets double gray ticks
       if (msg.receiverId === user?.id) {
         socket.emit("message_delivered", { messageId: msg.id });
       }
-      const isMessageForCurrentUser = msg.senderId === user?.id || msg.receiverId === user?.id;
-      if (isMessageForCurrentUser || msg.senderId === selectedUserId || msg.receiverId === selectedUserId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedUserId] });
+      if (msg.senderId === selectedUserId || msg.receiverId === selectedUserId) {
+        if (!seenMessageIdsRef.current.has(msg.id)) {
+          seenMessageIdsRef.current.add(msg.id);
+          queryClient.setQueryData<Message[]>(["/api/messages", selectedUserId], (old) => {
+            if (!old) return [msg];
+            if (old.some((m) => m.id === msg.id)) return old;
+            return [...old, msg];
+          });
+        }
       }
     };
 
@@ -150,6 +157,7 @@ export default function SellerMessages() {
       typingTimeoutRef.current = null;
     }
     isTypingRef.current = false;
+    seenMessageIdsRef.current.clear();
   }, [selectedUserId]);
 
   // Fetch contacts:
@@ -225,6 +233,19 @@ export default function SellerMessages() {
   const markConversationReadMutation = useMutation({
     mutationFn: async (peerUserId: string) => {
       return apiRequest("PATCH", `/api/messages/${peerUserId}/read`);
+    },
+  });
+
+  const requestCallMutation = useMutation({
+    mutationFn: async (callType: "voice" | "video") => {
+      const res = await apiRequest("POST", "/api/calls/request", { callType });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Call requested", description: "An admin has been notified and will call you back shortly." });
+    },
+    onError: () => {
+      toast({ title: "Request failed", description: "Could not send call request.", variant: "destructive" });
     },
   });
 
@@ -402,12 +423,30 @@ export default function SellerMessages() {
                     <h3 className="font-semibold text-sm">{selectedUser?.name || "Support Agent"}</h3>
                     <Badge className="bg-emerald-600 text-white text-[10px] px-1.5 py-0">support</Badge>
                   </div>
-                  <p className={`text-xs ${isPeerTyping ? "text-primary" : getPresenceMeta(selectedUserPresence.presence).textClass}`}>
-                    {isPeerTyping
-                      ? "typing..."
-                      : getPresenceMeta(selectedUserPresence.presence).label}
+                  <p className={`text-xs ${isPeerTyping ? "text-primary font-medium" : getPresenceMeta(selectedUserPresence.presence).textClass}`}>
+                    {isPeerTyping ? (
+                      <span className="inline-flex items-center gap-0.5">
+                        typing
+                        <span className="inline-flex gap-px ml-0.5">
+                          <span className="h-1 w-1 rounded-full bg-current animate-bounce" style={{animationDelay:"0ms",animationDuration:"900ms"}}/>
+                          <span className="h-1 w-1 rounded-full bg-current animate-bounce" style={{animationDelay:"200ms",animationDuration:"900ms"}}/>
+                          <span className="h-1 w-1 rounded-full bg-current animate-bounce" style={{animationDelay:"400ms",animationDuration:"900ms"}}/>
+                        </span>
+                      </span>
+                    ) : getPresenceMeta(selectedUserPresence.presence).label}
                   </p>
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs shrink-0"
+                  disabled={requestCallMutation.isPending}
+                  onClick={() => requestCallMutation.mutate("voice")}
+                  title="Request a voice call with support"
+                >
+                  {requestCallMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Phone className="h-3.5 w-3.5" />}
+                  Request Call
+                </Button>
               </div>
 
               <ScrollArea className="flex-1 p-3">
@@ -451,6 +490,11 @@ export default function SellerMessages() {
                         </div>
                       </div>
                     ))}
+                    {isPeerTyping && (
+                      <div className="flex justify-start">
+                        <TypingIndicator />
+                      </div>
+                    )}
                     <div ref={messagesEndRef} />
                   </div>
                 )}
@@ -500,14 +544,32 @@ export default function SellerMessages() {
                       </Avatar>
                       <span className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-background ${getPresenceMeta(selectedUserPresence.presence).dotClass}`} />
                     </div>
-                    <div>
+                    <div className="flex-1">
                       <h3 className="font-semibold text-lg">{selectedUser?.name || "Support Agent"}</h3>
-                      <p className={`text-xs ${isPeerTyping ? "text-primary" : getPresenceMeta(selectedUserPresence.presence).textClass}`}>
-                        {isPeerTyping
-                          ? "typing..."
-                          : getPresenceMeta(selectedUserPresence.presence).label}
+                      <p className={`text-xs ${isPeerTyping ? "text-primary font-medium" : getPresenceMeta(selectedUserPresence.presence).textClass}`}>
+                        {isPeerTyping ? (
+                          <span className="inline-flex items-center gap-0.5">
+                            typing
+                            <span className="inline-flex gap-px ml-0.5">
+                              <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{animationDelay:"0ms",animationDuration:"900ms"}}/>
+                              <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{animationDelay:"200ms",animationDuration:"900ms"}}/>
+                              <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{animationDelay:"400ms",animationDuration:"900ms"}}/>
+                            </span>
+                          </span>
+                        ) : getPresenceMeta(selectedUserPresence.presence).label}
                       </p>
                     </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-sm shrink-0"
+                      disabled={requestCallMutation.isPending}
+                      onClick={() => requestCallMutation.mutate("voice")}
+                      title="Request a voice call with support"
+                    >
+                      {requestCallMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />}
+                      Request a Call
+                    </Button>
                   </div>
 
                   <ScrollArea className="flex-1 mb-4">
@@ -560,6 +622,11 @@ export default function SellerMessages() {
                             </div>
                           </div>
                         ))}
+                        {isPeerTyping && (
+                          <div className="flex justify-start">
+                            <TypingIndicator />
+                          </div>
+                        )}
                         <div ref={messagesEndRef} />
                       </div>
                     )}

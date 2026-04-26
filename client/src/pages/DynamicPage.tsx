@@ -8,6 +8,22 @@ import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
 
 /**
+ * Strips dangerous HTML that could cause XSS: script tags, on* event handlers,
+ * javascript: hrefs, and data: URIs. Safe for rendering admin-entered footer page content.
+ */
+function sanitizeHtml(html: string): string {
+  return html
+    // Remove entire <script> blocks including content
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    // Remove <iframe>, <object>, <embed>, <link>, <meta> tags
+    .replace(/<(iframe|object|embed|link|meta|base)[^>]*>/gi, "")
+    // Remove on* event handlers (onclick, onload, onerror, etc.)
+    .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "")
+    // Remove javascript: and data: URIs from href/src/action attributes
+    .replace(/\b(href|src|action)\s*=\s*["']?\s*(?:javascript|data|vbscript):[^"'\s>]*/gi, "");
+}
+
+/**
  * Converts content to proper HTML for rendering.
  * - If content is already HTML (has tags), it processes newlines within text nodes
  * - If content is plain text, it converts newlines to paragraphs and detects headings
@@ -169,7 +185,7 @@ export default function DynamicPage() {
               {page.content ? (
                 <div 
                   className="prose prose-slate dark:prose-invert max-w-none"
-                  dangerouslySetInnerHTML={{ __html: formatContent(page.content) }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(formatContent(page.content)) }}
                   data-testid="text-page-content"
                 />
               ) : (

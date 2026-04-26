@@ -1,7 +1,7 @@
 ## Platform Living Audit README
 
-Generated version: `v12`
-Generated at: `2026-03-16T10:03:23.710Z`
+Generated version: `v19`
+Generated at: `2026-04-26T20:59:15.281Z`
 
 ### 1. Platform Overview
 - Continuous internal audit for routes, dashboards, features, flows, services, and dependencies.
@@ -13,25 +13,25 @@ Generated at: `2026-03-16T10:03:23.710Z`
 - Realtime: Socket.IO and live-tracking map telemetry.
 
 ### 3. Dashboards (Fully Detailed)
-- Super Admin Dashboard: 37 routes, entry /admin, exits 8, APIs 69
-- Admin Dashboard: 37 routes, entry /admin, exits 8, APIs 69
+- Super Admin Dashboard: 46 routes, entry /admin, exits 7, APIs 99
+- Admin Dashboard: 46 routes, entry /admin, exits 7, APIs 99
 - Agent Dashboard: 6 routes, entry /agent, exits 1, APIs 6
-- Seller Dashboard: 15 routes, entry /seller, exits 12, APIs 26
-- Rider Dashboard: 7 routes, entry /rider, exits 6, APIs 14
-- Customer / Buyer Dashboard: 1 routes, entry /buyer, exits 2, APIs 1
+- Seller Dashboard: 20 routes, entry /seller, exits 12, APIs 36
+- Rider Dashboard: 7 routes, entry /rider, exits 5, APIs 15
+- Customer / Buyer Dashboard: 3 routes, entry /buyer, exits 9, APIs 2
 
 ### 4. Features (By Module)
-- Order Management: 195 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 232
-- Rider Delivery: 104 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 229
-- Agent-Assisted Handling: 68 files, dashboards Admin Dashboard, Agent Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 226
-- BUS Delivery Logic: 35 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 220
-- Pickup Logic: 23 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 216
-- Zone & Region Logic: 28 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 222
-- Real-time Tracking & Maps: 80 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Super Admin Dashboard, APIs 225
-- Messaging & Calls: 142 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 230
-- Reporting, Analytics & Receipts: 35 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 222
-- Verification (QR / OTP): 26 files, dashboards Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, APIs 220
-- User Management & Roles: 68 files, dashboards Admin Dashboard, Agent Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 230
+- Order Management: 228 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 313
+- Rider Delivery: 119 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 309
+- Agent-Assisted Handling: 92 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 306
+- BUS Delivery Logic: 48 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 305
+- Pickup Logic: 58 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 303
+- Zone & Region Logic: 49 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 305
+- Real-time Tracking & Maps: 101 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 308
+- Messaging & Calls: 179 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 311
+- Reporting, Analytics & Receipts: 44 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 302
+- Verification (QR / OTP): 45 files, dashboards Admin Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 298
+- User Management & Roles: 83 files, dashboards Admin Dashboard, Agent Dashboard, Customer / Buyer Dashboard, Rider Dashboard, Seller Dashboard, Super Admin Dashboard, APIs 311
 
 ### 5. Delivery Logic
 - Rider delivery, BUS/pickup keywords, assignment, verification, and tracking are scanned from backend and UI sources.
@@ -73,9 +73,9 @@ Generated at: `2026-03-16T10:03:23.710Z`
 | `@radix-ui/react-toggle` | MIT | free_or_self_hosted | yes |
 | `@radix-ui/react-toggle-group` | MIT | free_or_self_hosted | yes |
 | `@radix-ui/react-tooltip` | MIT | free_or_self_hosted | yes |
-| `@replit/vite-plugin-cartographer` | unknown | unknown | no |
-| `@replit/vite-plugin-dev-banner` | unknown | unknown | no |
-| `@replit/vite-plugin-runtime-error-modal` | unknown | unknown | no |
+| `@sentry/node` | MIT | free_or_self_hosted | yes |
+| `@sentry/react` | MIT | free_or_self_hosted | yes |
+| `@sentry/vite-plugin` | MIT | free_or_self_hosted | yes |
 | `@tailwindcss/typography` | MIT | free_or_self_hosted | yes |
 | `@tailwindcss/vite` | MIT | free_or_self_hosted | yes |
 | `@tanstack/react-query` | MIT | free_or_self_hosted | yes |
@@ -129,6 +129,7 @@ Generated at: `2026-03-16T10:03:23.710Z`
 | `mongoose` | MIT | free_or_self_hosted | yes |
 | `multer` | MIT | free_or_self_hosted | yes |
 | `next-themes` | MIT | free_or_self_hosted | yes |
+| `nodemailer` | MIT-0 | free_or_self_hosted | yes |
 | `passport` | MIT | free_or_self_hosted | yes |
 | `passport-local` | MIT | free_or_self_hosted | yes |
 | `pg` | MIT | free_or_self_hosted | yes |
@@ -155,11 +156,12 @@ Generated at: `2026-03-16T10:03:23.710Z`
 | `typescript` | Apache-2.0 | free_or_self_hosted | yes |
 | `vaul` | MIT | free_or_self_hosted | yes |
 | `vite` | MIT | free_or_self_hosted | yes |
+| `vite-plugin-pwa` | MIT | free_or_self_hosted | yes |
+| `workbox-window` | MIT | free_or_self_hosted | yes |
 | `wouter` | Unlicense | free_or_self_hosted | yes |
 | `ws` | MIT | free_or_self_hosted | yes |
 | `zod` | MIT | free_or_self_hosted | yes |
 | `zod-validation-error` | MIT | free_or_self_hosted | yes |
-| `zustand` | MIT | free_or_self_hosted | yes |
 
 ### 8. Configuration & Environment
 - Run audit: `npm run audit:platform`
@@ -173,5 +175,5 @@ Generated at: `2026-03-16T10:03:23.710Z`
 - Audit log: `docs/platform-audit-log.jsonl`
 
 ### Health Findings
-- [medium] ORPHAN_PAGES: 12 orphan pages (client/src/pages/AdminDashboardConnected.tsx, client/src/pages/AdminDashboardRouter.tsx, client/src/pages/AdminLiveSupportDashboard.tsx, client/src/pages/AgentTickets.tsx, client/src/pages/ChatPageConnected.tsx, client/src/pages/ChatPageSimple.tsx, client/src/pages/CheckoutConnected.tsx, client/src/pages/HomeConnected.tsx, client/src/pages/MultiVendorHome.tsx, client/src/pages/not-found.tsx)
-- [high] NON_FREE_OR_UNKNOWN_DEPENDENCIES: 4 non-free or unknown dependencies (@replit/vite-plugin-cartographer, @replit/vite-plugin-dev-banner, @replit/vite-plugin-runtime-error-modal, cloudinary)
+- [medium] ORPHAN_PAGES: 11 orphan pages (client/src/pages/AdminDashboard.tsx, client/src/pages/ChatPageConnected.tsx, client/src/pages/CheckoutConnected.tsx, client/src/pages/HomeConnected.tsx, client/src/pages/MaintenancePage.tsx, client/src/pages/MultiVendorHome.tsx, client/src/pages/ProductPageAd.tsx, client/src/pages/SellerCoupons.tsx, client/src/pages/SellerDashboardConnected.tsx, client/src/pages/SellerDeliveries.tsx)
+- [medium] NON_FREE_OR_UNKNOWN_DEPENDENCIES: 1 non-free or unknown dependencies (cloudinary)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
@@ -6,7 +6,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Search, Eye, Package, ShoppingBag, Store, Clock3, Truck, CheckCircle2, CalendarDays, DollarSign } from "lucide-react";
@@ -46,6 +46,7 @@ interface Order {
     price?: string;
     selectedColor?: string | null;
     selectedSize?: string | null;
+    productImage?: string[] | null;
   }>;
   customerInfo?: {
     name?: string;
@@ -69,17 +70,48 @@ interface Order {
 }
 
 interface SellerAnalytics {
-  totalRevenue?: number | string;
+  totalRevenue?: number;
   sellerSettlementTotal?: number | string;
+  completedRevenue?: number;
+  totalOrders?: number;
 }
 
 type OrderContext = "seller" | "buyer";
 type SellerOrderFlowFilter =
   | "all"
   | "action_required"
-  | "in_progress"
+  | "pending_fulfillment"
   | "completed"
   | "cancelled";
+
+function CollapsibleDashboardSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Card className="border-border/70 bg-card shadow-sm">
+      <details open={defaultOpen}>
+        <summary className="cursor-pointer list-none px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-base font-semibold">{title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
+            </div>
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+          </div>
+        </summary>
+        <CardContent className="pt-0">{children}</CardContent>
+      </details>
+    </Card>
+  );
+}
 
 export default function SellerOrders() {
   const { user } = useAuth();
@@ -172,6 +204,18 @@ export default function SellerOrders() {
     const method = normalize(value);
     return method === "pickup" || method === "store_pickup" || method === "store pickup";
   };
+  const isPaidSellerOrder = (order?: Order) => normalizePaymentStatus(order?.paymentStatus) === "paid";
+  const isCompletedSellerOrder = (order?: Order) => {
+    const status = normalize(order?.status);
+    return status === "completed" || status === "delivered" || (!showInternalRiderFeatures && status === "rider_arrived");
+  };
+  const isClosedSellerOrder = (order?: Order) => {
+    const status = normalize(order?.status);
+    return ["completed", "delivered", "cancelled", "failed", "refunded"].includes(status);
+  };
+  const getSellerFulfillmentMode = (order?: Order) => (isPickupMethod(order?.deliveryMethod) ? "pickup" : "delivery");
+  const isPendingFulfillmentSellerOrder = (order?: Order) =>
+    isPaidSellerOrder(order) && !isClosedSellerOrder(order);
   const getDisplayDeliveryMethod = (order: Order) => {
     if (isPickupMethod(order.deliveryMethod)) return "Pickup";
     if (!showInternalRiderFeatures) return getExternalDeliveryTypeLabel(order);
@@ -281,32 +325,23 @@ export default function SellerOrders() {
       className: "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-200",
     };
   };
+  const requiresSellerAction = (order?: Order) => {
+    if (!order) return false;
+    return getSellerActionState(order).label === "Seller Action Required";
+  };
   const getSellerOrderFlowFilterValue = (order: Order): SellerOrderFlowFilter => {
     const status = normalize(order.status);
-    const paymentStatus = normalizePaymentStatus(order.paymentStatus);
-    const pickupFlow = isPickupMethod(order.deliveryMethod);
-    const externalDeliveryFlow = !showInternalRiderFeatures && !pickupFlow;
-
     if (status === "cancelled" || status === "disputed") {
       return "cancelled";
     }
-    if (
-      ["delivered", "completed"].includes(status) ||
-      (externalDeliveryFlow && status === "rider_arrived")
-    ) {
+    if (isCompletedSellerOrder(order)) {
       return "completed";
     }
-    if (["paid", "processing", "preparing", "confirmed"].includes(status)) {
+    if (requiresSellerAction(order)) {
       return "action_required";
     }
-    if (pickupFlow && status === "packaged") {
-      return "action_required";
-    }
-    if (["ready", "searching_rider", "assigned", "external_dispatch_arranged"].includes(status)) {
-      return "action_required";
-    }
-    if (["picked_up", "in_transit", "en_route", "arrived"].includes(status)) {
-      return "in_progress";
+    if (isPendingFulfillmentSellerOrder(order)) {
+      return "pending_fulfillment";
     }
     return "all";
   };
@@ -398,26 +433,36 @@ export default function SellerOrders() {
         (orderNumberFromUrl && order.orderNumber === orderNumberFromUrl),
     ) ?? null;
   const hasReferencedOrderRequest = Boolean(orderIdFromUrl || orderNumberFromUrl);
+  const uniqueOrders = Array.from(new Map(orders.map((o) => [o.id, o])).values());
   const sellerVisibleOrders =
     orderContext === "seller"
-      ? orders.filter((order) => normalizePaymentStatus(order.paymentStatus) === "paid")
-      : orders;
+      ? uniqueOrders.filter((order) => normalizePaymentStatus(order.paymentStatus) === "paid")
+      : uniqueOrders;
+  const sellerPendingFulfillmentOrders = sellerVisibleOrders.filter((order) =>
+    isPendingFulfillmentSellerOrder(order),
+  );
+  const sellerCompletedFulfillmentOrders = sellerVisibleOrders.filter((order) =>
+    isCompletedSellerOrder(order),
+  );
+  const sellerActionRequiredOrders = sellerVisibleOrders.filter((order) =>
+    getSellerOrderFlowFilterValue(order) === "action_required",
+  );
   const sellerOrderFlowTabs = [
     { value: "all" as const, label: "All", count: sellerVisibleOrders.length },
     {
       value: "action_required" as const,
-      label: "Preparing",
-      count: sellerVisibleOrders.filter((order) => getSellerOrderFlowFilterValue(order) === "action_required").length,
+      label: "Orders Requiring Action",
+      count: sellerActionRequiredOrders.length,
     },
     {
-      value: "in_progress" as const,
-      label: "In Progress",
-      count: sellerVisibleOrders.filter((order) => getSellerOrderFlowFilterValue(order) === "in_progress").length,
+      value: "pending_fulfillment" as const,
+      label: "Pending Fulfillment",
+      count: sellerPendingFulfillmentOrders.length,
     },
     {
       value: "completed" as const,
-      label: "Completed",
-      count: sellerVisibleOrders.filter((order) => getSellerOrderFlowFilterValue(order) === "completed").length,
+      label: "Completed Fulfillment",
+      count: sellerCompletedFulfillmentOrders.length,
     },
     {
       value: "cancelled" as const,
@@ -426,8 +471,6 @@ export default function SellerOrders() {
     },
   ];
 
-  const isCompletedSellerOrder = (order: Order) => getSellerOrderFlowFilterValue(order) === "completed";
-  const isPickupSellerOrder = (order: Order) => isPickupMethod(order.deliveryMethod);
   const isTodayOrder = (order: Order) => {
     const created = new Date(order.createdAt);
     if (Number.isNaN(created.getTime())) return false;
@@ -439,30 +482,35 @@ export default function SellerOrders() {
   const sellerSummaryCards = [
     {
       key: "total",
-      label: "Total",
+      label: "Total Orders",
       value: sellerVisibleOrders.length,
       icon: Package,
     },
     {
-      key: "pending",
-      label: "Pending",
-      value: sellerVisibleOrders.filter((order) => {
-        const flow = getSellerOrderFlowFilterValue(order);
-        return flow === "action_required";
-      }).length,
-      icon: Clock3,
+      key: "pending_fulfillment",
+      label: "Pending Fulfillment",
+      value: sellerPendingFulfillmentOrders.length,
+      details: [
+        `Deliveries: ${sellerPendingFulfillmentOrders.filter((order) => getSellerFulfillmentMode(order) === "delivery").length}`,
+        `Pickups: ${sellerPendingFulfillmentOrders.filter((order) => getSellerFulfillmentMode(order) === "pickup").length}`,
+      ],
+      icon: Truck,
     },
     {
-      key: "deliveries",
-      label: "Deliveries",
-      value: sellerVisibleOrders.filter((order) => isCompletedSellerOrder(order) && !isPickupSellerOrder(order)).length,
+      key: "completed_fulfillment",
+      label: "Completed Fulfillment",
+      value: sellerCompletedFulfillmentOrders.length,
+      details: [
+        `Deliveries: ${sellerCompletedFulfillmentOrders.filter((order) => getSellerFulfillmentMode(order) === "delivery").length}`,
+        `Pickups: ${sellerCompletedFulfillmentOrders.filter((order) => getSellerFulfillmentMode(order) === "pickup").length}`,
+      ],
       icon: CheckCircle2,
     },
     {
-      key: "pickups",
-      label: "Successful Pickups",
-      value: sellerVisibleOrders.filter((order) => isCompletedSellerOrder(order) && isPickupSellerOrder(order)).length,
-      icon: Package,
+      key: "action_required",
+      label: "Orders Requiring Action",
+      value: sellerActionRequiredOrders.length,
+      icon: Clock3,
     },
     {
       key: "today",
@@ -472,10 +520,17 @@ export default function SellerOrders() {
     },
     {
       key: "revenue",
-      label: "Revenue",
-      value: formatPrice(Number(analytics?.sellerSettlementTotal ?? 0)),
+      label: "Gross Sales",
+      // Gross product revenue (subtotal - couponDiscount) from analytics API.
+      // Excludes delivery and processing fees. Net payout = this minus the platform service fee.
+      value: formatPrice(Number(analytics?.totalRevenue ?? analytics?.sellerSettlementTotal ?? 0)),
       icon: DollarSign,
     },
+  ];
+  const pendingSellerOrderExplanation = [
+    "Pending Fulfillment counts every paid seller order that is still open. It includes both deliveries and pickups that are not yet closed.",
+    "Orders Requiring Action is a smaller subset inside Pending Fulfillment. Those are the open paid orders where the seller still needs to package, mark ready, or hand off for dispatch.",
+    "Completed Fulfillment counts paid seller orders that are already delivered or completed. The delivery and pickup split helps you see which fulfillment path those finished orders came through.",
   ];
 
   const filteredOrders = referencedOrder
@@ -484,10 +539,15 @@ export default function SellerOrders() {
       ? []
       : sellerVisibleOrders.filter((order) => {
           const matchesSearch = (order.orderNumber || "").toLowerCase().includes(searchQuery.toLowerCase());
-          const matchesFlow =
-            orderContext !== "seller" ||
-            orderFlowFilter === "all" ||
-            getSellerOrderFlowFilterValue(order) === orderFlowFilter;
+          const matchesFlow = (() => {
+            if (orderContext !== "seller" || orderFlowFilter === "all") {
+              return true;
+            }
+            if (orderFlowFilter === "pending_fulfillment") {
+              return isPendingFulfillmentSellerOrder(order);
+            }
+            return getSellerOrderFlowFilterValue(order) === orderFlowFilter;
+          })();
           return matchesSearch && matchesFlow;
         });
 
@@ -609,26 +669,67 @@ export default function SellerOrders() {
         {!isOrderDetailsMode && (
         <>
         {orderContext === "seller" && (
-          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
-            {sellerSummaryCards.map((card) => {
-              const Icon = card.icon;
-              return (
-                <Card key={card.key} className="border-border/70 bg-card p-4 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm text-muted-foreground">{card.label}</p>
-                      <p className="mt-2 text-3xl font-semibold tracking-tight">
-                        {typeof card.value === "number" ? card.value.toString() : card.value}
-                      </p>
+          <>
+            <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+              {sellerSummaryCards.map((card) => {
+                const Icon = card.icon;
+                return (
+                  <Card key={card.key} className="border-border/70 bg-card p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm text-muted-foreground">{card.label}</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">
+                          {typeof card.value === "number" ? card.value.toString() : card.value}
+                        </p>
+                        {"details" in card && Array.isArray(card.details) && card.details.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                            {card.details.map((detail) => (
+                              <span key={detail}>{detail}</span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="rounded-full border border-border/70 p-2 text-primary">
+                        <Icon className="h-4 w-4" />
+                      </div>
                     </div>
-                    <div className="rounded-full border border-border/70 p-2 text-primary">
-                      <Icon className="h-4 w-4" />
-                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+            <CollapsibleDashboardSection
+              title="How These Seller Order Numbers Work"
+              summary="Expand to see how pending, completed, and action-required counts relate to each other."
+            >
+              <div className="space-y-3 pb-2 text-sm text-muted-foreground">
+                {pendingSellerOrderExplanation.map((note) => (
+                  <p key={note}>{note}</p>
+                ))}
+              </div>
+            </CollapsibleDashboardSection>
+
+            <CollapsibleDashboardSection
+              title="Gross Sales — Understanding Your Earnings & Net Payout"
+              summary="Expand to understand what Gross Sales means, how the platform service fee works, and how you get paid."
+            >
+              <div className="space-y-4 pb-2">
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">Quick summary: </span>
+                  Your <strong className="text-foreground">Gross Sales</strong> = product prices minus coupon discounts. A small platform service fee is deducted, leaving your <strong className="text-foreground">Net Payout</strong> — the amount sent to your bank or mobile money. Buyers pay the delivery fee and a 1.95% checkout processing fee on top of your product price; neither ever reduces your earnings.
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm">
+                  <div className="rounded-lg border border-border bg-card p-3">
+                    <p className="font-medium mb-1 text-foreground">How Payouts Work</p>
+                    <p className="text-muted-foreground text-xs">Your earnings are sent automatically as soon as a buyer completes payment — no manual request needed. Your net amount (sales minus the platform service fee) goes straight to your configured bank account or mobile money wallet.</p>
                   </div>
-                </Card>
-              );
-            })}
-          </div>
+                  <div className="rounded-lg border border-border bg-card p-3">
+                    <p className="font-medium mb-1 text-foreground">Pending Payout</p>
+                    <p className="text-muted-foreground text-xs">If you haven't set up your payout details yet, your earned funds are held securely and will be released once you add your bank account or mobile money number in your account settings.</p>
+                  </div>
+                </div>
+              </div>
+            </CollapsibleDashboardSection>
+          </>
         )}
         <div className="mb-6">
           <div className="relative">
@@ -768,6 +869,13 @@ export default function SellerOrders() {
                                   }}
                                   aria-label={`Mark ${item.productName} packaged`}
                                   className="mt-1"
+                                />
+                              )}
+                              {Array.isArray(item.productImage) && item.productImage[0] && (
+                                <img
+                                  src={item.productImage[0]}
+                                  alt={item.productName}
+                                  className="h-14 w-14 rounded-md object-cover shrink-0 border border-border/40"
                                 />
                               )}
                               <div className="min-w-0 flex-1 space-y-1">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
+import { fetchSameOrigin, fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,9 @@ interface Coupon {
   discountType: "percentage" | "fixed";
   discountValue: string;
   minimumPurchase: string;
+  usageLimit?: number | null;
+  usedCount?: number | null;
+  expiryDate?: string | null;
 }
 
 interface PlatformSettings {
@@ -114,6 +117,31 @@ function computeExactProcessingFee(chargeableBase: number, feeRate: number) {
   return normalizedBase * feeRate / (1 - feeRate);
 }
 
+const CHECKOUT_DRAFT_STORAGE_PREFIX = "kiyumart.checkout.draft";
+const LAST_PAID_ORDER_STORAGE_KEY = "kiyumart.checkout.lastPaidOrderId";
+
+function normalizeGhanaPhoneNumber(rawValue: string) {
+  const digits = String(rawValue || "").replace(/\D/g, "");
+  if (digits.startsWith("233") && digits.length === 12) {
+    return `+${digits}`;
+  }
+  if (digits.startsWith("0") && digits.length === 10) {
+    return `+233${digits.slice(1)}`;
+  }
+  return rawValue.trim();
+}
+
+function isValidGhanaPhoneNumber(rawValue: string) {
+  const digits = String(rawValue || "").replace(/\D/g, "");
+  if (digits.length === 10 && digits.startsWith("0")) {
+    return /^0(2|5)\d{8}$/.test(digits);
+  }
+  if (digits.length === 12 && digits.startsWith("233")) {
+    return /^233(2|5)\d{8}$/.test(digits);
+  }
+  return false;
+}
+
 export default function CheckoutConnected() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading, ensureAuthenticated } = useAuth();
@@ -137,11 +165,14 @@ export default function CheckoutConnected() {
   const [isPaymentReviewOpen, setIsPaymentReviewOpen] = useState(false);
   const [isLaunchingInlinePayment, setIsLaunchingInlinePayment] = useState(false);
   const [isVerifyingInlinePayment, setIsVerifyingInlinePayment] = useState(false);
+  const [isRedirectingToSuccess, setIsRedirectingToSuccess] = useState(false);
   const previousExternalModeRef = useRef<boolean | null>(null);
   const suggestionDebounceRef = useRef<number | null>(null);
   const activeSuggestionRequestRef = useRef(0);
   const suppressNextSuggestionLookupRef = useRef(false);
   const hasAttemptedCouponRestoreRef = useRef(false);
+  const checkoutSubmissionLockedRef = useRef(false);
+  const checkoutDraftStorageKey = user?.id ? `${CHECKOUT_DRAFT_STORAGE_PREFIX}.${user.id}` : null;
 
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
@@ -241,6 +272,77 @@ export default function CheckoutConnected() {
   });
 
   useEffect(() => {
+    if (!checkoutDraftStorageKey || typeof window === "undefined") return;
+    try {
+      const rawDraft = window.localStorage.getItem(checkoutDraftStorageKey);
+      if (!rawDraft) return;
+      const draft = JSON.parse(rawDraft) as Record<string, any>;
+      if (typeof draft.deliveryMethod === "string") {
+        setDeliveryMethod(draft.deliveryMethod as any);
+      }
+      if (typeof draft.externalDeliveryType === "string") {
+        setExternalDeliveryType(draft.externalDeliveryType as any);
+      }
+      if (typeof draft.deliveryAddress === "string" && !deliveryAddress.trim()) {
+        setDeliveryAddress(draft.deliveryAddress);
+      }
+      if (typeof draft.deliveryPhone === "string" && !deliveryPhone.trim()) {
+        setDeliveryPhone(draft.deliveryPhone);
+      }
+      if (typeof draft.selectedZoneId === "string") {
+        setSelectedZoneId(draft.selectedZoneId);
+      }
+      if (typeof draft.selectedPickupStationId === "string") {
+        setSelectedPickupStationId(draft.selectedPickupStationId);
+      }
+      if (typeof draft.couponCode === "string" && !couponCode.trim()) {
+        setCouponCode(draft.couponCode);
+      }
+      if (Number.isFinite(Number(draft.deliveryLat))) {
+        setDeliveryLat(Number(draft.deliveryLat));
+      }
+      if (Number.isFinite(Number(draft.deliveryLng))) {
+        setDeliveryLng(Number(draft.deliveryLng));
+      }
+    } catch {
+      // Ignore local draft parsing issues.
+    }
+  }, [checkoutDraftStorageKey]);
+
+  useEffect(() => {
+    if (!checkoutDraftStorageKey || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        checkoutDraftStorageKey,
+        JSON.stringify({
+          deliveryMethod,
+          externalDeliveryType,
+          deliveryAddress,
+          deliveryPhone,
+          selectedZoneId,
+          selectedPickupStationId,
+          couponCode,
+          deliveryLat,
+          deliveryLng,
+        }),
+      );
+    } catch {
+      // Ignore local draft write failures.
+    }
+  }, [
+    checkoutDraftStorageKey,
+    couponCode,
+    deliveryAddress,
+    deliveryLat,
+    deliveryLng,
+    deliveryMethod,
+    deliveryPhone,
+    externalDeliveryType,
+    selectedPickupStationId,
+    selectedZoneId,
+  ]);
+
+  useEffect(() => {
     const savedPhone = String(profile?.phone || user?.phone || "").trim();
     const savedAddress = String(profile?.businessAddress || "").trim();
 
@@ -306,7 +408,7 @@ export default function CheckoutConnected() {
             setIsAddressSuggesting(false);
           }
         });
-    }, 350);
+    }, 120);
 
     return () => {
       if (suggestionDebounceRef.current) {
@@ -474,12 +576,9 @@ export default function CheckoutConnected() {
             `/api/payments/verify/${encodeURIComponent(reference)}`,
             { cache: "no-store" }
           );
-        } catch (verifyError: any) {
-          const verifyMessage = String(verifyError?.message || "");
-          if (!verifyMessage.startsWith("401:")) {
-            throw verifyError;
-          }
-
+        } catch {
+          // Fall back to unauthenticated endpoint for any error (session expiry, network blip,
+          // server error). The public endpoint works regardless of auth state and is safe to call.
           verification = await fetchSameOriginJson<PaymentVerificationResult>(
             `/api/payments/verify-public/${encodeURIComponent(reference)}`,
             { cache: "no-store" }
@@ -493,11 +592,23 @@ export default function CheckoutConnected() {
         }
 
         clearPersistedCheckoutCoupon(user?.id);
+        if (checkoutDraftStorageKey && typeof window !== "undefined") {
+          window.localStorage.removeItem(checkoutDraftStorageKey);
+        }
+        if (typeof window !== "undefined") {
+          window.sessionStorage.setItem(LAST_PAID_ORDER_STORAGE_KEY, resolvedOrderId);
+        }
         setIsPaymentReviewOpen(false);
+        setIsRedirectingToSuccess(true);
+        // Pre-warm the order query cache so PaymentSuccess loads instantly
         queryClient.setQueryData(["/api/cart"], []);
-        await queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
-        await queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+        // Navigate immediately — cleanup happens fire-and-forget so nothing blocks the redirect
         navigate(`/payment/success?orderId=${resolvedOrderId}`);
+        // Post-navigate cleanup (non-blocking)
+        void fetchSameOrigin("/api/cart", { method: "DELETE", credentials: "include" }).catch(() => {});
+        void queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+        void queryClient.invalidateQueries({ queryKey: [`/api/orders/${resolvedOrderId}`] });
       } catch (error: any) {
         const rawMessage = String(error?.message || "");
         const normalizedMessage = rawMessage.replace(/^\d+:\s*/, "").trim();
@@ -522,6 +633,7 @@ export default function CheckoutConnected() {
       } finally {
         setIsLaunchingInlinePayment(false);
         setIsVerifyingInlinePayment(false);
+        checkoutSubmissionLockedRef.current = false;
       }
     },
     onError: (error: any) => {
@@ -534,6 +646,7 @@ export default function CheckoutConnected() {
         description: friendlyMessage,
         variant: "destructive",
       });
+      checkoutSubmissionLockedRef.current = false;
     },
   });
 
@@ -573,13 +686,14 @@ export default function CheckoutConnected() {
   const selectedZone = deliveryZones.find(z => z.id === selectedZoneId);
   const selectedPickupStation = pickupStations.find((station) => station.id === selectedPickupStationId);
   const usingExternalDeliveryFlow = isExternalRiderSystemEnabled && deliveryMethod !== "pickup";
+  const deliveryFeeCommission = !isExternalRiderSystemEnabled ? Number((settings as any)?.deliveryFeeCommission ?? 0) : 0;
   const deliveryFee =
     deliveryMethod === "pickup"
       ? 0
       : usingExternalDeliveryFlow
         ? 0
         : selectedZone
-          ? parseFloat(selectedZone.fee)
+          ? parseFloat(selectedZone.fee) + deliveryFeeCommission
           : 0;
 
   // Calculate coupon discount
@@ -602,6 +716,24 @@ export default function CheckoutConnected() {
   const checkoutSellerId = itemsWithProducts[0]?.product?.sellerId || user?.id || null;
   const isInlinePaymentBusy =
     createOrderMutation.isPending || isLaunchingInlinePayment || isVerifyingInlinePayment;
+
+  const { data: availableCoupons = [] } = useQuery<Coupon[]>({
+    queryKey: ["/api/coupons/available", checkoutSellerId, subtotal],
+    enabled: isAuthenticated && !!checkoutSellerId && subtotal > 0,
+    queryFn: () =>
+      fetchSameOriginJson<Coupon[]>(
+        `/api/coupons/available?sellerId=${encodeURIComponent(String(checkoutSellerId))}&orderTotal=${encodeURIComponent(
+          subtotal.toFixed(2),
+        )}`,
+        {
+          cache: "no-store",
+        },
+      ),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
+  });
 
   useEffect(() => {
     if (!user?.id) return;
@@ -688,8 +820,17 @@ export default function CheckoutConnected() {
     });
   };
 
+  const handleQuickApplyCoupon = (coupon: Coupon) => {
+    setCouponCode(String(coupon.code || "").toUpperCase());
+    validateCouponMutation.mutate({
+      code: String(coupon.code || "").trim(),
+      sellerId: checkoutSellerId ?? "",
+      orderTotal: subtotal.toFixed(2),
+    });
+  };
+
   const syncCheckoutDetailsToProfile = async () => {
-    const trimmedPhone = String(deliveryPhone || "").trim();
+    const trimmedPhone = normalizeGhanaPhoneNumber(String(deliveryPhone || "").trim());
     const trimmedAddress = String(deliveryAddress || "").trim();
     const currentPhone = String(profile?.phone || user?.phone || "").trim();
     const currentAddress = String(profile?.businessAddress || "").trim();
@@ -728,7 +869,8 @@ export default function CheckoutConnected() {
       return;
     }
 
-    if (!deliveryPhone.trim()) {
+    const normalizedPhone = normalizeGhanaPhoneNumber(deliveryPhone);
+    if (!String(deliveryPhone || "").trim()) {
       toast({
         title: "Missing Information",
         description: "Please provide a contact phone number before checkout.",
@@ -737,7 +879,20 @@ export default function CheckoutConnected() {
       return false;
     }
 
-    if (deliveryMethod !== "pickup" && !deliveryAddress) {
+    if (!isValidGhanaPhoneNumber(normalizedPhone)) {
+      toast({
+        title: "Invalid Phone Number",
+        description: "Please enter a valid Ghana phone number such as 0241234567 or +233241234567.",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    if (normalizedPhone !== deliveryPhone) {
+      setDeliveryPhone(normalizedPhone);
+    }
+
+    if (deliveryMethod !== "pickup" && !String(deliveryAddress || "").trim()) {
       toast({
         title: "Missing Information",
         description: "Please provide a delivery address",
@@ -789,8 +944,12 @@ export default function CheckoutConnected() {
   };
 
   const submitCheckoutForInlinePayment = async () => {
+    if (checkoutSubmissionLockedRef.current || isInlinePaymentBusy) {
+      return;
+    }
     const isValid = await validateCheckoutBeforePayment();
     if (!isValid) return;
+    checkoutSubmissionLockedRef.current = true;
 
     try {
       await syncCheckoutDetailsToProfile();
@@ -830,8 +989,8 @@ export default function CheckoutConnected() {
           : usingExternalDeliveryFlow
             ? null
             : selectedZoneId || null,
-      deliveryAddress: deliveryAddress || null,
-      deliveryPhone: deliveryPhone.trim() || null,
+      deliveryAddress: deliveryAddress.trim() || null,
+      deliveryPhone: normalizeGhanaPhoneNumber(deliveryPhone.trim()) || null,
       deliveryLatitude: deliveryLat,
       deliveryLongitude: deliveryLng,
       deliveryFee: deliveryFee.toFixed(2),
@@ -848,6 +1007,7 @@ export default function CheckoutConnected() {
   };
 
   const handlePlaceOrder = async () => {
+    if (checkoutSubmissionLockedRef.current || isInlinePaymentBusy) return;
     const isValid = await validateCheckoutBeforePayment();
     if (!isValid) return;
     setIsPaymentReviewOpen(true);
@@ -936,7 +1096,7 @@ export default function CheckoutConnected() {
                         <Input
                           id="pickup-phone"
                           type="tel"
-                          placeholder="Enter your phone number"
+                          placeholder="0241234567 or +233241234567"
                           value={deliveryPhone}
                           onChange={(e) => setDeliveryPhone(e.target.value)}
                           data-testid="input-pickup-phone"
@@ -1097,11 +1257,14 @@ export default function CheckoutConnected() {
                     <Input
                       id="phone"
                       type="tel"
-                      placeholder="Enter your phone number for delivery"
+                      placeholder="0241234567 or +233241234567"
                       value={deliveryPhone}
                       onChange={(e) => setDeliveryPhone(e.target.value)}
                       data-testid="input-delivery-phone"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Use a valid Ghana number so delivery and payment support can reach you quickly.
+                    </p>
                   </div>
 
                   {showCheckoutDeliveryMap ? (
@@ -1150,6 +1313,29 @@ export default function CheckoutConnected() {
                 <CardDescription>Have a coupon? Apply it to get a discount</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {availableCoupons.length > 0 && !appliedCoupon ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Available coupons for this order</p>
+                    <div className="flex flex-wrap gap-2">
+                      {availableCoupons.map((coupon) => (
+                        <button
+                          key={coupon.id}
+                          type="button"
+                          onClick={() => handleQuickApplyCoupon(coupon)}
+                          className="rounded-full border border-border/70 bg-muted/30 px-3 py-1.5 text-left text-xs transition hover:border-primary hover:bg-primary/5"
+                          data-testid={`button-available-coupon-${coupon.id}`}
+                        >
+                          <span className="font-semibold">{coupon.code}</span>
+                          <span className="ml-2 text-muted-foreground">
+                            {coupon.discountType === "percentage"
+                              ? `${coupon.discountValue}% off`
+                              : `${formatPrice(parseFloat(coupon.discountValue || "0"))} off`}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {!appliedCoupon ? (
                   <div className="flex gap-2">
                     <Input
@@ -1316,7 +1502,7 @@ export default function CheckoutConnected() {
       </div>
 
       <Dialog open={isPaymentReviewOpen} onOpenChange={(open) => !isInlinePaymentBusy && setIsPaymentReviewOpen(open)}>
-          <DialogContent className="w-[min(96vw,34rem)] overflow-hidden border-border bg-background p-0 shadow-2xl">
+          <DialogContent className="flex max-h-[92vh] w-[min(96vw,34rem)] flex-col overflow-hidden border-border bg-background p-0 shadow-2xl">
           <div className="border-b border-primary/20 bg-primary/10 px-6 py-5 dark:bg-primary/12">
             <DialogHeader className="space-y-3">
               <div className="flex items-start justify-between gap-4">
@@ -1333,7 +1519,7 @@ export default function CheckoutConnected() {
             </DialogHeader>
           </div>
 
-          <div className="space-y-5 px-6 py-5">
+          <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
             <div className="rounded-2xl border border-border/70 bg-card/70 p-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -1392,6 +1578,12 @@ export default function CheckoutConnected() {
               <LockKeyhole className="h-4 w-4 shrink-0 text-primary" />
               <span>Secure payment powered by Paystack</span>
             </div>
+
+            {(isLaunchingInlinePayment || isVerifyingInlinePayment) && (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+                Please do not go back, refresh, or leave this page while we complete and confirm your payment.
+              </div>
+            )}
 
             <div className="flex justify-center pt-1">
               <svg
@@ -1468,6 +1660,24 @@ export default function CheckoutConnected() {
             <h3 className="mt-4 text-xl font-semibold">Opening secure payment</h3>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               Paystack is loading inside the app. Please complete your payment in the popup window that just opened.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {(isVerifyingInlinePayment || isRedirectingToSuccess) && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-[min(92vw,28rem)] rounded-3xl border border-white/10 bg-background/95 p-6 text-center shadow-2xl">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Loader2 className="h-7 w-7 animate-spin" />
+            </div>
+            <h3 className="mt-4 text-xl font-semibold">
+              {isRedirectingToSuccess ? "Payment confirmed" : "Confirming your payment"}
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {isRedirectingToSuccess
+                ? "Your payment is successful. Please stay on this page while we redirect you to the success page."
+                : "Please do not go back, close this page, or refresh while we verify your payment and complete your order."}
             </p>
           </div>
         </div>

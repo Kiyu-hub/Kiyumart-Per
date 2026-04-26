@@ -7,20 +7,29 @@ import ThemeToggle from "@/components/ThemeToggle";
 import Logo from "@/components/Logo";
 
 export default function AuthPage() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { login, signup, isAuthenticated, user } = useAuth();
   const { toast } = useToast();
   const [isNewSignup, setIsNewSignup] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
+  const searchParams = new URLSearchParams(location.split("?")[1] || "");
+  const redirectTarget = searchParams.get("redirect");
+  const referralCode = searchParams.get("ref") || "";
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      // All users (both login and signup) go to homepage
-      // They can access their dashboard from the navigation menu
-      navigate("/");
+      // Only allow purely relative paths (no protocol, no host, no double-slash tricks)
+      const safeRedirect =
+        redirectTarget &&
+        /^\/[^/]/.test(redirectTarget) &&
+        !/^\/\//i.test(redirectTarget) &&
+        !/:\/\//i.test(redirectTarget)
+          ? redirectTarget
+          : "/";
+      navigate(safeRedirect);
     }
-  }, [isAuthenticated, user, navigate]);
+  }, [isAuthenticated, user, navigate, redirectTarget]);
 
   const handleLogin = async (email: string, password: string) => {
     setIsLoggingIn(true);
@@ -45,7 +54,7 @@ export default function AuthPage() {
     setIsSigningUp(true);
     try {
       setIsNewSignup(true);
-      await signup({ name, email, password, role: "buyer" });
+      await signup({ name, email, password, role: "buyer", ...(referralCode ? { referralCode } : {}) });
       toast({
         title: "Account Created",
         description: "Welcome to KiyuMart!",

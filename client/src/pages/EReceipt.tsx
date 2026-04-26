@@ -127,8 +127,6 @@ export default function EReceipt() {
         delivery_method: data.order.deliveryMethod,
         bus_stage: data.busDeliveryWorkflow?.stage || "",
         is_completed: data.completion?.isCompleted ? "yes" : "no",
-        seller_paid_amount: Number(data.financial.sellerPaidAmount || 0).toFixed(2),
-        platform_commission_amount: Number(data.financial.platformCommissionAmount || 0).toFixed(2),
         transaction_reference: data.transaction?.reference || "",
       }));
       const csvData = buildCsv(rows);
@@ -161,10 +159,6 @@ export default function EReceipt() {
         `Processing Fee: ${Number(data.financial.processingFee || 0).toFixed(2)}`,
         `Coupon Discount: ${Number(data.financial.couponDiscount || 0).toFixed(2)}`,
         `Total: ${Number(data.financial.total || 0).toFixed(2)}`,
-        `Seller Paid Amount: ${Number(data.financial.sellerPaidAmount || 0).toFixed(2)}`,
-        `Platform Commission: ${Number(data.financial.platformCommissionAmount || 0).toFixed(2)}`,
-        `Platform Amount: ${Number(data.financial.platformAmount || 0).toFixed(2)}`,
-        `Commission Rate: ${Number(data.financial.commissionRate || 0).toFixed(2)}%`,
         `Transaction Reference: ${data.transaction?.reference || "N/A"}`,
         `Status Flow: ${data.statusFlow || data.order.status}`,
         " ",
@@ -239,8 +233,6 @@ export default function EReceipt() {
             <div className="flex justify-between text-sm"><span className="text-muted-foreground">Coupon Discount</span><span className="font-medium">{formatPrice(data.financial.couponDiscount || 0)}</span></div>
             <Separator />
             <div className="flex justify-between text-base font-bold"><span>Total</span><span className="text-primary">{formatPrice(data.financial.total || 0)}</span></div>
-            <div className="flex justify-between text-sm pt-2"><span className="text-muted-foreground">Seller Paid</span><span className="font-medium">{formatPrice(data.financial.sellerPaidAmount || 0)}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Platform Commission</span><span className="font-medium">{formatPrice(data.financial.platformCommissionAmount || 0)}</span></div>
           </Card>
 
           <Card className="p-4 space-y-2">
@@ -274,7 +266,7 @@ export default function EReceipt() {
           </Card>
 
           <p className="text-xs text-muted-foreground text-center">
-            Generated from live transaction, commission, and order status records.
+            Generated from live transaction and order status records.
           </p>
         </div>
       </main>

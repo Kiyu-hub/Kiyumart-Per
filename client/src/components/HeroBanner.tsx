@@ -47,7 +47,7 @@ export default function HeroBanner({ slides }: HeroBannerProps) {
   }, []);
 
   return (
-    <div className="relative w-full h-[400px] md:h-[600px] overflow-hidden bg-muted">
+    <div className="relative w-full h-[400px] md:h-[600px] overflow-hidden bg-muted rounded-none">
       <div className="absolute inset-0">
         <img
           src={currentBanner.image}

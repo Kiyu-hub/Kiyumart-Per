@@ -28,4 +28,10 @@ services:
         sync: false
       - key: PAYSTACK_PUBLIC_KEY
         sync: false
+      - key: FRONTEND_URL
+        sync: false  # Set to your Netlify URL, e.g. https://kiyumart.netlify.app
+      - key: SETTINGS_ENCRYPTION_KEY
+        sync: false  # 32-byte hex key for AES-256-GCM encryption of sensitive DB fields
+      - key: KIYUMART_USE_EMBEDDED_VITE
+        value: "false"
     healthCheckPath: /api/health

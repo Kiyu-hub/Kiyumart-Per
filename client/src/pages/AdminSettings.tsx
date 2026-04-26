@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid, Activity,
-  Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive
+  Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive, BarChart2, Server, Zap
 } from "lucide-react";
 import { insertFooterPageSchema, type FooterPage } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -95,6 +95,7 @@ const settingsSchema = z.object({
   cloudinaryCloudName: z.string().optional(),
   cloudinaryApiKey: z.string().optional(),
   cloudinaryApiSecret: z.string().optional(),
+  cloudinaryAccounts: z.string().optional(), // JSON array of extra accounts
   mapboxPublicToken: z.string().optional().or(z.literal("")),
   mapboxStyleUrl: z.string().optional().or(z.literal("")),
   mapboxGlVersion: z.string().optional().or(z.literal("")),
@@ -134,6 +135,41 @@ const settingsSchema = z.object({
   footerAdUrl: z.string().optional().or(z.literal("")),
   productPageAdImage: z.string().optional().or(z.literal("")),
   productPageAdUrl: z.string().optional().or(z.literal("")),
+  // Analytics
+  googleAnalyticsId: z.string().optional().or(z.literal("")),
+  microsoftClarityId: z.string().optional().or(z.literal("")),
+  sentryDsn: z.string().optional().or(z.literal("")),
+  // GA4 Data API credentials
+  ga4PropertyId: z.string().optional().or(z.literal("")),
+  googleCredentialsJson: z.string().optional().or(z.literal("")),
+  // Sentry REST API credentials
+  sentryAuthToken: z.string().optional().or(z.literal("")),
+  sentryOrg: z.string().optional().or(z.literal("")),
+  sentryProject: z.string().optional().or(z.literal("")),
+  // Hosting
+  renderDeployHookUrl: z.string().optional().or(z.literal("")),
+  // Operational limits
+  inviteOnlyRegistration: z.boolean().optional(),
+  orderAutoCancelHours: z.coerce.number().int().min(0).optional(),
+  freeTierProductLimit: z.coerce.number().int().min(0).optional(),
+  maxProductsPerSeller: z.coerce.number().int().min(0).optional(),
+  // Seller upgrade plan pricing
+  upgradePlanAPrice: z.coerce.number().min(0).optional(),
+  upgradePlanASlots: z.coerce.number().int().min(1).optional(),
+  upgradePlanBPrice: z.coerce.number().min(0).optional(),
+  upgradePlanCPrice: z.coerce.number().min(0).optional(),
+  // Delivery commission & referral
+  deliveryFeeCommission: z.coerce.number().min(0).optional(),
+  referralRewardPercent: z.coerce.number().min(0).max(100).optional(),
+  referralEnabled: z.boolean().optional(),
+  referralEnabledSingleStore: z.boolean().optional(),
+  referralEnabledMultiVendor: z.boolean().optional(),
+  referralCustomerThreshold: z.coerce.number().int().min(1).optional(),
+  referralSellerThreshold: z.coerce.number().int().min(1).optional(),
+  referralSellerPromoHours: z.coerce.number().int().min(1).optional(),
+  // Upload controls
+  maxUploadSizeMb: z.coerce.number().int().min(1).max(100).optional(),
+  allowedUploadTypes: z.string().optional().or(z.literal("")),
 });
 
 type SettingsFormData = z.infer<typeof settingsSchema>;
@@ -200,13 +236,233 @@ const MAPBOX_STYLE_PRESETS = [
   { value: "mapbox://styles/mapbox/navigation-night-v1", label: "Navigation Night" },
 ] as const;
 
+// ─── Sensitive Settings Gate ──────────────────────────────────────────────────
+// Shown inside payments / storage / map tabs until super_admin re-authenticates.
+const SENSITIVE_TABS = ["payments", "storage", "map", "advanced-features", "security", "analytics-integrations", "hosting"] as const;
+type SensitiveTab = (typeof SENSITIVE_TABS)[number];
+
+function SensitiveContentGate({
+  role,
+  isElevated,
+  onUnlock,
+  children,
+}: {
+  role?: string;
+  isElevated: boolean;
+  onUnlock: () => void;
+  children?: ReactNode;
+}) {
+  if (role !== "super_admin") {
+    return (
+      <div className="flex flex-col items-center gap-5 rounded-2xl border border-destructive/30 bg-destructive/5 py-16 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+          <Lock className="h-8 w-8 text-destructive" />
+        </div>
+        <div className="max-w-sm space-y-1">
+          <h3 className="text-lg font-semibold text-destructive">Super Admin Access Only</h3>
+          <p className="text-sm text-muted-foreground">
+            This section contains sensitive credentials and is restricted to Super Administrators only.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isElevated) {
+    return (
+      <div className="flex flex-col items-center gap-5 rounded-2xl border border-amber-200 bg-amber-50 py-16 text-center dark:border-amber-800/50 dark:bg-amber-950/20">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
+          <ShieldCheck className="h-8 w-8 text-amber-500" />
+        </div>
+        <div className="max-w-sm space-y-1">
+          <h3 className="text-lg font-semibold text-amber-700 dark:text-amber-400">
+            Security Verification Required
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            This section contains sensitive API keys and credentials. Re-enter your password to unlock access for 15 minutes.
+          </p>
+        </div>
+        <Button onClick={onUnlock} variant="default" className="mt-1">
+          <Lock className="mr-2 h-4 w-4" />
+          Verify Identity
+        </Button>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+// ──────────────────────────────────────────────────────────────────────────────
+
+function ReferralReportSection() {
+  const { data, isLoading, refetch } = useQuery<{
+    totalReferrals: number;
+    totalCompleted: number;
+    totalRewards: number;
+    totalClaimed: number;
+    referrals: any[];
+    rewards: any[];
+  }>({
+    queryKey: ["/api/admin/referral-report"],
+    queryFn: () =>
+      fetch("/api/admin/referral-report", { credentials: "include" }).then((r) => {
+        if (!r.ok) throw new Error("Failed");
+        return r.json();
+      }),
+    staleTime: 60_000,
+  });
+
+  return (
+    <Card className="border-border/70 bg-card shadow-sm">
+      <CardHeader className="pb-3 flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-base">Referral Report</CardTitle>
+          <CardDescription>Platform-wide referral activity and rewards.</CardDescription>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isLoading}>
+          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : data ? (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: "Total Referrals", value: data.totalReferrals },
+                { label: "Completed", value: data.totalCompleted },
+                { label: "Rewards Issued", value: data.totalRewards },
+                { label: "Rewards Claimed", value: data.totalClaimed },
+              ].map((stat) => (
+                <div key={stat.label} className="rounded-xl border bg-muted/30 p-3 text-center">
+                  <p className="text-2xl font-bold">{stat.value}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {data.referrals.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent Referrals</p>
+                <div className="rounded-xl border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/40">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Referrer</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Role</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Status</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.referrals.slice(-20).reverse().map((r: any) => (
+                        <tr key={r.id} className="border-t">
+                          <td className="px-3 py-2 truncate max-w-[120px]">{r.referrerName || r.referrerEmail || "—"}</td>
+                          <td className="px-3 py-2 capitalize text-muted-foreground text-xs">{r.referrerRole || "—"}</td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${r.status === "completed" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"}`}>
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {data.rewards.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent Rewards</p>
+                <div className="rounded-xl border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/40">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">User</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Type</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Status</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Code / Promo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.rewards.slice(-20).reverse().map((r: any) => (
+                        <tr key={r.id} className="border-t">
+                          <td className="px-3 py-2 truncate max-w-[120px]">{r.userName || r.userEmail || "—"}</td>
+                          <td className="px-3 py-2 capitalize text-xs text-muted-foreground">{r.type}</td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${r.status === "claimed" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400" : r.status === "expired" ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"}`}>
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs text-primary">{r.discountCode || (r.rewardDurationHours ? `${r.rewardDurationHours}h promo` : "—")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {data.referrals.length === 0 && (
+              <p className="text-sm text-center text-muted-foreground py-4">No referral activity yet.</p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-center text-muted-foreground py-4">Could not load report.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 export default function AdminSettings() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("general");
   const [clearedSocialKeys, setClearedSocialKeys] = useState<string[]>([]);
+
+  // Elevated access for sensitive settings tabs (payments, storage, map)
+  const [elevatedAccessAt, setElevatedAccessAt] = useState<number | null>(null);
+  const [showElevatedAuthModal, setShowElevatedAuthModal] = useState(false);
+  const [pendingTab, setPendingTab] = useState<string | null>(null);
+  const [elevatedAuthPassword, setElevatedAuthPassword] = useState("");
+  const [isVerifyingElevated, setIsVerifyingElevated] = useState(false);
+  const isElevatedAccess =
+    elevatedAccessAt !== null && Date.now() - elevatedAccessAt < 15 * 60 * 1000;
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+
+  // Security tab state
+  const [encryptionKeyInput, setEncryptionKeyInput] = useState("");
+  const [showEncryptionKey, setShowEncryptionKey] = useState(false);
+  const [renderApiKeyInput, setRenderApiKeyInput] = useState("");
+  const [renderServiceIdInput, setRenderServiceIdInput] = useState("");
+  const [isPushingToRender, setIsPushingToRender] = useState(false);
+  const [renderPushResult, setRenderPushResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Deploy hook state
+  const [isTriggering, setIsTriggering] = useState(false);
+
+  const handleTriggerDeploy = async () => {
+    setIsTriggering(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/trigger-deploy", {});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Deploy trigger failed");
+      toast({ title: "Deploy triggered", description: data.message });
+    } catch (e: any) {
+      toast({ title: "Deploy failed", description: e.message, variant: "destructive" });
+    } finally {
+      setIsTriggering(false);
+    }
+  };
 
   // Import dialogs state
   const [showImportPaystackDialog, setShowImportPaystackDialog] = useState(false);
@@ -398,6 +654,95 @@ export default function AdminSettings() {
       footerForm.setValue("slug", slug);
     }
   };
+
+  // ── Elevated access handlers ────────────────────────────────────────────────
+  const handleTabChange = (value: string) => {
+    const isSensitive = SENSITIVE_TABS.includes(value as SensitiveTab);
+    if (isSensitive && user?.role === "super_admin" && !isElevatedAccess) {
+      setPendingTab(value);
+      setShowElevatedAuthModal(true);
+      return; // Don't navigate to the tab yet
+    }
+    setActiveTab(value);
+  };
+
+  const handleElevatedVerify = async () => {
+    if (!elevatedAuthPassword.trim()) return;
+    setIsVerifyingElevated(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/verify-elevated-access", {
+        password: elevatedAuthPassword,
+      });
+      const data = await res.json();
+      if (data.granted) {
+        setElevatedAccessAt(Date.now());
+        setShowElevatedAuthModal(false);
+        setElevatedAuthPassword("");
+        if (pendingTab) {
+          setActiveTab(pendingTab);
+          setPendingTab(null);
+        }
+        toast({ title: "Access Granted", description: "Sensitive settings unlocked for 15 minutes." });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Access Denied",
+        description: error.message?.replace(/^\d+:\s*/, "") || "Incorrect password",
+        variant: "destructive",
+      });
+    } finally {
+      setIsVerifyingElevated(false);
+    }
+  };
+
+  const handleLockElevatedAccess = () => {
+    setElevatedAccessAt(null);
+    if (SENSITIVE_TABS.includes(activeTab as SensitiveTab)) {
+      setActiveTab("general");
+    }
+    toast({ title: "Sensitive Settings Locked", description: "Re-authentication required to access credentials." });
+  };
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── Security tab handlers ────────────────────────────────────────────────────
+  const { data: encKeyStatus } = useQuery<{ isSet: boolean; keyLength: number }>({
+    queryKey: ["/api/admin/encryption-key-status"],
+    enabled: isAuthenticated && user?.role === "super_admin",
+    staleTime: 60_000,
+  });
+
+  const generateEncryptionKey = () => {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    // Base64url encode for env-var friendliness
+    const key = btoa(String.fromCharCode(...Array.from(array))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+    setEncryptionKeyInput(key);
+    setShowEncryptionKey(true);
+    setRenderPushResult(null);
+  };
+
+  const handlePushToRender = async () => {
+    if (!renderApiKeyInput.trim() || !renderServiceIdInput.trim() || !encryptionKeyInput.trim()) return;
+    setIsPushingToRender(true);
+    setRenderPushResult(null);
+    try {
+      const res = await apiRequest("POST", "/api/admin/push-to-render", {
+        renderApiKey: renderApiKeyInput.trim(),
+        renderServiceId: renderServiceIdInput.trim(),
+        envKey: "SETTINGS_ENCRYPTION_KEY",
+        envValue: encryptionKeyInput.trim(),
+      });
+      const data = await res.json();
+      setRenderPushResult({ success: true, message: data.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/encryption-key-status"] });
+    } catch (error: any) {
+      const msg = error.message?.replace(/^\d+:\s*/, "") || "Failed to push to Render";
+      setRenderPushResult({ success: false, message: msg });
+    } finally {
+      setIsPushingToRender(false);
+    }
+  };
+  // ─────────────────────────────────────────────────────────────────────────────
 
   const getFooterGroupLabel = (g: string) => FOOTER_GROUPS.find(f => f.value === g)?.label || g;
   const getFooterStoreModeLabel = (m: string) => STORE_MODES_FOOTER.find(s => s.value === m)?.label || m;
@@ -734,6 +1079,7 @@ export default function AdminSettings() {
         cloudinaryCloudName: mergedData.cloudinaryCloudName || "",
         cloudinaryApiKey: mergedData.cloudinaryApiKey || "",
         cloudinaryApiSecret: mergedData.cloudinaryApiSecret || "",
+        cloudinaryAccounts: (mergedData as any).cloudinaryAccounts || "",
         mapboxPublicToken: (mergedData as any).mapboxPublicToken || "",
         mapboxStyleUrl: (mergedData as any).mapboxStyleUrl || "mapbox://styles/mapbox/navigation-night-v1",
         mapboxGlVersion: (mergedData as any).mapboxGlVersion || "v3.4.0",
@@ -771,6 +1117,33 @@ export default function AdminSettings() {
         footerAdUrl: mergedData.footerAdUrl || "",
         productPageAdImage: mergedData.productPageAdImage || "",
         productPageAdUrl: mergedData.productPageAdUrl || "",
+        googleAnalyticsId: (mergedData as any).googleAnalyticsId || "",
+        microsoftClarityId: (mergedData as any).microsoftClarityId || "",
+        sentryDsn: (mergedData as any).sentryDsn || "",
+        ga4PropertyId: (mergedData as any).ga4PropertyId || "",
+        googleCredentialsJson: (mergedData as any).googleCredentialsJson || "",
+        sentryAuthToken: (mergedData as any).sentryAuthToken || "",
+        sentryOrg: (mergedData as any).sentryOrg || "",
+        sentryProject: (mergedData as any).sentryProject || "",
+        renderDeployHookUrl: (mergedData as any).renderDeployHookUrl || "",
+        inviteOnlyRegistration: (mergedData as any).inviteOnlyRegistration === true,
+        orderAutoCancelHours: Number((mergedData as any).orderAutoCancelHours ?? 0),
+        freeTierProductLimit: Number((mergedData as any).freeTierProductLimit ?? 20),
+        maxProductsPerSeller: Number((mergedData as any).maxProductsPerSeller ?? 0),
+        upgradePlanAPrice: Number((mergedData as any).upgradePlanAPrice ?? 15),
+        upgradePlanASlots: Number((mergedData as any).upgradePlanASlots ?? 10),
+        upgradePlanBPrice: Number((mergedData as any).upgradePlanBPrice ?? 40),
+        upgradePlanCPrice: Number((mergedData as any).upgradePlanCPrice ?? 100),
+        deliveryFeeCommission: Number((mergedData as any).deliveryFeeCommission ?? 0),
+        referralRewardPercent: Number((mergedData as any).referralRewardPercent ?? 10),
+        referralEnabled: (mergedData as any).referralEnabled === true,
+        referralEnabledSingleStore: (mergedData as any).referralEnabledSingleStore !== false,
+        referralEnabledMultiVendor: (mergedData as any).referralEnabledMultiVendor !== false,
+        referralCustomerThreshold: Number((mergedData as any).referralCustomerThreshold ?? 5),
+        referralSellerThreshold: Number((mergedData as any).referralSellerThreshold ?? 10),
+        referralSellerPromoHours: Number((mergedData as any).referralSellerPromoHours ?? 24),
+        maxUploadSizeMb: Number((mergedData as any).maxUploadSizeMb ?? 10),
+        allowedUploadTypes: (mergedData as any).allowedUploadTypes || "jpg,jpeg,png,webp,gif,avif",
       });
 
       // Keep in-browser runtime map config in sync so map pages in the same session pick up updates immediately.
@@ -880,6 +1253,7 @@ export default function AdminSettings() {
         cloudinaryCloudName: (settings as any).cloudinaryCloudName || "",
         cloudinaryApiKey: (settings as any).cloudinaryApiKey || "",
         cloudinaryApiSecret: (settings as any).cloudinaryApiSecret || "",
+        cloudinaryAccounts: (settings as any).cloudinaryAccounts || "",
         mapboxPublicToken: (settings as any).mapboxPublicToken || "",
         mapboxStyleUrl: (settings as any).mapboxStyleUrl || "mapbox://styles/mapbox/navigation-night-v1",
         mapboxGlVersion: (settings as any).mapboxGlVersion || "v3.4.0",
@@ -917,6 +1291,33 @@ export default function AdminSettings() {
         footerAdUrl: settings.footerAdUrl || "",
         productPageAdImage: settings.productPageAdImage || "",
         productPageAdUrl: settings.productPageAdUrl || "",
+        googleAnalyticsId: (settings as any).googleAnalyticsId || "",
+        microsoftClarityId: (settings as any).microsoftClarityId || "",
+        sentryDsn: (settings as any).sentryDsn || "",
+        ga4PropertyId: (settings as any).ga4PropertyId || "",
+        googleCredentialsJson: (settings as any).googleCredentialsJson || "",
+        sentryAuthToken: (settings as any).sentryAuthToken || "",
+        sentryOrg: (settings as any).sentryOrg || "",
+        sentryProject: (settings as any).sentryProject || "",
+        renderDeployHookUrl: (settings as any).renderDeployHookUrl || "",
+        inviteOnlyRegistration: (settings as any).inviteOnlyRegistration === true,
+        orderAutoCancelHours: Number((settings as any).orderAutoCancelHours ?? 0),
+        freeTierProductLimit: Number((settings as any).freeTierProductLimit ?? 20),
+        maxProductsPerSeller: Number((settings as any).maxProductsPerSeller ?? 0),
+        upgradePlanAPrice: Number((settings as any).upgradePlanAPrice ?? 15),
+        upgradePlanASlots: Number((settings as any).upgradePlanASlots ?? 10),
+        upgradePlanBPrice: Number((settings as any).upgradePlanBPrice ?? 40),
+        upgradePlanCPrice: Number((settings as any).upgradePlanCPrice ?? 100),
+        deliveryFeeCommission: Number((settings as any).deliveryFeeCommission ?? 0),
+        referralRewardPercent: Number((settings as any).referralRewardPercent ?? 10),
+        referralEnabled: (settings as any).referralEnabled === true,
+        referralEnabledSingleStore: (settings as any).referralEnabledSingleStore !== false,
+        referralEnabledMultiVendor: (settings as any).referralEnabledMultiVendor !== false,
+        referralCustomerThreshold: Number((settings as any).referralCustomerThreshold ?? 5),
+        referralSellerThreshold: Number((settings as any).referralSellerThreshold ?? 10),
+        referralSellerPromoHours: Number((settings as any).referralSellerPromoHours ?? 24),
+        maxUploadSizeMb: Number((settings as any).maxUploadSizeMb ?? 10),
+        allowedUploadTypes: (settings as any).allowedUploadTypes || "jpg,jpeg,png,webp,gif,avif",
       });
     }
   }, [settings]);
@@ -960,6 +1361,16 @@ export default function AdminSettings() {
                       {form.watch("isExternalRiderSystemEnabled") ? "External Delivery Enabled" : "Rider Features Off"}
                     </Badge>
                     <Badge variant="outline">{activeTab.replace(/-/g, " ")}</Badge>
+                    {isElevatedAccess && (
+                      <button
+                        type="button"
+                        onClick={handleLockElevatedAccess}
+                        className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-400 dark:hover:bg-amber-900/60"
+                      >
+                        <ShieldCheck className="h-3 w-3" />
+                        Elevated — Lock
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1009,7 +1420,7 @@ export default function AdminSettings() {
             }}
             className="space-y-6"
           >
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
             <div className="overflow-hidden rounded-[26px] border border-border/70 bg-card/60 shadow-sm">
             <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-none bg-transparent p-3 sm:grid-cols-3 lg:grid-cols-5">
               <TabsTrigger value="general" data-testid="tab-general" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
@@ -1038,6 +1449,12 @@ export default function AdminSettings() {
                   Advanced Features
                 </TabsTrigger>
               )}
+              {user?.role === "super_admin" && (
+                <TabsTrigger value="security" data-testid="tab-security" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                  <Key className="h-4 w-4 mr-2" />
+                  Security Keys
+                </TabsTrigger>
+              )}
               {user?.role !== "super_admin" && (
                 <>
                   <TabsTrigger value="branding" data-testid="tab-branding" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
@@ -1062,6 +1479,18 @@ export default function AdminSettings() {
                 <Activity className="h-4 w-4 mr-2" />
                 Diagnostics
               </TabsTrigger>
+              {user?.role === "super_admin" && (
+                <TabsTrigger value="analytics-integrations" data-testid="tab-analytics-integrations" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                  <BarChart2 className="h-4 w-4 mr-2" />
+                  Analytics
+                </TabsTrigger>
+              )}
+              {user?.role === "super_admin" && (
+                <TabsTrigger value="hosting" data-testid="tab-hosting" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                  <Server className="h-4 w-4 mr-2" />
+                  Hosting
+                </TabsTrigger>
+              )}
             </TabsList>
             </div>
 
@@ -1419,6 +1848,13 @@ export default function AdminSettings() {
             </TabsContent>
 
             <TabsContent value="payments" className="space-y-4">
+              {(!isElevatedAccess || user?.role !== "super_admin") ? (
+                <SensitiveContentGate
+                  role={user?.role}
+                  isElevated={isElevatedAccess}
+                  onUnlock={() => { setPendingTab("payments"); setShowElevatedAuthModal(true); }}
+                />
+              ) : <>
               {user?.role === "super_admin" && (
                 <Card>
                   <CardHeader>
@@ -1738,10 +2174,18 @@ export default function AdminSettings() {
 
                 </CardContent>
               </Card>
+              </> }
 
             </TabsContent>
 
             <TabsContent value="storage" className="space-y-4">
+              {(!isElevatedAccess || user?.role !== "super_admin") ? (
+                <SensitiveContentGate
+                  role={user?.role}
+                  isElevated={isElevatedAccess}
+                  onUnlock={() => { setPendingTab("storage"); setShowElevatedAuthModal(true); }}
+                />
+              ) : <>
               <Card>
                 <CardHeader>
                   <CardTitle>Cloudinary Storage</CardTitle>
@@ -1853,12 +2297,142 @@ export default function AdminSettings() {
                       Your Cloudinary API secret (keep this confidential)
                     </p>
                   </div>
+
+                  {/* Additional Cloudinary Accounts (rotation pool) */}
+                  <Card className="mt-2">
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Database className="h-4 w-4 text-primary" />
+                        Additional Cloudinary Accounts
+                      </CardTitle>
+                      <CardDescription>
+                        Add extra accounts for round-robin upload rotation — useful when the primary account nears its storage limit. Uploads cycle through all valid accounts automatically.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {(() => {
+                        let accounts: Array<{label: string; cloudName: string; apiKey: string; apiSecret: string}> = [];
+                        try { accounts = JSON.parse(form.watch("cloudinaryAccounts") || "[]"); } catch {}
+                        const removeAccount = (idx: number) => {
+                          const updated = accounts.filter((_, i) => i !== idx);
+                          form.setValue("cloudinaryAccounts", JSON.stringify(updated), { shouldDirty: true });
+                        };
+                        return (
+                          <div className="space-y-3">
+                            {accounts.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">No extra accounts configured. Uploads use the primary account above.</p>
+                            ) : (
+                              <div className="space-y-2">
+                                {accounts.map((acc, idx) => (
+                                  <div key={idx} className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+                                    <Cloud className="h-4 w-4 text-primary shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium truncate">{acc.label || `Account ${idx + 1}`}</p>
+                                      <p className="text-xs text-muted-foreground truncate">{acc.cloudName}</p>
+                                    </div>
+                                    <Badge variant="outline" className="text-xs">Account {idx + 2}</Badge>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-destructive hover:text-destructive"
+                                      onClick={() => removeAccount(idx)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <details className="group">
+                              <summary className="cursor-pointer text-sm font-medium text-primary hover:underline flex items-center gap-1">
+                                <Plus className="h-4 w-4" />
+                                Add another account
+                              </summary>
+                              <div className="mt-3 rounded-lg border bg-muted/20 p-4 space-y-3">
+                                {["label", "cloudName", "apiKey", "apiSecret"].map((field) => (
+                                  <div key={field} className="space-y-1">
+                                    <Label htmlFor={`new-cld-${field}`} className="text-xs capitalize">{field === "cloudName" ? "Cloud Name" : field === "apiKey" ? "API Key" : field === "apiSecret" ? "API Secret" : "Label"}</Label>
+                                    <Input
+                                      id={`new-cld-${field}`}
+                                      type={field === "apiSecret" ? "password" : "text"}
+                                      placeholder={field === "label" ? "e.g. Account 2" : field === "cloudName" ? "my-cloud-2" : field === "apiKey" ? "123456789" : "••••••••"}
+                                      onBlur={(e) => {
+                                        const formEl = e.currentTarget.closest("details") as HTMLElement;
+                                        if (!formEl) return;
+                                        const inputs = formEl.querySelectorAll("input");
+                                        const vals: Record<string, string> = {};
+                                        inputs.forEach((inp) => vals[inp.id.replace("new-cld-", "")] = inp.value);
+                                        if (vals.cloudName && vals.apiKey && vals.apiSecret) {
+                                          // Only save when all required fields are filled
+                                        }
+                                      }}
+                                    />
+                                  </div>
+                                ))}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="default"
+                                  className="w-full"
+                                  onClick={(e) => {
+                                    const details = (e.currentTarget as HTMLElement).closest("details") as HTMLElement;
+                                    if (!details) return;
+                                    const inputs = details.querySelectorAll<HTMLInputElement>("input");
+                                    const vals: Record<string, string> = {};
+                                    inputs.forEach((inp) => { vals[inp.id.replace("new-cld-", "")] = inp.value.trim(); });
+                                    if (!vals.cloudName || !vals.apiKey || !vals.apiSecret) {
+                                      alert("Cloud Name, API Key, and API Secret are required.");
+                                      return;
+                                    }
+                                    const updated = [...accounts, { label: vals.label || `Account ${accounts.length + 2}`, cloudName: vals.cloudName, apiKey: vals.apiKey, apiSecret: vals.apiSecret }];
+                                    form.setValue("cloudinaryAccounts", JSON.stringify(updated), { shouldDirty: true });
+                                    inputs.forEach((inp) => { inp.value = ""; });
+                                  }}
+                                >
+                                  Add Account
+                                </Button>
+                              </div>
+                            </details>
+                          </div>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
+
+                  {/* Upload controls */}
+                  <Card className="mt-2">
+                    <CardHeader>
+                      <CardTitle className="text-base">Upload Controls</CardTitle>
+                      <CardDescription>Limit file sizes and accepted types for all media uploads.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="maxUploadSizeMb">Max Upload Size (MB)</Label>
+                        <Input id="maxUploadSizeMb" type="number" min={1} max={100} {...form.register("maxUploadSizeMb")} placeholder="10" />
+                        <p className="text-xs text-muted-foreground">Maximum file size per upload. Applies to product images and store media.</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="allowedUploadTypes">Allowed File Types</Label>
+                        <Input id="allowedUploadTypes" {...form.register("allowedUploadTypes")} placeholder="jpg,jpeg,png,webp,gif,avif" />
+                        <p className="text-xs text-muted-foreground">Comma-separated list of allowed extensions (e.g. jpg,png,webp).</p>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </CardContent>
               </Card>
+              </> }
             </TabsContent>
 
             {user?.role === "super_admin" && (
               <TabsContent value="advanced-features" className="space-y-4">
+                {!isElevatedAccess ? (
+                  <SensitiveContentGate
+                    role={user?.role}
+                    isElevated={isElevatedAccess}
+                    onUnlock={() => { setPendingTab("advanced-features"); setShowElevatedAuthModal(true); }}
+                  />
+                ) : <>
                 <Card>
                   <CardHeader>
                     <CardTitle>Advanced Features</CardTitle>
@@ -1951,12 +2525,194 @@ export default function AdminSettings() {
                         data-testid="switch-allow-seller-direct-support-messages"
                       />
                     </div>
+
+                    {/* Invite-only registration */}
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="inviteOnlyRegistration">Invite-Only Registration</Label>
+                        <p className="text-sm text-muted-foreground">When on, new buyer sign-ups are blocked with a message to contact the administrator. Existing accounts are unaffected.</p>
+                      </div>
+                      <Switch id="inviteOnlyRegistration" checked={form.watch("inviteOnlyRegistration") ?? false} onCheckedChange={(checked) => form.setValue("inviteOnlyRegistration", checked)} />
+                    </div>
+
+                    {/* Operational limits */}
+                    <div className="grid gap-4 pt-2 sm:grid-cols-2">
+                      <div className="space-y-2 rounded-xl border p-4">
+                        <Label htmlFor="orderAutoCancelHours">Auto-Cancel Unpaid Orders After (hours)</Label>
+                        <Input id="orderAutoCancelHours" type="number" min={0} {...form.register("orderAutoCancelHours")} placeholder="0" />
+                        <p className="text-xs text-muted-foreground">Set to 0 to disable. Orders still in "pending" payment status after this many hours are automatically cancelled.</p>
+                      </div>
+                      <div className="space-y-2 rounded-xl border p-4">
+                        <Label htmlFor="maxProductsPerSeller">Hard Cap: Max Products Per Seller</Label>
+                        <Input id="maxProductsPerSeller" type="number" min={0} {...form.register("maxProductsPerSeller")} placeholder="0" />
+                        <p className="text-xs text-muted-foreground">Absolute ceiling for all sellers including premium. Set to 0 for no ceiling.</p>
+                      </div>
+                    </div>
+
+                    {/* Monetisation: Free-tier / Premium listing limits */}
+                    <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/40 dark:bg-yellow-950/20">
+                      <div className="mb-3 flex items-center gap-2">
+                        <span className="text-lg">⭐</span>
+                        <div>
+                          <p className="font-semibold text-sm">Premium Seller Monetisation</p>
+                          <p className="text-xs text-muted-foreground">Free-tier sellers are capped at this many listings. Sellers you mark as Premium can list without restriction (up to the hard cap above).</p>
+                        </div>
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="freeTierProductLimit">Free-Tier Listing Limit</Label>
+                          <Input id="freeTierProductLimit" type="number" min={0} {...form.register("freeTierProductLimit")} placeholder="20" />
+                          <p className="text-xs text-muted-foreground">Set to 0 to disable the free-tier cap (all sellers unlimited). Default: 20.</p>
+                        </div>
+                        <div className="space-y-2 flex flex-col justify-center p-3 rounded-lg bg-background border text-sm text-muted-foreground">
+                          <p className="font-medium text-foreground text-xs">How it works</p>
+                          <ul className="list-disc list-inside space-y-1 text-xs">
+                            <li>Free sellers hit this limit → upgrade prompt shown</li>
+                            <li>Mark a seller as Premium in Users → unlimited listings</li>
+                            <li>Hard cap above overrides premium if set</li>
+                          </ul>
+                        </div>
+                      </div>
+
+                      {/* Seller upgrade plan pricing */}
+                      <div className="pt-2">
+                        <p className="text-sm font-medium mb-3">Seller Upgrade Plan Pricing (GHS)</p>
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                          <div className="space-y-2 rounded-xl border p-4">
+                            <Label htmlFor="upgradePlanAPrice">Plan A — Price (GHS)</Label>
+                            <Input id="upgradePlanAPrice" type="number" min={0} step="0.01" {...form.register("upgradePlanAPrice")} placeholder="15" />
+                            <p className="text-xs text-muted-foreground">One-time fee for extra slots.</p>
+                          </div>
+                          <div className="space-y-2 rounded-xl border p-4">
+                            <Label htmlFor="upgradePlanASlots">Plan A — Extra Slots</Label>
+                            <Input id="upgradePlanASlots" type="number" min={1} {...form.register("upgradePlanASlots")} placeholder="10" />
+                            <p className="text-xs text-muted-foreground">How many additional listing slots Plan A grants.</p>
+                          </div>
+                          <div className="space-y-2 rounded-xl border p-4">
+                            <Label htmlFor="upgradePlanBPrice">Plan B — Monthly Price (GHS)</Label>
+                            <Input id="upgradePlanBPrice" type="number" min={0} step="0.01" {...form.register("upgradePlanBPrice")} placeholder="40" />
+                            <p className="text-xs text-muted-foreground">Monthly unlimited listings. Requires renewal each month.</p>
+                          </div>
+                          <div className="space-y-2 rounded-xl border p-4">
+                            <Label htmlFor="upgradePlanCPrice">Plan C — One-Time Price (GHS)</Label>
+                            <Input id="upgradePlanCPrice" type="number" min={0} step="0.01" {...form.register("upgradePlanCPrice")} placeholder="100" />
+                            <p className="text-xs text-muted-foreground">One-time fee for unlimited listings forever.</p>
+                          </div>
+                          <div className="space-y-2 rounded-xl border p-4">
+                            <Label htmlFor="deliveryFeeCommission">Delivery Commission Added (GHS)</Label>
+                            <Input id="deliveryFeeCommission" type="number" min={0} step="0.01" {...form.register("deliveryFeeCommission")} placeholder="0" />
+                            <p className="text-xs text-muted-foreground">Added to the zone base fee at checkout when internal rider mode is on.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
+
+                {/* Referral Programme Configuration */}
+                <Card className="border-border/70 bg-card shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Referral Programme</CardTitle>
+                    <CardDescription>Configure thresholds, rewards, and which modes the referral programme is active in.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    {/* Master toggle */}
+                    <div className="flex items-center justify-between rounded-xl border p-4">
+                      <div>
+                        <p className="font-medium text-sm">Enable Referral Programme</p>
+                        <p className="text-xs text-muted-foreground">Activates the referral system across the platform.</p>
+                      </div>
+                      <FormField
+                        control={form.control}
+                        name="referralEnabled"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    {/* Per-mode toggles */}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="flex items-center justify-between rounded-xl border p-4">
+                        <div>
+                          <p className="text-sm font-medium">Single-Store Mode</p>
+                          <p className="text-xs text-muted-foreground">Referrals active in single-store mode.</p>
+                        </div>
+                        <FormField
+                          control={form.control}
+                          name="referralEnabledSingleStore"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-xl border p-4">
+                        <div>
+                          <p className="text-sm font-medium">Multi-Vendor Mode</p>
+                          <p className="text-xs text-muted-foreground">Referrals active in multi-vendor mode.</p>
+                        </div>
+                        <FormField
+                          control={form.control}
+                          name="referralEnabledMultiVendor"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Thresholds & reward values */}
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="space-y-2 rounded-xl border p-4">
+                        <Label htmlFor="referralCustomerThreshold">Customer Threshold</Label>
+                        <Input id="referralCustomerThreshold" type="number" min={1} {...form.register("referralCustomerThreshold")} placeholder="5" />
+                        <p className="text-xs text-muted-foreground">Completed purchases needed before a buyer earns a reward.</p>
+                      </div>
+                      <div className="space-y-2 rounded-xl border p-4">
+                        <Label htmlFor="referralRewardPercent">Buyer Reward (%)</Label>
+                        <Input id="referralRewardPercent" type="number" min={0} max={100} step="0.01" {...form.register("referralRewardPercent")} placeholder="10" />
+                        <p className="text-xs text-muted-foreground">Discount percentage issued to the buyer on their next order.</p>
+                      </div>
+                      <div className="space-y-2 rounded-xl border p-4">
+                        <Label htmlFor="referralSellerThreshold">Seller Threshold</Label>
+                        <Input id="referralSellerThreshold" type="number" min={1} {...form.register("referralSellerThreshold")} placeholder="10" />
+                        <p className="text-xs text-muted-foreground">Completed purchases needed before a seller earns free promotion.</p>
+                      </div>
+                      <div className="space-y-2 rounded-xl border p-4">
+                        <Label htmlFor="referralSellerPromoHours">Seller Promo Duration (hours)</Label>
+                        <Input id="referralSellerPromoHours" type="number" min={1} {...form.register("referralSellerPromoHours")} placeholder="24" />
+                        <p className="text-xs text-muted-foreground">Hours of free store/product promotion a seller earns per reward.</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Referral Report */}
+                <ReferralReportSection />
+                </> }
               </TabsContent>
             )}
 
             <TabsContent value="map" className="space-y-4">
+              {(!isElevatedAccess || user?.role !== "super_admin") ? (
+                <SensitiveContentGate
+                  role={user?.role}
+                  isElevated={isElevatedAccess}
+                  onUnlock={() => { setPendingTab("map"); setShowElevatedAuthModal(true); }}
+                />
+              ) : <>
               <Card>
                 <CardHeader>
                   <CardTitle>Map Configuration</CardTitle>
@@ -2119,6 +2875,7 @@ export default function AdminSettings() {
 
                 </CardContent>
               </Card>
+              </> }
             </TabsContent>
 
             <TabsContent value="contact" className="space-y-4">
@@ -2889,6 +3646,326 @@ export default function AdminSettings() {
               </Card>
             </TabsContent>
 
+            {/* Security Keys Tab — super_admin only, gated */}
+            {user?.role === "super_admin" && (
+              <TabsContent value="security" className="space-y-4">
+                {!isElevatedAccess ? (
+                  <SensitiveContentGate
+                    role={user?.role}
+                    isElevated={isElevatedAccess}
+                    onUnlock={() => { setPendingTab("security"); setShowElevatedAuthModal(true); }}
+                  />
+                ) : <>
+                  {/* Card 1: Encryption Key */}
+                  <Card className="border-amber-200/60 dark:border-amber-700/40">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Key className="h-5 w-5 text-amber-500" />
+                        Encryption Key Management
+                      </CardTitle>
+                      <CardDescription>
+                        Manage the <code className="rounded bg-muted px-1 py-0.5 text-xs">SETTINGS_ENCRYPTION_KEY</code> used to encrypt sensitive credentials stored in the database (SMTP password, Paystack secret key, Cloudinary API secret).
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-5">
+                      {/* Server status */}
+                      <div className={`flex items-center gap-3 rounded-lg border p-4 ${encKeyStatus?.isSet ? "border-green-200 bg-green-50 dark:border-green-800/50 dark:bg-green-950/20" : "border-amber-200 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-950/20"}`}>
+                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${encKeyStatus?.isSet ? "bg-green-100 dark:bg-green-900/30" : "bg-amber-100 dark:bg-amber-900/30"}`}>
+                          {encKeyStatus?.isSet
+                            ? <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400" />
+                            : <Shield className="h-5 w-5 text-amber-500" />}
+                        </div>
+                        <div>
+                          <p className={`font-semibold text-sm ${encKeyStatus?.isSet ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
+                            {encKeyStatus?.isSet ? `Key active on server (${encKeyStatus.keyLength} characters)` : "Key not set on server"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {encKeyStatus?.isSet
+                              ? "Sensitive fields are being encrypted at rest."
+                              : "Without this key, sensitive fields are stored as plaintext. Use the Render push below to activate encryption."}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Key input + generate */}
+                      <div className="space-y-2">
+                        <Label>Encryption Key Value</Label>
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <Input
+                              type={showEncryptionKey ? "text" : "password"}
+                              value={encryptionKeyInput}
+                              onChange={(e) => setEncryptionKeyInput(e.target.value)}
+                              placeholder="Paste your key or generate one below"
+                              className="pr-10 font-mono text-sm"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowEncryptionKey(v => !v)}
+                              className="absolute inset-y-0 right-2 flex items-center text-muted-foreground hover:text-foreground"
+                            >
+                              {showEncryptionKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              if (encryptionKeyInput) {
+                                navigator.clipboard.writeText(encryptionKeyInput);
+                                toast({ title: "Copied", description: "Encryption key copied to clipboard." });
+                              }
+                            }}
+                            disabled={!encryptionKeyInput}
+                          >
+                            Copy
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Minimum 32 characters. Store this key safely — losing it means encrypted credentials cannot be decrypted.</p>
+                      </div>
+
+                      <Button type="button" variant="outline" onClick={generateEncryptionKey} className="gap-2">
+                        <RefreshCcw className="h-4 w-4" />
+                        Generate New Secure Key
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 2: Push to Render */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Database className="h-5 w-5 text-primary" />
+                        Push to Render
+                      </CardTitle>
+                      <CardDescription>
+                        Automatically push <code className="rounded bg-muted px-1 py-0.5 text-xs">SETTINGS_ENCRYPTION_KEY</code> to your Render service and trigger a redeploy. Your Render API key is used only for this request and is never stored.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800/50 dark:bg-blue-950/20">
+                        <p className="text-sm text-blue-700 dark:text-blue-300">
+                          <strong>How to get your Render credentials:</strong><br />
+                          • <strong>API Key:</strong> Render Dashboard → Account Settings → API Keys → Create API Key<br />
+                          • <strong>Service ID:</strong> Open your backend service on Render → the ID is in the URL: <code className="text-xs">dashboard.render.com/web/<em>srv-xxxxxxxx</em></code>
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Render API Key</Label>
+                        <Input
+                          type="password"
+                          value={renderApiKeyInput}
+                          onChange={(e) => setRenderApiKeyInput(e.target.value)}
+                          placeholder="rnd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                          className="font-mono text-sm"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Render Service ID</Label>
+                        <Input
+                          type="text"
+                          value={renderServiceIdInput}
+                          onChange={(e) => setRenderServiceIdInput(e.target.value)}
+                          placeholder="srv-xxxxxxxxxxxxxxxxxxxxxxxx"
+                          className="font-mono text-sm"
+                        />
+                      </div>
+
+                      {renderPushResult && (
+                        <div className={`flex items-start gap-3 rounded-lg border p-4 ${renderPushResult.success ? "border-green-200 bg-green-50 dark:border-green-800/50 dark:bg-green-950/20" : "border-red-200 bg-red-50 dark:border-red-800/50 dark:bg-red-950/20"}`}>
+                          {renderPushResult.success
+                            ? <CheckCircle className="h-5 w-5 shrink-0 text-green-600 dark:text-green-400 mt-0.5" />
+                            : <Shield className="h-5 w-5 shrink-0 text-red-500 mt-0.5" />}
+                          <p className={`text-sm ${renderPushResult.success ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+                            {renderPushResult.message}
+                          </p>
+                        </div>
+                      )}
+
+                      <Button
+                        type="button"
+                        onClick={handlePushToRender}
+                        disabled={isPushingToRender || !renderApiKeyInput.trim() || !renderServiceIdInput.trim() || !encryptionKeyInput.trim()}
+                        className="w-full gap-2"
+                      >
+                        {isPushingToRender
+                          ? <><Loader2 className="h-4 w-4 animate-spin" /> Pushing to Render...</>
+                          : <><HardDrive className="h-4 w-4" /> Push Key to Render & Redeploy</>}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </> }
+              </TabsContent>
+            )}
+
+            {/* Analytics Integrations Tab */}
+            {user?.role === "super_admin" && (
+              <TabsContent value="analytics-integrations" className="space-y-4">
+                {!isElevatedAccess ? (
+                  <SensitiveContentGate role={user?.role} isElevated={isElevatedAccess} onUnlock={() => { setPendingTab("analytics-integrations"); setShowElevatedAuthModal(true); }} />
+                ) : (
+                  <>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><BarChart2 className="h-5 w-5 text-primary" /> Analytics Integrations</CardTitle>
+                        <CardDescription>Connect free analytics services. IDs are injected into the frontend automatically — no code changes needed.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-6">
+                        {/* GA4 */}
+                        <div className="space-y-3 rounded-xl border p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
+                              <BarChart className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm">Google Analytics 4 (GA4)</p>
+                              <p className="text-xs text-muted-foreground">Free — tracks page views, users, events</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="googleAnalyticsId">Measurement ID</Label>
+                            <Input id="googleAnalyticsId" {...form.register("googleAnalyticsId")} placeholder="G-XXXXXXXXXX" className="font-mono text-sm" />
+                            <p className="text-xs text-muted-foreground">Find this in Google Analytics → Admin → Data Streams → your stream → Measurement ID. Auto-injected on storefront.</p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="ga4PropertyId">GA4 Property ID <span className="text-muted-foreground">(for in-dashboard reports)</span></Label>
+                            <Input id="ga4PropertyId" {...form.register("ga4PropertyId")} placeholder="123456789" className="font-mono text-sm" />
+                            <p className="text-xs text-muted-foreground">Numeric property ID — Google Analytics → Admin → Property Settings → Property ID</p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="googleCredentialsJson">Google Service Account Credentials JSON <span className="text-muted-foreground">(for in-dashboard reports)</span></Label>
+                            <textarea
+                              id="googleCredentialsJson"
+                              {...form.register("googleCredentialsJson")}
+                              placeholder={'{"type":"service_account","client_email":"...","private_key":"..."}'}
+                              className="w-full font-mono text-xs rounded-md border border-input bg-background px-3 py-2 min-h-[80px] resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                            <p className="text-xs text-muted-foreground">Service account JSON from Google Cloud Console. Grant Viewer access to GA4 property. Paste the full JSON here.</p>
+                          </div>
+                        </div>
+                        {/* Microsoft Clarity */}
+                        <div className="space-y-3 rounded-xl border p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                              <Target className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm">Microsoft Clarity</p>
+                              <p className="text-xs text-muted-foreground">Free — heatmaps, session recordings, click maps</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="microsoftClarityId">Project ID</Label>
+                            <Input id="microsoftClarityId" {...form.register("microsoftClarityId")} placeholder="xxxxxxxxxx" className="font-mono text-sm" />
+                            <p className="text-xs text-muted-foreground">Find this in clarity.microsoft.com → your project → Settings → Project ID</p>
+                          </div>
+                        </div>
+                        {/* Sentry */}
+                        <div className="space-y-3 rounded-xl border p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                              <ShieldCheck className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm">Sentry Error Tracking</p>
+                              <p className="text-xs text-muted-foreground">Free tier: 5,000 errors/month — catches server crashes and frontend errors</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="sentryDsn">Sentry DSN</Label>
+                            <Input id="sentryDsn" {...form.register("sentryDsn")} placeholder="https://xxxxxxxx@oXXXXXX.ingest.sentry.io/XXXXXXX" className="font-mono text-sm" />
+                            <p className="text-xs text-muted-foreground">Project Settings → SDK Setup → DSN. Activates SDK error capture (requires server restart).</p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="sentryAuthToken">Sentry Auth Token <span className="text-muted-foreground">(for in-dashboard issues)</span></Label>
+                            <Input id="sentryAuthToken" {...form.register("sentryAuthToken")} placeholder="sntrys_..." className="font-mono text-sm" type="password" />
+                            <p className="text-xs text-muted-foreground">Sentry → User Settings → Auth Tokens → Create token with <code className="bg-muted px-1 rounded">project:read</code> scope.</p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                              <Label htmlFor="sentryOrg">Organisation Slug</Label>
+                              <Input id="sentryOrg" {...form.register("sentryOrg")} placeholder="my-org" className="font-mono text-sm" />
+                              <p className="text-xs text-muted-foreground">Found in Sentry URL: sentry.io/organizations/<strong>slug</strong>/</p>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="sentryProject">Project Slug</Label>
+                              <Input id="sentryProject" {...form.register("sentryProject")} placeholder="my-project" className="font-mono text-sm" />
+                              <p className="text-xs text-muted-foreground">Found in Sentry → Project Settings → General → Name</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/50 dark:bg-amber-950/20">
+                          <p className="text-xs text-amber-700 dark:text-amber-400">GA4 Measurement ID and Clarity inject automatically after saving — no restart needed. Sentry DSN requires a server restart. GA4 Property ID + Service Account JSON and Sentry Auth Token + Org + Project enable the in-dashboard reports under Tracking & Analytics and Error Monitoring.</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>
+                )}
+              </TabsContent>
+            )}
+
+            {/* Hosting Tab */}
+            {user?.role === "super_admin" && (
+              <TabsContent value="hosting" className="space-y-4">
+                {!isElevatedAccess ? (
+                  <SensitiveContentGate role={user?.role} isElevated={isElevatedAccess} onUnlock={() => { setPendingTab("hosting"); setShowElevatedAuthModal(true); }} />
+                ) : (
+                  <>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Server className="h-5 w-5 text-primary" /> Hosting & Deployment</CardTitle>
+                        <CardDescription>Configure your frontend URL and trigger Render redeployments directly from the dashboard.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-6">
+                        {/* Frontend URL */}
+                        <div className="space-y-2">
+                          <Label htmlFor="frontendUrl-hosting">Frontend URL (Netlify)</Label>
+                          <Input id="frontendUrl-hosting" {...form.register("frontendUrl")} placeholder="https://your-site.netlify.app" className="font-mono text-sm" />
+                          <p className="text-xs text-muted-foreground">Used for Paystack payment redirect callbacks and CORS. Must match your Netlify domain exactly.</p>
+                        </div>
+
+                        {/* Deploy Hook */}
+                        <div className="space-y-3 rounded-xl border p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                              <Zap className="h-5 w-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm">Render Deploy Hook</p>
+                              <p className="text-xs text-muted-foreground">Trigger a backend redeploy without leaving the dashboard</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="renderDeployHookUrl">Deploy Hook URL</Label>
+                            <Input id="renderDeployHookUrl" {...form.register("renderDeployHookUrl")} placeholder="https://api.render.com/deploy/srv-xxxxxxxx?key=xxxxxxxx" className="font-mono text-sm" type="password" />
+                            <p className="text-xs text-muted-foreground">Render Dashboard → your service → Settings → Deploy Hook → Copy URL. Stored encrypted in DB.</p>
+                          </div>
+                          <Button type="button" variant="outline" className="gap-2" onClick={handleTriggerDeploy} disabled={isTriggering || !form.watch("renderDeployHookUrl")}>
+                            {isTriggering ? <><Loader2 className="h-4 w-4 animate-spin" /> Triggering...</> : <><Zap className="h-4 w-4" /> Trigger Redeploy Now</>}
+                          </Button>
+                        </div>
+
+                        {/* Backend info */}
+                        <div className="rounded-xl border bg-muted/40 p-4 space-y-2">
+                          <p className="text-sm font-semibold">Live Backend Info</p>
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div><span className="text-muted-foreground">Environment</span><p className="font-mono font-medium">{typeof window !== "undefined" && window.location.hostname === "localhost" ? "development" : "production"}</p></div>
+                            <div><span className="text-muted-foreground">API Origin</span><p className="font-mono font-medium break-all">{typeof window !== "undefined" ? window.location.origin : "—"}</p></div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800/50 dark:bg-blue-950/20">
+                          <p className="text-xs text-blue-700 dark:text-blue-400"><strong>Bootstrap env vars</strong> (must stay on Render — cannot be moved to dashboard): <code className="rounded bg-blue-100 dark:bg-blue-900 px-1">DATABASE_URL</code>, <code className="rounded bg-blue-100 dark:bg-blue-900 px-1">JWT_SECRET</code>, <code className="rounded bg-blue-100 dark:bg-blue-900 px-1">SESSION_SECRET</code>, <code className="rounded bg-blue-100 dark:bg-blue-900 px-1">SETTINGS_ENCRYPTION_KEY</code>. All other credentials can live here.</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>
+                )}
+              </TabsContent>
+            )}
+
             {/* Diagnostics Tab */}
             <TabsContent value="diagnostics" className="space-y-4">
               <Card>
@@ -3011,6 +4088,51 @@ export default function AdminSettings() {
           </div>
           </form>
         </div>
+
+        {/* ── Elevated Access Re-Authentication Dialog ─────────────────────── */}
+        <Dialog open={showElevatedAuthModal} onOpenChange={(open) => { if (!open) { setShowElevatedAuthModal(false); setElevatedAuthPassword(""); setPendingTab(null); } }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-amber-500" />
+                Identity Verification Required
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <p className="text-sm text-muted-foreground">
+                You are attempting to access sensitive platform credentials. Re-enter your Super Admin password to unlock access for <strong>15 minutes</strong>.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="elevated-auth-password">Super Admin Password</Label>
+                <Input
+                  id="elevated-auth-password"
+                  type="password"
+                  placeholder="Enter your password"
+                  value={elevatedAuthPassword}
+                  onChange={(e) => setElevatedAuthPassword(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleElevatedVerify(); }}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={() => { setShowElevatedAuthModal(false); setElevatedAuthPassword(""); setPendingTab(null); }}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleElevatedVerify}
+                disabled={isVerifyingElevated || !elevatedAuthPassword.trim()}
+              >
+                {isVerifyingElevated ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying...</>
+                ) : (
+                  <><Lock className="mr-2 h-4 w-4" /> Verify & Unlock</>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* ─────────────────────────────────────────────────────────────────── */}
     </DashboardLayout>
   );
 }

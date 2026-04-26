@@ -350,7 +350,7 @@ export default function MultiVendorHome() {
                     {/* Advertisement — fills available height, splits evenly when stacked */}
                     {hasSidebarAd && (
                       <div
-                        className="overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 shadow-lg"
+                        className="overflow-hidden rounded-xl border border-gray-200 dark:border-white/10"
                         style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
                       >
                         <AdBanner position="sidebar" className="w-full h-full rounded-none border-0 flex-1" />
@@ -380,7 +380,7 @@ export default function MultiVendorHome() {
                     ))}
                   </div>
                 ) : filteredFeaturedProducts.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6" data-testid="grid-featured-products">
+                  <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`} data-testid="grid-featured-products">
                     {filteredFeaturedProducts.map((product) => (
                       <ProductCard
                         key={product.id}
@@ -421,7 +421,7 @@ export default function MultiVendorHome() {
                       ))}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
                       {filteredNewArrivalProducts.map((product) => (
                         <ProductCard
                           key={product.id}
@@ -453,7 +453,7 @@ export default function MultiVendorHome() {
                   <span className="text-sm text-gray-500 dark:text-blue-200/70">{filteredAllProducts.length} products</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6" data-testid="grid-all-products">
+                <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`} data-testid="grid-all-products">
                   {filteredAllProducts.map((product) => (
                     <ProductCard
                       key={product.id}
@@ -574,7 +574,6 @@ export default function MultiVendorHome() {
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
           border: 1px solid rgba(0, 0, 0, 0.08);
-          box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
         }
 
         .mv-glass-card:hover {
@@ -629,24 +628,24 @@ export default function MultiVendorHome() {
 
         .category-grid > * {
           flex: 0 0 auto;
-          width: 160px;
+          width: 185px;
         }
 
         .category-grid-expanded {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
           gap: 16px;
           padding-bottom: 8px;
         }
 
         @media (min-width: 640px) {
-          .category-grid > * { width: 200px; }
-          .category-grid-expanded { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+          .category-grid > * { width: 220px; }
+          .category-grid-expanded { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
         }
 
         @media (min-width: 1024px) {
-          .category-grid > * { width: 220px; }
-          .category-grid-expanded { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+          .category-grid > * { width: 245px; }
+          .category-grid-expanded { grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)); }
         }
 
         /* Dark Mode Override */
@@ -678,7 +677,6 @@ export default function MultiVendorHome() {
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
           border: 1px solid rgba(255, 255, 255, 0.04);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.02);
         }
 
         .dark .mv-glass-card:hover {

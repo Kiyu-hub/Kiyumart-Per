@@ -24,6 +24,13 @@ import {
   UserCheck,
   CreditCard,
   Activity,
+  Star,
+  Clock,
+  PackageCheck,
+  ScanLine,
+  Bug,
+  LineChart,
+  HeartPulse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -38,6 +45,25 @@ interface MenuItem {
   id: string;
   badge?: number | "dynamic" | "applications_dynamic" | "assignments_dynamic" | "issues_dynamic";
   separator?: boolean;
+  adminPermission?: keyof AdminPermissions;
+}
+
+interface AdminPermissions {
+  canManageUsers: boolean;
+  canManageProducts: boolean;
+  canManageOrders: boolean;
+  canManageStores: boolean;
+  canManageCategories: boolean;
+  canManageAdmins: boolean;
+  canEditPasswords: boolean;
+  canManageRoles: boolean;
+  canManagePlatformSettings: boolean;
+  canViewAnalytics: boolean;
+  canManagePromotions: boolean;
+  canManageReviews: boolean;
+  canManagePayouts: boolean;
+  canViewPayouts: boolean;
+  canManageFeatures: boolean;
 }
 
 interface DashboardSidebarProps {
@@ -57,59 +83,135 @@ interface CurrentUserPayload {
   roleFeatures?: Record<string, boolean>;
 }
 
+// Maps sidebar item IDs → the roleFeature key(s) that must be enabled for that item to show.
+// null  = always visible (no feature gate).
+// string = single feature key (visible if roleFeatures[key] !== false).
+// string[] = multiple keys (visible if AT LEAST ONE is !== false).
+const ROLE_ITEM_GATES: Partial<Record<string, Record<string, string | string[]>>> = {
+  admin: {
+    "categories": "categories.manage",
+    "products": "products.viewAll",
+    "orders": "orders.view",
+    "sellers": "users.view",
+    "riders": "users.view",
+    "users": "users.view",
+    "applications": "users.approve",
+    "zones": "maps.view",
+    "pickup-stations": "maps.view",
+    "pickup-verify": "manage_orders",
+    "delivery-tracking": "maps.view",
+    "messages": "messages.view",
+    "support": "support.view",
+    "system-activities": "analytics.view",
+    "analytics": "analytics.view",
+    "platform-earnings": "analytics.view",
+    "sellers-payouts": "analytics.view",
+    "riders-payouts": "analytics.view",
+    "promotions": "promotions.manage",
+    "manual-rider-assignment": "orders.manage",
+  },
+  seller: {
+    "media-library": ["products.create", "products.edit"],
+    "products": ["products.create", "products.edit", "products.delete"],
+    "categories": "categories.manage",
+    "orders": "orders.view",
+    "coupons": "promotions.manage",
+    "analytics": "analytics.view",
+    "payment-setup": "payouts.request",
+    "reviews": "reviews.manage",
+  },
+  rider: {
+    "deliveries": "deliveries.view",
+    "route": "maps.view",
+    "messages": "messages.view",
+    "support": "support.view",
+    "earnings": "earnings.view",
+  },
+  agent: {
+    "tickets": "support.view",
+    "customers": "users.view",
+    "messages": "messages.view",
+  },
+  buyer: {
+    "orders": "orders.view",
+    "wishlist": "wishlist.manage",
+    "support": "support.view",
+  },
+  pickup_agent: {
+    "support": "support.view",
+    "shift": "shifts.manage",
+  },
+};
+
+function isFeatureEnabled(gate: string | string[], features: Record<string, boolean>): boolean {
+  if (Array.isArray(gate)) {
+    return gate.some((k) => features[k] !== false);
+  }
+  return features[gate] !== false;
+}
+
 const menuItems: Record<string, MenuItem[]> = {
   super_admin: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: Truck, label: "Live Delivery", id: "delivery-tracking" },
-    { icon: Grid3x3, label: "Categories", id: "categories" },
-    { icon: ImagePlus, label: "Media Library", id: "media-library" },
-    { icon: Package, label: "Products", id: "products" },
-    { icon: ShoppingBag, label: "Orders", id: "orders" },
-    { icon: Users, label: "Users", id: "users" },
-    { icon: UserCog, label: "Sellers", id: "sellers" },
-    { icon: Truck, label: "Riders", id: "riders" },
-    { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment", badge: "assignments_dynamic" },
-    { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic" },
-    { icon: Shield, label: "Permissions", id: "permissions" },
-    { icon: MapPin, label: "Delivery Zones", id: "zones" },
-    { icon: MapPin, label: "Pickup Stations", id: "pickup-stations" },
+    { icon: Grid3x3, label: "Categories", id: "categories", adminPermission: "canManageCategories" },
+    { icon: ImagePlus, label: "Media Library", id: "media-library", adminPermission: "canManageProducts" },
+    { icon: Package, label: "Products", id: "products", adminPermission: "canManageProducts" },
+    { icon: ShoppingBag, label: "Orders", id: "orders", adminPermission: "canManageOrders" },
+    { icon: Users, label: "Users", id: "users", adminPermission: "canManageUsers" },
+    { icon: UserCog, label: "Sellers", id: "sellers", adminPermission: "canManageUsers" },
+    { icon: Truck, label: "Riders", id: "riders", adminPermission: "canManageUsers" },
+    { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment", badge: "assignments_dynamic", adminPermission: "canManageOrders" },
+    { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic", adminPermission: "canManageUsers" },
+    { icon: Shield, label: "Permissions", id: "permissions", adminPermission: "canManageFeatures" },
+    { icon: MapPin, label: "Delivery Zones", id: "zones", adminPermission: "canManagePlatformSettings" },
+    { icon: MapPin, label: "Pickup Stations", id: "pickup-stations", adminPermission: "canManagePlatformSettings" },
+    { icon: ScanLine, label: "Verify Pickup", id: "pickup-verify", adminPermission: "canManageOrders" },
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart", separator: true },
     { icon: ShoppingBag, label: "My Purchases", id: "my-purchases" },
     { icon: Heart, label: "My Wishlist", id: "my-wishlist" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: Activity, label: "Live Support", id: "live-support" },
-    { icon: Shield, label: "System Activities", id: "system-activities", badge: "issues_dynamic" },
-    { icon: BarChart3, label: "Analytics", id: "analytics" },
-    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
-    { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts" },
-    { icon: Truck, label: "Rider Payouts", id: "riders-payouts" },
-    { icon: Tag, label: "Promotions", id: "promotions" },
-    { icon: Settings, label: "Settings", id: "settings" },
+    { icon: Headphones, label: "Customer Support", id: "support" },
+    { icon: Shield, label: "System Activities", id: "system-activities", badge: "issues_dynamic", adminPermission: "canViewAnalytics" },
+    { icon: BarChart3, label: "Analytics", id: "analytics", adminPermission: "canViewAnalytics" },
+    { icon: LineChart, label: "Tracking & Analytics", id: "platform-analytics", adminPermission: "canViewAnalytics" },
+    { icon: Bug, label: "Error Monitoring", id: "sentry", adminPermission: "canViewAnalytics" },
+    { icon: HeartPulse, label: "Platform Health", id: "platform-health", adminPermission: "canViewAnalytics" },
+    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings", adminPermission: "canViewPayouts" },
+    { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts", adminPermission: "canManagePayouts" },
+    { icon: Truck, label: "Rider Payouts", id: "riders-payouts", adminPermission: "canManagePayouts" },
+    { icon: Tag, label: "Promotions", id: "promotions", adminPermission: "canManagePromotions" },
+    { icon: Settings, label: "Settings", id: "settings", adminPermission: "canManagePlatformSettings" },
   ],
-  admin : [
+  admin: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
-    { icon: Grid3x3, label: "Categories", id: "categories" },
-    { icon: Package, label: "Products", id: "products" },
-    { icon: ShoppingBag, label: "Orders", id: "orders" },
-    { icon: UserCog, label: "Sellers", id: "sellers" },
-    { icon: Truck, label: "Riders", id: "riders" },
-    { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment", badge: "assignments_dynamic" },
-    { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic" },
-    { icon: MapPin, label: "Delivery Zones", id: "zones" },
-    { icon: MapPin, label: "Pickup Stations", id: "pickup-stations" },
+    { icon: Grid3x3, label: "Categories", id: "categories", adminPermission: "canManageCategories" },
+    { icon: Package, label: "Products", id: "products", adminPermission: "canManageProducts" },
+    { icon: ShoppingBag, label: "Orders", id: "orders", adminPermission: "canManageOrders" },
+    { icon: UserCog, label: "Sellers", id: "sellers", adminPermission: "canManageUsers" },
+    { icon: Truck, label: "Riders", id: "riders", adminPermission: "canManageUsers" },
+    { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment", badge: "assignments_dynamic", adminPermission: "canManageOrders" },
+    { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic", adminPermission: "canManageUsers" },
+    { icon: MapPin, label: "Delivery Zones", id: "zones", adminPermission: "canManagePlatformSettings" },
+    { icon: MapPin, label: "Pickup Stations", id: "pickup-stations", adminPermission: "canManagePlatformSettings" },
+    { icon: ScanLine, label: "Verify Pickup", id: "pickup-verify", adminPermission: "canManageOrders" },
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart", separator: true },
     { icon: ShoppingBag, label: "My Purchases", id: "my-purchases" },
     { icon: Heart, label: "My Wishlist", id: "my-wishlist" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
-    { icon: Activity, label: "Live Support", id: "live-support" },
-    { icon: Shield, label: "System Activities", id: "system-activities", badge: "issues_dynamic" },
-    { icon: BarChart3, label: "Analytics", id: "analytics" },
-    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings" },
-    { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts" },
-    { icon: Truck, label: "Rider Payouts", id: "riders-payouts" },
-    { icon: Tag, label: "Promotions", id: "promotions" },
+    { icon: Headphones, label: "Customer Support", id: "support" },
+    { icon: Shield, label: "System Activities", id: "system-activities", badge: "issues_dynamic", adminPermission: "canViewAnalytics" },
+    { icon: BarChart3, label: "Analytics", id: "analytics", adminPermission: "canViewAnalytics" },
+    { icon: LineChart, label: "Tracking & Analytics", id: "platform-analytics", adminPermission: "canViewAnalytics" },
+    { icon: Bug, label: "Error Monitoring", id: "sentry", adminPermission: "canViewAnalytics" },
+    { icon: HeartPulse, label: "Platform Health", id: "platform-health", adminPermission: "canViewAnalytics" },
+    { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings", adminPermission: "canViewPayouts" },
+    { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts", adminPermission: "canManagePayouts" },
+    { icon: Truck, label: "Rider Payouts", id: "riders-payouts", adminPermission: "canManagePayouts" },
+    { icon: Tag, label: "Promotions", id: "promotions", adminPermission: "canManagePromotions" },
   ],
   seller: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
@@ -124,6 +226,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: ShoppingCart, label: "Shopping Cart", id: "my-cart" },
     { icon: ShoppingBag, label: "My Purchases", id: "my-purchases" },
     { icon: Heart, label: "My Wishlist", id: "my-wishlist" },
+    { icon: Star, label: "Ratings & Reviews", id: "reviews" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: Headphones, label: "Support", id: "support" },
@@ -145,7 +248,10 @@ const menuItems: Record<string, MenuItem[]> = {
   ],
   pickup_agent: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
-    { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic" },
+    { icon: PackageCheck, label: "Verify Pickup", id: "verify" },
+    { icon: BarChart3, label: "Performance", id: "earnings" },
+    { icon: Clock, label: "Shift Management", id: "shift" },
+    { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: Headphones, label: "Support", id: "support" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
@@ -220,6 +326,19 @@ export default function DashboardSidebar({
     staleTime: 0,
     refetchInterval: 15000,
     refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+  });
+
+  const isAdminRole = normalizedRole === "admin" || normalizedRole === "super_admin";
+  const { data: adminPerms } = useQuery<AdminPermissions>({
+    queryKey: ["/api/admin/my-permissions"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/my-permissions", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: isAdminRole,
+    staleTime: 60_000,
     refetchOnWindowFocus: true,
   });
 
@@ -299,44 +418,52 @@ export default function DashboardSidebar({
       currentUser?.isActive === false;
 
     if (isRestrictedInactiveAccount) {
-      return [
-        { icon: Headphones, label: "Support", id: "support" },
-      ] as MenuItem[];
+      return [{ icon: Headphones, label: "Support", id: "support" }] as MenuItem[];
     }
 
     const roleFeatures = currentUser?.roleFeatures || {};
-    const canViewMaps = normalizedRole === "rider" ? true : roleFeatures["maps.view"] !== false;
-    const canViewMessages = roleFeatures["messages.view"] === true;
-    const canManagePromotions = roleFeatures["promotions.manage"] !== false;
-    return items
-      .filter((item) => {
+    const roleGates = normalizedRole !== "super_admin" ? (ROLE_ITEM_GATES[normalizedRole] || {}) : {};
+
+    return items.filter((item) => {
+      // Hide internal-rider-only nav items when in external delivery mode
       if (
         !showInternalRiderFeatures &&
         (normalizedRole === "admin" || normalizedRole === "super_admin") &&
-        (
-          item.id === "riders" ||
-          item.id === "delivery-tracking" ||
-          item.id === "manual-rider-assignment" ||
-          item.id === "riders-payouts" ||
-          item.id === "zones"
-        )
+        ["riders", "delivery-tracking", "manual-rider-assignment", "riders-payouts", "zones"].includes(item.id)
       ) {
         return false;
       }
-      if (!canViewMaps) {
-        if (item.id === "delivery-tracking") return false;
-      }
-      if (normalizedRole === "seller" && item.id === "deliveries" && !showInternalRiderFeatures) {
-        return false;
-      }
+
+      // Seller: messages vs support are mutually exclusive based on platform setting
       if (normalizedRole === "seller" && item.id === "messages") {
-        return canViewMessages && allowSellerDirectSupportMessages;
+        return roleFeatures["messages.view"] !== false && allowSellerDirectSupportMessages;
       }
       if (normalizedRole === "seller" && item.id === "support") {
-        return !allowSellerDirectSupportMessages;
+        return roleFeatures["support.view"] !== false && !allowSellerDirectSupportMessages;
       }
-      if (item.id === "messages") return canViewMessages;
-      if (normalizedRole === "seller" && item.id === "promotions") return canManagePromotions && isMultiVendor;
+      // Seller: deliveries only in internal rider mode
+      if (normalizedRole === "seller" && item.id === "deliveries") {
+        return roleFeatures["deliveries.view"] !== false && showInternalRiderFeatures;
+      }
+      // Seller: promotions only in multi-vendor mode
+      if (normalizedRole === "seller" && item.id === "promotions") {
+        return roleFeatures["promotions.manage"] !== false && isMultiVendor;
+      }
+
+      // Apply feature gate from ROLE_ITEM_GATES (skipped for super_admin)
+      if (normalizedRole !== "super_admin") {
+        const gate = roleGates[item.id];
+        if (gate !== undefined && !isFeatureEnabled(gate, roleFeatures)) {
+          return false;
+        }
+      }
+
+      // For admin role: hide items where the admin's individual permission is off.
+      // Super admin always sees all items.
+      if (normalizedRole === "admin" && item.adminPermission && adminPerms) {
+        if (!adminPerms[item.adminPermission]) return false;
+      }
+
       return true;
     });
   })();

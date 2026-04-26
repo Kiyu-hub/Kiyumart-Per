@@ -82,13 +82,13 @@ export default function HeroCarousel() {
 
   if (!platformSettings) {
     return (
-      <div className="relative h-[400px] md:h-[500px] w-full bg-gradient-to-r from-primary/20 to-primary/10 rounded-lg" />
+      <div className="relative h-[400px] md:h-[500px] w-full bg-gradient-to-r from-primary/20 to-primary/10" />
     );
   }
 
   if (isLoading || effectiveBanners.length === 0) {
     return (
-      <div className="relative h-[400px] md:h-[500px] w-full bg-gradient-to-r from-primary/20 to-primary/10 rounded-lg" />
+      <div className="relative h-[400px] md:h-[500px] w-full bg-gradient-to-r from-primary/20 to-primary/10" />
     );
   }
 
@@ -109,7 +109,7 @@ export default function HeroCarousel() {
       <CarouselContent>
         {effectiveBanners.map((banner) => (
           <CarouselItem key={banner.id}>
-            <Card className="overflow-hidden border-0">
+            <Card className="overflow-hidden border-0 rounded-none">
               <div className="relative h-[400px] md:h-[500px] w-full">
                 <img
                   src={banner.image}

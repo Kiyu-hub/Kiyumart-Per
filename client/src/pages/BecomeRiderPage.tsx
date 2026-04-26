@@ -78,7 +78,7 @@ type BecomeRiderFormData = z.infer<typeof becomeRiderSchema>;
 export default function BecomeRiderPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const isLoggedIn = !!user;
   const currentRole = String(user?.role || "").toLowerCase();
   const currentRequestedRole = String((user as any)?.requestedRole || "").toLowerCase();
@@ -108,6 +108,12 @@ export default function BecomeRiderPage() {
   const [profilePreview, setProfilePreview] = useState<string>("");
   const [cardFrontPreview, setCardFrontPreview] = useState<string>("");
   const [cardBackPreview, setCardBackPreview] = useState<string>("");
+
+  useEffect(() => {
+    if (!authLoading && !isLoggedIn) {
+      navigate(`/auth?redirect=${encodeURIComponent("/become-rider")}`);
+    }
+  }, [authLoading, isLoggedIn, navigate]);
 
   const form = useForm<BecomeRiderFormData>({
     resolver: zodResolver(becomeRiderSchema),
@@ -382,7 +388,7 @@ export default function BecomeRiderPage() {
             </Dialog>
           )}
 
-          {!applicationGate && (
+          {!authLoading && isLoggedIn && !applicationGate && (
           <Card>
             <CardHeader>
               <div className="flex items-center gap-3">

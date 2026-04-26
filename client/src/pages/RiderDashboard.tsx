@@ -1,6 +1,6 @@
 import { useEffect, lazy, Suspense } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -8,8 +8,12 @@ import MetricCard from "@/components/MetricCard";
 import OrderCard from "@/components/OrderCard";
 import OrderStatusTimeline from "@/components/OrderStatusTimeline";
 import TrackingMetricsPanel from "@/components/TrackingMetricsPanel";
-import { Card } from "@/components/ui/card";
-import { DollarSign, Package, MapPin, Star, Loader2 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
+import { DollarSign, Package, MapPin, Star, Loader2, TrendingUp, Calendar } from "lucide-react";
 
 const RiderLiveMap = lazy(() => import("@/components/RiderLiveMap"));
 
@@ -44,6 +48,7 @@ interface RiderEarningsPayload {
   thisMonth: string;
   today: string;
   deliveriesCompleted: number;
+  history?: Array<{ deliveryId: string; orderId: string | null; date: string | null; amount: string; currency: string; status: string }>;
 }
 
 const ACTIVE_DELIVERY_STATUSES = new Set([
@@ -61,6 +66,7 @@ export default function RiderDashboard() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== "rider")) {
@@ -79,7 +85,7 @@ export default function RiderDashboard() {
     refetchInterval: 10000,
   });
 
-  const { data: earnings } = useQuery<RiderEarningsPayload>({
+  const { data: earnings, refetch: refetchEarnings } = useQuery<RiderEarningsPayload>({
     queryKey: ["/api/rider/earnings"],
     queryFn: async () => {
       const res = await fetch("/api/rider/earnings", { credentials: "include" });
@@ -87,6 +93,40 @@ export default function RiderDashboard() {
       return res.json();
     },
     enabled: isAuthenticated && user?.role === "rider",
+    refetchInterval: 30000,
+  });
+
+  const { data: riderSettings, refetch: refetchSettings } = useQuery<{ riderOnline: boolean }>({
+    queryKey: ["/api/rider/settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/rider/settings", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch rider settings");
+      return res.json();
+    },
+    enabled: isAuthenticated && user?.role === "rider",
+  });
+
+  const goOnlineMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/rider/availability", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ online: true }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Failed to update availability");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rider/settings"] });
+      toast({ title: "You are online", description: "You are now available for delivery assignments." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not update availability", description: error?.message, variant: "destructive" });
+    },
   });
 
   if (authLoading || !isAuthenticated || user?.role !== "rider") {
@@ -110,9 +150,29 @@ export default function RiderDashboard() {
           </div>
         ) : (
           <>
-            <div className="mb-6 flex items-center justify-end">
-              <div className="rounded-lg border px-4 py-2 text-sm text-muted-foreground">
-                Availability: Always online for assignments
+            {/* Availability + welcome bar */}
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Welcome back, {user?.name?.split(" ")[0] || "Rider"}</p>
+                <p className="text-xs text-muted-foreground">
+                  This month: <strong>{formatPrice(Number(earnings?.thisMonth || 0))}</strong> · All time: <strong>{formatPrice(Number(earnings?.total || 0))}</strong>
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {riderSettings?.riderOnline !== false ? (
+                  <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-white animate-pulse inline-block" />
+                    Online — Available
+                  </Badge>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="gap-1.5">Offline</Badge>
+                    <Button size="sm" onClick={() => goOnlineMutation.mutate()} disabled={goOnlineMutation.isPending}>
+                      {goOnlineMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                      Go Online
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -123,9 +183,9 @@ export default function RiderDashboard() {
                 icon={DollarSign}
               />
               <MetricCard
-                title="Completed Deliveries"
-                value={String(earnings?.deliveriesCompleted || 0)}
-                icon={Package}
+                title="This Month"
+                value={formatPrice(Number(earnings?.thisMonth || 0))}
+                icon={TrendingUp}
               />
               <MetricCard
                 title="Active Deliveries"
@@ -138,6 +198,45 @@ export default function RiderDashboard() {
                 icon={Star}
               />
             </div>
+
+            {/* Metrics explainer */}
+            <Card className="border-border/60 bg-card/95">
+              <details>
+                <summary className="cursor-pointer list-none px-6 py-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold">Dashboard Metrics Explained</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Expand to understand what each number means</p>
+                    </div>
+                    <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+                  </div>
+                </summary>
+                <CardContent className="pt-0">
+                  <div className="grid gap-3 sm:grid-cols-2 mt-2 text-sm">
+                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                      <p className="font-medium mb-1">Today's Earnings</p>
+                      <p className="text-muted-foreground text-xs">Your total confirmed earnings for today based on completed deliveries.</p>
+                    </div>
+                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                      <p className="font-medium mb-1">This Month</p>
+                      <p className="text-muted-foreground text-xs">Cumulative earnings in the current calendar month across all completed deliveries.</p>
+                    </div>
+                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                      <p className="font-medium mb-1">Active Deliveries</p>
+                      <p className="text-muted-foreground text-xs">Orders currently assigned to you that are not yet delivered (searching, assigned, in transit, etc.).</p>
+                    </div>
+                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                      <p className="font-medium mb-1">Rating</p>
+                      <p className="text-muted-foreground text-xs">Your average rating from customers based on completed deliveries. Higher ratings improve your assignment priority.</p>
+                    </div>
+                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3 sm:col-span-2">
+                      <p className="font-medium mb-1">Availability & Assignments</p>
+                      <p className="text-muted-foreground text-xs">The platform keeps you online and available for assignments. Delivery jobs are automatically sent to you based on your location and active status. Your earnings are updated automatically after each completed delivery.</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </details>
+            </Card>
 
             <div className="mt-6">
               <TrackingMetricsPanel role="rider" title="Live Route Intelligence" />
@@ -202,6 +301,43 @@ export default function RiderDashboard() {
                 )}
               </div>
             </div>
+
+            {/* Earnings history */}
+            {earnings?.history && earnings.history.length > 0 && (
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold">Recent Earnings</h2>
+                  <Button variant="outline" size="sm" onClick={() => navigate("/rider/earnings")}>
+                    View All
+                  </Button>
+                </div>
+                <Card>
+                  <CardContent className="p-0">
+                    <div className="divide-y divide-border">
+                      {earnings.history.slice(0, 8).map((entry, idx) => (
+                        <div key={entry.deliveryId || idx} className="flex items-center justify-between px-5 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                              <Calendar className="h-4 w-4 text-emerald-500" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Delivery completed</p>
+                              <p className="text-xs text-muted-foreground">
+                                {entry.date ? new Date(entry.date).toLocaleDateString() : "Date unavailable"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-emerald-600">{formatPrice(Number(entry.amount || 0))}</p>
+                            <Badge variant="outline" className="text-xs capitalize">{entry.status}</Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </>
         )}
       </div>

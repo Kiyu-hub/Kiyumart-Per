@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useMemo } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import DashboardSidebar from "./DashboardSidebar";
 import BackButton from "./BackButton";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import ThemeToggle from "@/components/ThemeToggle";
-import { ShieldAlert } from "lucide-react";
+import { ShieldAlert, Menu, X } from "lucide-react";
 
 interface User {
   id: string;
@@ -53,6 +53,7 @@ const routeToMenuId: Record<string, string> = {
   "/admin/zones": "zones",
   "/admin/delivery-zones": "zones",
   "/admin/pickup-stations": "pickup-stations",
+  "/admin/pickup-verify": "pickup-verify",
   "/admin/delivery-tracking": "delivery-tracking",
   "/admin/manual-rider-assignment": "manual-rider-assignment",
   "/admin/notifications": "notifications",
@@ -60,6 +61,9 @@ const routeToMenuId: Record<string, string> = {
   "/admin/live-support": "live-support",
   "/admin/system-activities": "system-activities",
   "/admin/analytics": "analytics",
+  "/admin/platform-analytics": "platform-analytics",
+  "/admin/sentry": "sentry",
+  "/admin/platform-health": "platform-health",
   "/admin/platform-earnings": "platform-earnings",
   "/admin/settings": "settings",
   "/admin/promotions": "promotions",
@@ -79,11 +83,13 @@ const routeToMenuId: Record<string, string> = {
   "/seller/notifications": "notifications",
   "/seller/messages": "messages",
   "/seller/analytics": "analytics",
+  "/seller/reviews": "reviews",
   "/seller/platform-earnings": "platform-earnings",
   "/seller/payout": "payout",
   "/seller/payouts": "payout",
   "/seller/settings": "settings",
   "/buyer": "dashboard",
+  "/buyer/orders": "orders",
   "/orders": "orders",
   "/wishlist": "wishlist",
   "/cart": "my-cart",
@@ -98,6 +104,9 @@ const routeToMenuId: Record<string, string> = {
   "/rider/earnings": "earnings",
   "/rider/settings": "settings",
   "/pickup-agent": "dashboard",
+  "/pickup-agent/verify": "verify",
+  "/pickup-agent/earnings": "earnings",
+  "/pickup-agent/shift": "shift",
   "/pickup-agent/notifications": "notifications",
   "/pickup-agent/support": "support",
   "/pickup-agent/settings": "settings",
@@ -154,6 +163,7 @@ export default function DashboardLayout({
   showBackButton = true,
 }: DashboardLayoutProps) {
   const [location, setLocation] = useLocation();
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/me"],
@@ -231,7 +241,7 @@ export default function DashboardLayout({
     const isRiderMessagesRoute = normalizedRole === "rider" && location.startsWith("/rider/messages");
     if (!isSellerMessagesRoute && !isRiderMessagesRoute) return;
 
-    const canViewMessages = user.roleFeatures?.["messages.view"] === true;
+    const canViewMessages = user.roleFeatures?.["messages.view"] !== false;
     if (user.isActive !== false && !canViewMessages) {
       const basePath = roleBasePaths[normalizedRole] || "/";
       setLocation(basePath);
@@ -266,7 +276,9 @@ export default function DashboardLayout({
       setLocation("/wishlist");
     } else if (id === "support") {
       setLocation(normalizedRole === "pickup_agent" ? "/pickup-agent/support" : "/support");
-    } else if (normalizedRole === "buyer" && (id === "orders" || id === "wishlist" || id === "support" || id === "notifications" || id === "settings")) {
+    } else if (normalizedRole === "buyer" && id === "orders") {
+      setLocation("/buyer/orders");
+    } else if (normalizedRole === "buyer" && (id === "wishlist" || id === "support" || id === "notifications" || id === "settings")) {
       // Buyer uses global routes for these pages
       setLocation(`/${id}`);
     } else {
@@ -276,25 +288,69 @@ export default function DashboardLayout({
   const fallbackRoute = roleBasePaths[normalizedRole] || "/";
   const isDashboardHome = location === fallbackRoute;
 
+  const closeMobileSidebar = () => setIsMobileOpen(false);
+
   return (
-    <div className="flex h-screen bg-background" data-dashboard-surface>
-      <DashboardSidebar
-        role={normalizedRole as any}
-        activeItem={activeItem}
-        onItemClick={handleItemClick}
-        userName={user?.name || "User"}
-        userProfileImage={user?.profileImage}
-      />
-      
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="border-b bg-card px-6 py-4">
+    <div className="flex h-screen bg-background overflow-hidden" data-dashboard-surface>
+      {/* Desktop sidebar — always visible on md+ */}
+      <div className="hidden md:flex">
+        <DashboardSidebar
+          role={normalizedRole as any}
+          activeItem={activeItem}
+          onItemClick={handleItemClick}
+          userName={user?.name || "User"}
+          userProfileImage={user?.profileImage}
+        />
+      </div>
+
+      {/* Mobile sidebar overlay */}
+      {isMobileOpen && (
+        <div
+          className="mobile-sidebar-overlay md:hidden"
+          onClick={closeMobileSidebar}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Mobile sidebar panel */}
+      {isMobileOpen && (
+        <div className="mobile-sidebar-panel md:hidden bg-card shadow-2xl">
+          <button
+            onClick={closeMobileSidebar}
+            className="absolute top-4 right-3 z-10 p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            aria-label="Close menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <DashboardSidebar
+            role={normalizedRole as any}
+            activeItem={activeItem}
+            onItemClick={(id) => { handleItemClick(id); closeMobileSidebar(); }}
+            userName={user?.name || "User"}
+            userProfileImage={user?.profileImage}
+          />
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <header className="border-b bg-card px-4 md:px-6 py-3 md:py-4">
           <div className="flex items-center justify-between gap-4">
-            <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
-              {pageTitle}
-            </h1>
+            <div className="flex items-center gap-3">
+              {/* Hamburger — mobile only */}
+              <button
+                className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                onClick={() => setIsMobileOpen(true)}
+                aria-label="Open menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <h1 className="text-xl md:text-2xl font-bold truncate" data-testid="text-dashboard-title">
+                {pageTitle}
+              </h1>
+            </div>
             <div className="flex items-center gap-2">
               <ThemeToggle />
-              <Button variant="outline" onClick={() => setLocation("/")} data-testid="button-shop">
+              <Button variant="outline" size="sm" onClick={() => setLocation("/")} data-testid="button-shop" className="hidden sm:inline-flex">
                 Shop
               </Button>
             </div>

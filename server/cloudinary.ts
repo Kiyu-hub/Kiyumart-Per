@@ -2,6 +2,7 @@ import { v2 as cloudinary } from "cloudinary";
 import { Readable } from "stream";
 import { storage } from "./storage";
 import sharp from "sharp";
+import { decryptField } from "./utils/sensitiveEncrypt";
 
 // Initialize with environment variables as default
 cloudinary.config({
@@ -11,17 +12,27 @@ cloudinary.config({
 });
 
 // Cache configuration to avoid repeated DB queries (FREE TIER OPTIMIZATION)
+interface CloudinaryAccountConfig {
+  cloud_name: string;
+  api_key: string;
+  api_secret: string;
+}
+
+export interface CloudinaryAccountEntry {
+  label: string;
+  cloudName: string;
+  apiKey: string;
+  apiSecret: string;
+}
+
 interface CachedConfig {
   timestamp: number;
-  config: {
-    cloud_name: string;
-    api_key: string;
-    api_secret: string;
-  };
+  accounts: CloudinaryAccountConfig[];
 }
 
 const CONFIG_CACHE_TTL_MS = 3600000; // 1 hour
 let configCache: CachedConfig | null = null;
+let rotationCounter = 0;
 
 const isMaskedCloudinaryValue = (value?: string | null) => {
   const normalized = String(value || "").trim();
@@ -30,40 +41,58 @@ const isMaskedCloudinaryValue = (value?: string | null) => {
   return bulletOnly.length === 0;
 };
 
-const resolveCloudinaryConfig = (settings: {
+const isValidAccount = (cfg: CloudinaryAccountConfig) =>
+  Boolean(cfg.cloud_name && cfg.api_key && cfg.api_secret &&
+    !isMaskedCloudinaryValue(cfg.cloud_name) &&
+    !isMaskedCloudinaryValue(cfg.api_key) &&
+    !isMaskedCloudinaryValue(cfg.api_secret));
+
+const resolveAllCloudinaryAccounts = (settings: {
   cloudinaryCloudName?: string | null;
   cloudinaryApiKey?: string | null;
   cloudinaryApiSecret?: string | null;
-} | null | undefined) => {
-  const configuredCloudName = String(settings?.cloudinaryCloudName || "").trim();
-  const configuredApiKey = String(settings?.cloudinaryApiKey || "").trim();
-  const configuredApiSecret = String(settings?.cloudinaryApiSecret || "").trim();
+  cloudinaryAccounts?: string | null;
+} | null | undefined): CloudinaryAccountConfig[] => {
+  const accounts: CloudinaryAccountConfig[] = [];
 
-  const envCloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim();
-  const envApiKey = String(process.env.CLOUDINARY_API_KEY || "").trim();
-  const envApiSecret = String(process.env.CLOUDINARY_API_SECRET || "").trim();
+  // Primary account from DB settings
+  const primaryCfg: CloudinaryAccountConfig = {
+    cloud_name: String(settings?.cloudinaryCloudName || "").trim(),
+    api_key: String(settings?.cloudinaryApiKey || "").trim(),
+    api_secret: decryptField(String(settings?.cloudinaryApiSecret || "").trim()),
+  };
+  if (isValidAccount(primaryCfg)) accounts.push(primaryCfg);
 
-  const settingsValid =
-    configuredCloudName &&
-    configuredApiKey &&
-    configuredApiSecret &&
-    !isMaskedCloudinaryValue(configuredCloudName) &&
-    !isMaskedCloudinaryValue(configuredApiKey) &&
-    !isMaskedCloudinaryValue(configuredApiSecret);
-
-  if (settingsValid) {
-    return {
-      cloud_name: configuredCloudName,
-      api_key: configuredApiKey,
-      api_secret: configuredApiSecret,
-    };
+  // Additional accounts from JSON array
+  if (settings?.cloudinaryAccounts) {
+    try {
+      const extras: CloudinaryAccountEntry[] = JSON.parse(settings.cloudinaryAccounts);
+      if (Array.isArray(extras)) {
+        for (const extra of extras) {
+          const cfg: CloudinaryAccountConfig = {
+            cloud_name: String(extra.cloudName || "").trim(),
+            api_key: String(extra.apiKey || "").trim(),
+            api_secret: decryptField(String(extra.apiSecret || "").trim()),
+          };
+          if (isValidAccount(cfg)) accounts.push(cfg);
+        }
+      }
+    } catch {
+      // invalid JSON — ignore extra accounts
+    }
   }
 
-  return {
-    cloud_name: envCloudName,
-    api_key: envApiKey,
-    api_secret: envApiSecret,
-  };
+  // Fallback to env vars if no valid DB accounts
+  if (accounts.length === 0) {
+    const envCfg: CloudinaryAccountConfig = {
+      cloud_name: String(process.env.CLOUDINARY_CLOUD_NAME || "").trim(),
+      api_key: String(process.env.CLOUDINARY_API_KEY || "").trim(),
+      api_secret: String(process.env.CLOUDINARY_API_SECRET || "").trim(),
+    };
+    if (isValidAccount(envCfg)) accounts.push(envCfg);
+  }
+
+  return accounts;
 };
 
 export function resetCloudinaryConfigCache() {
@@ -80,29 +109,29 @@ function useEnvCloudinaryConfig() {
   return config;
 }
 
-// Helper function to configure cloudinary with database settings or env vars
+// Helper function to configure cloudinary with round-robin account rotation
 async function ensureCloudinaryConfig() {
   const now = Date.now();
-  
-  // Return cached config if valid (SAVES ~50 API CALLS/DAY)
+
+  // Return from cache if still fresh (SAVES ~50 API CALLS/DAY)
   if (configCache && (now - configCache.timestamp) < CONFIG_CACHE_TTL_MS) {
-    cloudinary.config(configCache.config);
+    const accounts = configCache.accounts;
+    if (accounts.length > 0) {
+      cloudinary.config(accounts[rotationCounter % accounts.length]);
+    }
     return;
   }
-  
+
   try {
     const settings = await storage.getPlatformSettings();
-    const config = resolveCloudinaryConfig(settings);
-    
-    // Update cache
-    configCache = {
-      timestamp: now,
-      config
-    };
-    
-    cloudinary.config(config);
+    const accounts = resolveAllCloudinaryAccounts(settings as any);
+
+    configCache = { timestamp: now, accounts };
+
+    if (accounts.length > 0) {
+      cloudinary.config(accounts[rotationCounter % accounts.length]);
+    }
   } catch (error) {
-    // If database query fails, keep using env vars (use last cached or env)
     console.error("Failed to load Cloudinary config from database, using cached/env:", error);
     if (!configCache) {
       cloudinary.config({
@@ -202,7 +231,9 @@ export async function uploadToCloudinary(
   });
 
   try {
-    return await performUpload();
+    const result = await performUpload();
+    rotationCounter++; // advance to next account for next upload
+    return result;
   } catch (error: any) {
     if (/invalid signature/i.test(String(error?.message || ""))) {
       resetCloudinaryConfigCache();

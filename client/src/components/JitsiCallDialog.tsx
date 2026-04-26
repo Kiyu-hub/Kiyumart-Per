@@ -24,7 +24,6 @@ import {
   VideoOff,
   Mic,
   MicOff,
-  MessageSquare,
   Users,
   Settings,
   LayoutGrid,
@@ -97,14 +96,11 @@ export function JitsiCallDialog({
       "fodeviceselection",
       "videoquality",
       "fullscreen",
-      "chat",
       "participants-pane",
       "raisehand",
       "tileview",
       "filmstrip",
       "settings",
-      "profile",
-      "shortcuts",
       "select-background",
       "hangup",
       ...(jitsiConfig?.isModerator
@@ -216,18 +212,15 @@ export function JitsiCallDialog({
             enableClosePage: false,
             enableLobbyChat: false,
             disableLobbyPassword: true,
-            lobby: {
-              enabled: false,
-              autoKnock: false,
-            },
+            lobby: { enabled: false, autoKnock: false },
             startWithAudioMuted: false,
             startWithVideoMuted: callType === "voice",
             startAudioOnly: callType === "voice",
             disableInviteFunctions: true,
             hideLobbyButton: true,
-            toolbarConfig: {
-              alwaysVisible: true,
-            },
+            disableThirdPartyRequests: true,
+            p2p: { enabled: false },
+            toolbarConfig: { alwaysVisible: true },
             toolbarButtons: fullToolbarButtons,
             ...(jitsiConfig?.configOverwrite || {}),
           },
@@ -239,6 +232,11 @@ export function JitsiCallDialog({
             MOBILE_APP_PROMO: false,
             DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
             TOOLBAR_ALWAYS_VISIBLE: true,
+            SHOW_CHROME_EXTENSION_BANNER: false,
+            DISPLAY_WELCOME_FOOTER: false,
+            HIDE_INVITE_MORE_HEADER: true,
+            GENERATE_ROOMNAMES_ON_WELCOME_PAGE: false,
+            ENFORCE_NOTIFICATION_AUTO_DISMISS_TIMEOUT: 5000,
             DEFAULT_REMOTE_DISPLAY_NAME: "Participant",
             DEFAULT_LOCAL_DISPLAY_NAME: jitsiConfig?.userInfo?.displayName || "You",
             TOOLBAR_BUTTONS: fullToolbarButtons,
@@ -435,16 +433,6 @@ export function JitsiCallDialog({
               title={isVideoMuted ? "Turn camera on" : "Turn camera off"}
             >
               {isVideoMuted ? <VideoOff className="h-4.5 w-4.5" /> : <Video className="h-4.5 w-4.5" />}
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => runCommand("toggleChat")}
-              disabled={!conferenceJoined}
-              className="h-11 w-11 rounded-full border-white/25 bg-black/55 text-white hover:bg-green-600 hover:text-white hover:border-green-600 backdrop-blur-sm"
-              title="Chat"
-            >
-              <MessageSquare className="h-4.5 w-4.5" />
             </Button>
             <Button
               variant="outline"

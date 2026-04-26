@@ -244,7 +244,7 @@ export default function Footer() {
   const generalPages = groupedPages['general'] || [];
 
   return (
-    <footer className="bg-gradient-to-b from-card to-card/95 border-t mt-16">
+    <footer className="hidden md:block bg-gradient-to-b from-card to-card/95 border-t mt-16">
       {/* Trust Bar */}
       <div className="border-b bg-muted/30">
         <div className="max-w-7xl mx-auto px-4 py-6">

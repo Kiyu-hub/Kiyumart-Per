@@ -366,25 +366,25 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       });
     });
 
-    // General Notifications
+    // General Notifications — handles all platform push events (orders, reminders, interviews, payments, etc.)
     newSocket.on("notification", (data: {
       title: string;
       message: string;
       type?: "default" | "success" | "error" | "warning";
     }) => {
-      console.log("📬 General notification:", data);
       invalidatePlatformQueries();
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
-      
+
       toast({
         title: data.title,
         description: data.message,
         variant: data.type === "error" ? "destructive" : "default",
-        duration: 5000,
+        duration: 6000,
       });
-      showDeviceNotification(data.title, data.message, `notif-${data.type || "default"}`);
+      showDeviceNotification(data.title, data.message, `notif-${Date.now()}`);
       playNotificationSound();
     });
 

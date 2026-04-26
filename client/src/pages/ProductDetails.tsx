@@ -10,8 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Heart, ShoppingCart, Star, ArrowLeft, Minus, Plus, X, ChevronLeft, ChevronRight, Play, Check, Truck, CreditCard, ShieldCheck, BadgeCheck, Flame, Loader2 } from "lucide-react";
-import { FaWhatsapp } from "react-icons/fa";
+import { Heart, ShoppingCart, Star, ArrowLeft, Minus, Plus, X, ChevronLeft, ChevronRight, Play, Check, Truck, CreditCard, ShieldCheck, BadgeCheck, Flame, Loader2, Zap, Share2, Copy, CheckCheck } from "lucide-react";
+import { FaWhatsapp, FaTelegram, FaFacebook } from "react-icons/fa";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -643,6 +644,8 @@ export default function ProductDetails() {
   const [quantity, setQuantity] = useState(1);
   const [selectedVariantId, setSelectedVariantId] = useState<string>("");
   const [selectedSizeOption, setSelectedSizeOption] = useState("");
+  const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
   const [isImageExpanded, setIsImageExpanded] = useState(false);
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
@@ -1304,12 +1307,121 @@ export default function ProductDetails() {
     }
   };
 
+  const getShareableProductUrl = () => {
+    if (typeof window === "undefined") {
+      return `/product/${productId}`;
+    }
+
+    return `${window.location.origin}/product/${productId}`;
+  };
+
   const handleShareOnWhatsApp = () => {
     if (!product) return;
-    const productUrl = typeof window !== "undefined" ? window.location.href : `/product/${product.id}`;
-    const shareText = `Check this out on KiyuMart: ${product.name} - ${formatPrice(parseFloat(product.price))}`;
-    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareText}\n${productUrl}`)}`;
-    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+    const productUrl = getShareableProductUrl();
+    const shareText = `Check out *${product.name}* on KiyuMart — ${formatPrice(parseFloat(product.price))}\n${productUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank", "noopener,noreferrer");
+    setSharePopoverOpen(false);
+  };
+
+  const handleShareOnTelegram = () => {
+    if (!product) return;
+    const productUrl = getShareableProductUrl();
+    const shareText = `Check out ${product.name} on KiyuMart — ${formatPrice(parseFloat(product.price))}`;
+    window.open(`https://t.me/share/url?url=${encodeURIComponent(productUrl)}&text=${encodeURIComponent(shareText)}`, "_blank", "noopener,noreferrer");
+    setSharePopoverOpen(false);
+  };
+
+  const handleShareOnFacebook = () => {
+    if (!product) return;
+    const productUrl = getShareableProductUrl();
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(productUrl)}`, "_blank", "noopener,noreferrer");
+    setSharePopoverOpen(false);
+  };
+
+  const handleCopyLink = async () => {
+    if (!product) return;
+    const productUrl = getShareableProductUrl();
+    try {
+      await navigator.clipboard.writeText(productUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      toast({ title: "Copy failed", description: "Could not copy to clipboard.", variant: "destructive" });
+    }
+  };
+
+  const handleNativeShare = async () => {
+    if (!product) return;
+    const productUrl = getShareableProductUrl();
+    try {
+      await navigator.share({
+        title: product.name,
+        text: `Check out ${product.name} on KiyuMart — ${formatPrice(parseFloat(product.price))}`,
+        url: productUrl,
+      });
+      setSharePopoverOpen(false);
+    } catch {
+      // User cancelled or API unavailable — fall through silently
+    }
+  };
+
+  const handleBuyNow = async () => {
+    const activeUser = await ensureAuthenticated();
+    if (!activeUser) {
+      toast({
+        title: "Session expired",
+        description: "Please log in again to continue shopping.",
+        variant: "destructive",
+      });
+      navigate("/auth");
+      return;
+    }
+
+    if (isOwnSellerProduct) {
+      toast({
+        title: "Own product",
+        description: "You cannot buy your own product, but you can shop from other sellers.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!product?.isActive || availableStock <= 0) {
+      toast({
+        title: "Unavailable",
+        description: "This product is currently unavailable for checkout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!isCartStatePending && allAvailableItemsAlreadyInCart) {
+      navigate("/checkout");
+      return;
+    }
+
+    const safeQuantity = !isCartStatePending && remainingToAdd > 0
+      ? Math.min(Math.max(1, quantity), remainingToAdd)
+      : Math.max(1, quantity);
+
+    if (safeQuantity !== quantity) {
+      setQuantity(safeQuantity);
+    }
+
+    try {
+      const resolvedImageIndex = Math.max(0, selectedImage);
+      await addToCartMutation.mutateAsync({
+        productId,
+        quantity: safeQuantity,
+        variantId: selectedVariant?.id,
+        selectedColor: selectedColorGroup?.color || selectedVariant?.color || undefined,
+        selectedSize: selectedSize || undefined,
+        selectedImageIndex: resolvedImageIndex >= 0 ? resolvedImageIndex : 0,
+      });
+      navigate("/checkout");
+    } catch {
+      // Mutation toasts already explain the failure.
+    }
   };
 
   // ─── Loading State ──────────────────────────────────────
@@ -2165,12 +2277,12 @@ export default function ProductDetails() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-3">
+                <div className="flex flex-wrap items-stretch gap-3">
                   <Button
                     size="lg"
                     onClick={handleAddToCart}
                     disabled={!product.isActive || availableStock === 0 || allAvailableItemsAlreadyInCart || addToCartMutation.isPending || isOwnSellerProduct}
-                    className={`flex-1 h-14 rounded-xl text-base font-bold transition-all duration-300 shadow-xl hover:shadow-2xl
+                    className={`min-w-[220px] flex-1 h-14 rounded-xl text-base font-bold transition-all duration-300 shadow-xl hover:shadow-2xl
                       ${addedToCart 
                         ? 'bg-green-600 hover:bg-green-600 text-white scale-105' 
                         : 'hover:scale-[1.02] active:scale-[0.98] bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary'
@@ -2206,32 +2318,105 @@ export default function ProductDetails() {
                     type="button"
                     variant="outline"
                     size="lg"
+                    onClick={handleBuyNow}
+                    disabled={!product.isActive || availableStock === 0 || addToCartMutation.isPending || isOwnSellerProduct}
+                    className="h-14 min-w-[146px] rounded-xl border border-primary/30 bg-primary/8 px-5 text-sm font-semibold text-primary transition-all duration-300 hover:border-primary hover:bg-primary/12 hover:text-primary"
+                    style={{ boxSizing: 'border-box' }}
+                    data-testid="button-buy-now"
+                  >
+                    {addToCartMutation.isPending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Preparing...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="mr-2 h-4 w-4" />
+                        Buy Now
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
                     onClick={handleToggleWishlist}
                     disabled={addToWishlistMutation.isPending || removeFromWishlistMutation.isPending}
-                    className={`h-14 w-14 rounded-xl transition-all duration-300 hover:scale-110 active:scale-95 shadow-lg hover:shadow-xl border-2
-                      ${isWishlisted ? 'border-red-300 bg-red-50 dark:bg-red-950/30 text-red-500 hover:text-red-600 hover:border-red-400' : 'hover:border-primary/50'}`}
+                    className={`h-11 w-11 shrink-0 rounded-full border transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md
+                      ${isWishlisted ? 'border-primary/50 bg-primary/10 text-primary' : 'border-border/70 bg-background/80 text-muted-foreground hover:border-primary/40 hover:text-primary'}`}
                     style={{ boxSizing: 'border-box' }}
                     data-testid="button-wishlist"
                   >
                     {addToWishlistMutation.isPending || removeFromWishlistMutation.isPending ? (
-                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Heart className={`h-6 w-6 transition-all ${isWishlisted ? 'fill-current scale-110' : ''}`} />
+                      <Heart className={`h-4 w-4 transition-all ${isWishlisted ? 'fill-current scale-110' : ''}`} />
                     )}
-                    </Button>
-
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    onClick={handleShareOnWhatsApp}
-                    className="h-14 w-14 rounded-xl transition-all duration-300 hover:scale-110 active:scale-95 shadow-lg hover:shadow-xl border-2 text-[#25D366] hover:border-[#25D366]"
-                    style={{ boxSizing: 'border-box' }}
-                    data-testid="button-share-whatsapp"
-                    aria-label="Share product on WhatsApp"
-                    title="Share on WhatsApp"
-                  >
-                    <FaWhatsapp className="h-6 w-6" />
                   </Button>
+
+                  <Popover open={sharePopoverOpen} onOpenChange={setSharePopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-11 w-11 shrink-0 rounded-full border border-border/70 bg-background/80 text-muted-foreground transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary hover:shadow-md"
+                        style={{ boxSizing: 'border-box' }}
+                        data-testid="button-share"
+                        aria-label="Share product"
+                        title="Share product"
+                      >
+                        <Share2 className="h-4 w-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-56 p-2" align="end">
+                      <div className="space-y-0.5">
+                        <p className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Share this product</p>
+                        <button
+                          onClick={handleCopyLink}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-muted transition-colors"
+                          data-testid="share-copy-link"
+                        >
+                          {shareCopied ? <CheckCheck className="h-4 w-4 text-emerald-500 shrink-0" /> : <Copy className="h-4 w-4 text-muted-foreground shrink-0" />}
+                          <span>{shareCopied ? "Link copied!" : "Copy link"}</span>
+                        </button>
+                        <button
+                          onClick={handleShareOnWhatsApp}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-muted transition-colors"
+                          data-testid="share-whatsapp"
+                        >
+                          <FaWhatsapp className="h-4 w-4 text-[#25D366] shrink-0" />
+                          <span>WhatsApp</span>
+                        </button>
+                        <button
+                          onClick={handleShareOnTelegram}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-muted transition-colors"
+                          data-testid="share-telegram"
+                        >
+                          <FaTelegram className="h-4 w-4 text-[#0088cc] shrink-0" />
+                          <span>Telegram</span>
+                        </button>
+                        <button
+                          onClick={handleShareOnFacebook}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-muted transition-colors"
+                          data-testid="share-facebook"
+                        >
+                          <FaFacebook className="h-4 w-4 text-[#1877F2] shrink-0" />
+                          <span>Facebook</span>
+                        </button>
+                        {typeof navigator !== "undefined" && "share" in navigator && (
+                          <button
+                            onClick={handleNativeShare}
+                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-muted transition-colors"
+                            data-testid="share-native"
+                          >
+                            <Share2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <span>More options…</span>
+                          </button>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 {/* Product page ad placement / fallback information */}
@@ -2405,6 +2590,12 @@ export default function ProductDetails() {
               </div>
             </div>
           </section>
+        )}
+
+        {shouldShowProductPageAd && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <ProductPageAd />
+          </div>
         )}
 
         {/* ═══════ RELATED PRODUCTS ═══════ */}

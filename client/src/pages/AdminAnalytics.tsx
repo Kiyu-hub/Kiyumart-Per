@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
@@ -288,6 +288,7 @@ function LoadingSkeleton() {
 export default function AdminAnalytics() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const queryClient = useQueryClient();
   const { formatPrice } = useLanguage();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
@@ -315,7 +316,7 @@ export default function AdminAnalytics() {
   }, [today]);
   const defaultTo = useMemo(() => formatInputDate(today), [today]);
 
-  const [preset, setPreset] = useState<"7d" | "30d" | "90d" | "custom">("7d");
+  const [preset, setPreset] = useState<"7d" | "30d" | "90d" | "custom" | "all">("all");
   const [fromDate, setFromDate] = useState(defaultFrom);
   const [toDate, setToDate] = useState(defaultTo);
   const [methodFilter, setMethodFilter] = useState<"all" | Method>("all");
@@ -338,7 +339,7 @@ export default function AdminAnalytics() {
   }, [methodFilter, showInternalRiderFeatures]);
 
   useEffect(() => {
-    if (preset === "custom") return;
+    if (preset === "custom" || preset === "all") return;
     const end = new Date();
     const start = new Date(end);
     const days = preset === "7d" ? 6 : preset === "30d" ? 29 : 89;
@@ -374,9 +375,10 @@ export default function AdminAnalytics() {
   const { data: analytics, isLoading: aLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
     enabled: isAuthenticated && canView,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    refetchInterval: 20000,
+    staleTime: 55_000,
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
+    refetchInterval: 60_000,
   });
 
   const { data: orders = [], isLoading: oLoading } = useQuery<OrderRow[]>({
@@ -388,9 +390,10 @@ export default function AdminAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: isAuthenticated && canView,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    refetchInterval: 20000,
+    staleTime: 55_000,
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
+    refetchInterval: 60_000,
   });
 
   const { data: orderLedger = [], isLoading: ledgerLoading } = useQuery<OrderLedgerRow[]>({
@@ -402,9 +405,10 @@ export default function AdminAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: isAuthenticated && canView,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    refetchInterval: 20000,
+    staleTime: 55_000,
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
+    refetchInterval: 60_000,
   });
 
   const { data: zones = [] } = useQuery<Zone[]>({
@@ -416,8 +420,8 @@ export default function AdminAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: isAuthenticated && canView,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const userQuery = (roleName: string, enabled = true) => useQuery<LiteUser[]>({
@@ -446,10 +450,10 @@ export default function AdminAnalytics() {
   const admins = adminsQuery.data || [];
   const superAdmins = superAdminsQuery.data || [];
 
-  const { data: support } = useQuery<SupportAnalytics>({ queryKey: ["/api/support/analytics"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
-  const { data: health } = useQuery<SystemHealth>({ queryKey: ["/api/admin/system-health"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
-  const { data: messaging } = useQuery<MessagingStats>({ queryKey: ["/api/admin/messaging-stats"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 15000 });
-  const { data: revenueViews } = useQuery<any>({ queryKey: ["/api/admin/revenue/views/summary"], enabled: isAuthenticated && canView, staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 20000 });
+  const { data: support } = useQuery<SupportAnalytics>({ queryKey: ["/api/support/analytics"], enabled: isAuthenticated && canView, staleTime: 55_000, refetchOnWindowFocus: false, refetchIntervalInBackground: false, refetchInterval: 60_000 });
+  const { data: health } = useQuery<SystemHealth>({ queryKey: ["/api/admin/system-health"], enabled: isAuthenticated && canView, staleTime: 25_000, refetchOnWindowFocus: false, refetchIntervalInBackground: false, refetchInterval: 30_000 });
+  const { data: messaging } = useQuery<MessagingStats>({ queryKey: ["/api/admin/messaging-stats"], enabled: isAuthenticated && canView, staleTime: 25_000, refetchOnWindowFocus: false, refetchIntervalInBackground: false, refetchInterval: 30_000 });
+  const { data: revenueViews } = useQuery<any>({ queryKey: ["/api/admin/revenue/views/summary"], enabled: isAuthenticated && canView, staleTime: 55_000, refetchOnWindowFocus: false, refetchIntervalInBackground: false, refetchInterval: 60_000 });
   const { data: reportActivity = [], refetch: refetchReportActivity } = useQuery<ReportActivityRow[]>({
     queryKey: ["/api/reports/activity", "admin-analytics"],
     queryFn: async () => {
@@ -459,12 +463,14 @@ export default function AdminAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: isAuthenticated && canView,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    refetchInterval: 20000,
+    staleTime: 55_000,
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
+    refetchInterval: 60_000,
   });
 
   const [rangeStart, rangeEnd] = useMemo(() => {
+    if (preset === "all") return [new Date(0), new Date(8640000000000000)] as const;
     const end = toDate ? new Date(toDate) : new Date();
     end.setHours(23, 59, 59, 999);
     if (preset === "custom") {
@@ -761,7 +767,7 @@ export default function AdminAnalytics() {
 
   const refreshAll = () => {
     setIsRefreshing(true);
-    window.location.reload();
+    queryClient.invalidateQueries().finally(() => setIsRefreshing(false));
   };
 
   const exportCsv = async () => {
@@ -1166,9 +1172,9 @@ export default function AdminAnalytics() {
         <Card>
           <CardContent className="p-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-              <div className="space-y-1"><label className="text-xs text-muted-foreground">Date Range</label><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={preset} onChange={(e) => setPreset(e.target.value as any)}><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="90d">Last 90 days</option><option value="custom">Custom</option></select></div>
-              <div className="space-y-1"><label className="text-xs text-muted-foreground">From</label><input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="h-9 w-full rounded-md border bg-background px-2 text-sm" /></div>
-              <div className="space-y-1"><label className="text-xs text-muted-foreground">To</label><input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="h-9 w-full rounded-md border bg-background px-2 text-sm" /></div>
+              <div className="space-y-1"><label className="text-xs text-muted-foreground">Date Range</label><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={preset} onChange={(e) => setPreset(e.target.value as any)}><option value="all">All Time</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="90d">Last 90 days</option><option value="custom">Custom</option></select></div>
+              {preset !== "all" && <div className="space-y-1"><label className="text-xs text-muted-foreground">From</label><input type="date" value={fromDate} onChange={(e) => { setPreset("custom"); setFromDate(e.target.value); }} className="h-9 w-full rounded-md border bg-background px-2 text-sm" /></div>}
+              {preset !== "all" && <div className="space-y-1"><label className="text-xs text-muted-foreground">To</label><input type="date" value={toDate} onChange={(e) => { setPreset("custom"); setToDate(e.target.value); }} className="h-9 w-full rounded-md border bg-background px-2 text-sm" /></div>}
               <div className="space-y-1"><label className="text-xs text-muted-foreground">Delivery Method</label><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={methodFilter} onChange={(e) => setMethodFilter(e.target.value as any)}><option value="all">All</option>{showInternalRiderFeatures ? <option value="rider">Rider</option> : <option value="delivery">External Delivery</option>}<option value="bus">VIP Bus</option><option value="pickup">Pickup</option></select></div>
               {isSuperAdmin && showInternalRiderFeatures && <div className="space-y-1 md:col-span-2"><label className="text-xs text-muted-foreground">{locationEntityLabel}</label><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)}><option value="all">All {locationEntityLabelPlural}</option>{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}</select></div>}
             </div>

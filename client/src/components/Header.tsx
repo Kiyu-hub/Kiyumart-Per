@@ -2,6 +2,7 @@ import { Search, Menu, User, LayoutDashboard, ShoppingBag, Store as StoreIcon, T
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
+import { useState, useRef, useCallback } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -55,6 +56,23 @@ export default function Header({
     !isExternalRiderSystemEnabled;
 
   const isActive = (path: string) => location === path;
+  const isHomePage = location === "/" || location === "";
+  const [localSearchValue, setLocalSearchValue] = useState("");
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setLocalSearchValue(value);
+    if (isHomePage && onSearch) {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => onSearch(value), 150);
+    }
+  }, [isHomePage, onSearch]);
+
+  const handleSearchSubmit = useCallback((value: string) => {
+    const q = value.trim();
+    if (!q) return;
+    navigate(`/search?q=${encodeURIComponent(q)}`);
+  }, [navigate]);
 
   // Check if user has a dashboard role (super_admin, admin, seller, rider, pickup_agent, buyer, agent)
   const hasDashboard = user && ['super_admin', 'admin', 'seller', 'rider', 'pickup_agent', 'buyer', 'agent'].includes(user.role);
@@ -75,6 +93,9 @@ export default function Header({
     if (user?.role === 'buyer') return 'My Dashboard';
     return getDashboardRoleLabel(user?.role);
   };
+
+  const getApplicationPath = (path: "/become-seller" | "/become-rider") =>
+    isAuthenticated ? path : `/auth?redirect=${encodeURIComponent(path)}`;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background">
@@ -101,15 +122,17 @@ export default function Header({
           </div>
 
           <div className="hidden md:flex flex-1 max-w-xl mx-8">
-            <div className="relative w-full">
+            <form className="relative w-full" onSubmit={(e) => { e.preventDefault(); handleSearchSubmit(localSearchValue); }}>
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder={t("search")}
-                className="pl-10"
+                className="pl-10 pr-4"
                 data-testid="input-search"
-                onChange={(e) => onSearch?.(e.target.value)}
+                value={localSearchValue}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearchSubmit(localSearchValue); } }}
               />
-            </div>
+            </form>
           </div>
 
           <div className="flex items-center gap-2">
@@ -118,7 +141,7 @@ export default function Header({
                 variant="outline" 
                 size="sm"
                 className="hidden md:flex"
-                onClick={() => navigate("/become-seller")}
+                onClick={() => navigate(getApplicationPath("/become-seller"))}
                 data-testid="button-become-seller"
               >
                 <StoreIcon className="h-4 w-4 mr-2" />
@@ -131,7 +154,7 @@ export default function Header({
                 variant="outline" 
                 size="sm"
                 className="hidden md:flex"
-                onClick={() => navigate("/become-rider")}
+                onClick={() => navigate(getApplicationPath("/become-rider"))}
                 data-testid="button-become-rider"
               >
                 <Truck className="h-4 w-4 mr-2" />
@@ -212,15 +235,17 @@ export default function Header({
         </div>
 
         <div className="md:hidden mt-3 space-y-2">
-          <div className="relative w-full">
+          <form className="relative w-full" onSubmit={(e) => { e.preventDefault(); handleSearchSubmit(localSearchValue); }}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search products..."
               className="pl-10"
               data-testid="input-search-mobile"
-              onChange={(e) => onSearch?.(e.target.value)}
+              value={localSearchValue}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearchSubmit(localSearchValue); } }}
             />
-          </div>
+          </form>
           
           {(showBecomeSeller || showBecomeRider) && (
             <div className="flex gap-2">
@@ -229,7 +254,7 @@ export default function Header({
                   variant="outline" 
                   size="sm"
                   className="flex-1"
-                  onClick={() => navigate("/become-seller")}
+                  onClick={() => navigate(getApplicationPath("/become-seller"))}
                   data-testid="button-become-seller-mobile"
                 >
                   <StoreIcon className="h-4 w-4 mr-2" />
@@ -242,7 +267,7 @@ export default function Header({
                   variant="outline" 
                   size="sm"
                   className="flex-1"
-                  onClick={() => navigate("/become-rider")}
+                  onClick={() => navigate(getApplicationPath("/become-rider"))}
                   data-testid="button-become-rider-mobile"
                 >
                   <Truck className="h-4 w-4 mr-2" />

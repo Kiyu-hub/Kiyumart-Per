@@ -113,6 +113,13 @@ async function main() {
   while ((m = routeRe.exec(app))) routes.push({ path: norm(m[1]), component: String(m[2]).trim() });
   const routePaths = uniq(routes.map((r) => r.path));
 
+  // Resolve HOC aliases (e.g., const GuardedX = withGuard(X))
+  const hocAliasRe = /const\s+(\w+)\s+=\s+\w+\(([^)]+)\)/g;
+  const aliases = new Map<string, string>();
+  while ((m = hocAliasRe.exec(app))) {
+    aliases.set(m[1], m[2].trim());
+  }
+
   const srcFiles = (await files(ROOT, new Set([".ts", ".tsx", ".js", ".mjs"]))).filter((f) => {
     const r = posix(path.relative(ROOT, f));
     return r.startsWith("client/src/") || r.startsWith("server/");
@@ -126,8 +133,16 @@ async function main() {
 
   const pages = (await files(path.resolve(ROOT, "client/src/pages"), new Set([".ts", ".tsx"]))).map((f) => posix(path.relative(ROOT, f)));
   const pageIndex = new Map(pages.map((p) => [path.basename(p, path.extname(p)), p]));
-  const routedPages = new Set(routes.map((r) => pageIndex.get(r.component)).filter(Boolean) as string[]);
-  const orphanPages = pages.filter((p) => !routedPages.has(p) && !p.endsWith("/NotFound.tsx"));
+  
+  const routedPages = new Set<string>();
+  for (const r of routes) {
+    const componentName = r.component;
+    // Resolve through aliases if it's a guarded component
+    const actualComponent = aliases.get(componentName) || componentName;
+    const pagePath = pageIndex.get(actualComponent);
+    if (pagePath) routedPages.add(pagePath);
+  }
+  const orphanPages = pages.filter((p) => !routedPages.has(p) && !p.endsWith("/NotFound.tsx") && !p.endsWith("/not-found.tsx"));
 
   const dashboards = DASHBOARDS.map((d) => {
     const dRoutes = routePaths.filter((p) => p === d.prefix || p.startsWith(`${d.prefix}/`));

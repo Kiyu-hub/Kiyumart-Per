@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, Download, RefreshCw, Search, ShieldAlert, Loader2 } from "lucide-react";
+import { CheckCircle2, Download, RefreshCw, Search, ShieldAlert, Loader2, Wrench } from "lucide-react";
 
 type Severity = "info" | "warning" | "error" | "critical";
 type StatusFilter = "all" | "open" | "resolved";
@@ -81,6 +81,7 @@ export default function AdminSystemActivities() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [isAutoFixing, setIsAutoFixing] = useState(false);
 
   const normalizedRole = useMemo(() => {
     const raw = String(user?.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
@@ -152,6 +153,36 @@ export default function AdminSystemActivities() {
       setResolvingId(null);
     },
   });
+
+  const handleAutoFix = async () => {
+    try {
+      setIsAutoFixing(true);
+      const res = await fetch("/api/admin/system-health/auto-fix", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Auto-fix failed");
+      const { fixedCount, errorCount, fixes } = data as {
+        fixedCount: number;
+        errorCount: number;
+        fixes: Array<{ name: string; status: string; detail?: string }>;
+      };
+      toast({
+        title: fixedCount > 0 ? `Auto-Fix: ${fixedCount} fix(es) applied` : "Auto-Fix: Nothing needed fixing",
+        description: errorCount > 0
+          ? `${errorCount} check(s) failed. See results below.`
+          : fixes.map(f => `${f.name}: ${f.detail || f.status}`).join(" • ").slice(0, 200),
+      });
+      void summaryQuery.refetch();
+      void activitiesQuery.refetch();
+    } catch (error: any) {
+      toast({ title: "Auto-Fix Failed", description: error?.message || "Unknown error", variant: "destructive" });
+    } finally {
+      setIsAutoFixing(false);
+    }
+  };
 
   const handleExport = async () => {
     try {
@@ -233,6 +264,19 @@ export default function AdminSystemActivities() {
               )}
               {summaryQuery.isFetching || activitiesQuery.isFetching ? "Refreshing" : "Refresh"}
             </Button>
+            {normalizedRole === "super_admin" && (
+              <Button
+                onClick={handleAutoFix}
+                type="button"
+                variant="outline"
+                data-testid="button-auto-fix"
+                disabled={isAutoFixing}
+                className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
+              >
+                {isAutoFixing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
+                {isAutoFixing ? "Fixing..." : "Auto-Fix"}
+              </Button>
+            )}
             <Button onClick={handleExport} type="button" data-testid="button-export-system-activities" disabled={isExporting}>
               {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
               {isExporting ? "Exporting" : "Export"}

@@ -9,7 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Loader2, MapPin, PackageCheck, ShieldCheck, Ticket } from "lucide-react";
+import PickupVerificationScanner from "@/components/PickupVerificationScanner";
+import { Camera, Keyboard, Loader2, MapPin, PackageCheck, ShieldCheck, Ticket, TrendingUp, Clock, BarChart3 } from "lucide-react";
+
+interface AgentStats {
+  totalVerifications: number;
+  verificationsToday: number;
+  verificationsThisMonth: number;
+  pendingOrders: number;
+  zoneName: string | null;
+  shift: { onShift: boolean; startedAt: string | null; verificationsThisShift: number } | null;
+}
 
 interface PickupAgentOrder {
   id: string;
@@ -35,6 +45,7 @@ export default function PickupAgentDashboard() {
   const queryClient = useQueryClient();
   const [otpByOrder, setOtpByOrder] = useState<Record<string, string>>({});
   const [qrByOrder, setQrByOrder] = useState<Record<string, string>>({});
+  const [scanModeByOrder, setScanModeByOrder] = useState<Record<string, "manual" | "camera">>({});
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== "pickup_agent")) {
@@ -54,6 +65,19 @@ export default function PickupAgentDashboard() {
     enabled: isAuthenticated && user?.role === "pickup_agent",
     refetchInterval: 10000,
   });
+
+  const { data: stats } = useQuery<AgentStats>({
+    queryKey: ["/api/pickup-agent/stats"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/pickup-agent/stats");
+      return res.json();
+    },
+    enabled: isAuthenticated && user?.role === "pickup_agent",
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  const hasShiftFeature = (user as any)?.roleFeatures?.["shifts.manage"] !== false && (user as any)?.roleFeatures?.["shifts.manage"] !== undefined;
 
   const verifyPickupMutation = useMutation({
     mutationFn: async ({ orderId, otp, qrCode }: { orderId: string; otp?: string; qrCode?: string }) => {
@@ -95,7 +119,31 @@ export default function PickupAgentDashboard() {
   return (
     <DashboardLayout role="pickup_agent">
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-3">
+        {/* Welcome + quick nav */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold">Pickup Agent Dashboard</h1>
+            <p className="text-sm text-muted-foreground">Welcome back, {user?.name?.split(" ")[0] || "Agent"}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => navigate("/pickup-agent/earnings")}>
+              <BarChart3 className="h-4 w-4 mr-1.5" />
+              Performance
+            </Button>
+            {hasShiftFeature && (
+              <Button
+                size="sm"
+                variant={stats?.shift?.onShift ? "default" : "outline"}
+                onClick={() => navigate("/pickup-agent/shift")}
+              >
+                <Clock className="h-4 w-4 mr-1.5" />
+                {stats?.shift?.onShift ? "On Shift" : "Manage Shift"}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
           <Card className="border-primary/20 bg-card/95">
             <CardContent className="flex items-center gap-4 p-5">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -113,7 +161,7 @@ export default function PickupAgentDashboard() {
                 <PackageCheck className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Open Pickup Orders</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Open Orders</p>
                 <p className="text-2xl font-semibold">{openOrders.length}</p>
               </div>
             </CardContent>
@@ -123,16 +171,70 @@ export default function PickupAgentDashboard() {
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-300">
                 <Ticket className="h-5 w-5" />
               </div>
-              <div className="flex-1">
+              <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Ready To Verify</p>
                 <p className="text-2xl font-semibold">{readyOrders.length}</p>
               </div>
-              <Button variant="outline" onClick={() => navigate("/pickup-agent/support")}>
-                Open Support
-              </Button>
+            </CardContent>
+          </Card>
+          <Card className="border-blue-500/20 bg-card/95">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-400">
+                <TrendingUp className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Verified Today</p>
+                <p className="text-2xl font-semibold">{stats?.verificationsToday ?? 0}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-purple-500/20 bg-card/95">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-500/10 text-purple-400">
+                <PackageCheck className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">All-Time Verified</p>
+                <p className="text-2xl font-semibold">{stats?.totalVerifications ?? 0}</p>
+              </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* Metrics explainer */}
+        <Card className="border-border/60">
+          <details>
+            <summary className="cursor-pointer list-none px-6 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold">Dashboard Explained</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">What each metric means and how your role works</p>
+                </div>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+              </div>
+            </summary>
+            <CardContent className="pt-0">
+              <div className="grid gap-3 sm:grid-cols-2 mt-2 text-sm">
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Open Orders</p>
+                  <p className="text-muted-foreground text-xs">All pickup orders assigned to your station that have not yet been collected or cancelled.</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Ready to Verify</p>
+                  <p className="text-muted-foreground text-xs">Orders where the seller has marked items ready and the customer can now collect. These require your QR or OTP verification to complete.</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Verified Today / All Time</p>
+                  <p className="text-muted-foreground text-xs">How many pickup orders you have successfully verified. Every successful verification marks the order as completed for both the buyer and seller.</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Verification Method</p>
+                  <p className="text-muted-foreground text-xs">Use the QR code on the buyer's receipt or ask for the 6-digit OTP sent to the buyer. Either method works. Camera scanning is available for faster QR verification.</p>
+                </div>
+              </div>
+            </CardContent>
+          </details>
+        </Card>
 
         <Card className="border-border/70 bg-card/95 shadow-sm">
           <CardHeader>
@@ -219,43 +321,71 @@ export default function PickupAgentDashboard() {
                                 <ShieldCheck className="h-4 w-4" />
                               </div>
                               <div className="flex-1 space-y-3">
-                                <div>
-                                  <p className="font-medium text-emerald-100">Pickup Verification</p>
-                                  <p className="text-sm text-emerald-50/80">
-                                    Confirm this pickup with either the customer QR code or the pickup OTP.
-                                  </p>
-                                </div>
-                                <div className="grid gap-3 md:grid-cols-2">
-                                  <Input
-                                    value={qrCode}
-                                    onChange={(e) => setQrByOrder((current) => ({ ...current, [order.id]: e.target.value }))}
-                                    placeholder="Enter buyer QR code"
-                                  />
-                                  <Input
-                                    value={otp}
-                                    onChange={(e) =>
-                                      setOtpByOrder((current) => ({
-                                        ...current,
-                                        [order.id]: e.target.value.replace(/\D/g, "").slice(0, 6),
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <div>
+                                    <p className="font-medium text-emerald-100">Pickup Verification</p>
+                                    <p className="text-sm text-emerald-50/80">Verify with QR scan or OTP.</p>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-1.5 text-xs"
+                                    onClick={() =>
+                                      setScanModeByOrder((s) => ({
+                                        ...s,
+                                        [order.id]: s[order.id] === "camera" ? "manual" : "camera",
                                       }))
                                     }
-                                    inputMode="numeric"
-                                    maxLength={6}
-                                    placeholder="Enter pickup OTP"
-                                  />
+                                  >
+                                    {scanModeByOrder[order.id] === "camera"
+                                      ? <><Keyboard className="h-3.5 w-3.5" /> Manual</>
+                                      : <><Camera className="h-3.5 w-3.5" /> Scan QR</>}
+                                  </Button>
                                 </div>
-                                <Button
-                                  onClick={() =>
-                                    verifyPickupMutation.mutate({
-                                      orderId: order.id,
-                                      qrCode: qrCode.trim() || undefined,
-                                      otp: otp.trim() || undefined,
-                                    })
-                                  }
-                                  disabled={verifyPickupMutation.isPending || (!qrCode.trim() && !otp.trim())}
-                                >
-                                  {verifyPickupMutation.isPending ? "Verifying..." : "Verify Pickup"}
-                                </Button>
+
+                                {scanModeByOrder[order.id] === "camera" ? (
+                                  <PickupVerificationScanner
+                                    orderId={order.id}
+                                    orderNumber={order.orderNumber}
+                                    onSuccess={() => {
+                                      setScanModeByOrder((s) => ({ ...s, [order.id]: "manual" }));
+                                    }}
+                                  />
+                                ) : (
+                                  <>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                      <Input
+                                        value={qrCode}
+                                        onChange={(e) => setQrByOrder((current) => ({ ...current, [order.id]: e.target.value }))}
+                                        placeholder="Enter buyer QR code"
+                                      />
+                                      <Input
+                                        value={otp}
+                                        onChange={(e) =>
+                                          setOtpByOrder((current) => ({
+                                            ...current,
+                                            [order.id]: e.target.value.replace(/\D/g, "").slice(0, 6),
+                                          }))
+                                        }
+                                        inputMode="numeric"
+                                        maxLength={6}
+                                        placeholder="Enter pickup OTP"
+                                      />
+                                    </div>
+                                    <Button
+                                      onClick={() =>
+                                        verifyPickupMutation.mutate({
+                                          orderId: order.id,
+                                          qrCode: qrCode.trim() || undefined,
+                                          otp: otp.trim() || undefined,
+                                        })
+                                      }
+                                      disabled={verifyPickupMutation.isPending || (!qrCode.trim() && !otp.trim())}
+                                    >
+                                      {verifyPickupMutation.isPending ? "Verifying..." : "Verify Pickup"}
+                                    </Button>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>

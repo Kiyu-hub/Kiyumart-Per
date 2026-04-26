@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { storage } from "./storage";
+import { decryptField } from "./utils/sensitiveEncrypt";
 
 type EmailPayload = {
   to: string;
@@ -32,7 +33,7 @@ async function resolveSmtpConfig(): Promise<ResolvedSmtpConfig> {
   const portValue = settings?.smtpPort ?? process.env.SMTP_PORT;
   const port = Number(requireConfigured(portValue, "SMTP port"));
   const user = String(settings?.smtpUser || process.env.SMTP_USER || "").trim();
-  const pass = String(settings?.smtpPass || process.env.SMTP_PASS || "").trim();
+  const pass = decryptField(String(settings?.smtpPass || process.env.SMTP_PASS || "").trim());
   const secureSource =
     settings?.smtpSecure !== undefined && settings?.smtpSecure !== null
       ? settings.smtpSecure

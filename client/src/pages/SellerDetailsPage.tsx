@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { format } from "date-fns";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { fetchSameOriginJson } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +25,7 @@ import {
   Star,
   Store,
   Wallet,
+  RefreshCw,
 } from "lucide-react";
 
 type SellerUser = {
@@ -87,6 +87,8 @@ type SellerOrderItem = {
   price: string;
   total: string;
   image?: string | null;
+  selectedColor?: string | null;
+  selectedSize?: string | null;
 };
 
 type SellerSale = {
@@ -124,6 +126,15 @@ type SellerSale = {
     phone?: string | null;
   } | null;
   items: SellerOrderItem[];
+  pickupStationInfo?: {
+    id?: string | null;
+    name?: string | null;
+    city?: string | null;
+    region?: string | null;
+    locationLabel?: string | null;
+    pickupAgentName?: string | null;
+    pickupAgentPhone?: string | null;
+  } | null;
 };
 
 type SellerPayout = {
@@ -200,6 +211,29 @@ type SellerDashboardData = {
   recentActivity: ActivityItem[];
 };
 
+type SellerDashboardBootstrapData = {
+  seller: SellerUser;
+  store?: SellerStore | null;
+};
+
+type SellerProductsSectionData = {
+  products: SellerProduct[];
+};
+
+type SellerSalesSectionData = {
+  sales: SellerSale[];
+  topProducts: SellerTopProduct[];
+};
+
+type SellerFinanceSectionData = {
+  payouts: SellerPayout[];
+  commissions: SellerCommission[];
+};
+
+type SellerActivitySectionData = {
+  recentActivity: ActivityItem[];
+};
+
 const formatDateTime = (value?: string | null) => {
   if (!value) return "N/A";
   try {
@@ -210,6 +244,11 @@ const formatDateTime = (value?: string | null) => {
 };
 
 const moneyValue = (value: unknown) => Number.parseFloat(String(value ?? "0")) || 0;
+const normalizeValue = (value?: string | null) => String(value || "").toLowerCase().trim();
+const isPickupOrder = (deliveryMethod?: string | null) => {
+  const normalized = normalizeValue(deliveryMethod);
+  return normalized === "pickup" || normalized === "store_pickup" || normalized === "store pickup";
+};
 
 const SELLER_LOADING_MESSAGES = [
   "Loading seller overview and approval status.",
@@ -219,6 +258,29 @@ const SELLER_LOADING_MESSAGES = [
   "Syncing recent seller activity so the page opens with fresh data.",
 ];
 
+const EMPTY_SELLER_SUMMARY: SellerDashboardData["summary"] = {
+  totalSales: 0,
+  totalRevenue: 0,
+  totalPaid: 0,
+  salesThisMonth: 0,
+  revenueThisMonth: 0,
+  avgOrderValue: 0,
+  totalProducts: 0,
+  activeProducts: 0,
+  inactiveProducts: 0,
+  outOfStockProducts: 0,
+  lowStockProducts: 0,
+  totalStockUnits: 0,
+  averageProductRating: 0,
+  totalProductRatings: 0,
+  featuredProducts: 0,
+  totalCommissionCharged: 0,
+  netSellerProfit: 0,
+  availableBalance: 0,
+  completedPayoutValue: 0,
+  pendingPayoutValue: 0,
+};
+
 const statusTone = (status?: string | null) => {
   const normalized = String(status || "").toLowerCase();
   if (["completed", "approved", "active", "paid", "success"].includes(normalized)) return "default";
@@ -227,16 +289,78 @@ const statusTone = (status?: string | null) => {
   return "outline";
 };
 
+async function fetchSellerDashboardData<T>(url: string, timeoutMs: number): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    const contentType = response.headers.get("content-type") || "";
+    const rawText = await response.text();
+
+    if (contentType.includes("text/html")) {
+      throw new Error("The seller data request did not reach the JSON API correctly. Please retry.");
+    }
+
+    let parsed: any = null;
+    if (rawText) {
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        parsed = null;
+      }
+    }
+
+    if (!response.ok) {
+      const message = parsed?.userMessage || parsed?.error || rawText || response.statusText;
+      throw new Error(`${response.status}: ${message}`);
+    }
+
+    return parsed as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`This seller page is still loading after ${Math.round(timeoutMs / 1000)} seconds. Please try again.`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export default function SellerDetailsPage() {
   const [, navigate] = useLocation();
   const params = useParams<{ id: string }>();
   const sellerId = params.id;
+  const [activeTab, setActiveTab] = useState("overview");
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [displayedLoadingMessage, setDisplayedLoadingMessage] = useState("");
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
+  const sellerDashboardEnabled =
+    !!sellerId &&
+    !authLoading &&
+    isAuthenticated &&
+    (user?.role === "admin" || user?.role === "super_admin");
+
+  const bootstrapQuery = useQuery<SellerDashboardBootstrapData>({
+    queryKey: [`/api/admin/sellers/${sellerId}/dashboard/bootstrap`],
+    queryFn: () =>
+      fetchSellerDashboardData<SellerDashboardBootstrapData>(
+        `/api/admin/sellers/${sellerId}/dashboard/bootstrap`,
+        20_000,
+      ),
+    enabled: sellerDashboardEnabled,
+    retry: 1,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -244,40 +368,99 @@ export default function SellerDetailsPage() {
     }
   }, [authLoading, isAuthenticated, navigate, user]);
 
-  const {
-    data,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery<SellerDashboardData>({
-    queryKey: [`/api/admin/sellers/${sellerId}/dashboard`, "lite"],
-    queryFn: async () => {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 25_000);
-
-      try {
-        return await fetchSameOriginJson<SellerDashboardData>(
-          `/api/admin/sellers/${sellerId}/dashboard?lite=1`,
-          { signal: controller.signal },
-        );
-      } catch (queryError) {
-        if (queryError instanceof Error && queryError.message.includes("timed out")) {
-          throw new Error("This seller page is taking longer than expected. Please try again in a moment.");
-        }
-        throw queryError;
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-    },
-    enabled:
-      !!sellerId &&
-      !authLoading &&
-      isAuthenticated &&
-      (user?.role === "admin" || user?.role === "super_admin"),
+  const liteQuery = useQuery<SellerDashboardData>({
+    queryKey: [`/api/admin/sellers/${sellerId}/dashboard`, "summary"],
+    queryFn: () => fetchSellerDashboardData<SellerDashboardData>(`/api/admin/sellers/${sellerId}/dashboard?lite=1`, 120_000),
+    enabled: sellerDashboardEnabled && !!bootstrapQuery.data,
     retry: 1,
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
+
+  const productsQuery = useQuery<SellerProductsSectionData>({
+    queryKey: [`/api/admin/sellers/${sellerId}/dashboard/products`],
+    queryFn: () => fetchSellerDashboardData<SellerProductsSectionData>(`/api/admin/sellers/${sellerId}/dashboard/products`, 120_000),
+    enabled: sellerDashboardEnabled && !!bootstrapQuery.data,
+    retry: 2,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const salesQuery = useQuery<SellerSalesSectionData>({
+    queryKey: [`/api/admin/sellers/${sellerId}/dashboard/sales`],
+    queryFn: () => fetchSellerDashboardData<SellerSalesSectionData>(`/api/admin/sellers/${sellerId}/dashboard/sales`, 120_000),
+    enabled: sellerDashboardEnabled && !!bootstrapQuery.data,
+    retry: 2,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const financeQuery = useQuery<SellerFinanceSectionData>({
+    queryKey: [`/api/admin/sellers/${sellerId}/dashboard/finance`],
+    queryFn: () => fetchSellerDashboardData<SellerFinanceSectionData>(`/api/admin/sellers/${sellerId}/dashboard/finance`, 120_000),
+    enabled: sellerDashboardEnabled && !!bootstrapQuery.data,
+    retry: 2,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const activityQuery = useQuery<SellerActivitySectionData>({
+    queryKey: [`/api/admin/sellers/${sellerId}/dashboard/activity`],
+    queryFn: () => fetchSellerDashboardData<SellerActivitySectionData>(`/api/admin/sellers/${sellerId}/dashboard/activity`, 120_000),
+    enabled: sellerDashboardEnabled && !!bootstrapQuery.data,
+    retry: 2,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const data = liteQuery.data;
+  const bootstrapData = bootstrapQuery.data;
+  const isLoading = bootstrapQuery.isLoading;
+  const error = bootstrapQuery.error;
+  const sectionQueries = [productsQuery, salesQuery, financeQuery, activityQuery];
+  const loadingSectionCount = sectionQueries.filter((query) => query.isLoading || query.isFetching).length;
+  const failedSectionCount = sectionQueries.filter((query) => !!query.error).length;
+  const completedSectionCount = sectionQueries.filter((query) => !!query.data).length;
+  const summaryStillLoading = !!bootstrapData && (liteQuery.isLoading || liteQuery.isFetching) && !liteQuery.data;
+  const summaryUnavailable = !!bootstrapData && !!liteQuery.error && !liteQuery.data;
+  const isEnrichingSellerData =
+    !!bootstrapData && ((!!liteQuery.data && loadingSectionCount > 0) || summaryStillLoading);
+  const fullDataUnavailable = (!!liteQuery.data && failedSectionCount > 0) || summaryUnavailable;
+  const activeDataMode =
+    completedSectionCount === sectionQueries.length
+      ? "full"
+      : liteQuery.data
+        ? "summary"
+        : "shell";
+  const refetchAll = async () => {
+    await bootstrapQuery.refetch();
+    await liteQuery.refetch();
+    await Promise.all([
+      productsQuery.refetch(),
+      salesQuery.refetch(),
+      financeQuery.refetch(),
+      activityQuery.refetch(),
+    ]);
+  };
+
+  const sellerDataStatusNote = useMemo(() => {
+    if (summaryStillLoading) {
+      return "Seller identity and store information are already open. Live revenue and operations totals are still syncing in the background.";
+    }
+    if (summaryUnavailable) {
+      return "The seller page is open with verified store identity, but the summary totals are not ready yet. You can retry without closing this page.";
+    }
+    if (isEnrichingSellerData) {
+      return "Opening the seller page with live summary data now. Product, sales, finance, and activity sections are loading in the background.";
+    }
+    if (fullDataUnavailable) {
+      return "Some extended seller sections are still unavailable. The overview below is real live data, and you can retry only the affected sections.";
+    }
+    if (activeDataMode === "full") {
+      return "Full seller store intelligence is loaded from the live admin source.";
+    }
+    return null;
+  }, [activeDataMode, fullDataUnavailable, isEnrichingSellerData, summaryStillLoading, summaryUnavailable]);
 
   useEffect(() => {
     if (!sellerId || !isLoading) return;
@@ -376,7 +559,7 @@ export default function SellerDetailsPage() {
     );
   }
 
-  if (!sellerId || error || !data) {
+  if (!sellerId || error || !bootstrapData) {
     return (
       <DashboardLayout role={user?.role as any}>
         <div className="flex min-h-[60vh] items-center justify-center p-6">
@@ -398,7 +581,7 @@ export default function SellerDetailsPage() {
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back to Sellers
                 </Button>
-                <Button onClick={() => refetch()}>
+                <Button onClick={() => refetchAll()}>
                   Retry
                 </Button>
               </div>
@@ -409,9 +592,60 @@ export default function SellerDetailsPage() {
     );
   }
 
-  const { seller, store, summary, sales, payouts, commissions, products, topProducts, recentActivity } = data;
+  const seller = data?.seller ?? bootstrapData.seller;
+  const store = data?.store ?? bootstrapData.store ?? null;
+  const summary = data?.summary ?? EMPTY_SELLER_SUMMARY;
+  const products = productsQuery.data?.products ?? data?.products ?? [];
+  const sales = salesQuery.data?.sales ?? data?.sales ?? [];
+  const payouts = financeQuery.data?.payouts ?? data?.payouts ?? [];
+  const commissions = financeQuery.data?.commissions ?? data?.commissions ?? [];
+  const topProducts = salesQuery.data?.topProducts ?? data?.topProducts ?? [];
+  const recentActivity = activityQuery.data?.recentActivity ?? data?.recentActivity ?? [];
   const banner = seller.storeBanner || store?.banner || null;
   const avatar = seller.profileImage || store?.logo || null;
+  type SectionQueryState = {
+    isLoading: boolean;
+    isFetching: boolean;
+    error: unknown;
+    refetch: () => Promise<unknown>;
+  };
+
+  const renderSectionFallback = (
+    title: string,
+    query: SectionQueryState,
+    emptyMessage: string,
+  ) => {
+    if (query.isLoading || query.isFetching) {
+      return (
+        <Card>
+          <CardContent className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <span>{title} is loading in the background.</span>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    if (query.error) {
+      return (
+        <Card>
+          <CardContent className="flex flex-col gap-4 p-6 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <span>{title} could not be loaded yet. You can retry this section without reloading the full seller page.</span>
+            <Button variant="outline" size="sm" onClick={() => query.refetch()} disabled={query.isFetching}>
+              {query.isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Retry Section
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">{emptyMessage}</CardContent>
+      </Card>
+    );
+  };
 
   return (
     <DashboardLayout role={user?.role as any}>
@@ -424,7 +658,36 @@ export default function SellerDetailsPage() {
             <h1 className="text-3xl font-bold" data-testid="heading-seller-dashboard">Seller Command View</h1>
             <p className="text-sm text-muted-foreground">Unified seller profile, catalog, sales, finance, and activity.</p>
           </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={activeDataMode === "full" ? "default" : "secondary"}>
+                    {activeDataMode === "full" ? "Full Store Data" : liteQuery.data ? "Live Summary" : "Seller Shell"}
+                  </Badge>
+              {(isEnrichingSellerData || fullDataUnavailable) ? (
+                <Button variant="outline" size="sm" onClick={() => refetchAll()} disabled={sectionQueries.some((query) => query.isFetching)}>
+                  {sectionQueries.some((query) => query.isFetching) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  {fullDataUnavailable ? "Retry Sections" : "Refreshing"}
+                </Button>
+              ) : null}
+            </div>
         </div>
+
+        {sellerDataStatusNote ? (
+          <Card className="border-border/70 bg-muted/20">
+            <CardContent className="flex flex-col gap-3 p-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+              <p>{sellerDataStatusNote}</p>
+              {(isEnrichingSellerData || fullDataUnavailable) ? (
+                <div className="flex items-center gap-2 text-xs">
+                  {isEnrichingSellerData ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : null}
+                  <span>
+                    {isEnrichingSellerData
+                      ? `${loadingSectionCount} extended seller section${loadingSectionCount === 1 ? "" : "s"} still syncing.`
+                      : `${failedSectionCount} extended seller section${failedSectionCount === 1 ? "" : "s"} ready to retry.`}
+                  </span>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card className="overflow-hidden border-border/70">
           <div className="relative h-40 bg-gradient-to-r from-primary/25 via-primary/10 to-background">
@@ -472,7 +735,7 @@ export default function SellerDetailsPage() {
           <Card><CardContent className="p-5"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Product Rating</span><Star className="h-4 w-4 text-muted-foreground" /></div><p className="mt-3 text-3xl font-semibold">{summary.averageProductRating.toFixed(1)}</p><p className="mt-1 text-xs text-muted-foreground">{summary.totalProductRatings} total ratings</p></CardContent></Card>
         </div>
 
-        <Tabs defaultValue="overview" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="mb-4 flex h-auto flex-wrap justify-start gap-2 bg-transparent p-0">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -528,10 +791,10 @@ export default function SellerDetailsPage() {
                   <div>
                     <p className="mb-2 text-muted-foreground">Top products by revenue</p>
                     <div className="space-y-2">
-                      {topProducts.length === 0 ? <p className="text-sm text-muted-foreground">No product performance data yet.</p> : topProducts.slice(0, 4).map((product) => (
-                        <div key={product.productId} className="flex items-center gap-3 rounded-xl border p-3">
-                          <div className="h-12 w-12 overflow-hidden rounded-xl bg-muted">{product.image ? <img src={product.image} alt={product.name} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center"><Package className="h-4 w-4 text-muted-foreground" /></div>}</div>
-                          <div className="min-w-0 flex-1">
+                       {salesQuery.isLoading || salesQuery.isFetching ? <p className="text-sm text-muted-foreground">Top product performance is loading.</p> : topProducts.length === 0 ? <p className="text-sm text-muted-foreground">No product performance data yet.</p> : topProducts.slice(0, 4).map((product) => (
+                         <div key={product.productId} className="flex items-center gap-3 rounded-xl border p-3">
+                           <div className="h-12 w-12 overflow-hidden rounded-xl bg-muted">{product.image ? <img src={product.image} alt={product.name} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center"><Package className="h-4 w-4 text-muted-foreground" /></div>}</div>
+                           <div className="min-w-0 flex-1">
                             <p className="truncate font-medium">{product.name}</p>
                             <p className="text-xs text-muted-foreground">{product.unitsSold} units across {product.ordersCount} orders</p>
                           </div>
@@ -546,87 +809,91 @@ export default function SellerDetailsPage() {
           </TabsContent>
 
           <TabsContent value="activity" className="space-y-6">
-            <Card>
-              <CardHeader><CardTitle>Recent Activity Feed</CardTitle></CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {recentActivity.length === 0 ? <p className="text-sm text-muted-foreground">No recent activity.</p> : recentActivity.map((item, index) => (
-                    <div key={`${item.type}-${index}`} className="rounded-2xl border border-border/70 bg-muted/10 p-4 shadow-sm">
-                      <div className="mb-4 h-1.5 w-14 rounded-full bg-primary/80" />
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium">{item.title}</p>
-                          <Badge variant={statusTone(item.status) as any}>{item.status}</Badge>
+            {activityQuery.data ? (
+              <Card>
+                <CardHeader><CardTitle>Recent Activity Feed</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {recentActivity.length === 0 ? <p className="text-sm text-muted-foreground">No recent activity.</p> : recentActivity.map((item, index) => (
+                      <div key={`${item.type}-${index}`} className="rounded-2xl border border-border/70 bg-muted/10 p-4 shadow-sm">
+                        <div className="mb-4 h-1.5 w-14 rounded-full bg-primary/80" />
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium">{item.title}</p>
+                            <Badge variant={statusTone(item.status) as any}>{item.status}</Badge>
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
+                          <p className="mt-2 text-xs text-muted-foreground">{formatDateTime(item.at)}</p>
                         </div>
-                        <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
-                        <p className="mt-2 text-xs text-muted-foreground">{formatDateTime(item.at)}</p>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : renderSectionFallback("Activity feed", activityQuery, "No recent activity.")}
           </TabsContent>
 
           <TabsContent value="products" className="space-y-6">
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {products.map((product) => (
-                <Card key={product.id} className="overflow-hidden border-border/60 bg-card/95 shadow-sm">
-                  <div className="border-b bg-muted/30 p-3">
-                    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-muted">
-                      {product.images?.[0] ? (
-                        <img src={product.images[0]} alt={product.name} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <Package className="h-6 w-6 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-background/95 via-background/35 to-transparent p-3">
-                        <Badge variant="outline" className="border-white/20 bg-background/80 backdrop-blur">
-                          {product.categoryName || "Uncategorized"}
-                        </Badge>
-                        <Badge variant={product.isActive ? "default" : "secondary"}>
-                          {product.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                  <CardContent className="space-y-4 p-5">
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-lg font-semibold">{product.name}</p>
-                          <p className="text-sm text-muted-foreground">Updated {formatDateTime(product.updatedAt || product.createdAt)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Price</p>
-                          <p className="text-base font-semibold">{formatPrice(moneyValue(product.price))}</p>
+            {productsQuery.data ? (
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {products.map((product) => (
+                  <Card key={product.id} className="overflow-hidden border-border/60 bg-card/95 shadow-sm">
+                    <div className="border-b bg-muted/30 p-3">
+                      <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-muted">
+                        {product.images?.[0] ? (
+                          <img src={product.images[0]} alt={product.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <Package className="h-6 w-6 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-background/95 via-background/35 to-transparent p-3">
+                          <Badge variant="outline" className="border-white/20 bg-background/80 backdrop-blur">
+                            {product.categoryName || "Uncategorized"}
+                          </Badge>
+                          <Badge variant={product.isActive ? "default" : "secondary"}>
+                            {product.isActive ? "Active" : "Inactive"}
+                          </Badge>
                         </div>
                       </div>
                     </div>
-                    <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">{product.description}</p>
-                    <div className="grid grid-cols-3 gap-3 text-sm">
-                      <div className="rounded-xl border bg-muted/20 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Cost</p>
-                        <p className="mt-1 font-medium">{formatPrice(moneyValue(product.costPrice))}</p>
+                    <CardContent className="space-y-4 p-5">
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-lg font-semibold">{product.name}</p>
+                            <p className="text-sm text-muted-foreground">Updated {formatDateTime(product.updatedAt || product.createdAt)}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Price</p>
+                            <p className="text-base font-semibold">{formatPrice(moneyValue(product.price))}</p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="rounded-xl border bg-muted/20 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Stock</p>
-                        <p className="mt-1 font-medium">{product.stock ?? 0}</p>
+                      <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">{product.description}</p>
+                      <div className="grid grid-cols-3 gap-3 text-sm">
+                        <div className="rounded-xl border bg-muted/20 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Cost</p>
+                          <p className="mt-1 font-medium">{formatPrice(moneyValue(product.costPrice))}</p>
+                        </div>
+                        <div className="rounded-xl border bg-muted/20 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Stock</p>
+                          <p className="mt-1 font-medium">{product.stock ?? 0}</p>
+                        </div>
+                        <div className="rounded-xl border bg-muted/20 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Rating</p>
+                          <p className="mt-1 font-medium">{moneyValue(product.ratings).toFixed(1)} ({product.totalRatings || 0})</p>
+                        </div>
                       </div>
-                      <div className="rounded-xl border bg-muted/20 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Rating</p>
-                        <p className="mt-1 font-medium">{moneyValue(product.ratings).toFixed(1)} ({product.totalRatings || 0})</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : renderSectionFallback("Products", productsQuery, "No products found for this seller.")}
           </TabsContent>
 
           <TabsContent value="sales" className="space-y-4">
-            {sales.length === 0 ? <Card><CardContent className="p-8 text-sm text-muted-foreground">No sales recorded for this seller.</CardContent></Card> : sales.map((order) => (
+            {!salesQuery.data ? renderSectionFallback("Sales records", salesQuery, "No sales recorded for this seller.") : sales.length === 0 ? <Card><CardContent className="p-8 text-sm text-muted-foreground">No sales recorded for this seller.</CardContent></Card> : sales.map((order) => (
               <Card key={order.id}>
                 <CardContent className="space-y-4 p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -642,7 +909,14 @@ export default function SellerDetailsPage() {
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-5 text-sm">
                     <div><p className="text-muted-foreground">Total</p><p className="font-medium">{formatPrice(moneyValue(order.total))}</p></div>
                     <div><p className="text-muted-foreground">Subtotal</p><p className="font-medium">{formatPrice(moneyValue(order.subtotal))}</p></div>
-                    <div><p className="text-muted-foreground">Delivery Fee</p><p className="font-medium">{formatPrice(moneyValue(order.deliveryFee))}</p></div>
+                    <div>
+                      <p className="text-muted-foreground">{isPickupOrder(order.deliveryMethod) ? "Pickup" : "Delivery Fee"}</p>
+                      <p className="font-medium">
+                        {isPickupOrder(order.deliveryMethod)
+                          ? order.pickupStationInfo?.locationLabel || "Pickup station not set"
+                          : formatPrice(moneyValue(order.deliveryFee))}
+                      </p>
+                    </div>
                     <div><p className="text-muted-foreground">Processing Fee</p><p className="font-medium">{formatPrice(moneyValue(order.processingFee))}</p></div>
                     <div><p className="text-muted-foreground">Created</p><p className="font-medium">{formatDateTime(order.createdAt)}</p></div>
                   </div>
@@ -673,17 +947,33 @@ export default function SellerDetailsPage() {
                       <p className="text-sm font-medium">Order Items</p>
                       {order.items.map((item) => (
                         <div key={`${order.id}-${item.productId}`} className="flex items-center gap-3 text-sm">
-                          <div className="h-10 w-10 overflow-hidden rounded-lg bg-muted">{item.image ? <img src={item.image} alt={item.productName} className="h-full w-full object-cover" /> : null}</div>
+                          <div className="h-12 w-12 overflow-hidden rounded-lg bg-muted">
+                            {item.image ? <img src={item.image} alt={item.productName} className="h-full w-full object-cover" /> : null}
+                          </div>
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-medium">{item.productName}</p>
-                            <p className="text-xs text-muted-foreground">Qty {item.quantity}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Qty {item.quantity}
+                              {item.selectedColor ? ` • Color: ${item.selectedColor}` : ""}
+                              {item.selectedSize ? ` • Size: ${item.selectedSize}` : ""}
+                            </p>
                           </div>
                           <p className="font-medium">{formatPrice(moneyValue(item.total))}</p>
                         </div>
                       ))}
                     </div>
                   ) : null}
-                  {order.deliveryAddress ? <p className="text-sm text-muted-foreground">Delivery address: {order.deliveryAddress}</p> : null}
+                  {isPickupOrder(order.deliveryMethod) ? (
+                    <div className="rounded-xl border p-3 text-sm">
+                      <p className="text-muted-foreground">Pickup Location</p>
+                      <p className="font-medium">{order.pickupStationInfo?.locationLabel || "Pickup station not set"}</p>
+                      {order.pickupStationInfo?.pickupAgentPhone ? (
+                        <p className="text-xs text-muted-foreground">
+                          {order.pickupStationInfo.pickupAgentName || "Pickup agent"} • {order.pickupStationInfo.pickupAgentPhone}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : order.deliveryAddress ? <p className="text-sm text-muted-foreground">Delivery address: {order.deliveryAddress}</p> : null}
                 </CardContent>
               </Card>
             ))}
@@ -697,48 +987,50 @@ export default function SellerDetailsPage() {
               <Card><CardContent className="p-5"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Average Order</span><BarChart3 className="h-4 w-4 text-muted-foreground" /></div><p className="mt-3 text-2xl font-semibold">{formatPrice(summary.avgOrderValue)}</p></CardContent></Card>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <Card>
-                <CardHeader><CardTitle>Payout Ledger</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  {payouts.length === 0 ? <p className="text-sm text-muted-foreground">No payout records.</p> : payouts.map((payout) => (
-                    <div key={payout.id} className="rounded-xl border p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-medium">{payout.reference || payout.id}</p>
-                        <Badge variant={statusTone(payout.status) as any}>{payout.status}</Badge>
+            {!financeQuery.data ? renderSectionFallback("Finance ledgers", financeQuery, "No finance records available for this seller.") : (
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <Card>
+                  <CardHeader><CardTitle>Payout Ledger</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    {payouts.length === 0 ? <p className="text-sm text-muted-foreground">No payout records.</p> : payouts.map((payout) => (
+                      <div key={payout.id} className="rounded-xl border p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">{payout.reference || payout.id}</p>
+                          <Badge variant={statusTone(payout.status) as any}>{payout.status}</Badge>
+                        </div>
+                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3 text-sm">
+                          <div><p className="text-muted-foreground">Amount</p><p className="font-medium">{formatPrice(moneyValue(payout.amount))}</p></div>
+                          <div><p className="text-muted-foreground">Method</p><p className="font-medium">{payout.method || "N/A"}</p></div>
+                          <div><p className="text-muted-foreground">Created</p><p className="font-medium">{formatDateTime(payout.createdAt)}</p></div>
+                        </div>
+                        {payout.notes ? <p className="mt-3 text-sm text-muted-foreground">{payout.notes}</p> : null}
                       </div>
-                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3 text-sm">
-                        <div><p className="text-muted-foreground">Amount</p><p className="font-medium">{formatPrice(moneyValue(payout.amount))}</p></div>
-                        <div><p className="text-muted-foreground">Method</p><p className="font-medium">{payout.method || "N/A"}</p></div>
-                        <div><p className="text-muted-foreground">Created</p><p className="font-medium">{formatDateTime(payout.createdAt)}</p></div>
-                      </div>
-                      {payout.notes ? <p className="mt-3 text-sm text-muted-foreground">{payout.notes}</p> : null}
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+                    ))}
+                  </CardContent>
+                </Card>
 
-              <Card>
-                <CardHeader><CardTitle>Commission Ledger</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  {commissions.length === 0 ? <p className="text-sm text-muted-foreground">No commission records.</p> : commissions.map((commission) => (
-                    <div key={commission.id} className="rounded-xl border p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-medium">Order {commission.orderId.slice(0, 8)}</p>
-                        <Badge variant={statusTone(commission.status) as any}>{commission.status}</Badge>
+                <Card>
+                  <CardHeader><CardTitle>Commission Ledger</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    {commissions.length === 0 ? <p className="text-sm text-muted-foreground">No commission records.</p> : commissions.map((commission) => (
+                      <div key={commission.id} className="rounded-xl border p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">Order {commission.orderId.slice(0, 8)}</p>
+                          <Badge variant={statusTone(commission.status) as any}>{commission.status}</Badge>
+                        </div>
+                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4 text-sm">
+                          <div><p className="text-muted-foreground">Gross</p><p className="font-medium">{formatPrice(moneyValue(commission.orderAmount))}</p></div>
+                          <div><p className="text-muted-foreground">Commission</p><p className="font-medium">{formatPrice(moneyValue(commission.commissionAmount))}</p></div>
+                          <div><p className="text-muted-foreground">Net</p><p className="font-medium">{formatPrice(moneyValue(commission.sellerAmount))}</p></div>
+                          <div><p className="text-muted-foreground">Rate</p><p className="font-medium">{commission.commissionRate}%</p></div>
+                        </div>
+                        <p className="mt-3 text-xs text-muted-foreground">{formatDateTime(commission.createdAt)}</p>
                       </div>
-                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4 text-sm">
-                        <div><p className="text-muted-foreground">Gross</p><p className="font-medium">{formatPrice(moneyValue(commission.orderAmount))}</p></div>
-                        <div><p className="text-muted-foreground">Commission</p><p className="font-medium">{formatPrice(moneyValue(commission.commissionAmount))}</p></div>
-                        <div><p className="text-muted-foreground">Net</p><p className="font-medium">{formatPrice(moneyValue(commission.sellerAmount))}</p></div>
-                        <div><p className="text-muted-foreground">Rate</p><p className="font-medium">{commission.commissionRate}%</p></div>
-                      </div>
-                      <p className="mt-3 text-xs text-muted-foreground">{formatDateTime(commission.createdAt)}</p>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>

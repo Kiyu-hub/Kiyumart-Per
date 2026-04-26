@@ -17,12 +17,11 @@ import AdBanner from "@/components/AdBanner";
 import PromotionalAd from "@/components/PromotionalAd";
 import PromotionalAdsGrid from "@/components/PromotionalAdsGrid";
 import SinglePromotionSidebar from "@/components/SinglePromotionSidebar";
-import MultiVendorHome from "./MultiVendorHome";
 import LocationPrompt from "@/components/LocationPrompt";
 import { Button } from '@/components/ui/button';
 import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 import type { PlatformSettings } from "@shared/schema";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronRight, Loader2 } from "lucide-react";
 
 import heroImage from "@assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png";
 
@@ -476,10 +475,6 @@ export default function HomeConnected() {
     );
   }
 
-  if (platformSettings?.isMultiVendor) {
-    return <MultiVendorHome />;
-  }
-
   function SidebarPromotionsPlaceholder() {
     const { data: proms = [] } = useQuery<any[]>({ queryKey: ['/api/homepage/promotional'], queryFn: async () => { const res = await fetch('/api/homepage/promotional'); return res.json(); }, refetchInterval: 5000 });
 
@@ -501,7 +496,7 @@ export default function HomeConnected() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col pb-14 md:pb-0">
       <div className="flex items-center justify-end p-2 border-b bg-background">
         <ThemeToggle />
       </div>
@@ -527,11 +522,19 @@ export default function HomeConnected() {
         <div className="max-w-7xl mx-auto px-4 py-12">
           {/* Shop by categories - full-width, above products and sidebar */}
           {(platformSettings as any)?.showShopBySection !== false && (
-          <section>
-            <div className="flex items-center justify-between mb-8">
-              <h2 className="text-3xl font-bold">{t("shopByCategory")}</h2>
+          <section className="rounded-2xl border bg-card p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold tracking-tight">{t("shopByCategory")}</h2>
               {categories.length > 0 && (
-                <p className="text-sm text-muted-foreground">Scroll to see more →</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 text-muted-foreground hover:text-foreground font-medium"
+                  onClick={() => navigate("/products")}
+                >
+                  See all
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
               )}
             </div>
             {categories.length === 0 ? (
@@ -540,14 +543,12 @@ export default function HomeConnected() {
                 <p className="text-sm mt-2">Please check back later.</p>
               </div>
             ) : (
-              <div className="relative">
-                <div className="flex gap-4 md:gap-6 overflow-x-auto pb-4 snap-x snap-mandatory [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50">
-                  {categories.map((category) => (
-                    <div key={category.id} className="flex-shrink-0 w-[min(280px,80vw)] md:w-72 snap-start">
-                      <CategoryCard {...category} onClick={(id) => navigate(`/category/${id}`)} />
-                    </div>
-                  ))}
-                </div>
+              <div className="flex gap-4 overflow-x-auto pb-3 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50">
+                {categories.map((category) => (
+                  <div key={category.id} className="flex-shrink-0" style={{ width: '185px' }}>
+                    <CategoryCard {...category} onClick={(id) => navigate(`/category/${id}`)} />
+                  </div>
+                ))}
               </div>
             )}
           </section>
@@ -594,15 +595,16 @@ export default function HomeConnected() {
             {/* Products column - Adjust width based on sidebar visibility */}
             <div className={sidebarItemCount > 0 ? 'lg:col-span-8' : 'lg:col-span-12'}>
               {showHomepageFeaturedSection && (featuredProductsLoading || filteredFeaturedProducts.length > 0 || Boolean(searchQuery)) && (
-              <section>
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-3xl font-bold">
+              <section className="rounded-2xl border bg-card p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold tracking-tight">
                     {searchQuery ? `${t("search").replace("...", "")} (${filteredFeaturedProducts.length})` : t("featuredProducts")}
                   </h2>
                   {!searchQuery && filteredFeaturedProducts.length > FEATURED_ROW_LIMIT && (
                     <Button
                       variant="ghost"
-                      className="flex items-center gap-2 text-sm font-medium text-primary hover:text-primary"
+                      size="sm"
+                      className="flex items-center gap-1 text-muted-foreground hover:text-foreground font-medium"
                       onClick={() => setShowAllFeaturedProducts((current) => !current)}
                       data-testid="button-toggle-featured-products"
                     >
@@ -624,7 +626,7 @@ export default function HomeConnected() {
                     : "No featured products selected yet."}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
+                <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
                   {visibleFeaturedProducts.map((product) => {
                     const sellingPrice = parseFloat(product.price);
                     const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
@@ -659,9 +661,9 @@ export default function HomeConnected() {
               )}
 
               {showHomepageNewArrivalSection && visibleNewArrivalProducts.length > 0 && (
-                <section className="mt-8">
-                  <div className="flex items-center justify-between mb-8">
-                    <h2 className="text-3xl font-bold">New Arrivals</h2>
+                <section className="mt-6 rounded-2xl border bg-card p-6 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-bold tracking-tight">New Arrivals</h2>
                     {!searchQuery && filteredNewArrivalProducts.length > FEATURED_ROW_LIMIT && (
                       <span className="text-sm text-muted-foreground">
                         {filteredNewArrivalProducts.length} new arrivals
@@ -675,7 +677,7 @@ export default function HomeConnected() {
                       <span>Loading products...</span>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
                       {visibleNewArrivalProducts.map((product) => {
                         const sellingPrice = parseFloat(product.price);
                         const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
@@ -709,9 +711,9 @@ export default function HomeConnected() {
                 </section>
               )}
 
-              <section className="mt-8">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-3xl font-bold">All Products</h2>
+              <section className="mt-6 rounded-2xl border bg-card p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold tracking-tight">All Products</h2>
                   <span className="text-sm text-muted-foreground">{filteredProducts.length} products</span>
                 </div>
 
@@ -725,7 +727,7 @@ export default function HomeConnected() {
                     {searchQuery ? `No products found matching "${searchQuery}"` : "No products available in this store yet."}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4 gap-y-6 gap-y-6">
+                  <div className={`grid gap-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
                     {filteredProducts.map((product) => {
                       const sellingPrice = parseFloat(product.price);
                       const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;

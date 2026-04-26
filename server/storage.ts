@@ -111,6 +111,21 @@ async function ensurePlatformSettingsSchemaCompat() {
         await db.execute(
           sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_from_name text`
         );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS is_maintenance_mode boolean DEFAULT false`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_message text`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_started_at timestamp`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_scheduled_end timestamp`
+        );
+        await db.execute(
+          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_started_by varchar`
+        );
       } catch (error: any) {
         console.warn(
           "[STORAGE] Could not auto-add newer platform_settings feature columns:",
@@ -1392,6 +1407,7 @@ export class DbStorage implements IStorage {
     price: string;
     selectedColor: string | null;
     selectedSize: string | null;
+    image?: string | null;
   }>> {
     await ensureOrderItemsSchemaCompat();
     const items = await db
@@ -1402,6 +1418,8 @@ export class DbStorage implements IStorage {
         price: orderItems.price,
         selectedColor: orderItems.selectedColor,
         selectedSize: orderItems.selectedSize,
+        selectedImageIndex: orderItems.selectedImageIndex,
+        productImages: products.images,
       })
       .from(orderItems)
       .leftJoin(products, eq(orderItems.productId, products.id))
@@ -1409,7 +1427,10 @@ export class DbStorage implements IStorage {
     
     return items.map(item => ({
       ...item,
-      productName: item.productName || "Unknown Product"
+      productName: item.productName || "Unknown Product",
+      image: Array.isArray(item.productImages)
+        ? item.productImages[Math.max(0, Number(item.selectedImageIndex ?? 0))] || item.productImages[0] || null
+        : null,
     }));
   }
 
@@ -3567,6 +3588,39 @@ export class DbStorage implements IStorage {
           primaryStoreId: null,
           defaultCommissionRate: '1',
           frontendUrl: null,
+          isMaintenanceMode: false,
+          maintenanceMessage: null,
+          maintenanceStartedAt: null,
+          maintenanceScheduledEnd: null,
+          maintenanceStartedBy: null,
+          googleAnalyticsId: null,
+          microsoftClarityId: null,
+          sentryDsn: null,
+          ga4PropertyId: null,
+          googleCredentialsJson: null,
+          sentryAuthToken: null,
+          sentryOrg: null,
+          sentryProject: null,
+          renderDeployHookUrl: null,
+          cloudinaryAccounts: null,
+          inviteOnlyRegistration: false,
+          orderAutoCancelHours: 0,
+          freeTierProductLimit: 20,
+          maxProductsPerSeller: 0,
+          maxUploadSizeMb: 10,
+          allowedUploadTypes: 'jpg,jpeg,png,webp,gif,avif',
+          upgradePlanAPrice: '15',
+          upgradePlanASlots: 10,
+          upgradePlanBPrice: '40',
+          upgradePlanCPrice: '100',
+          deliveryFeeCommission: '0',
+          referralEnabled: false,
+          referralEnabledSingleStore: true,
+          referralEnabledMultiVendor: true,
+          referralCustomerThreshold: 5,
+          referralSellerThreshold: 10,
+          referralRewardPercent: '10',
+          referralSellerPromoHours: 24,
           updatedAt: new Date(),
         };
         return { ...defaults, ...(await readPlatformSettingsCompat()) };
@@ -3631,6 +3685,9 @@ export class DbStorage implements IStorage {
       const missingSharedVariantStockColumn =
         message.includes("allow_shared_variant_color_stock") &&
         message.toLowerCase().includes("does not exist");
+      const missingMaintenanceColumns =
+        (message.includes("is_maintenance_mode") || message.includes("maintenance_")) &&
+        message.toLowerCase().includes("does not exist");
 
       if (
         !missingBankPayoutColumn &&
@@ -3638,7 +3695,8 @@ export class DbStorage implements IStorage {
         !missingCheckoutMapColumn &&
         !missingPickupAgentChatColumn &&
         !missingSellerDirectSupportMessagesColumn &&
-        !missingSharedVariantStockColumn
+        !missingSharedVariantStockColumn &&
+        !missingMaintenanceColumns
       ) {
         throw err;
       }
@@ -3653,6 +3711,11 @@ export class DbStorage implements IStorage {
       delete payload.allowPickupAgentAdminChat;
       delete payload.allowSellerDirectSupportMessages;
       delete payload.allowSharedVariantColorStock;
+      delete payload.isMaintenanceMode;
+      delete payload.maintenanceMessage;
+      delete payload.maintenanceStartedAt;
+      delete payload.maintenanceScheduledEnd;
+      delete payload.maintenanceStartedBy;
       result = await runUpdate(payload);
     }
 
@@ -4633,7 +4696,11 @@ export class DbStorage implements IStorage {
           paidStatusFilter
         ));
       
-      const sellerRevenue = await db.select({ sum: sql<number>`sum(${orders.total})` })
+      // Gross product revenue = subtotal minus any coupon discount.
+      // This excludes delivery fees and processing fees, which do not belong to the seller.
+      const sellerRevenue = await db.select({
+        sum: sql<number>`coalesce(sum(cast(${orders.subtotal} as numeric) - coalesce(cast(${orders.couponDiscount} as numeric), 0)), 0)`,
+      })
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
@@ -4641,7 +4708,9 @@ export class DbStorage implements IStorage {
           paidStatusFilter
         ));
 
-      const sellerPaidRevenue = await db.select({ sum: sql<number>`sum(${orders.total})` })
+      const sellerPaidRevenue = await db.select({
+        sum: sql<number>`coalesce(sum(cast(${orders.subtotal} as numeric) - coalesce(cast(${orders.couponDiscount} as numeric), 0)), 0)`,
+      })
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),

@@ -69,6 +69,7 @@ interface Order {
     price?: string;
     selectedColor?: string | null;
     selectedSize?: string | null;
+    productImage?: string[] | null;
   }>;
 }
 
@@ -715,6 +716,13 @@ function ViewOrderDialog({
                       key={`${orderDetails.id}-${item.productId}-${index}`}
                       className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
                     >
+                      {Array.isArray(item.productImage) && item.productImage[0] && (
+                        <img
+                          src={item.productImage[0]}
+                          alt={item.productName}
+                          className="h-12 w-12 rounded-md object-cover shrink-0 border border-border/40"
+                        />
+                      )}
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold truncate" title={item.productName}>
                           {item.productName}
@@ -972,8 +980,8 @@ export default function AdminOrders() {
       pending: allOrders.filter(o => getEffectiveOrderStatus(o, showInternalRiderFeatures) === "pending").length,
       processing: allOrders.filter(o => ["processing", "confirmed", "ready", "external_dispatch_arranged"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
       enRoute: allOrders.filter(o => ["in_transit", "en_route", "picked_up"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
-      delivered: allOrders.filter(o => !isPickupOrderMethod(o.deliveryMethod) && ["delivered", "completed"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
-      pickups: allOrders.filter(o => isPickupOrderMethod(o.deliveryMethod) && ["delivered", "completed"].includes(getEffectiveOrderStatus(o, showInternalRiderFeatures))).length,
+      delivered: allOrders.filter(o => !isPickupOrderMethod(o.deliveryMethod) && getEffectiveOrderStatus(o, showInternalRiderFeatures) === "completed").length,
+      pickups: allOrders.filter(o => isPickupOrderMethod(o.deliveryMethod) && getEffectiveOrderStatus(o, showInternalRiderFeatures) === "completed").length,
       cancelled: allOrders.filter(o => getEffectiveOrderStatus(o, showInternalRiderFeatures) === "cancelled").length,
       totalRevenue: Number(analytics?.platformRevenueTotal ?? analytics?.totalRevenue ?? analytics?.platformCommissionTotal ?? 0),
       todayOrders: allOrders.filter(o => new Date(o.createdAt) >= today).length,
@@ -1016,11 +1024,11 @@ export default function AdminOrders() {
       {
         value: "completed",
         label: "Completed",
-        count: countByMatcher((order) => {
-          const effective = getEffectiveOrderStatus(order, showInternalRiderFeatures);
-          const current = normalizeOrderStatusValue(order.status);
-          return ["completed", "delivered"].includes(effective) || ["completed", "delivered"].includes(current);
-        }),
+          count: countByMatcher((order) => {
+            const effective = getEffectiveOrderStatus(order, showInternalRiderFeatures);
+            const current = normalizeOrderStatusValue(order.status);
+            return effective === "completed" || current === "completed";
+          }),
       },
       {
         value: "cancelled",
@@ -1088,11 +1096,12 @@ export default function AdminOrders() {
         const effective = getEffectiveOrderStatus(o, showInternalRiderFeatures);
         if (target === "delivered") return ["delivered", "completed"].includes(current);
         if (target === "completed") {
-          return ["completed", "delivered"].includes(current) || ["completed", "delivered"].includes(effective);
+          return current === "completed" || effective === "completed";
         }
         if (target === "in_transit") return ["in_transit", "en_route"].includes(current);
         if (target === "external_dispatch_arranged") return current === "external_dispatch_arranged";
         if (target === "pending") return effective === "pending";
+        if (target === "processing") return ["processing", "confirmed", "ready", "packaged", "external_dispatch_arranged"].includes(effective);
         return current === target || effective === target;
       });
     }
@@ -1138,12 +1147,11 @@ export default function AdminOrders() {
   }, [openOrderId, allOrders]);
   
   const handleOpenDialog = (orderId: string) => {
-    navigate(`/admin/orders?orderId=${orderId}`, { replace: true });
-    setOpenOrderId(orderId);
+    navigate(`/admin/orders/${orderId}/action`);
   };
-  
+
   const handleCloseDialog = () => {
-    navigate('/admin/orders', { replace: true });
+    navigate('/admin/orders');
     setOpenOrderId(null);
   };
 
@@ -1305,6 +1313,44 @@ export default function AdminOrders() {
             </div>
           </Card>
         </div>
+
+        {/* Finance Note — collapsible explainer */}
+        <Card className="border-border/60 bg-card/95">
+          <details>
+            <summary className="cursor-pointer list-none px-6 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold">Order Finance & Commission — How the Money Flows</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Expand to understand how platform commission, seller payouts, and order totals relate</p>
+                </div>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
+              </div>
+            </summary>
+            <CardContent className="pt-0 space-y-3 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Order Total</p>
+                  <p className="text-muted-foreground text-xs">Merchandise subtotal + Delivery Fee + Processing Fee − Coupon Discount. This is the full amount the buyer paid.</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Platform Commission</p>
+                  <p className="text-muted-foreground text-xs">A configurable percentage of the merchandise subtotal (after coupons). Kept by the platform. Delivery and processing fees are separate platform revenue.</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Seller Settlement</p>
+                  <p className="text-muted-foreground text-xs">Merchandise subtotal minus commission. Routed automatically to the seller's bank or mobile money account via Paystack at the time of payment if payout setup is verified.</p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="font-medium mb-1">Pending Payout</p>
+                  <p className="text-muted-foreground text-xs">Seller's share held back because their payout setup is incomplete. Goes to "completed" automatically once they verify their bank or mobile money details.</p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-dashed border-border/50 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                <strong>Split formula:</strong> Seller Share = (Subtotal − Coupon) × (100% − Commission%). Platform gets Commission% + Processing Fee + Delivery Fee. Both bank and mobile-money payouts are tracked in Admin → Seller Payouts.
+              </div>
+            </CardContent>
+          </details>
+        </Card>
 
         {/* Tabs for All Orders vs My Orders */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -1475,6 +1521,7 @@ function OrdersList({
   emptyMessage?: string;
 }) {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
   const getPaymentLabel = (value?: string) => normalizePaymentStatus(value);
@@ -1736,6 +1783,7 @@ function OrdersList({
                 (showInternalRiderFeatures && (verification?.sellerToRider || verification?.riderToBuyer))
               );
               const status = String(order.status || "").toLowerCase().trim();
+              const isCompletedOrder = status === "completed";
               const shouldShowVerification =
                 hasAnyVerification || ["picked_up", "in_transit", "en_route", "arrived", "delivered", "completed"].includes(status);
               if (!shouldShowVerification) return null;
@@ -1744,7 +1792,7 @@ function OrdersList({
                   <p className="font-semibold text-foreground">Verification Checkpoints</p>
                   {isPickup ? (
                     <p className="text-muted-foreground">
-                      Seller to Buyer: <span className="font-medium text-foreground">{verification?.sellerToBuyer ? `Verified (${verification.sellerToBuyer})` : "Pending"}</span>
+                      Seller to Buyer: <span className="font-medium text-foreground">{verification?.sellerToBuyer ? `Verified (${verification.sellerToBuyer})` : isCompletedOrder ? "Verified (completed)" : "Pending"}</span>
                     </p>
                   ) : isBus ? (
                     <>
@@ -1754,19 +1802,19 @@ function OrdersList({
                         </p>
                       ) : null}
                       <p className="text-muted-foreground">
-                        BUS Transport Proof: <span className="font-medium text-foreground">{order.busDeliveryWorkflow?.proofSubmitted ? "Submitted" : "Pending"}</span>
+                        BUS Transport Proof: <span className="font-medium text-foreground">{order.busDeliveryWorkflow?.proofSubmitted ? "Submitted" : isCompletedOrder ? "Submitted" : "Pending"}</span>
                       </p>
                       <p className="text-muted-foreground">
-                        BUS Stage: <span className="font-medium text-foreground">{busStage || "READY"}</span>
+                        BUS Stage: <span className="font-medium text-foreground">{isCompletedOrder ? "COMPLETED" : busStage || "READY"}</span>
                       </p>
                     </>
                   ) : showInternalRiderFeatures ? (
                     <>
                       <p className="text-muted-foreground">
-                        Seller to Rider: <span className="font-medium text-foreground">{verification?.sellerToRider ? `Verified (${verification.sellerToRider})` : "Pending"}</span>
+                        Seller to Rider: <span className="font-medium text-foreground">{verification?.sellerToRider ? `Verified (${verification.sellerToRider})` : isCompletedOrder ? "Verified (completed)" : "Pending"}</span>
                       </p>
                       <p className="text-muted-foreground">
-                        Rider to Buyer: <span className="font-medium text-foreground">{verification?.riderToBuyer ? `Verified (${verification.riderToBuyer})` : "Pending"}</span>
+                        Rider to Buyer: <span className="font-medium text-foreground">{verification?.riderToBuyer ? `Verified (${verification.riderToBuyer})` : isCompletedOrder ? "Verified (completed)" : "Pending"}</span>
                       </p>
                     </>
                   ) : null}
@@ -1826,6 +1874,36 @@ function OrdersList({
                       >
                         <MessageCircle className="h-3 w-3 mr-1" />
                         Message Seller
+                      </Button>
+                    </div>
+                  )}
+                  {user?.role === "super_admin" && sellerState.label === "Awaiting Payment" && (
+                    <div className="rounded-md border border-slate-200/60 dark:border-slate-700/40 p-2 mt-2 space-y-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        Customer: <span className="font-medium text-foreground">{order.buyer?.name || "Unknown"}</span>
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        disabled={!order.buyerId}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!order.buyerId) return;
+                          const params = new URLSearchParams({
+                            userId: order.buyerId,
+                            orderId: order.id,
+                            orderNumber: order.orderNumber,
+                            orderAction: "Payment pending — customer hasn't paid yet",
+                            orderActionOwner: "buyer",
+                            orderLink: `/admin/orders?orderId=${order.id}`,
+                          });
+                          navigate(`/admin/messages?${params.toString()}`);
+                        }}
+                        data-testid={`button-message-customer-${order.id}`}
+                      >
+                        <MessageCircle className="h-3 w-3 mr-1" />
+                        Chat with Customer
                       </Button>
                     </div>
                   )}

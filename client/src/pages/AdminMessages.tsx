@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, MessageSquare, Send, ArrowLeft, User, Phone, Video, PhoneOff, X, RefreshCw, ShieldCheck, Wifi } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
+import { TypingIndicator } from "@/components/TypingIndicator";
 import { useSocket } from "@/contexts/NotificationContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useGroupCall } from "@/hooks/useGroupCall";
@@ -129,6 +130,7 @@ export default function AdminMessages() {
   const productLinkFilter = urlParams.get("productLink") || (productIdFilter ? `/product/${productIdFilter}` : "");
   const autoReferencedThreadsRef = useRef<Set<string>>(new Set());
   const autoOrderReferencedThreadsRef = useRef<Set<string>>(new Set());
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -344,7 +346,14 @@ export default function AdminMessages() {
         socket.emit("message_delivered", { messageId: msg.id });
       }
       if (msg.senderId === selectedUserId || msg.receiverId === selectedUserId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/messages", selectedUserId] });
+        if (!seenMessageIdsRef.current.has(msg.id)) {
+          seenMessageIdsRef.current.add(msg.id);
+          queryClient.setQueryData<Message[]>(["/api/messages", selectedUserId], (old) => {
+            if (!old) return [msg];
+            if (old.some((m) => m.id === msg.id)) return old;
+            return [...old, msg];
+          });
+        }
       }
     };
 
@@ -452,6 +461,7 @@ export default function AdminMessages() {
       typingTimeoutRef.current = null;
     }
     isTypingRef.current = false;
+    seenMessageIdsRef.current.clear();
   }, [selectedUserId]);
 
   useEffect(() => {
@@ -1138,11 +1148,19 @@ export default function AdminMessages() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-sm truncate">{selectedUser.name || selectedUser.username}</h3>
-                  <p className={`text-xs ${selectedUserPresence.isOnline ? 'text-green-600' : 'text-muted-foreground'}`}>
-                    {isPeerTyping ? 'typing...' :
-                     selectedUserPresence.isOnline ? 'Online' : 
-                     selectedUserPresence.isAway ? 'Away' :
-                     selectedUserPresence.presence?.lastSeen ? formatLastSeen(selectedUserPresence.presence.lastSeen) : selectedUser.role}
+                  <p className={`text-xs ${isPeerTyping ? 'text-primary font-medium' : selectedUserPresence.isOnline ? 'text-green-600' : 'text-muted-foreground'}`}>
+                    {isPeerTyping ? (
+                      <span className="inline-flex items-center gap-0.5">
+                        typing
+                        <span className="inline-flex gap-px ml-0.5">
+                          <span className="h-1 w-1 rounded-full bg-current animate-bounce" style={{animationDelay:"0ms",animationDuration:"900ms"}}/>
+                          <span className="h-1 w-1 rounded-full bg-current animate-bounce" style={{animationDelay:"200ms",animationDuration:"900ms"}}/>
+                          <span className="h-1 w-1 rounded-full bg-current animate-bounce" style={{animationDelay:"400ms",animationDuration:"900ms"}}/>
+                        </span>
+                      </span>
+                    ) : selectedUserPresence.isOnline ? 'Online' :
+                       selectedUserPresence.isAway ? 'Away' :
+                       selectedUserPresence.presence?.lastSeen ? formatLastSeen(selectedUserPresence.presence.lastSeen) : selectedUser.role}
                   </p>
                 </div>
                 <Button
@@ -1266,6 +1284,7 @@ export default function AdminMessages() {
                       <div
                         key={msg.id}
                         className={`flex ${msg.messageType === 'missed_call' ? 'justify-center' : msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
+                        data-msg-id={msg.id}
                       >
                         {msg.messageType === 'missed_call' ? (
                           <div className="flex items-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-900/20 rounded-full text-red-600 dark:text-red-400 text-sm">
@@ -1304,6 +1323,11 @@ export default function AdminMessages() {
                         )}
                       </div>
                     ))}
+                    {isPeerTyping && (
+                      <div className="flex justify-start">
+                        <TypingIndicator />
+                      </div>
+                    )}
                     <div ref={messagesEndRef} />
                   </div>
                 )}
@@ -1479,12 +1503,20 @@ export default function AdminMessages() {
                       <h3 className="font-semibold text-lg">{selectedUser.name || selectedUser.username}</h3>
                       <div className="flex items-center gap-2">
                         <span className={`text-sm ${
-                          selectedUserPresence.isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'
+                          isPeerTyping ? 'text-primary font-medium' : selectedUserPresence.isOnline ? 'text-green-600 font-medium' : 'text-muted-foreground'
                         }`}>
-                          {isPeerTyping ? 'typing...' :
-                           selectedUserPresence.isOnline ? 'Online' : 
-                           selectedUserPresence.isAway ? 'Away' :
-                           selectedUserPresence.presence?.lastSeen ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}` : 'Offline'}
+                          {isPeerTyping ? (
+                            <span className="inline-flex items-center gap-0.5">
+                              typing
+                              <span className="inline-flex gap-px ml-0.5">
+                                <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{animationDelay:"0ms",animationDuration:"900ms"}}/>
+                                <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{animationDelay:"200ms",animationDuration:"900ms"}}/>
+                                <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" style={{animationDelay:"400ms",animationDuration:"900ms"}}/>
+                              </span>
+                            </span>
+                          ) : selectedUserPresence.isOnline ? 'Online' :
+                             selectedUserPresence.isAway ? 'Away' :
+                             selectedUserPresence.presence?.lastSeen ? `Last seen ${formatLastSeen(selectedUserPresence.presence.lastSeen)}` : 'Offline'}
                         </span>
                         <span className="text-muted-foreground">|</span>
                         <Badge className={getRoleBadgeColor(selectedUser.role)} variant="secondary">
@@ -1684,6 +1716,11 @@ export default function AdminMessages() {
                         </div>
                         )
                       ))}
+                      {isPeerTyping && (
+                        <div className="flex justify-start">
+                          <TypingIndicator />
+                        </div>
+                      )}
                       <div ref={messagesEndRef} />
                     </div>
                   )}

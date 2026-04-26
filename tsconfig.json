@@ -1,5 +1,6 @@
 {
-  "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
+  "files": ["./types/nodemailer.d.ts"],
+  "include": ["client/src/**/*", "shared/**/*", "server/**/*", "types/**/*"],
   "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
   "compilerOptions": {
     "incremental": true,
