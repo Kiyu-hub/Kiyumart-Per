@@ -149,23 +149,26 @@ app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://api.mapbox.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://api.mapbox.com", "fonts.googleapis.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://api.mapbox.com", "https://meet.jit.si"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://api.mapbox.com", "fonts.googleapis.com", "https://meet.jit.si"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
       fontSrc: ["'self'", "fonts.gstatic.com"],
-      connectSrc: ["'self'", "https:", "wss:"],
+      connectSrc: ["'self'", "https:", "wss:", "https://meet.jit.si", "wss://meet.jit.si"],
       workerSrc: ["'self'", "blob:"],
-      childSrc: ["'self'", "blob:"],
+      childSrc: ["'self'", "blob:", "https://meet.jit.si"],
+      frameSrc: ["'self'", "https://meet.jit.si"],
     },
-  } : undefined,
+  } : false,
   hsts: process.env.NODE_ENV === 'production' ? {
     maxAge: 31536000,
     includeSubDomains: true,
     preload: true
-  } : undefined,
-  frameguard: { action: 'deny' },
+  } : false,
+  frameguard: { action: 'sameorigin' },
   noSniff: true,
   xssFilter: true,
+  // Disable COEP — Jitsi iframe requires cross-origin resources without CORP headers
+  crossOriginEmbedderPolicy: false,
 }));
 
 // During development remove any CSP headers that could block Vite's inline preamble
@@ -269,12 +272,6 @@ app.get('/api/health', async (_req, res) => {
 // Trust only first proxy (Replit's reverse proxy) for security
 // See: https://expressjs.com/en/guide/behind-proxies.html
 app.set('trust proxy', 1);
-
-// Security Headers - Helmet.js
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false,
-}));
 
 // Role-aware rate limiting - Different limits based on user role
 // Uses IP-based keying (IPv6-safe by default) with role-based quotas
@@ -597,6 +594,16 @@ app.use(cookieParser());
           CREATE INDEX IF NOT EXISTS referral_rewards_user_idx ON referral_rewards(user_id);
         END IF;
       END $$`);
+    // Advanced features columns (invite-only, operational limits)
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invite_only_registration boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS order_auto_cancel_hours integer DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS free_tier_product_limit integer DEFAULT 20`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS max_products_per_seller integer DEFAULT 0`);
+    // Upload controls
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS max_upload_size_mb integer DEFAULT 10`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allowed_upload_types text DEFAULT 'jpg,jpeg,png,webp,gif,avif'`);
+    // Render deploy hook
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS render_deploy_hook_url text`);
   } catch (e: any) {
     console.warn("[STARTUP] Could not run schema self-heal compatibility checks:", e?.message || String(e));
   }

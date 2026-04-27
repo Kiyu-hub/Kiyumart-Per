@@ -65,73 +65,99 @@ async function writePlatformSettingsCompat(data: Partial<PlatformSettings>) {
 async function ensurePlatformSettingsSchemaCompat() {
   if (!platformSettingsSchemaReady) {
     platformSettingsSchemaReady = (async () => {
-      try {
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS is_external_rider_system_enabled boolean DEFAULT false`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_checkout_delivery_map boolean DEFAULT true`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_pickup_agent_admin_chat boolean DEFAULT true`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_seller_direct_support_messages boolean DEFAULT true`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_seller_bank_payouts boolean DEFAULT true`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_shared_variant_color_stock boolean DEFAULT false`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_homepage_featured_section boolean DEFAULT true`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_homepage_new_arrival_section boolean DEFAULT true`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_host text`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_port integer`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_user text`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_pass text`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_secure boolean DEFAULT false`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_from_email text`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_from_name text`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS is_maintenance_mode boolean DEFAULT false`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_message text`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_started_at timestamp`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_scheduled_end timestamp`
-        );
-        await db.execute(
-          sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_started_by varchar`
-        );
-      } catch (error: any) {
-        console.warn(
-          "[STORAGE] Could not auto-add newer platform_settings feature columns:",
-          error?.message || error,
-        );
-      }
+      // Run each ALTER TABLE independently so one failure doesn't block the rest.
+      // If any fail, reset the singleton so the next call retries.
+      let anyFailed = false;
+      const runAlter = async (query: Parameters<typeof db.execute>[0]) => {
+        try {
+          await db.execute(query);
+        } catch (e: any) {
+          anyFailed = true;
+          console.warn("[STORAGE] platform_settings schema compat ALTER skipped:", e?.message || e);
+        }
+      };
+
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS is_external_rider_system_enabled boolean DEFAULT false`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_checkout_delivery_map boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_pickup_agent_admin_chat boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_seller_direct_support_messages boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_seller_bank_payouts boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_shared_variant_color_stock boolean DEFAULT false`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_homepage_featured_section boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_homepage_new_arrival_section boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_host text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_port integer`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_user text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_pass text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_secure boolean DEFAULT false`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_from_email text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS smtp_from_name text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS is_maintenance_mode boolean DEFAULT false`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_message text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_started_at timestamp`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_scheduled_end timestamp`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_started_by varchar`);
+      // Advanced features / operational limits columns
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invite_only_registration boolean DEFAULT false`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS order_auto_cancel_hours integer DEFAULT 0`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS free_tier_product_limit integer DEFAULT 20`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS max_products_per_seller integer DEFAULT 0`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_a_price decimal(10,2) DEFAULT 15`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_a_slots integer DEFAULT 10`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_b_price decimal(10,2) DEFAULT 40`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_c_price decimal(10,2) DEFAULT 100`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS delivery_fee_commission decimal(10,2) DEFAULT 0`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_reward_percent decimal(5,2) DEFAULT 0`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_enabled boolean DEFAULT false`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_enabled_single_store boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_enabled_multi_vendor boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_customer_threshold integer DEFAULT 5`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_seller_threshold integer DEFAULT 10`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_seller_promo_hours integer DEFAULT 24`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS max_upload_size_mb integer DEFAULT 10`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allowed_upload_types text DEFAULT 'jpg,jpeg,png,webp,gif,avif'`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS render_deploy_hook_url text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS ga4_property_id text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS google_credentials_json text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sentry_auth_token text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sentry_org text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sentry_project text`);
+      // Analytics / social / banner columns that may have been added to schema after initial DB creation
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS google_analytics_id text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS microsoft_clarity_id text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sentry_dsn text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_social_links boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_facebook boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_instagram boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_twitter boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_linkedin boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_youtube boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_tiktok boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_pinterest boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_whatsapp boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS shop_display_mode text DEFAULT 'by-store'`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_shop_by_section boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS active_banner_collection_id varchar`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS category_display_style text DEFAULT 'grid'`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS banner_autoplay_enabled boolean DEFAULT true`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS banner_autoplay_duration integer DEFAULT 5000`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS hero_banner_ad_image text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS hero_banner_ad_url text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sidebar_ad_image text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS sidebar_ad_url text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS footer_ad_image text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS footer_ad_url text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS product_page_ad_image text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS product_page_ad_url text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS primary_store_id varchar`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS default_commission_rate decimal(5,2) DEFAULT 1.00`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS cloudinary_accounts text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS frontend_url text`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS footer_links jsonb DEFAULT '[]'::jsonb`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS footer_payment_icons text[]`);
+      await runAlter(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_seller_registration boolean DEFAULT false`);
+      // If any statement failed, reset so the next call retries
+      if (anyFailed) platformSettingsSchemaReady = null;
     })();
   }
 
@@ -3688,6 +3714,31 @@ export class DbStorage implements IStorage {
       const missingMaintenanceColumns =
         (message.includes("is_maintenance_mode") || message.includes("maintenance_")) &&
         message.toLowerCase().includes("does not exist");
+      const missingAdvancedFeaturesColumn =
+        message.toLowerCase().includes("does not exist") && (
+          message.includes("invite_only_registration") ||
+          message.includes("order_auto_cancel_hours") ||
+          message.includes("free_tier_product_limit") ||
+          message.includes("max_products_per_seller") ||
+          message.includes("upgrade_plan_a_price") ||
+          message.includes("upgrade_plan_a_slots") ||
+          message.includes("upgrade_plan_b_price") ||
+          message.includes("upgrade_plan_c_price") ||
+          message.includes("delivery_fee_commission") ||
+          message.includes("referral_enabled") ||
+          message.includes("referral_reward_percent") ||
+          message.includes("referral_customer_threshold") ||
+          message.includes("referral_seller_threshold") ||
+          message.includes("referral_seller_promo_hours") ||
+          message.includes("max_upload_size_mb") ||
+          message.includes("allowed_upload_types") ||
+          message.includes("render_deploy_hook_url") ||
+          message.includes("ga4_property_id") ||
+          message.includes("google_credentials_json") ||
+          message.includes("sentry_auth_token") ||
+          message.includes("sentry_org") ||
+          message.includes("sentry_project")
+        );
 
       if (
         !missingBankPayoutColumn &&
@@ -3696,7 +3747,8 @@ export class DbStorage implements IStorage {
         !missingPickupAgentChatColumn &&
         !missingSellerDirectSupportMessagesColumn &&
         !missingSharedVariantStockColumn &&
-        !missingMaintenanceColumns
+        !missingMaintenanceColumns &&
+        !missingAdvancedFeaturesColumn
       ) {
         throw err;
       }
@@ -3716,6 +3768,30 @@ export class DbStorage implements IStorage {
       delete payload.maintenanceStartedAt;
       delete payload.maintenanceScheduledEnd;
       delete payload.maintenanceStartedBy;
+      delete payload.inviteOnlyRegistration;
+      delete payload.orderAutoCancelHours;
+      delete payload.freeTierProductLimit;
+      delete payload.maxProductsPerSeller;
+      delete payload.upgradePlanAPrice;
+      delete payload.upgradePlanASlots;
+      delete payload.upgradePlanBPrice;
+      delete payload.upgradePlanCPrice;
+      delete payload.deliveryFeeCommission;
+      delete payload.referralEnabled;
+      delete payload.referralEnabledSingleStore;
+      delete payload.referralEnabledMultiVendor;
+      delete payload.referralRewardPercent;
+      delete payload.referralCustomerThreshold;
+      delete payload.referralSellerThreshold;
+      delete payload.referralSellerPromoHours;
+      delete payload.maxUploadSizeMb;
+      delete payload.allowedUploadTypes;
+      delete payload.renderDeployHookUrl;
+      delete payload.ga4PropertyId;
+      delete payload.googleCredentialsJson;
+      delete payload.sentryAuthToken;
+      delete payload.sentryOrg;
+      delete payload.sentryProject;
       result = await runUpdate(payload);
     }
 
@@ -4237,6 +4313,14 @@ export class DbStorage implements IStorage {
   // Review operations
   async createReview(review: InsertReview & { userId: string }): Promise<Review> {
     const [newReview] = await db.insert(reviews).values(review).returning();
+    // Recalculate and persist product rating aggregate
+    const [agg] = await db.select({
+      avg: sql<string>`COALESCE(AVG(${reviews.rating})::numeric(3,2), 0)::text`,
+      count: sql<number>`COUNT(*)::integer`,
+    }).from(reviews).where(eq(reviews.productId, review.productId));
+    await db.update(products)
+      .set({ ratings: String(agg?.avg ?? "0"), totalRatings: agg?.count ?? 0 })
+      .where(eq(products.id, review.productId));
     this.invalidateCache(`getProductReviews:${review.productId}`);
     this.invalidateCache(`getProduct:${review.productId}`);
     this.invalidateCache("getProducts");
@@ -4256,6 +4340,8 @@ export class DbStorage implements IStorage {
       userId: reviews.userId,
       rating: reviews.rating,
       comment: reviews.comment,
+      sellerReply: reviews.sellerReply,
+      sellerReplyAt: reviews.sellerReplyAt,
       createdAt: reviews.createdAt,
       userName: users.name,
       profileImage: users.profileImage,

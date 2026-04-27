@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
+import { JitsiCallProvider } from "@/contexts/JitsiCallContext";
 import { useBranding } from "@/hooks/useBranding";
 import LogoLoadingScreen from "@/components/LogoLoadingScreen";
 
@@ -274,8 +275,8 @@ function MaintenanceGuard({ children }: { children: React.ReactNode }) {
       if (!res.ok) return { isMaintenanceMode: false, isAutoMaintenance: false, maintenanceMessage: null, maintenanceScheduledEnd: null };
       return res.json();
     },
-    refetchInterval: 60000,
-    staleTime: 55000,
+    refetchInterval: 10000,
+    staleTime: 8000,
     retry: false,
   });
 
@@ -288,6 +289,15 @@ function MaintenanceGuard({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (maintenance && !maintenance.isMaintenanceMode) setForceMaintenance(false);
   }, [maintenance]);
+
+  // Force a full reload when maintenance mode lifts so users see fresh content
+  const prevMaintenanceRef = React.useRef<boolean | undefined>(undefined);
+  React.useEffect(() => {
+    if (prevMaintenanceRef.current === true && maintenance?.isMaintenanceMode === false) {
+      window.location.reload();
+    }
+    prevMaintenanceRef.current = maintenance?.isMaintenanceMode;
+  }, [maintenance?.isMaintenanceMode]);
 
   // While the first status check is in-flight, show nothing — the LogoLoadingScreen
   // is already covering the screen during app init, so there's no visible blank gap.
@@ -572,6 +582,7 @@ function App() {
       <LanguageProvider>
         <AuthProvider>
           <NotificationProvider>
+            <JitsiCallProvider>
             <TooltipProvider>
               <LogoLoadingScreen 
                 isLoading={!isAppReady} 
@@ -586,6 +597,7 @@ function App() {
               <MobileStorefrontNav />
               <PWAInstallPrompt />
             </TooltipProvider>
+            </JitsiCallProvider>
           </NotificationProvider>
         </AuthProvider>
       </LanguageProvider>

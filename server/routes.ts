@@ -15983,6 +15983,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const missingSharedVariantStockColumn =
           message.includes("allow_shared_variant_color_stock") &&
           message.toLowerCase().includes("does not exist");
+        const missingAdvancedFeaturesColumn =
+          message.toLowerCase().includes("does not exist") && (
+            message.includes("invite_only_registration") ||
+            message.includes("order_auto_cancel_hours") ||
+            message.includes("free_tier_product_limit") ||
+            message.includes("max_products_per_seller") ||
+            message.includes("max_upload_size_mb") ||
+            message.includes("allowed_upload_types") ||
+            message.includes("render_deploy_hook_url")
+          );
 
         if (
           !missingBankPayoutColumn &&
@@ -15990,7 +16000,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           !missingCheckoutMapColumn &&
           !missingPickupAgentChatColumn &&
           !missingSellerDirectSupportMessagesColumn &&
-          !missingSharedVariantStockColumn
+          !missingSharedVariantStockColumn &&
+          !missingAdvancedFeaturesColumn
         ) {
           throw error;
         }
@@ -16004,6 +16015,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         delete updateData.allowPickupAgentAdminChat;
         delete updateData.allowSellerDirectSupportMessages;
         delete updateData.allowSharedVariantColorStock;
+        delete updateData.inviteOnlyRegistration;
+        delete updateData.orderAutoCancelHours;
+        delete updateData.freeTierProductLimit;
+        delete updateData.maxProductsPerSeller;
+        delete updateData.maxUploadSizeMb;
+        delete updateData.allowedUploadTypes;
+        delete updateData.renderDeployHookUrl;
         settings = await storage.updatePlatformSettings(updateData);
       }
 
@@ -20026,24 +20044,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
       fixes.push({ name: "settings_cache", status: "error", detail: e?.message });
     }
 
-    // 5. Resolve all info-level system activity logs (keep errors/warnings)
+    // 5. Resolve info-level logs and stale warning logs (older than 24 h)
     try {
-      const infoLogs = await db
-        .select({ id: systemActivityLogs.id })
+      const staleWarningCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const logsToResolve = await db
+        .select({ id: systemActivityLogs.id, severity: systemActivityLogs.severity })
         .from(systemActivityLogs)
-        .where(and(eq(systemActivityLogs.isResolved, false), eq(systemActivityLogs.severity, "info")))
-        .limit(200);
-      if (infoLogs.length > 0) {
+        .where(
+          and(
+            eq(systemActivityLogs.isResolved, false),
+            or(
+              eq(systemActivityLogs.severity, "info"),
+              and(
+                eq(systemActivityLogs.severity, "warning"),
+                lte(systemActivityLogs.createdAt as any, staleWarningCutoff)
+              )
+            )
+          )
+        )
+        .limit(500);
+      if (logsToResolve.length > 0) {
+        const ids = logsToResolve.map(l => l.id);
         await db
           .update(systemActivityLogs)
           .set({ isResolved: true, resolvedAt: new Date(), updatedAt: new Date() })
-          .where(and(eq(systemActivityLogs.isResolved, false), eq(systemActivityLogs.severity, "info")));
-        fixes.push({ name: "resolve_info_logs", status: "fixed", detail: `Auto-resolved ${infoLogs.length} info-level log(s)` });
+          .where(and(eq(systemActivityLogs.isResolved, false), inArray(systemActivityLogs.id, ids)));
+        const infoCount = logsToResolve.filter(l => l.severity === "info").length;
+        const warnCount = logsToResolve.filter(l => l.severity === "warning").length;
+        fixes.push({ name: "resolve_stale_logs", status: "fixed", detail: `Auto-resolved ${infoCount} info + ${warnCount} stale warning log(s)` });
       } else {
-        fixes.push({ name: "resolve_info_logs", status: "ok", detail: "No unresolved info logs" });
+        fixes.push({ name: "resolve_stale_logs", status: "ok", detail: "No stale logs to resolve" });
       }
     } catch (e: any) {
-      fixes.push({ name: "resolve_info_logs", status: "error", detail: e?.message });
+      fixes.push({ name: "resolve_stale_logs", status: "error", detail: e?.message });
+    }
+
+    // 6. Recalculate product ratings for any products that have reviews but 0 rating
+    try {
+      const unratedProducts = await db
+        .select({ productId: reviews.productId, avg: sql<string>`AVG(${reviews.rating})::numeric(3,2)::text`, count: sql<number>`COUNT(*)::integer` })
+        .from(reviews)
+        .groupBy(reviews.productId)
+        .having(sql`COUNT(*) > 0`);
+      let ratingFixed = 0;
+      for (const row of unratedProducts) {
+        try {
+          await db.update(products)
+            .set({ ratings: String(row.avg ?? "0"), totalRatings: row.count ?? 0 })
+            .where(and(eq(products.id, row.productId), sql`(${products.ratings} = '0' OR ${products.ratings} = '0.00' OR ${products.totalRatings} = 0)`));
+          ratingFixed++;
+        } catch {}
+      }
+      fixes.push({ name: "product_rating_sync", status: ratingFixed > 0 ? "fixed" : "ok", detail: ratingFixed > 0 ? `Synced ratings for ${ratingFixed} product(s)` : "All product ratings are current" });
+    } catch (e: any) {
+      fixes.push({ name: "product_rating_sync", status: "error", detail: e?.message });
     }
 
     const fixedCount = fixes.filter(f => f.status === "fixed").length;

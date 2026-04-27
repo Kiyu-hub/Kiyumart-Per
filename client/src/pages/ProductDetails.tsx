@@ -2578,12 +2578,29 @@ export default function ProductDetails() {
                             {review.userName}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(review.createdAt).toLocaleDateString('en-US', { 
-                              year: 'numeric', month: 'short', day: 'numeric' 
+                            {new Date(review.createdAt).toLocaleDateString('en-US', {
+                              year: 'numeric', month: 'short', day: 'numeric'
                             })}
                           </p>
                         </div>
                       </div>
+
+                      {/* Seller reply */}
+                      {(review as any).sellerReply && (
+                        <div className="ml-2 pl-3 border-l-2 border-primary/40 bg-primary/5 rounded-r-lg p-2">
+                          <p className="text-xs font-semibold text-primary mb-1">Seller Reply</p>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            {(review as any).sellerReply}
+                          </p>
+                          {(review as any).sellerReplyAt && (
+                            <p className="text-xs text-muted-foreground/60 mt-1">
+                              {new Date((review as any).sellerReplyAt).toLocaleDateString('en-US', {
+                                year: 'numeric', month: 'short', day: 'numeric'
+                              })}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

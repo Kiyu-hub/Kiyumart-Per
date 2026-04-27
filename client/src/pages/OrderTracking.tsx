@@ -8,7 +8,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import OrderStatusTimeline from "@/components/OrderStatusTimeline";
 import OrderStatusBadge from "@/components/OrderStatusBadge";
 import DeliveryMap from "@/components/DeliveryMap";
-import { ArrowLeft, Search, Filter, Loader2, Navigation } from "lucide-react";
+import { ArrowLeft, Search, Filter, Loader2, Navigation, Package } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -19,6 +19,7 @@ import { io, Socket } from "socket.io-client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { PageLoadingState } from "@/components/ui/loading-state";
+import { fetchApiJson } from "@/lib/queryClient";
 
 interface Order {
   id: string;
@@ -59,6 +60,16 @@ interface RiderLocation {
   latitude: number;
   longitude: number;
   timestamp: string;
+}
+
+interface OrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  price: string;
+  selectedColor?: string | null;
+  selectedSize?: string | null;
+  image?: string | null;
 }
 
 export default function OrderTracking() {
@@ -253,6 +264,13 @@ export default function OrderTracking() {
   const { data: orders = [], isLoading, error } = useQuery<Order[]>({
     queryKey: ["/api/orders"],
     enabled: !authLoading && !!user,
+  });
+
+  const { data: orderItems = [] } = useQuery<OrderItem[]>({
+    queryKey: ["/api/orders", requestedOrderId, "items"],
+    queryFn: () => fetchApiJson<OrderItem[]>(`/api/orders/${requestedOrderId}/items`),
+    enabled: !!requestedOrderId && !!user,
+    staleTime: 60000,
   });
 
   // Fetch initial rider locations for orders out for delivery
@@ -510,6 +528,48 @@ export default function OrderTracking() {
                             deliveredAt={order.deliveredAt}
                           />
                         </div>
+
+                        {/* Items — shown in detail view */}
+                        {isOrderDetailsMode && orderItems.length > 0 && (
+                          <div className="pt-4 border-t">
+                            <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+                              <Package className="h-4 w-4" />
+                              What You Ordered
+                            </h3>
+                            <div className="space-y-3">
+                              {orderItems.map((item, idx) => (
+                                <div key={`${item.productId}-${idx}`} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border">
+                                  {item.image ? (
+                                    <img
+                                      src={item.image}
+                                      alt={item.productName}
+                                      className="w-16 h-16 object-cover rounded-md flex-shrink-0 border"
+                                    />
+                                  ) : (
+                                    <div className="w-16 h-16 rounded-md flex-shrink-0 border bg-muted flex items-center justify-center">
+                                      <Package className="h-6 w-6 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-medium text-sm truncate">{item.productName}</p>
+                                    <div className="flex flex-wrap gap-2 mt-1">
+                                      {item.selectedColor && (
+                                        <span className="text-xs text-muted-foreground">Color: {item.selectedColor}</span>
+                                      )}
+                                      {item.selectedSize && (
+                                        <span className="text-xs text-muted-foreground">Size: {item.selectedSize}</span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-1">Qty: {item.quantity}</p>
+                                  </div>
+                                  <p className="text-sm font-semibold shrink-0">
+                                    {formatPrice(parseFloat(item.price) * item.quantity)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Order Details */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
