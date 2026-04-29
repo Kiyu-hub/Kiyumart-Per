@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { WebRTCCallDialog } from "@/components/WebRTCCallDialog";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 // ─── ICE / STUN / TURN configuration ─────────────────────────────────────────
 const RTC_CONFIG: RTCConfiguration = {
@@ -118,6 +119,7 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
   const socket = useSocket();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { callerRingtone, receiverRingtone } = usePlatformSettings();
 
   // ── Call state ──────────────────────────────────────────────────────────────
   const [currentRoom, setCurrentRoom] = useState<ActiveCall | null>(null);
@@ -172,21 +174,37 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
 
   const playRingBurst = useCallback((ctx: AudioContext) => {
     const now = ctx.currentTime;
-    const env = 0.22;
-    [880, 660].forEach((freq, i) => {
+    const tone = (freq: number, startAt: number, dur: number, vol: number, shape: OscillatorType = "sine") => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "sine";
+      osc.type = shape;
       osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, now + i * env);
-      gain.gain.exponentialRampToValueAtTime(0.12, now + i * env + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + i * env + env);
+      gain.gain.setValueAtTime(0.0001, now + startAt);
+      gain.gain.exponentialRampToValueAtTime(vol, now + startAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + startAt + dur);
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.start(now + i * env);
-      osc.stop(now + i * env + env);
-    });
-  }, []);
+      osc.start(now + startAt);
+      osc.stop(now + startAt + dur + 0.05);
+    };
+    switch (receiverRingtone) {
+      case "whatsapp":
+        [660, 880, 660, 880].forEach((f, i) => tone(f, i * 0.15, 0.12, 0.1));
+        break;
+      case "classic":
+        tone(800, 0, 0.15, 0.12, "square"); tone(800, 0.2, 0.15, 0.12, "square");
+        tone(800, 0.6, 0.15, 0.12, "square"); tone(800, 0.8, 0.15, 0.12, "square");
+        break;
+      case "gentle":
+        [523, 659, 784].forEach((f, i) => tone(f, i * 0.22, 0.18, 0.09));
+        break;
+      case "professional":
+        tone(880, 0, 0.1, 0.1); tone(1100, 0.15, 0.1, 0.1); tone(880, 0.3, 0.1, 0.08);
+        break;
+      default:
+        tone(880, 0, 0.22, 0.12); tone(660, 0.24, 0.22, 0.12);
+    }
+  }, [receiverRingtone]);
 
   const startRingtone = useCallback(async () => {
     if (ringtoneRef.current.intervalId !== null) return;
@@ -209,21 +227,36 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
 
   const playOutgoingBurst = useCallback((ctx: AudioContext) => {
     const now = ctx.currentTime;
-    const env = 0.24;
-    [540, 720].forEach((freq, i) => {
+    const tone = (freq: number, startAt: number, dur: number, vol: number, shape: OscillatorType = "triangle") => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "triangle";
+      osc.type = shape;
       osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, now + i * env);
-      gain.gain.exponentialRampToValueAtTime(0.09, now + i * env + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + i * env + env);
+      gain.gain.setValueAtTime(0.0001, now + startAt);
+      gain.gain.exponentialRampToValueAtTime(vol, now + startAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + startAt + dur);
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.start(now + i * env);
-      osc.stop(now + i * env + env);
-    });
-  }, []);
+      osc.start(now + startAt);
+      osc.stop(now + startAt + dur + 0.05);
+    };
+    switch (callerRingtone) {
+      case "whatsapp":
+        [440, 550, 660].forEach((f, i) => tone(f, i * 0.18, 0.14, 0.08, "sine"));
+        break;
+      case "classic":
+        tone(400, 0, 0.4, 0.1, "sine"); tone(400, 0.5, 0.4, 0.1, "sine");
+        break;
+      case "gentle":
+        tone(480, 0, 0.5, 0.07, "sine");
+        break;
+      case "professional":
+        tone(600, 0, 0.15, 0.08, "sine"); tone(600, 0.4, 0.15, 0.08, "sine");
+        break;
+      default:
+        tone(540, 0, 0.24, 0.09); tone(720, 0.26, 0.24, 0.09);
+    }
+  }, [callerRingtone]);
 
   const startOutgoingRingback = useCallback(async () => {
     if (ringtoneRef.current.outgoingIntervalId !== null) return;

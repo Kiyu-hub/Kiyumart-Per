@@ -23,7 +23,7 @@ import {
   readPersistedCheckoutCoupon,
   writePersistedCheckoutCoupon,
 } from "@/lib/checkoutCoupon";
-import { loadPaystackInlineScript, PaystackInlineService } from "@/lib/paystackInline";
+import { loadPaystackInlineScript, PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
 import { calculateProductPricingSummary, getCurrentSellingPrice, getOriginalDisplayPrice } from "@/lib/pricing";
 
 interface CartItem {
@@ -168,6 +168,8 @@ export default function CheckoutConnected() {
   const [isLaunchingInlinePayment, setIsLaunchingInlinePayment] = useState(false);
   const [isVerifyingInlinePayment, setIsVerifyingInlinePayment] = useState(false);
   const [isRedirectingToSuccess, setIsRedirectingToSuccess] = useState(false);
+  // Tracks the pending order created in this session — reused on retries to prevent duplicate orders
+  const pendingOrderRef = useRef<{ orderId: string; checkoutSessionId?: string; isMultiVendor?: boolean } | null>(null);
   const previousExternalModeRef = useRef<boolean | null>(null);
   const suggestionDebounceRef = useRef<number | null>(null);
   const activeSuggestionRequestRef = useRef(0);
@@ -515,6 +517,131 @@ export default function CheckoutConnected() {
     },
   });
 
+  const initializeAndPay = async (data: { id?: string; checkoutSessionId?: string; isMultiVendor?: boolean }) => {
+    try {
+      // Store the order reference so retries can reuse it without creating a new order
+      if (data.id) {
+        pendingOrderRef.current = {
+          orderId: data.id,
+          checkoutSessionId: data.checkoutSessionId,
+          isMultiVendor: data.isMultiVendor,
+        };
+      }
+
+      const paymentPayload = data.isMultiVendor && data.checkoutSessionId
+        ? { checkoutSessionId: data.checkoutSessionId, inline: true }
+        : { orderId: data.id, inline: true };
+
+      resetPaystackGuard();
+
+      const paymentData = await fetchSameOriginJson<InlinePaymentInitializeResponse>("/api/payments/initialize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(paymentPayload),
+      });
+
+      const inline = paymentData.inline;
+      if (!inline?.publicKey || !inline.reference || !inline.amount) {
+        throw new Error("Payment system returned incomplete payment details. Please try again.");
+      }
+
+      setIsLaunchingInlinePayment(true);
+      await Promise.resolve();
+
+      let reference: string;
+      try {
+        reference = await PaystackInlineService.pay({
+          publicKey: inline.publicKey,
+          email: inline.email,
+          amount: inline.amount,
+          currency: inline.currency || "GHS",
+          reference: inline.reference,
+          accessCode: inline.accessCode,
+          channels: inline.channels,
+          onOpen: () => {
+            setIsPaymentReviewOpen(false);
+          },
+        });
+      } catch (inlineError: any) {
+        const inlineMessage = String(inlineError?.message || "");
+        const canFallbackToHostedCheckout =
+          /could not load paystack payment tools|paystack payment tools took too long to load/i.test(
+            inlineMessage,
+          ) && paymentData.authorization_url;
+        if (canFallbackToHostedCheckout) {
+          window.location.assign(paymentData.authorization_url!);
+          return;
+        }
+        throw inlineError;
+      }
+
+      setIsLaunchingInlinePayment(false);
+      setIsVerifyingInlinePayment(true);
+
+      let verification: PaymentVerificationResult;
+      try {
+        verification = await fetchSameOriginJson<PaymentVerificationResult>(
+          `/api/payments/verify/${encodeURIComponent(reference)}`,
+          { cache: "no-store" }
+        );
+      } catch {
+        verification = await fetchSameOriginJson<PaymentVerificationResult>(
+          `/api/payments/verify-public/${encodeURIComponent(reference)}`,
+          { cache: "no-store" }
+        );
+      }
+
+      const resolvedOrderId = verification.orderId || verification.transaction?.orderId;
+
+      if (!verification.verified || !resolvedOrderId) {
+        throw new Error(verification.message || "Payment could not be confirmed.");
+      }
+
+      // Clear the pending order ref on success
+      pendingOrderRef.current = null;
+      clearPersistedCheckoutCoupon(user?.id);
+      if (checkoutDraftStorageKey && typeof window !== "undefined") {
+        window.localStorage.removeItem(checkoutDraftStorageKey);
+      }
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(LAST_PAID_ORDER_STORAGE_KEY, resolvedOrderId);
+      }
+      setIsPaymentReviewOpen(false);
+      setIsRedirectingToSuccess(true);
+      queryClient.setQueryData(["/api/cart"], []);
+      navigate(`/payment/success?orderId=${resolvedOrderId}`);
+      void fetchSameOrigin("/api/cart", { method: "DELETE", credentials: "include" }).catch(() => {});
+      void queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      void queryClient.invalidateQueries({ queryKey: [`/api/orders/${resolvedOrderId}`] });
+    } catch (error: any) {
+      const rawMessage = String(error?.message || "");
+      const normalizedMessage = rawMessage.replace(/^\d+:\s*/, "").trim();
+      const wasCancelled = /cancelled/i.test(normalizedMessage);
+      const isPaystackLoadIssue =
+        /could not load paystack payment tools|paystack payment tools took too long to load/i.test(
+          normalizedMessage,
+        );
+      const friendlyMessage = rawMessage.startsWith("401:")
+        ? "Your session expired while preparing payment. Please log in again and retry checkout."
+        : wasCancelled
+          ? "Payment was cancelled. Your order is still pending — tap Pay Again to retry."
+          : isPaystackLoadIssue
+            ? "Secure payment is taking longer than expected to open. Please try again in a moment."
+            : normalizedMessage || "Failed to initialize payment. Please try again.";
+      setIsPaymentReviewOpen(true);
+      toast({
+        title: wasCancelled ? "Payment Cancelled" : "Payment Initialization Failed",
+        description: friendlyMessage,
+        variant: wasCancelled ? "default" : "destructive",
+      });
+    } finally {
+      setIsLaunchingInlinePayment(false);
+      setIsVerifyingInlinePayment(false);
+      checkoutSubmissionLockedRef.current = false;
+    }
+  };
+
   const createOrderMutation = useMutation({
     mutationFn: (orderData: any) =>
       fetchSameOriginJson<any>("/api/orders", {
@@ -523,120 +650,7 @@ export default function CheckoutConnected() {
         body: JSON.stringify(orderData),
       }),
     onSuccess: async (data) => {
-      try {
-        const paymentPayload = data.isMultiVendor && data.checkoutSessionId
-          ? { checkoutSessionId: data.checkoutSessionId, inline: true }
-          : { orderId: data.id, inline: true };
-
-        const paymentData = await fetchSameOriginJson<InlinePaymentInitializeResponse>("/api/payments/initialize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(paymentPayload),
-        });
-
-        const inline = paymentData.inline;
-        if (!inline?.publicKey || !inline.reference || !inline.amount) {
-          throw new Error("Payment system returned incomplete payment details. Please try again.");
-        }
-
-        setIsLaunchingInlinePayment(true);
-        await Promise.resolve();
-
-        let reference: string;
-        try {
-          reference = await PaystackInlineService.pay({
-            publicKey: inline.publicKey,
-            email: inline.email,
-            amount: inline.amount,
-            currency: inline.currency || "GHS",
-            reference: inline.reference,
-            accessCode: inline.accessCode,
-            channels: inline.channels,
-            onOpen: () => {
-              setIsPaymentReviewOpen(false);
-            },
-          });
-        } catch (inlineError: any) {
-          const inlineMessage = String(inlineError?.message || "");
-          const canFallbackToHostedCheckout =
-            /could not load paystack payment tools|paystack payment tools took too long to load/i.test(
-              inlineMessage,
-            ) && paymentData.authorization_url;
-          if (canFallbackToHostedCheckout) {
-            window.location.assign(paymentData.authorization_url!);
-            return;
-          }
-          throw inlineError;
-        }
-
-        setIsLaunchingInlinePayment(false);
-        setIsVerifyingInlinePayment(true);
-
-        let verification: PaymentVerificationResult;
-        try {
-          verification = await fetchSameOriginJson<PaymentVerificationResult>(
-            `/api/payments/verify/${encodeURIComponent(reference)}`,
-            { cache: "no-store" }
-          );
-        } catch {
-          // Fall back to unauthenticated endpoint for any error (session expiry, network blip,
-          // server error). The public endpoint works regardless of auth state and is safe to call.
-          verification = await fetchSameOriginJson<PaymentVerificationResult>(
-            `/api/payments/verify-public/${encodeURIComponent(reference)}`,
-            { cache: "no-store" }
-          );
-        }
-
-        const resolvedOrderId = verification.orderId || verification.transaction?.orderId;
-
-        if (!verification.verified || !resolvedOrderId) {
-          throw new Error(verification.message || "Payment could not be confirmed.");
-        }
-
-        clearPersistedCheckoutCoupon(user?.id);
-        if (checkoutDraftStorageKey && typeof window !== "undefined") {
-          window.localStorage.removeItem(checkoutDraftStorageKey);
-        }
-        if (typeof window !== "undefined") {
-          window.sessionStorage.setItem(LAST_PAID_ORDER_STORAGE_KEY, resolvedOrderId);
-        }
-        setIsPaymentReviewOpen(false);
-        setIsRedirectingToSuccess(true);
-        // Pre-warm the order query cache so PaymentSuccess loads instantly
-        queryClient.setQueryData(["/api/cart"], []);
-        // Navigate immediately — cleanup happens fire-and-forget so nothing blocks the redirect
-        navigate(`/payment/success?orderId=${resolvedOrderId}`);
-        // Post-navigate cleanup (non-blocking)
-        void fetchSameOrigin("/api/cart", { method: "DELETE", credentials: "include" }).catch(() => {});
-        void queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
-        void queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-        void queryClient.invalidateQueries({ queryKey: [`/api/orders/${resolvedOrderId}`] });
-      } catch (error: any) {
-        const rawMessage = String(error?.message || "");
-        const normalizedMessage = rawMessage.replace(/^\d+:\s*/, "").trim();
-        const wasCancelled = /cancelled/i.test(normalizedMessage);
-        const isPaystackLoadIssue =
-          /could not load paystack payment tools|paystack payment tools took too long to load/i.test(
-            normalizedMessage,
-          );
-        const friendlyMessage = rawMessage.startsWith("401:")
-          ? "Your session expired while preparing payment. Please log in again and retry checkout."
-          : wasCancelled
-            ? "Payment was cancelled. Your order is still pending and you can try again from checkout or your orders page."
-            : isPaystackLoadIssue
-              ? "Secure payment is taking longer than expected to open. Please try again in a moment."
-              : normalizedMessage || "Failed to initialize payment. Please try again.";
-        setIsPaymentReviewOpen(true);
-        toast({
-          title: wasCancelled ? "Payment Cancelled" : "Payment Initialization Failed",
-          description: friendlyMessage,
-          variant: wasCancelled ? "default" : "destructive",
-        });
-      } finally {
-        setIsLaunchingInlinePayment(false);
-        setIsVerifyingInlinePayment(false);
-        checkoutSubmissionLockedRef.current = false;
-      }
+      await initializeAndPay(data);
     },
     onError: (error: any) => {
       const rawMessage = String(error?.message || "");
@@ -651,6 +665,7 @@ export default function CheckoutConnected() {
       checkoutSubmissionLockedRef.current = false;
     },
   });
+
 
   if (!cartItems.length && !productsLoading) {
     return (
@@ -1005,6 +1020,13 @@ export default function CheckoutConnected() {
       status: "pending",
     };
 
+    // If we already have a pending order from a prior attempt, reuse it to avoid duplicates
+    if (pendingOrderRef.current) {
+      checkoutSubmissionLockedRef.current = true;
+      await initializeAndPay(pendingOrderRef.current);
+      return;
+    }
+
     createOrderMutation.mutate(orderData);
   };
 
@@ -1038,7 +1060,7 @@ export default function CheckoutConnected() {
                 onClick={() => setShowLocationChangeWarning(false)}
                 className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 transition-colors"
               >
-                Keep Detected Location
+                Keep
               </button>
               <button
                 onClick={() => {

@@ -1,5 +1,8 @@
 import { useRoute } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
@@ -35,6 +38,37 @@ const withImageVersion = (url?: string | null, version?: string | null): string 
 export default function SellerStorePage() {
   const [, params] = useRoute("/sellers/:id");
   const storeOrSellerId = params?.id;
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { toast } = useToast();
+
+  const { data: wishlist = [] } = useQuery<Array<{ id: string; productId: string }>>({
+    queryKey: ["/api/wishlist"],
+    enabled: isAuthenticated && !authLoading,
+    queryFn: () => fetch("/api/wishlist", { credentials: "include", cache: "no-store" }).then(r => r.json()),
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
+  const addToWishlistMutation = useMutation({
+    mutationFn: (productId: string) =>
+      fetch("/api/wishlist", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId }) }).then(r => r.json()),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] }),
+    onError: () => toast({ title: "Error", description: "Could not add to wishlist", variant: "destructive" }),
+  });
+
+  const removeFromWishlistMutation = useMutation({
+    mutationFn: (productId: string) =>
+      fetch(`/api/wishlist/${productId}`, { method: "DELETE", credentials: "include" }).then(r => r.json()),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] }),
+    onError: () => toast({ title: "Error", description: "Could not remove from wishlist", variant: "destructive" }),
+  });
+
+  const handleToggleWishlist = (productId: string) => {
+    if (!isAuthenticated) { toast({ title: "Sign in required", description: "Please sign in to use wishlist." }); return; }
+    wishlist.some((w) => w.productId === productId)
+      ? removeFromWishlistMutation.mutate(productId)
+      : addToWishlistMutation.mutate(productId);
+  };
 
   // First try to load as a store (for promoted store links)
   const { data: store, isLoading: storeLoading } = useQuery<StoreData>({
@@ -240,6 +274,8 @@ export default function SellerStorePage() {
                     rating={product.ratings || "0"}
                     reviewCount={product.totalRatings || 0}
                     inStock={(product.stock || 0) > 0}
+                    isWishlisted={wishlist.some((w) => w.productId === product.id)}
+                    onToggleWishlist={handleToggleWishlist}
                   />
                 ))}
               </div>

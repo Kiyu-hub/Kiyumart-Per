@@ -54,7 +54,7 @@ export async function getValidFrontendUrl(): Promise<string> {
     return cachedUrl;
   }
 
-  // 1) Try DB-configured value (platform settings)
+  // 1) Try DB-configured value (platform settings) — trusted without HTTP check
   try {
     const { storage } = await import('./storage');
     const settings = await storage.getPlatformSettings();
@@ -64,15 +64,11 @@ export async function getValidFrontendUrl(): Promise<string> {
       if (isBackendLikeUrl(normalized)) {
         console.warn(`[FRONTEND_URL] Ignoring DB-configured frontendUrl because it points to the backend: ${normalized}`);
       } else {
-      const ok = await checkUrlAccessibility(normalized);
-      if (ok) {
         URL_CACHE.url = normalized;
         URL_CACHE.source = 'db';
         URL_CACHE.timestamp = now;
         console.log(`[FRONTEND_URL] Using DB-configured URL: ${URL_CACHE.url}`);
         return normalized;
-      }
-      console.warn(`[FRONTEND_URL] DB-configured URL (${dbUrl}) is not accessible, falling back to other sources`);
       }
     }
   } catch (err) {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Loader2, Maximize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectVideoProvider, getVideoResolvePath, isDirectVideoUrl, prefersPortraitVideoLayout } from "@/lib/videoPlayback";
+import { detectVideoProvider, getVideoResolvePath, getPlatformEmbedUrl, isDirectVideoUrl, prefersPortraitVideoLayout } from "@/lib/videoPlayback";
 
 interface ResolvedVideoSource {
   playbackUrl: string;
@@ -46,6 +46,11 @@ export default function CleanVideoPlayer({
 
   const normalizedUrl = String(videoUrl || "").trim();
   const directVideoUrl = isDirectVideoUrl(normalizedUrl) ? normalizedUrl : null;
+  // Use platform-native iframe embed when available (YouTube, Vimeo, Facebook)
+  const platformEmbedUrl = directVideoUrl ? null : getPlatformEmbedUrl(normalizedUrl);
+  const provider = detectVideoProvider(normalizedUrl);
+  // Only hit API resolver for TikTok/Instagram/unknown (not platforms we can embed natively)
+  const needsApiResolve = Boolean(normalizedUrl) && !directVideoUrl && !platformEmbedUrl;
 
   const {
     data: resolvedSource,
@@ -63,13 +68,12 @@ export default function CleanVideoPlayer({
       }
       return body;
     },
-    enabled: Boolean(normalizedUrl) && !directVideoUrl,
+    enabled: needsApiResolve,
     staleTime: 5 * 60 * 1000,
   });
 
   const playbackUrl = directVideoUrl || resolvedSource?.playbackUrl || "";
   const posterUrl = resolvedSource?.posterUrl || null;
-  const provider = resolvedSource?.provider || detectVideoProvider(normalizedUrl);
 
   useEffect(() => {
     setLoadFailed(false);
@@ -124,11 +128,12 @@ export default function CleanVideoPlayer({
 
   const playerState = useMemo(() => {
     if (!normalizedUrl) return "empty";
+    if (platformEmbedUrl) return "embed";
     if (playbackUrl) return "ready";
-    if (isResolving) return "loading";
+    if (needsApiResolve && isResolving) return "loading";
     if (resolveError || loadFailed) return "error";
     return "unsupported";
-  }, [normalizedUrl, playbackUrl, isResolving, resolveError, loadFailed]);
+  }, [normalizedUrl, platformEmbedUrl, playbackUrl, needsApiResolve, isResolving, resolveError, loadFailed]);
 
   const aspectClass =
     layout === "landscape"
@@ -153,6 +158,17 @@ export default function CleanVideoPlayer({
             <Loader2 className="h-8 w-8 animate-spin" />
             <p className="text-sm">Preparing video...</p>
           </div>
+        )}
+
+        {playerState === "embed" && platformEmbedUrl && (
+          <iframe
+            src={platformEmbedUrl}
+            title={title}
+            className="absolute inset-0 w-full h-full border-0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            data-testid="platform-embed-player"
+          />
         )}
 
         {playerState === "ready" && (

@@ -534,7 +534,9 @@ app.use(cookieParser());
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_b_price decimal(10,2) DEFAULT 40`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS upgrade_plan_c_price decimal(10,2) DEFAULT 100`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS delivery_fee_commission decimal(10,2) DEFAULT 0`);
-    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_reward_percent decimal(5,2) DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS referral_reward_percent decimal(5,2) DEFAULT 10`);
+    // Heal: existing rows that still have the 0 default (never explicitly set) get bumped to 10
+    await db.execute(sql`UPDATE platform_settings SET referral_reward_percent = 10 WHERE referral_reward_percent = 0 OR referral_reward_percent IS NULL`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS seller_upgrade_plan text`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS seller_plan_expires_at timestamp`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS seller_bonus_slots integer DEFAULT 0`);
@@ -602,6 +604,14 @@ app.use(cookieParser());
     // Upload controls
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS max_upload_size_mb integer DEFAULT 10`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allowed_upload_types text DEFAULT 'jpg,jpeg,png,webp,gif,avif'`);
+    // Frontend URL for password reset emails and payment callbacks
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS frontend_url text`);
+    // Suggestions feature toggle
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS suggestions_enabled boolean DEFAULT false`);
+    // Sound & ringtone settings
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS caller_ringtone text DEFAULT 'default'`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS receiver_ringtone text DEFAULT 'default'`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS notification_sound text DEFAULT 'default'`);
     // Render deploy hook
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS render_deploy_hook_url text`);
     // Promotion display section
@@ -623,6 +633,44 @@ app.use(cookieParser());
           CREATE INDEX group_chat_messages_group_idx ON group_chat_messages(group_name);
           CREATE INDEX group_chat_messages_sender_idx ON group_chat_messages(sender_id);
           CREATE INDEX group_chat_messages_created_at_idx ON group_chat_messages(created_at);
+        END IF;
+      END $$`);
+    // Reported cases
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'reported_cases') THEN
+          CREATE TABLE reported_cases (
+            id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+            reporter_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            reporter_role varchar(30) NOT NULL,
+            subject varchar(200) NOT NULL,
+            description text NOT NULL,
+            priority varchar(20) NOT NULL DEFAULT 'medium',
+            status varchar(30) NOT NULL DEFAULT 'open',
+            admin_notes text,
+            resolved_by varchar REFERENCES users(id),
+            created_at timestamp DEFAULT now(),
+            updated_at timestamp DEFAULT now()
+          );
+          CREATE INDEX reported_cases_reporter_idx ON reported_cases(reporter_id);
+          CREATE INDEX reported_cases_status_idx ON reported_cases(status);
+        END IF;
+      END $$`);
+    // Suggestions
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'suggestions') THEN
+          CREATE TABLE suggestions (
+            id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            user_role varchar(30) NOT NULL,
+            message text NOT NULL,
+            reply text,
+            replied_at timestamp,
+            created_at timestamp DEFAULT now()
+          );
+          CREATE INDEX suggestions_user_idx ON suggestions(user_id);
+          CREATE INDEX suggestions_created_idx ON suggestions(created_at);
         END IF;
       END $$`);
   } catch (e: any) {

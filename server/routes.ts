@@ -51,8 +51,10 @@ import {
   systemActivityLogs,
   receipts,
   groupChatMessages,
+  reportedCases,
+  suggestions,
 } from "@shared/schema";
-import { eq, or, isNotNull, isNull, and, desc, sql, inArray, asc, lte, gte } from "drizzle-orm";
+import { eq, or, isNotNull, isNull, and, desc, sql, inArray, asc, lte, gte, ne } from "drizzle-orm";
 import { 
   hashPassword, 
   comparePassword, 
@@ -959,6 +961,195 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
+  // GET /api/admin/env-status
+  // Returns which runtime environment variables are configured, grouped by category.
+  // Sensitive values are never returned — only a boolean isSet flag.
+  app.get(
+    "/api/admin/env-status",
+    requireAuth,
+    requireRole("super_admin"),
+    async (_req: AuthRequest, res) => {
+      const e = process.env;
+      const bool = (val?: string) => Boolean(val && val.trim().length > 0);
+      const partial = (val?: string, chars = 6) => {
+        if (!val || !val.trim()) return null;
+        const v = val.trim();
+        return v.length <= chars ? "***" : `${v.slice(0, chars)}…`;
+      };
+
+      return res.json({
+        bootstrap: [
+          {
+            key: "DATABASE_URL",
+            label: "Database URL",
+            note: "PostgreSQL connection string (Neon). Must stay on Render — cannot be moved to dashboard.",
+            isSet: bool(e.DATABASE_URL),
+            sensitive: true,
+            required: true,
+          },
+          {
+            key: "JWT_SECRET",
+            label: "JWT Secret",
+            note: "Secret used to sign authentication tokens. Use a long random string (32+ chars).",
+            isSet: bool(e.JWT_SECRET),
+            sensitive: true,
+            required: true,
+          },
+          {
+            key: "SESSION_SECRET",
+            label: "Session Secret",
+            note: "Secret used to sign HTTP sessions. Use a different random string from JWT_SECRET.",
+            isSet: bool(e.SESSION_SECRET),
+            sensitive: true,
+            required: true,
+          },
+          {
+            key: "SETTINGS_ENCRYPTION_KEY",
+            label: "Settings Encryption Key",
+            note: "AES-256-GCM key for encrypting sensitive platform settings stored in DB. Generate via Security tab.",
+            isSet: bool(e.SETTINGS_ENCRYPTION_KEY),
+            sensitive: true,
+            required: true,
+          },
+          {
+            key: "SUPER_ADMIN_EMAIL",
+            label: "Super Admin Email",
+            note: "Bootstrap email used to seed the super admin account on first startup.",
+            isSet: bool(e.SUPER_ADMIN_EMAIL),
+            sensitive: false,
+            value: partial(e.SUPER_ADMIN_EMAIL, 4),
+            required: false,
+          },
+        ],
+        payments: [
+          {
+            key: "PAYSTACK_SECRET_KEY",
+            label: "Paystack Secret Key",
+            note: "Server-side Paystack key (sk_live_... or sk_test_...). Can also be set in Settings → Payments.",
+            isSet: bool(e.PAYSTACK_SECRET_KEY),
+            sensitive: true,
+            required: true,
+            settingsTab: "payments",
+          },
+          {
+            key: "PAYSTACK_PUBLIC_KEY",
+            label: "Paystack Public Key",
+            note: "Client-side Paystack key (pk_live_... or pk_test_...). Can also be set in Settings → Payments.",
+            isSet: bool(e.PAYSTACK_PUBLIC_KEY),
+            sensitive: false,
+            value: partial(e.PAYSTACK_PUBLIC_KEY, 8),
+            required: true,
+            settingsTab: "payments",
+          },
+        ],
+        frontend: [
+          {
+            key: "FRONTEND_URL",
+            label: "Frontend URL",
+            note: "Your Netlify/Vercel URL (e.g. https://mystore.netlify.app). Used for Paystack callbacks and password-reset emails. Can also be set in Settings → Hosting.",
+            isSet: bool(e.FRONTEND_URL),
+            sensitive: false,
+            value: e.FRONTEND_URL?.trim() || null,
+            required: true,
+            settingsTab: "hosting",
+          },
+        ],
+        storage: [
+          {
+            key: "CLOUDINARY_CLOUD_NAME",
+            label: "Cloudinary Cloud Name",
+            note: "Your Cloudinary cloud name for image/video uploads. Can also be set in Settings → Storage.",
+            isSet: bool(e.CLOUDINARY_CLOUD_NAME),
+            sensitive: false,
+            value: e.CLOUDINARY_CLOUD_NAME?.trim() || null,
+            required: true,
+            settingsTab: "storage",
+          },
+          {
+            key: "CLOUDINARY_API_KEY",
+            label: "Cloudinary API Key",
+            note: "Cloudinary API key. Can also be set in Settings → Storage.",
+            isSet: bool(e.CLOUDINARY_API_KEY),
+            sensitive: false,
+            value: partial(e.CLOUDINARY_API_KEY, 6),
+            required: true,
+            settingsTab: "storage",
+          },
+          {
+            key: "CLOUDINARY_API_SECRET",
+            label: "Cloudinary API Secret",
+            note: "Cloudinary API secret. Never exposed to the client. Can also be set in Settings → Storage.",
+            isSet: bool(e.CLOUDINARY_API_SECRET),
+            sensitive: true,
+            required: true,
+            settingsTab: "storage",
+          },
+        ],
+        email: [
+          {
+            key: "SMTP_HOST",
+            label: "SMTP Host",
+            note: "Outgoing mail server hostname (e.g. smtp.gmail.com). Can also be set in Settings → Payments (Email section).",
+            isSet: bool(e.SMTP_HOST),
+            sensitive: false,
+            value: e.SMTP_HOST?.trim() || null,
+            required: false,
+            settingsTab: "payments",
+          },
+          {
+            key: "SMTP_USER",
+            label: "SMTP Username",
+            note: "Your email account (or SMTP username). Can also be set in Settings → Payments (Email section).",
+            isSet: bool(e.SMTP_USER),
+            sensitive: false,
+            value: partial(e.SMTP_USER, 5),
+            required: false,
+            settingsTab: "payments",
+          },
+          {
+            key: "SMTP_PASS",
+            label: "SMTP Password",
+            note: "SMTP password or app password. Sensitive — never exposed. Can also be set in Settings → Payments.",
+            isSet: bool(e.SMTP_PASS),
+            sensitive: true,
+            required: false,
+            settingsTab: "payments",
+          },
+          {
+            key: "SMTP_FROM_EMAIL",
+            label: "From Email",
+            note: "Sender address used in outgoing emails (e.g. no-reply@mystore.com).",
+            isSet: bool(e.SMTP_FROM_EMAIL),
+            sensitive: false,
+            value: e.SMTP_FROM_EMAIL?.trim() || null,
+            required: false,
+            settingsTab: "payments",
+          },
+        ],
+        runtime: [
+          {
+            key: "NODE_ENV",
+            label: "Node Environment",
+            note: "Set to 'production' on Render. Controls security headers, cookie flags, and error verbosity.",
+            isSet: bool(e.NODE_ENV),
+            sensitive: false,
+            value: e.NODE_ENV || null,
+            required: true,
+          },
+          {
+            key: "PORT",
+            label: "Port",
+            note: "HTTP port the server binds to. Render sets this automatically — do not override.",
+            isSet: bool(e.PORT),
+            sensitive: false,
+            value: e.PORT || null,
+            required: false,
+          },
+        ],
+      });
+    },
+  );
+
   app.get(
     "/api/agent/platform-audit",
     requireAuth,
@@ -1504,7 +1695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
       const token = `${randomUUID().replace(/-/g, "")}${randomUUID().replace(/-/g, "")}`;
-      const frontendUrl = getFrontendUrlSync();
+      const frontendUrl = await getValidFrontendUrl();
       const resetLink = frontendUrl ? `${frontendUrl.replace(/\/$/, "")}/reset-password?token=${token}` : null;
 
       await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, account.id));
@@ -3516,6 +3707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           metadata: {} as any,
         });
       } catch { /* non-critical */ }
+      io.to(req.params.id).emit("tier_info_updated", {});
 
       const { password, ...safe } = updated;
       res.json(safe);
@@ -3711,6 +3903,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .update(promotionApplications)
         .set({ updatedAt: new Date() } as any)
         .where(eq(promotionApplications.id, application.id));
+
+      const rawPublicKey = settings?.paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || "";
+      const { decryptField: decryptPub } = await import("./utils/sensitiveEncrypt");
+      const publicKey = decryptPub(rawPublicKey) || rawPublicKey;
+
+      res.json({
+        reference,
+        applicationId: application.id,
+        accessCode: initData.data.access_code,
+        authorizationUrl: initData.data.authorization_url,
+        amountGhs: totalPrice,
+        publicKey,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Retry payment for an existing pending_payment promotion application
+  app.post("/api/seller/promotions/:applicationId/retry-payment", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const { applicationId } = req.params;
+      const [application] = await db.select().from(promotionApplications)
+        .where(and(eq(promotionApplications.id, applicationId), eq(promotionApplications.sellerId, req.user!.id)))
+        .limit(1);
+
+      if (!application) return res.status(404).json({ error: "Application not found" });
+      if (application.status !== "pending_payment") return res.status(400).json({ error: "Only pending_payment applications can be retried" });
+
+      const seller = await storage.getUser(req.user!.id);
+      if (!seller) return res.status(404).json({ error: "User not found" });
+
+      const totalPrice = Number(application.totalPrice);
+      const amountKobo = Math.round(totalPrice * 100);
+
+      const settings = await storage.getPlatformSettings();
+      const { decryptField } = await import("./utils/sensitiveEncrypt");
+      const rawSecret = settings?.paystackSecretKey || process.env.PAYSTACK_SECRET_KEY || "";
+      const paystackSecretKey = decryptField(rawSecret);
+      if (!paystackSecretKey) return res.status(503).json({ error: "Payment gateway not configured" });
+
+      const reference = `promo-${application.id}-${Date.now()}`;
+
+      const initRes = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${paystackSecretKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: seller.email,
+          amount: amountKobo,
+          currency: "GHS",
+          reference,
+          metadata: {
+            upgradeType: "seller_promotion",
+            sellerId: req.user!.id,
+            sellerName: seller.name,
+            applicationId: application.id,
+            promoType: application.type,
+            targetId: application.targetId,
+            targetName: application.targetName,
+            durationType: application.durationType,
+            duration: Number(application.duration),
+            totalPrice,
+          },
+        }),
+      });
+
+      if (!initRes.ok) {
+        const err = await initRes.json().catch(() => ({}));
+        return res.status(502).json({ error: err?.message || "Payment gateway error" });
+      }
+
+      const initData = await initRes.json();
+      if (!initData.status) return res.status(502).json({ error: initData.message || "Payment initialization failed" });
 
       const rawPublicKey = settings?.paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || "";
       const { decryptField: decryptPub } = await import("./utils/sensitiveEncrypt");
@@ -9969,8 +10234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             },
             {
               requiredAdminPermission: "manage_orders",
-              includeAgents: true,
-              requiredAgentFeature: "orders.view",
+              includeAgents: false,
             }
           );
         } catch (opsNotifyErr) {
@@ -11585,6 +11849,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
+
+  // Cancel order — any authenticated user can cancel their own unpaid order
+  app.post("/api/orders/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const order = await storage.getOrder(req.params.id);
+      if (!order) return res.status(404).json({ error: "Order not found" });
+      const isOwner = order.userId === req.user!.id;
+      const isAdminOrSeller =
+        ["admin", "super_admin", "seller"].includes(req.user!.role) &&
+        (req.user!.role !== "seller" || order.sellerId === req.user!.id);
+      if (!isOwner && !isAdminOrSeller) {
+        return res.status(403).json({ error: "You don't have permission to cancel this order" });
+      }
+      const unpaidStatuses = ["pending", "created", "payment_pending", "payment_failed"];
+      const paidPaymentStatuses = ["paid", "completed"];
+      if (paidPaymentStatuses.includes(String(order.paymentStatus || "").toLowerCase())) {
+        return res.status(400).json({ error: "Paid orders cannot be cancelled. Contact support for a refund." });
+      }
+      if (!unpaidStatuses.includes(String(order.status || "").toLowerCase())) {
+        return res.status(400).json({ error: `Order cannot be cancelled in status: ${order.status}` });
+      }
+      const cancelled = await storage.updateOrder(req.params.id, { status: "cancelled" });
+      return res.json({ success: true, order: cancelled });
+    } catch (err: any) {
+      console.error("[cancel-order]", err);
+      return res.status(500).json({ error: "Could not cancel order" });
+    }
+  });
 
   app.post("/api/orders/:id/start-rider-matching", requireAuth, requireRole("admin", "super_admin", "seller"), requirePermissionIfAdmin("manage_orders"), async (req: AuthRequest, res) => {
     try {
@@ -14617,19 +14909,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const currentUser = await storage.getUser(req.user!.id);
       // Super admin is the only moderator role
       const isModerator = currentUser?.role === 'super_admin';
+      const displayName = currentUser?.role === 'super_admin' ? 'Support Team' : (currentUser?.name || 'User');
       const config = jitsiMeetService.getJitsiConfig(
         room.roomName,
-        currentUser?.name || 'User',
+        displayName,
         currentUser?.email,
         isModerator
       );
-      
+
       // Notify target user about incoming call
       io.to(targetUserId).emit("jitsi_call_incoming", {
         roomName: room.roomName,
         roomUrl: room.roomUrl,
         callerId: req.user!.id,
-        callerName: currentUser?.name || 'User',
+        callerName: displayName,
         callType: room.callType,
       });
       
@@ -14827,6 +15120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const caller = await storage.getUser(req.user!.id);
+      const callerDisplayName = caller?.role === 'super_admin' ? 'Support Team' : (caller?.name || 'User');
 
       const { db } = await import("../db/index");
       const { chatMessages } = await import("@shared/schema");
@@ -14834,7 +15128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const missedCallMessage = await db.insert(chatMessages).values({
         senderId: req.user!.id,
         receiverId: targetUserId,
-        message: `Missed ${callType || 'voice'} call from ${caller?.name || 'User'}`,
+        message: `Missed ${callType || 'voice'} call from ${callerDisplayName}`,
         messageType: 'missed_call',
         status: 'delivered',
       }).returning();
@@ -14843,7 +15137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       io.to(targetUserId).emit("missed_call", {
         callerId: req.user!.id,
-        callerName: caller?.name || 'User',
+        callerName: callerDisplayName,
         callType: callType || 'voice',
         messageId: messageRecord?.id,
       });
@@ -15493,6 +15787,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         referralEnabled: settings.referralEnabled === true,
         referralEnabledSingleStore: settings.referralEnabledSingleStore === true,
         referralEnabledMultiVendor: settings.referralEnabledMultiVendor === true,
+        suggestionsEnabled: settings.suggestionsEnabled === true,
+        callerRingtone: String(settings.callerRingtone || "default"),
+        receiverRingtone: String(settings.receiverRingtone || "default"),
+        notificationSound: String(settings.notificationSound || "default"),
       });
     } catch (error: any) {
       console.warn('[ROUTES] Falling back to public platform settings response:', error?.message || error);
@@ -15506,6 +15804,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         referralEnabled: false,
         referralEnabledSingleStore: false,
         referralEnabledMultiVendor: false,
+        suggestionsEnabled: false,
+        callerRingtone: "default",
+        receiverRingtone: "default",
+        notificationSound: "default",
       });
     }
   });
@@ -16424,11 +16726,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
   };
 
-  app.get('/api/admin/promotion-applications', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
+  app.get('/api/admin/promotion-applications', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
     try {
-      const rows = await db.select().from(promotionApplications).orderBy(desc(promotionApplications.createdAt));
+      const isSuperAdmin = req.user?.role === "super_admin";
+      const includeAwaitingPayment = req.query.includeAwaitingPayment === "true" && isSuperAdmin;
+      const rows = await db.select().from(promotionApplications)
+        .where(
+          includeAwaitingPayment
+            ? eq(promotionApplications.status, "pending_payment")
+            : ne(promotionApplications.status, "pending_payment"),
+        )
+        .orderBy(desc(promotionApplications.createdAt));
       const enriched = await Promise.all(rows.map((row) => buildPromotionApplicationResponse(row)));
       res.json(enriched);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.patch('/api/admin/promotion-applications/:id/update', requireAuth, requireRole('super_admin'), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
+    try {
+      const { displaySection, duration, sellerNote } = req.body;
+      const updateData: Record<string, any> = { updatedAt: new Date() };
+      if (displaySection === "banner" || displaySection === "homepage") updateData.displaySection = displaySection;
+      if (duration !== undefined && Number(duration) > 0) updateData.duration = Number(duration);
+      if (sellerNote !== undefined) updateData.sellerNote = String(sellerNote).trim();
+
+      const [updated] = await db.update(promotionApplications)
+        .set(updateData)
+        .where(eq(promotionApplications.id, req.params.id))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Not found" });
+      res.json(await buildPromotionApplicationResponse(updated));
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
@@ -18546,8 +18875,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 { reference, retries, link: "/admin/orders" },
                 {
                   requiredAdminPermission: "manage_orders",
-                  includeAgents: true,
-                  requiredAgentFeature: "orders.view",
+                  includeAgents: false,
                 }
               );
             } catch (notifyErr) {
@@ -18573,6 +18901,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 message: "Your account is now Premium. Unlimited product listings are now unlocked.",
                 type: "default",
               });
+              io.to(sellerId).emit("tier_info_updated", {});
               // Email confirmation (best-effort)
               try {
                 const seller = await storage.getUser(sellerId);
@@ -18620,6 +18949,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 message: `${addSlots} extra product listing slots have been added to your account.`,
                 type: "default",
               });
+              io.to(sellerId).emit("tier_info_updated", {});
               try {
                 const seller = await storage.getUser(sellerId);
                 if (seller?.email) {
@@ -18662,6 +18992,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 message: `Monthly unlimited listings active until ${expiresAt.toLocaleDateString()}.`,
                 type: "default",
               });
+              io.to(sellerId).emit("tier_info_updated", {});
               try {
                 const seller = await storage.getUser(sellerId);
                 if (seller?.email) {
@@ -18704,6 +19035,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 message: "Unlimited product listings unlocked permanently.",
                 type: "default",
               });
+              io.to(sellerId).emit("tier_info_updated", {});
               try {
                 const seller = await storage.getUser(sellerId);
                 if (seller?.email) {
@@ -18862,8 +19194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 },
                 {
                   requiredAdminPermission: "manage_orders",
-                  includeAgents: true,
-                  requiredAgentFeature: "orders.view",
+                  includeAgents: false,
                 }
               );
             } catch (opsNotifyErr) {
@@ -20549,9 +20880,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const targetId = String(receiverId || "");
         if (!(await authorizeSocketCallTarget(targetId))) return;
         const caller = await storage.getUser(userId);
+        const wsCallerName = caller?.role === 'super_admin' ? 'Support Team' : (caller?.name || 'User');
         io.to(targetId).emit("call-incoming", {
           callerId: userId,
-          callerName: caller?.name || "User",
+          callerName: wsCallerName,
           offer,
           callType,
         });
@@ -20605,7 +20937,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         io.to(targetUserId).emit("call_initiate", {
           callerId,
-          callerName: caller.name,
+          callerName: caller.role === "super_admin" ? "Support Team" : (caller.name || "User"),
           callerRole
         });
       } catch (error) {
@@ -20631,7 +20963,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         io.to(targetUserId).emit("call_offer", {
           offer,
           callerId,
-          callerName: caller.name,
+          callerName: caller.role === "super_admin" ? "Support Team" : (caller.name || "User"),
           callType
         });
       } catch (error) {
@@ -23272,7 +23604,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/notifications/unread-count", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const count = await storage.getUnreadNotificationCount(req.user!.id);
+      const isSuperAdmin = req.user!.role === "super_admin";
+      if (isSuperAdmin) {
+        const count = await storage.getUnreadNotificationCount(req.user!.id);
+        return res.json({ count });
+      }
+      // For non-superadmin: fetch recent notifications and count only non-_adminOnly ones
+      const notifs = await storage.getNotificationsByUser(req.user!.id, 200);
+      const count = notifs.filter((n: any) => {
+        if (n.isRead) return false;
+        const meta = typeof n.metadata === "string"
+          ? (() => { try { return JSON.parse(n.metadata); } catch { return {}; } })()
+          : (n.metadata || {});
+        return meta._adminOnly !== true;
+      }).length;
       res.json({ count });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -24011,6 +24356,180 @@ Analyze this error and provide a specific fix. Respond with ONLY a valid JSON ob
 
       io.to(`group_chat_${group}`).emit("group_chat_message", payload);
       res.json(payload);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============ Reported Cases Routes ============
+  // Agent / pickup_agent submit a case
+  app.post("/api/report-case", requireAuth, requireRole("agent", "pickup_agent"), async (req: AuthRequest, res) => {
+    try {
+      const { subject, description, priority } = req.body;
+      if (!subject?.trim() || !description?.trim()) {
+        return res.status(400).json({ error: "Subject and description are required" });
+      }
+      const validPriority = ["low", "medium", "high", "critical"].includes(priority) ? priority : "medium";
+      const [newCase] = await db.insert(reportedCases).values({
+        reporterId: req.user!.id,
+        reporterRole: req.user!.role,
+        subject: subject.trim().slice(0, 200),
+        description: description.trim(),
+        priority: validPriority,
+      }).returning();
+      // Notify super_admins
+      const superAdmins = await db.select({ id: users.id }).from(users).where(eq(users.role, "super_admin"));
+      for (const sa of superAdmins) {
+        await storage.createNotification({
+          userId: sa.id,
+          type: "system",
+          title: `New ${validPriority.toUpperCase()} Case Reported`,
+          message: `${req.user!.role === "agent" ? "Customer Agent" : "Pickup Agent"}: ${subject.trim()}`,
+        });
+        io.to(sa.id).emit("reported_case_new", { caseId: newCase.id, priority: validPriority });
+      }
+      res.json(newCase);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin / super_admin list all reported cases
+  app.get("/api/admin/reported-cases", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const cases = await db.select({
+        id: reportedCases.id,
+        reporterId: reportedCases.reporterId,
+        reporterRole: reportedCases.reporterRole,
+        subject: reportedCases.subject,
+        description: reportedCases.description,
+        priority: reportedCases.priority,
+        status: reportedCases.status,
+        adminNotes: reportedCases.adminNotes,
+        resolvedBy: reportedCases.resolvedBy,
+        createdAt: reportedCases.createdAt,
+        updatedAt: reportedCases.updatedAt,
+        reporterName: users.name,
+        reporterEmail: users.email,
+      }).from(reportedCases)
+        .leftJoin(users, eq(reportedCases.reporterId, users.id))
+        .orderBy(desc(reportedCases.createdAt));
+      res.json(cases);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin update a reported case (status, notes)
+  app.patch("/api/admin/reported-cases/:id", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { status, adminNotes, priority } = req.body;
+      const updateData: Record<string, any> = { updatedAt: new Date() };
+      if (status) updateData.status = status;
+      if (adminNotes !== undefined) updateData.adminNotes = adminNotes;
+      if (priority) updateData.priority = priority;
+      if (status === "resolved" || status === "closed") {
+        updateData.resolvedBy = req.user!.id;
+      }
+      const [updated] = await db.update(reportedCases)
+        .set(updateData)
+        .where(eq(reportedCases.id, req.params.id))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Case not found" });
+      // Notify reporter
+      await storage.createNotification({
+        userId: updated.reporterId,
+        type: "system",
+        title: "Your Reported Case Was Updated",
+        message: `Case "${updated.subject}" is now ${status || updated.status}.`,
+      });
+      io.to(updated.reporterId).emit("reported_case_update", { caseId: updated.id, status: updated.status });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============ Suggestions Routes ============
+  app.post("/api/suggestions", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { message } = req.body;
+      if (!message?.trim()) return res.status(400).json({ error: "Message is required" });
+      const [newSuggestion] = await db.insert(suggestions).values({
+        userId: req.user!.id,
+        userRole: req.user!.role,
+        message: message.trim(),
+      }).returning();
+      // Notify super_admins
+      const superAdmins = await db.select({ id: users.id }).from(users).where(eq(users.role, "super_admin"));
+      for (const sa of superAdmins) {
+        await storage.createNotification({
+          userId: sa.id,
+          type: "system",
+          title: "New Suggestion Received",
+          message: message.trim().slice(0, 100),
+        });
+        io.to(sa.id).emit("suggestion_new", { suggestionId: newSuggestion.id });
+      }
+      res.json(newSuggestion);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // User fetches their own suggestions
+  app.get("/api/suggestions/my", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const mySuggestions = await db.select().from(suggestions)
+        .where(eq(suggestions.userId, req.user!.id))
+        .orderBy(desc(suggestions.createdAt));
+      res.json(mySuggestions);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin lists all suggestions
+  app.get("/api/admin/suggestions", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const all = await db.select({
+        id: suggestions.id,
+        userId: suggestions.userId,
+        userRole: suggestions.userRole,
+        message: suggestions.message,
+        reply: suggestions.reply,
+        repliedAt: suggestions.repliedAt,
+        createdAt: suggestions.createdAt,
+        userName: users.name,
+        userEmail: users.email,
+      }).from(suggestions)
+        .leftJoin(users, eq(suggestions.userId, users.id))
+        .orderBy(desc(suggestions.createdAt));
+      res.json(all);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Super_admin replies to a suggestion
+  app.post("/api/admin/suggestions/:id/reply", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { reply } = req.body;
+      if (!reply?.trim()) return res.status(400).json({ error: "Reply is required" });
+      const [updated] = await db.update(suggestions)
+        .set({ reply: reply.trim(), repliedAt: new Date() })
+        .where(eq(suggestions.id, req.params.id))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Suggestion not found" });
+      // Notify suggester
+      await storage.createNotification({
+        userId: updated.userId,
+        type: "system",
+        title: "Kiyumart Team Replied",
+        message: reply.trim().slice(0, 100),
+      });
+      io.to(updated.userId).emit("suggestion_reply", { suggestionId: updated.id });
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

@@ -415,17 +415,16 @@ export default function HomeConnected() {
     }
   };
 
-  // Debounced search handler - Reduced debounce for more instant feel
+  // Search redirects to the dedicated search page with the typed query
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const handleSearch = useCallback((query: string) => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    const trimmed = query.trim();
+    if (!trimmed) { setSearchQuery(""); return; }
     debounceTimerRef.current = setTimeout(() => {
-      setSearchQuery(query.toLowerCase().trim());
-    }, 150);
-  }, []);
+      navigate(`/search?q=${encodeURIComponent(trimmed)}`);
+    }, 300);
+  }, [navigate]);
 
   // Cleanup debounce timer on unmount
   useEffect(() => {

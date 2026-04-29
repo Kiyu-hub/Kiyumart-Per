@@ -3498,7 +3498,8 @@ export class DbStorage implements IStorage {
           10000,
           "Platform settings bootstrap",
         );
-        const mergedSettings = { ...settings, ...compatOverrides };
+        // compat provides fallbacks for columns not yet in DB; DB result wins if column exists
+        const mergedSettings = { ...compatOverrides, ...settings };
         this.setCachedResult(cacheKey, mergedSettings);
         return mergedSettings;
       }
@@ -3510,7 +3511,8 @@ export class DbStorage implements IStorage {
       for (const key of socialKeys) {
         if (settings[key] === '__CLEAR__') settings[key] = null;
       }
-      const mergedSettings = { ...settings, ...compatOverrides };
+      // compat provides fallbacks for columns not yet in DB; DB result wins if the column exists
+      const mergedSettings = { ...compatOverrides, ...settings };
       this.setCachedResult(cacheKey, mergedSettings);
       return mergedSettings;
     } catch (err: any) {
@@ -3648,6 +3650,7 @@ export class DbStorage implements IStorage {
           referralSellerThreshold: 10,
           referralRewardPercent: '10',
           referralSellerPromoHours: 24,
+          suggestionsEnabled: false,
           updatedAt: new Date(),
         };
         return { ...defaults, ...(await readPlatformSettingsCompat()) };
@@ -3687,6 +3690,30 @@ export class DbStorage implements IStorage {
     }
     if (data.allowSharedVariantColorStock !== undefined) {
       await writePlatformSettingsCompat({ allowSharedVariantColorStock: data.allowSharedVariantColorStock });
+    }
+    if (data.referralEnabled !== undefined) {
+      await writePlatformSettingsCompat({ referralEnabled: data.referralEnabled });
+    }
+    if (data.referralEnabledSingleStore !== undefined) {
+      await writePlatformSettingsCompat({ referralEnabledSingleStore: data.referralEnabledSingleStore });
+    }
+    if (data.referralEnabledMultiVendor !== undefined) {
+      await writePlatformSettingsCompat({ referralEnabledMultiVendor: data.referralEnabledMultiVendor });
+    }
+    if (data.referralRewardPercent !== undefined) {
+      await writePlatformSettingsCompat({ referralRewardPercent: data.referralRewardPercent });
+    }
+    if (data.referralCustomerThreshold !== undefined) {
+      await writePlatformSettingsCompat({ referralCustomerThreshold: data.referralCustomerThreshold });
+    }
+    if (data.referralSellerThreshold !== undefined) {
+      await writePlatformSettingsCompat({ referralSellerThreshold: data.referralSellerThreshold });
+    }
+    if (data.referralSellerPromoHours !== undefined) {
+      await writePlatformSettingsCompat({ referralSellerPromoHours: data.referralSellerPromoHours });
+    }
+    if (data.deliveryFeeCommission !== undefined) {
+      await writePlatformSettingsCompat({ deliveryFeeCommission: data.deliveryFeeCommission });
     }
 
     let result;
@@ -3798,9 +3825,10 @@ export class DbStorage implements IStorage {
 
     // Invalidate cache again after update
     this.invalidateCache("getPlatformSettings");
+    // compat provides fallbacks; DB result wins if the column exists
     return {
-      ...result[0],
       ...(await readPlatformSettingsCompat()),
+      ...result[0],
     };
   }
 

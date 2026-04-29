@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { Loader2, Tag, Store, Package, CreditCard } from "lucide-react";
-import { PaystackInlineService } from "@/lib/paystackInline";
+import { PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
 
 interface PromotionPricing {
   id: number;
@@ -89,6 +89,7 @@ export default function SellerPromotions() {
   const [displaySection, setDisplaySection] = useState<"homepage" | "banner">("homepage");
   const [sellerNote, setSellerNote] = useState("");
   const [paying, setPaying] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const applicationIdFromUrl = useMemo(
     () => new URLSearchParams(location.split("?")[1] || "").get("applicationId") || "",
@@ -200,6 +201,7 @@ export default function SellerPromotions() {
         throw new Error(err?.error || "Could not initialize payment");
       }
       const init = await res.json();
+      resetPaystackGuard();
       await PaystackInlineService.pay({
         publicKey: init.publicKey,
         email: user.email,
@@ -222,6 +224,36 @@ export default function SellerPromotions() {
       }
     } finally {
       setPaying(false);
+    }
+  };
+
+  const handleRetryPayment = async (applicationId: string) => {
+    if (!user?.email) return;
+    setRetryingId(applicationId);
+    try {
+      const res = await apiRequest("POST", `/api/seller/promotions/${applicationId}/retry-payment`, {});
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Could not initialize payment");
+      }
+      const init = await res.json();
+      resetPaystackGuard();
+      await PaystackInlineService.pay({
+        publicKey: init.publicKey,
+        email: user.email,
+        amount: Math.round(init.amountGhs * 100),
+        currency: "GHS",
+        reference: init.reference,
+        accessCode: init.accessCode,
+      });
+      toast({ title: "Promotion Activated", description: "Your payment was confirmed and your promotion is now live.", duration: 7000 });
+      await queryClient.invalidateQueries({ queryKey: ["/api/seller/promotion-applications"] });
+    } catch (err: any) {
+      if (err?.message !== "Payment was cancelled before completion.") {
+        toast({ title: "Payment failed", description: err?.message || "Could not complete payment", variant: "destructive" });
+      }
+    } finally {
+      setRetryingId(null);
     }
   };
 
@@ -390,12 +422,26 @@ export default function SellerPromotions() {
                   ) : null}
                   <p className="text-xs text-muted-foreground">Submitted: {new Date(application.createdAt).toLocaleString()}</p>
                 </div>
-                <Badge
-                  variant={statusBadgeVariant(application.status)}
-                  data-testid={`badge-promotion-status-${application.id}`}
-                >
-                  {application.status.replace(/_/g, " ")}
-                </Badge>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge
+                    variant={statusBadgeVariant(application.status)}
+                    data-testid={`badge-promotion-status-${application.id}`}
+                  >
+                    {application.status.replace(/_/g, " ")}
+                  </Badge>
+                  {application.status === "pending_payment" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleRetryPayment(application.id)}
+                      disabled={retryingId === application.id}
+                      data-testid={`btn-retry-payment-${application.id}`}
+                    >
+                      {retryingId === application.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                      Retry Payment
+                    </Button>
+                  )}
+                </div>
               </div>
             ))}
 

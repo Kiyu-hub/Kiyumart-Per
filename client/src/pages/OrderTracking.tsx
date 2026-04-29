@@ -262,8 +262,11 @@ export default function OrderTracking() {
   }, [isExternalRiderSystemEnabled, user?.id, toast]);
 
   const { data: orders = [], isLoading, error } = useQuery<Order[]>({
-    queryKey: ["/api/orders"],
+    queryKey: ["/api/orders", "buyer-tracking"],
+    queryFn: () => fetchApiJson<Order[]>("/api/orders?context=buyer"),
     enabled: !authLoading && !!user,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 
   const { data: orderItems = [] } = useQuery<OrderItem[]>({

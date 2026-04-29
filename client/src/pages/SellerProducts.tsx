@@ -5,6 +5,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/useDebounce";
+import { SellerUpgradeModal } from "@/components/SellerUpgradeModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -2328,6 +2329,7 @@ export default function SellerProducts() {
   const [searchQuery, setSearchQuery] = useState("");
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const highlightedProductId = useMemo(() => {
     const query = location.split("?")[1] || "";
     return new URLSearchParams(query).get("productId") || "";
@@ -2356,6 +2358,16 @@ export default function SellerProducts() {
     retry: 2,
     retryDelay: 1000,
   });
+
+  const { data: tierInfo } = useQuery<{ effectiveLimit: number; productCount: number }>({
+    queryKey: ["/api/seller/tier-info"],
+    enabled: isAuthenticated && user?.role === "seller",
+    staleTime: 0,
+    refetchInterval: 15000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+  });
+  const atProductLimit = tierInfo && tierInfo.effectiveLimit > 0 && tierInfo.productCount >= tierInfo.effectiveLimit;
 
   // Use debounced search query for filtering
   const filteredProducts = useMemo(() => {
@@ -2395,8 +2407,20 @@ export default function SellerProducts() {
             <h1 className="text-3xl font-bold text-foreground" data-testid="heading-products">My Products</h1>
             <p className="text-muted-foreground mt-1">Manage your product catalog</p>
           </div>
-          <ProductFormDialog mode="create" />
+          {atProductLimit ? (
+            <Button onClick={() => setUpgradeModalOpen(true)} className="gap-2 bg-amber-500 hover:bg-amber-600 text-white">
+              <Plus className="h-4 w-4" /> Add Product (Upgrade Required)
+            </Button>
+          ) : (
+            <ProductFormDialog mode="create" />
+          )}
         </div>
+
+        <SellerUpgradeModal
+          open={upgradeModalOpen}
+          onClose={() => setUpgradeModalOpen(false)}
+          onUpgraded={() => setUpgradeModalOpen(false)}
+        />
 
         <div className="mb-6">
           <div className="relative">

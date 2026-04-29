@@ -10,7 +10,11 @@ export interface PublicPlatformSettings {
   referralEnabled: boolean;
   referralEnabledSingleStore: boolean;
   referralEnabledMultiVendor: boolean;
+  suggestionsEnabled: boolean;
   contactEmail?: string | null;
+  callerRingtone?: string;
+  receiverRingtone?: string;
+  notificationSound?: string;
 }
 
 export const publicPlatformSettingsQueryKey = ["/api/public/platform-settings"] as const;
@@ -24,7 +28,11 @@ const defaultPublicPlatformSettings: PublicPlatformSettings = {
   referralEnabled: false,
   referralEnabledSingleStore: false,
   referralEnabledMultiVendor: false,
+  suggestionsEnabled: false,
   contactEmail: "support@kiyumart.com",
+  callerRingtone: "default",
+  receiverRingtone: "default",
+  notificationSound: "default",
 };
 
 export function usePlatformSettings() {
@@ -53,6 +61,10 @@ export function usePlatformSettings() {
     referralEnabled: query.data?.referralEnabled === true,
     referralEnabledSingleStore: query.data?.referralEnabledSingleStore === true,
     referralEnabledMultiVendor: query.data?.referralEnabledMultiVendor === true,
+    suggestionsEnabled: query.data?.suggestionsEnabled === true,
+    callerRingtone: query.data?.callerRingtone || "default",
+    receiverRingtone: query.data?.receiverRingtone || "default",
+    notificationSound: query.data?.notificationSound || "default",
     hasResolvedSettings,
   };
 }

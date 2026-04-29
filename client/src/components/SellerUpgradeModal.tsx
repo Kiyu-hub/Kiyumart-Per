@@ -7,7 +7,7 @@ import { Loader2, Zap, Calendar, Infinity } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { PaystackInlineService } from "@/lib/paystackInline";
+import { PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
 
 interface TierInfo {
   isPremiumSeller: boolean;
@@ -69,6 +69,7 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
     setPaying(plan);
     try {
       const init = await initMutation.mutateAsync(plan);
+      resetPaystackGuard();
       const reference = await PaystackInlineService.pay({
         publicKey: init.publicKey,
         email: user.email,
@@ -80,6 +81,11 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
       // Webhook handles the DB update; we just poll tier-info to reflect the change
       await queryClient.invalidateQueries({ queryKey: ["/api/seller/tier-info"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      // Retry fetch tier-info after brief delay (webhook may not have fired yet)
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/seller/tier-info"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      }, 3000);
 
       const planLabels: Record<string, string> = {
         plan_a: "Plan A",

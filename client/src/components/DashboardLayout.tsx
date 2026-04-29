@@ -120,6 +120,10 @@ const routeToMenuId: Record<string, string> = {
   "/staff-chat": "staff-chat",
   "/seller-chat": "seller-chat",
   "/rider-chat": "rider-chat",
+  "/reported-cases": "reported-cases",
+  "/admin/suggestions": "admin-suggestions",
+  "/suggestions": "suggestions",
+  "/report-case": "report-case",
 };
 
 function InactiveAccountNotice({
@@ -287,6 +291,14 @@ export default function DashboardLayout({
       setLocation("/seller-chat");
     } else if (id === "rider-chat") {
       setLocation("/rider-chat");
+    } else if (id === "reported-cases") {
+      setLocation("/reported-cases");
+    } else if (id === "admin-suggestions") {
+      setLocation("/admin/suggestions");
+    } else if (id === "suggestions") {
+      setLocation("/suggestions");
+    } else if (id === "report-case") {
+      setLocation("/report-case");
     } else if (normalizedRole === "buyer" && id === "orders") {
       setLocation("/buyer/orders");
     } else if (normalizedRole === "buyer" && (id === "wishlist" || id === "support" || id === "notifications" || id === "settings")) {

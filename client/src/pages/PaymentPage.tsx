@@ -9,7 +9,7 @@ import { Loader2, CreditCard, AlertCircle } from "lucide-react";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { loadPaystackInlineScript, PaystackInlineService } from "@/lib/paystackInline";
+import { loadPaystackInlineScript, PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
 
 interface Order {
   id: string;
@@ -116,6 +116,7 @@ export default function PaymentPage() {
         throw new Error("Payment system returned invalid data. Please try again.");
       }
 
+      resetPaystackGuard();
       let reference: string;
       try {
         reference = await PaystackInlineService.pay({

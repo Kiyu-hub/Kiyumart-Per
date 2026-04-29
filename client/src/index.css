@@ -227,6 +227,325 @@
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   KIYUMART MOBILE LAYER
+   All rules below are NEW additions only.
+   Nothing above this comment is modified.
+   These rules only apply at max-width: 767px (below the md: breakpoint)
+   or are mobile-specific utility classes.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Spring physics variables ──────────────────────────────────────── */
+:root {
+  --spring-snappy: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --spring-smooth: cubic-bezier(0.25, 1.0,  0.5,  1);
+  --spring-gentle: cubic-bezier(0.4,  0.0,  0.2,  1);
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────────── */
+@keyframes m-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  60%  { transform: translateY(-6px); opacity: 1; }
+  80%  { transform: translateY(3px); }
+  to   { transform: translateY(0); }
+}
+@keyframes m-fade-scale {
+  from { transform: scale(0.94); opacity: 0; }
+  60%  { transform: scale(1.015); }
+  to   { transform: scale(1); opacity: 1; }
+}
+@keyframes m-bounce-in {
+  from { transform: scale(0.5); opacity: 0; }
+  55%  { transform: scale(1.08); opacity: 1; }
+  75%  { transform: scale(0.95); }
+  to   { transform: scale(1); }
+}
+@keyframes m-shimmer {
+  from { background-position: -250% 0; }
+  to   { background-position: 250% 0; }
+}
+@keyframes m-stagger-in {
+  from { transform: translateY(14px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes m-pulse-ring {
+  0%   { transform: scale(0.9); opacity: 0.8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes m-shake {
+  0%, 100%  { transform: translateX(0); }
+  20%       { transform: translateX(-8px); }
+  40%       { transform: translateX(8px); }
+  60%       { transform: translateX(-5px); }
+  80%       { transform: translateX(5px); }
+}
+
+/* ── Animation utility classes ─────────────────────────────────────── */
+.m-slide-up   { animation: m-slide-up   0.42s var(--spring-snappy) both; }
+.m-fade-scale { animation: m-fade-scale 0.28s var(--spring-snappy) both; }
+.m-bounce-in  { animation: m-bounce-in  0.38s var(--spring-snappy) both; }
+.m-shake      { animation: m-shake      0.40s var(--spring-gentle); }
+
+/* Staggered list entrance — add .m-stagger to the list wrapper */
+.m-stagger > *                 { animation: m-stagger-in 0.30s var(--spring-smooth) both; }
+.m-stagger > *:nth-child(1)    { animation-delay: 0ms;   }
+.m-stagger > *:nth-child(2)    { animation-delay: 40ms;  }
+.m-stagger > *:nth-child(3)    { animation-delay: 80ms;  }
+.m-stagger > *:nth-child(4)    { animation-delay: 120ms; }
+.m-stagger > *:nth-child(5)    { animation-delay: 160ms; }
+.m-stagger > *:nth-child(6)    { animation-delay: 200ms; }
+.m-stagger > *:nth-child(7)    { animation-delay: 240ms; }
+.m-stagger > *:nth-child(8)    { animation-delay: 280ms; }
+
+/* ── Spring press feedback ─────────────────────────────────────────── */
+/* Only fires on touch devices — no change on desktop */
+@media (max-width: 767px) {
+  .m-press {
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    transition: transform 0.12s var(--spring-snappy);
+    cursor: pointer;
+  }
+  .m-press:active {
+    transform: scale(0.96);
+  }
+
+  /* Touch ripple overlay on any element */
+  .m-ripple {
+    position: relative;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .m-ripple::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: currentColor;
+    opacity: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    transition: opacity 0.18s;
+  }
+  .m-ripple:active::after { opacity: 0.07; }
+}
+
+/* ── Frosted glass ─────────────────────────────────────────────────── */
+.m-glass {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+.dark .m-glass {
+  background: rgba(18, 18, 20, 0.85);
+}
+.m-glass-card {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: saturate(150%) blur(12px);
+  -webkit-backdrop-filter: saturate(150%) blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+}
+.dark .m-glass-card {
+  background: rgba(28, 28, 30, 0.94);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Skeleton shimmer ──────────────────────────────────────────────── */
+.m-skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 25%,
+    hsl(var(--muted) / 0.45) 50%,
+    hsl(var(--muted)) 75%
+  );
+  background-size: 250% 100%;
+  animation: m-shimmer 1.6s ease infinite;
+  border-radius: 8px;
+}
+
+/* ── Bottom sheet ──────────────────────────────────────────────────── */
+.m-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.m-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 70;
+  background: hsl(var(--background));
+  border-radius: 24px 24px 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  max-height: 90dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  animation: m-slide-up 0.42s var(--spring-snappy) both;
+  box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.14);
+}
+.m-sheet-handle {
+  width: 36px;
+  height: 4px;
+  background: hsl(var(--muted-foreground) / 0.28);
+  border-radius: 999px;
+  margin: 10px auto 4px;
+  flex-shrink: 0;
+}
+
+/* ── Mobile card style ─────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .m-card {
+    background: hsl(var(--card));
+    border-radius: 16px;
+    border: 1px solid hsl(var(--border) / 0.5);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.04);
+    overflow: hidden;
+  }
+}
+
+/* ── iOS-style grouped list ────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .m-grouped {
+    border-radius: 12px;
+    overflow: hidden;
+    background: hsl(var(--muted) / 0.3);
+  }
+  .m-grouped-item {
+    background: hsl(var(--card));
+    padding: 13px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    position: relative;
+  }
+  .m-grouped-item + .m-grouped-item::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 56px;
+    right: 0;
+    height: 0.5px;
+    background: hsl(var(--border) / 0.7);
+  }
+}
+
+/* ── Segment control (tab switcher) ────────────────────────────────── */
+@media (max-width: 767px) {
+  .m-segment {
+    display: flex;
+    background: hsl(var(--muted));
+    border-radius: 10px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .m-segment-item {
+    flex: 1;
+    padding: 7px 4px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s var(--spring-smooth);
+    -webkit-tap-highlight-color: transparent;
+    white-space: nowrap;
+  }
+  .m-segment-item.active {
+    background: hsl(var(--card));
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+    color: hsl(var(--foreground));
+  }
+  .m-segment-item:not(.active) {
+    color: hsl(var(--muted-foreground));
+  }
+}
+
+/* ── Horizontal scroll row (pills, product carousels) ──────────────── */
+.m-scroll-x {
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  padding: 4px 0;
+}
+.m-scroll-x::-webkit-scrollbar { display: none; }
+.m-scroll-x > * { flex-shrink: 0; }
+
+/* ── Context menu ──────────────────────────────────────────────────── */
+.m-context-menu {
+  position: fixed;
+  z-index: 80;
+  background: hsl(var(--card));
+  border-radius: 14px;
+  min-width: 200px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.1);
+  overflow: hidden;
+  animation: m-fade-scale 0.18s var(--spring-snappy) both;
+  border: 0.5px solid hsl(var(--border));
+}
+.m-context-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  font-size: 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s;
+}
+.m-context-item:active         { background: hsl(var(--muted)); }
+.m-context-item + .m-context-item { border-top: 0.5px solid hsl(var(--border) / 0.6); }
+.m-context-item.m-destructive  { color: hsl(var(--destructive)); }
+
+/* ── Typography helpers (mobile only) ─────────────────────────────── */
+@media (max-width: 767px) {
+  .m-large-title { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; line-height: 1.1; }
+  .m-title-1     { font-size: 28px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.15; }
+  .m-title-2     { font-size: 22px; font-weight: 700; letter-spacing: -0.2px; }
+  .m-title-3     { font-size: 20px; font-weight: 600; }
+  .m-headline    { font-size: 17px; font-weight: 600; }
+  .m-body        { font-size: 17px; font-weight: 400; line-height: 1.55; }
+  .m-subhead     { font-size: 15px; font-weight: 400; line-height: 1.45; }
+  .m-footnote    { font-size: 13px; font-weight: 400; }
+  .m-caption-1   { font-size: 12px; font-weight: 400; }
+  .m-caption-2   { font-size: 11px; font-weight: 400; }
+}
+
+/* ── Bottom padding for dashboard scroll containers on mobile ──────── */
+/* Prevents last content item from hiding behind the mobile bottom tab bar */
+@media (max-width: 767px) {
+  [data-route-scroll-container] {
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ── Pulse ring (live/active status indicator) ─────────────────────── */
+.m-pulse-ring {
+  position: relative;
+  display: inline-flex;
+}
+.m-pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  animation: m-pulse-ring 1.8s ease-out infinite;
+}
+
+/* ── PWA standalone mode adjustments ──────────────────────────────── */
+@media (display-mode: standalone) {
+  .m-status-pad {
+    padding-top: env(safe-area-inset-top, 44px);
+  }
+}
+
 /* Dashboard-only light mode contrast fix for secondary badges/buttons */
 @layer components {
   :root:not(.dark) [data-dashboard-surface] [data-ui-component="badge"][data-ui-variant="secondary"] {

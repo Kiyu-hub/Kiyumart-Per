@@ -99,12 +99,14 @@ export default function AdminApplications() {
   const [interviewDateTime, setInterviewDateTime] = useState("");
   const [mainTab, setMainTab] = useState<"applications" | "promotion">("applications");
   const [applicationTab, setApplicationTab] = useState<"pending_sellers" | "pending_riders" | "interview" | "rejected">("pending_sellers");
-  const [promotionTab, setPromotionTab] = useState<"pending" | "active" | "expired">("pending");
+  const [promotionTab, setPromotionTab] = useState<"pending" | "active" | "expired" | "awaiting_payment">("pending");
   const deepLinkHandledRef = useRef(false);
   const [rotatedImageUrls, setRotatedImageUrls] = useState<Record<string, boolean>>({});
   const [zoomedImage, setZoomedImage] = useState<{ label: string; url: string; rotation: number } | null>(null);
   const [zoomScale, setZoomScale] = useState(1);
   const [zoomRotation, setZoomRotation] = useState(0);
+  const [editingPromoId, setEditingPromoId] = useState<string | null>(null);
+  const [editPromoSection, setEditPromoSection] = useState<"homepage" | "banner">("homepage");
   const isTestingPurgeEnabled = (import.meta.env.MODE || "development") !== "production";
   const { isExternalRiderSystemEnabled, hasResolvedSettings } = usePlatformSettings();
   const showInternalRiderFeatures = hasResolvedSettings ? !isExternalRiderSystemEnabled : false;
@@ -400,6 +402,18 @@ export default function AdminApplications() {
     },
     enabled: canManageApplications,
     refetchInterval: 15000,
+  });
+
+  const { data: awaitingPaymentApplications = [], isLoading: awaitingPaymentLoading } = useQuery<PromotionApplication[]>({
+    queryKey: ["/api/admin/promotion-applications", "awaiting-payment"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/promotion-applications?includeAwaitingPayment=true", { credentials: "include" });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: canManageApplications && user?.role === "super_admin",
+    refetchInterval: 30000,
   });
 
   const approveApplicationMutation = useMutation({
@@ -794,7 +808,7 @@ export default function AdminApplications() {
   const interviewTotal = interviewSellerApplications.length + (showInternalRiderFeatures ? interviewRiderApplications.length : 0);
   const rejectedTotal = rejectedSellerApplications.length + (showInternalRiderFeatures ? rejectedRiderApplications.length : 0);
   const pendingPromotionApplications = promotionApplications.filter((application) =>
-    ["pending_payment", "payment_confirmed", "approved"].includes(application.status),
+    ["payment_confirmed", "approved"].includes(application.status),
   );
   const activePromotionApplications = promotionApplications.filter((application) => application.status === "active");
   const expiredPromotionApplications = promotionApplications.filter((application) => application.status === "expired");
@@ -1067,6 +1081,10 @@ export default function AdminApplications() {
                <span className="font-medium">Duration:</span> {application.duration} {application.durationType}(s)
              </p>
              <p className="text-sm text-muted-foreground">
+               <span className="font-medium">Placement:</span>{" "}
+               {(application as any).displaySection === "banner" ? "Spotlight Banner" : "Homepage Featured"}
+             </p>
+             <p className="text-sm text-muted-foreground">
                <span className="font-medium">Unit price:</span> GHS {application.unitPrice} <span className="font-medium ml-3">Quoted total:</span> GHS {application.totalPrice}
              </p>
              {application.customerServiceNote ? (
@@ -1107,14 +1125,48 @@ export default function AdminApplications() {
                    </Button>
                  ) : null}
                  {user?.role === "super_admin" && application.status === "payment_confirmed" ? (
-                   <Button
-                     size="sm"
-                     className="w-full"
-                     onClick={() => approvePromotionMutation.mutate(application.id)}
-                     disabled={approvePromotionMutation.isPending}
-                   >
-                     Approve & Create
-                   </Button>
+                   <>
+                     {editingPromoId === application.id ? (
+                       <div className="flex flex-col gap-1 w-full">
+                         <select
+                           className="w-full text-xs rounded border px-2 py-1.5 bg-background"
+                           value={editPromoSection}
+                           onChange={(e) => setEditPromoSection(e.target.value as "homepage" | "banner")}
+                         >
+                           <option value="homepage">Homepage Featured</option>
+                           <option value="banner">Spotlight Banner</option>
+                         </select>
+                         <div className="flex gap-1">
+                           <Button size="sm" className="flex-1 text-xs h-7" onClick={async () => {
+                             await fetch(`/api/admin/promotion-applications/${application.id}/update`, {
+                               method: "PATCH",
+                               credentials: "include",
+                               headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify({ displaySection: editPromoSection }),
+                             });
+                             setEditingPromoId(null);
+                             queryClient.invalidateQueries({ queryKey: ["/api/admin/promotion-applications"] });
+                           }}>Save</Button>
+                           <Button size="sm" variant="outline" className="flex-1 text-xs h-7" onClick={() => setEditingPromoId(null)}>Cancel</Button>
+                         </div>
+                       </div>
+                     ) : (
+                       <Button size="sm" variant="outline" className="w-full text-xs" onClick={() => {
+                         setEditPromoSection(((application as any).displaySection === "banner" ? "banner" : "homepage") as "homepage" | "banner");
+                         setEditingPromoId(application.id);
+                       }}>
+                         Edit Placement
+                       </Button>
+                     )}
+                     <Button
+                       size="sm"
+                       className="w-full"
+                       onClick={() => approvePromotionMutation.mutate(application.id)}
+                       disabled={approvePromotionMutation.isPending}
+                     >
+                       Approve & Create
+                     </Button>
+                   </>
                  ) : null}
                  <Button
                    variant="outline"
@@ -1474,12 +1526,12 @@ export default function AdminApplications() {
               <CardContent className="p-4 md:p-5">
                 <Tabs
                   value={promotionTab}
-                  onValueChange={(value) => setPromotionTab(value as "pending" | "active" | "expired")}
+                  onValueChange={(value) => setPromotionTab(value as "pending" | "active" | "expired" | "awaiting_payment")}
                   className="w-full"
                 >
-                  <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 md:grid-cols-3">
+                  <TabsList className={`grid h-auto w-full gap-2 bg-transparent p-0 ${user?.role === "super_admin" ? "grid-cols-2 md:grid-cols-4" : "grid-cols-1 md:grid-cols-3"}`}>
                     <TabsTrigger value="pending" data-testid="tab-promotion-applications" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
-                      Pending Applications ({pendingPromotionApplications.length})
+                      Pending ({pendingPromotionApplications.length})
                     </TabsTrigger>
                     <TabsTrigger value="active" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
                       Active ({activePromotionApplications.length})
@@ -1487,6 +1539,11 @@ export default function AdminApplications() {
                     <TabsTrigger value="expired" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 data-[state=active]:border-primary/30 data-[state=active]:bg-primary/10">
                       Expired ({expiredPromotionApplications.length})
                     </TabsTrigger>
+                    {user?.role === "super_admin" && (
+                      <TabsTrigger value="awaiting_payment" className="rounded-xl border border-amber-300/60 bg-amber-50/30 dark:bg-amber-950/20 px-4 py-3 data-[state=active]:border-amber-500/50 data-[state=active]:bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                        Awaiting Payment {awaitingPaymentApplications.length > 0 ? `(${awaitingPaymentApplications.length})` : ""}
+                      </TabsTrigger>
+                    )}
                   </TabsList>
 
                   <TabsContent value="pending" className="mt-6">
@@ -1542,6 +1599,28 @@ export default function AdminApplications() {
                         {expiredPromotionApplications.length === 0 ? (
                           <div className="text-center py-12">
                             <p className="text-muted-foreground">No expired promotions</p>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="awaiting_payment" className="mt-6">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      These promotions are awaiting payment confirmation. Use the "Confirm Payment" button to manually confirm if a seller made a payment outside the automated system.
+                    </p>
+                    {awaitingPaymentLoading ? (
+                      <div className="flex justify-center py-12">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {awaitingPaymentApplications.map((promotion) => (
+                          <PromotionApplicationCard key={promotion.id} application={promotion} />
+                        ))}
+                        {awaitingPaymentApplications.length === 0 ? (
+                          <div className="text-center py-12">
+                            <p className="text-muted-foreground">No promotions awaiting payment confirmation</p>
                           </div>
                         ) : null}
                       </div>

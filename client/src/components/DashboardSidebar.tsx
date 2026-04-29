@@ -34,6 +34,8 @@ import {
   Gift,
   Mail,
   MessagesSquare,
+  Flag,
+  Lightbulb,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -180,6 +182,8 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessagesSquare, label: "Rider Chat", id: "rider-chat" },
     { icon: Activity, label: "Live Support", id: "live-support" },
     { icon: Headphones, label: "Customer Support", id: "support" },
+    { icon: Flag, label: "Reported Cases", id: "reported-cases" },
+    { icon: Lightbulb, label: "Suggestions", id: "admin-suggestions" },
     { icon: Shield, label: "System Activities", id: "system-activities", badge: "issues_dynamic", adminPermission: "canViewAnalytics" },
     { icon: BarChart3, label: "Analytics", id: "analytics", adminPermission: "canViewAnalytics" },
     { icon: LineChart, label: "Tracking & Analytics", id: "platform-analytics", adminPermission: "canViewAnalytics" },
@@ -210,6 +214,8 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: MessagesSquare, label: "Staff Chat", id: "staff-chat" },
     { icon: Headphones, label: "Customer Support", id: "support" },
+    { icon: Flag, label: "Reported Cases", id: "reported-cases", adminPermission: "canManageUsers" },
+    { icon: Lightbulb, label: "Suggestions", id: "admin-suggestions", adminPermission: "canManageUsers" },
     { icon: Shield, label: "System Activities", id: "system-activities", badge: "issues_dynamic", adminPermission: "canViewAnalytics" },
     { icon: BarChart3, label: "Analytics", id: "analytics", adminPermission: "canViewAnalytics" },
     { icon: LineChart, label: "Tracking & Analytics", id: "platform-analytics", adminPermission: "canViewAnalytics" },
@@ -238,6 +244,8 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: MessagesSquare, label: "Seller Chat", id: "seller-chat" },
     { icon: Headphones, label: "Support", id: "support" },
+    { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
+    { icon: Gift, label: "Referral", id: "referral" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
@@ -252,6 +260,8 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessageSquare, label: "Messages", id: "messages" },
     { icon: MessagesSquare, label: "Rider Chat", id: "rider-chat" },
     { icon: Headphones, label: "Support", id: "support" },
+    { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
+    { icon: Gift, label: "Referral", id: "referral" },
     { icon: BarChart3, label: "Earnings", id: "earnings" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
@@ -262,6 +272,9 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Clock, label: "Shift Management", id: "shift" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic", separator: true },
     { icon: Headphones, label: "Support", id: "support" },
+    { icon: Flag, label: "Report a Case", id: "report-case" },
+    { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
+    { icon: Gift, label: "Referral", id: "referral" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
   buyer: [
@@ -271,6 +284,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Gift, label: "Referral", id: "referral" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic" },
     { icon: Headphones, label: "Support", id: "support" },
+    { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
   agent: [
@@ -283,6 +297,9 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessageSquare, label: "Support Tickets", id: "messages", separator: true },
     { icon: Mail, label: "Direct Messages", id: "direct-messages" },
     { icon: MessagesSquare, label: "Staff Chat", id: "staff-chat" },
+    { icon: Flag, label: "Report a Case", id: "report-case" },
+    { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
+    { icon: Gift, label: "Referral", id: "referral" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
@@ -301,7 +318,7 @@ export default function DashboardSidebar({
     .replace(/[\s-]+/g, "_")
     .replace(/^superadmin$/, "super_admin") as DashboardSidebarProps["role"];
   const items = Array.isArray(menuItems[normalizedRole]) ? menuItems[normalizedRole] : [];
-  const { isExternalRiderSystemEnabled, hasResolvedSettings, isMultiVendor, allowSellerDirectSupportMessages } = usePlatformSettings();
+  const { isExternalRiderSystemEnabled, hasResolvedSettings, isMultiVendor, allowSellerDirectSupportMessages, suggestionsEnabled, referralEnabled } = usePlatformSettings();
   const showInternalRiderFeatures = hasResolvedSettings ? !isExternalRiderSystemEnabled : false;
 
   // Ensure we have the current user available for the avatar and user-scoped caches.
@@ -423,6 +440,38 @@ export default function DashboardSidebar({
 
   const activeSystemIssuesCount = Number(systemActivitySummary?.activeIssues || 0);
 
+  // Reported cases and suggestions badge counts for admin/super_admin
+  const { data: reportedCasesBadge } = useQuery<{ count: number }>({
+    queryKey: ["/api/sidebar/reported-cases-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/reported-cases", { credentials: "include" });
+      if (!res.ok) return { count: 0 };
+      const cases = await res.json();
+      const open = Array.isArray(cases) ? cases.filter((c: any) => c.status === "open").length : 0;
+      return { count: open };
+    },
+    enabled: normalizedRole === "admin" || normalizedRole === "super_admin",
+    refetchInterval: 30000,
+    staleTime: 20000,
+  });
+
+  const { data: suggestionsBadge } = useQuery<{ count: number }>({
+    queryKey: ["/api/sidebar/suggestions-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/suggestions", { credentials: "include" });
+      if (!res.ok) return { count: 0 };
+      const suggestions = await res.json();
+      const unreplied = Array.isArray(suggestions) ? suggestions.filter((s: any) => !s.reply).length : 0;
+      return { count: unreplied };
+    },
+    enabled: (normalizedRole === "admin" || normalizedRole === "super_admin") && suggestionsEnabled,
+    refetchInterval: 30000,
+    staleTime: 20000,
+  });
+
+  const reportedCasesCount = reportedCasesBadge?.count || 0;
+  const suggestionsCount = suggestionsBadge?.count || 0;
+
   const visibleItems = (() => {
     const isRestrictedInactiveAccount =
       (normalizedRole === "seller" || normalizedRole === "rider") &&
@@ -476,6 +525,18 @@ export default function DashboardSidebar({
         if (!adminPerms[item.adminPermission]) return false;
       }
 
+      // Gate suggestions pages behind suggestionsEnabled platform setting.
+      // Admins/super_admins always see admin-suggestions regardless.
+      if (item.id === "suggestions" && !suggestionsEnabled) return false;
+
+      // Gate referral: hidden when referral is disabled.
+      // Single-store: all roles except sellers (sellers can't buy their own products)
+      // Multi-vendor: all roles can see referral
+      if (item.id === "referral") {
+        if (!referralEnabled) return false;
+        if (!isMultiVendor && normalizedRole === "seller") return false;
+      }
+
       return true;
     });
   })();
@@ -510,6 +571,10 @@ export default function DashboardSidebar({
                 ? (pendingAssignmentsCount > 0 ? (pendingAssignmentsCount > 99 ? "99+" : String(pendingAssignmentsCount)) : null)
               : item.badge === "issues_dynamic"
                 ? (activeSystemIssuesCount > 0 ? (activeSystemIssuesCount > 99 ? "99+" : String(activeSystemIssuesCount)) : null)
+              : item.id === "reported-cases"
+                ? (reportedCasesCount > 0 ? (reportedCasesCount > 99 ? "99+" : String(reportedCasesCount)) : null)
+              : item.id === "admin-suggestions"
+                ? (suggestionsCount > 0 ? (suggestionsCount > 99 ? "99+" : String(suggestionsCount)) : null)
               : typeof item.badge === "number"
                 ? String(item.badge)
                 : null;

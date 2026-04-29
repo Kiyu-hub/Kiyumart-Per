@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
-import { fetchApiJson } from "@/lib/queryClient";
+import { fetchApiJson, fetchSameOriginJson, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import HeroCarousel from "@/components/HeroCarousel";
@@ -38,9 +39,16 @@ interface Category {
   requestedBySeller?: boolean;
 }
 
+interface WishlistItem {
+  id: string;
+  userId: string;
+  productId: string;
+}
+
 export default function MultiVendorHome() {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, ensureAuthenticated } = useAuth();
   const [, navigate] = useLocation();
+  const { toast } = useToast();
   
   const { data: settings } = useQuery<PlatformSettings>({
     queryKey: ["/api/platform-settings"],
@@ -92,6 +100,62 @@ export default function MultiVendorHome() {
     refetchInterval: 5000,
   });
 
+  const { data: wishlist = [] } = useQuery<WishlistItem[]>({
+    queryKey: ["/api/wishlist"],
+    enabled: isAuthenticated && !authLoading,
+    queryFn: () => fetchSameOriginJson<WishlistItem[]>("/api/wishlist", { cache: "no-store" }),
+    refetchOnMount: "always",
+  });
+
+  const addToWishlistMutation = useMutation({
+    mutationFn: (productId: string) =>
+      fetchSameOriginJson("/api/wishlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
+      toast({ title: "Added to wishlist", description: "Product has been added to your wishlist" });
+    },
+    onError: (error: any) => {
+      const message = error?.message || "";
+      toast({
+        title: "Error",
+        description: /401|authentication|login/i.test(message) ? "Please login to use wishlist" : message || "Could not add to wishlist",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const removeFromWishlistMutation = useMutation({
+    mutationFn: (productId: string) =>
+      fetchSameOriginJson(`/api/wishlist/${productId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] });
+      toast({ title: "Removed from wishlist", description: "Product has been removed from your wishlist" });
+    },
+    onError: (error: any) => {
+      const message = error?.message || "";
+      toast({
+        title: "Error",
+        description: /401|authentication|login/i.test(message) ? "Please login to use wishlist" : message || "Could not remove from wishlist",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleToggleWishlist = async (productId: string) => {
+    const activeUser = await ensureAuthenticated();
+    if (!activeUser) { navigate("/auth"); return; }
+    const isWishlisted = wishlist.some(item => item.productId === productId);
+    if (isWishlisted) {
+      removeFromWishlistMutation.mutate(productId);
+    } else {
+      addToWishlistMutation.mutate(productId);
+    }
+  };
+
   const getCategoryProductCount = (category: Category) =>
     allProducts.filter((product) => productMatchesCategory(product, category)).length;
   const categoriesWithProducts = categories.filter(
@@ -124,15 +188,17 @@ export default function MultiVendorHome() {
   // Sidebar is visible when it has promo or ad to show
   const hasSidebarContent = sidebarItemCount > 0;
 
-  // --- Search (live, debounced) ---
+  // --- Search — redirects to dedicated /search page automatically while typing ---
   const [searchQuery, setSearchQuery] = useState("");
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const handleSearch = useCallback((query: string) => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    const trimmed = query.trim();
+    if (!trimmed) { setSearchQuery(""); return; }
     debounceTimerRef.current = setTimeout(() => {
-      setSearchQuery(query.toLowerCase().trim());
-    }, 150);
-  }, []);
+      navigate(`/search?q=${encodeURIComponent(trimmed)}`);
+    }, 300);
+  }, [navigate]);
 
   useEffect(() => {
     return () => {
@@ -215,6 +281,8 @@ export default function MultiVendorHome() {
                     rating={product.ratings || "0"}
                     reviewCount={product.totalRatings || 0}
                     inStock={(product.stock || 0) > 0}
+                    isWishlisted={wishlist.some(w => w.productId === product.id)}
+                    onToggleWishlist={handleToggleWishlist}
                   />
                 ))}
               </div>
@@ -242,23 +310,21 @@ export default function MultiVendorHome() {
                     }
                   </Badge>
                 )}
-                {(shopDisplayMode === "by-category" ? categoriesWithProducts.length > CATEGORY_VISIBLE_THRESHOLD : true) && (
-                  <Button 
-                    variant="ghost" 
-                    className="gap-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-blue-200 dark:hover:text-white dark:hover:bg-white/10"
-                    onClick={() => {
-                      if (shopDisplayMode === "by-category") {
-                        setShowAllCategories(!showAllCategories);
-                      } else {
-                        navigate("/stores");
-                      }
-                    }}
-                    data-testid="button-see-all-categories"
-                  >
-                    {shopDisplayMode === "by-category" && showAllCategories ? "Show Less" : "See All"}
-                    <ChevronRight className={`w-4 h-4 transition-transform ${shopDisplayMode === "by-category" && showAllCategories ? "rotate-90" : ""}`} />
-                  </Button>
-                )}
+                <Button
+                  variant="ghost"
+                  className="gap-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-blue-200 dark:hover:text-white dark:hover:bg-white/10"
+                  onClick={() => {
+                    if (shopDisplayMode === "by-category") {
+                      navigate("/products");
+                    } else {
+                      navigate("/stores");
+                    }
+                  }}
+                  data-testid="button-see-all-categories"
+                >
+                  See All
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
               </div>
             </div>
 
@@ -391,6 +457,8 @@ export default function MultiVendorHome() {
                         rating={product.ratings || "0"}
                         reviewCount={product.totalRatings || 0}
                         inStock={(product.stock || 0) > 0}
+                        isWishlisted={wishlist.some(w => w.productId === product.id)}
+                        onToggleWishlist={handleToggleWishlist}
                       />
                     ))}
                   </div>
@@ -432,6 +500,8 @@ export default function MultiVendorHome() {
                           rating={product.ratings || "0"}
                           reviewCount={product.totalRatings || 0}
                           inStock={(product.stock || 0) > 0}
+                          isWishlisted={wishlist.some(w => w.productId === product.id)}
+                          onToggleWishlist={handleToggleWishlist}
                         />
                       ))}
                     </div>
@@ -464,6 +534,8 @@ export default function MultiVendorHome() {
                       rating={product.ratings || "0"}
                       reviewCount={product.totalRatings || 0}
                       inStock={(product.stock || 0) > 0}
+                      isWishlisted={wishlist.some(w => w.productId === product.id)}
+                      onToggleWishlist={handleToggleWishlist}
                     />
                   ))}
                 </div>
@@ -497,6 +569,8 @@ export default function MultiVendorHome() {
                     rating={product.ratings || "0"}
                     reviewCount={product.totalRatings || 0}
                     inStock={(product.stock || 0) > 0}
+                    isWishlisted={wishlist.some(w => w.productId === product.id)}
+                    onToggleWishlist={handleToggleWishlist}
                   />
                 ))}
               </div>

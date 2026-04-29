@@ -332,6 +332,12 @@ export const platformSettings = pgTable("platform_settings", {
   // Upload controls
   maxUploadSizeMb: integer("max_upload_size_mb").default(10),
   allowedUploadTypes: text("allowed_upload_types").default("jpg,jpeg,png,webp,gif,avif"),
+  // Suggestions feature
+  suggestionsEnabled: boolean("suggestions_enabled").default(false),
+  // Sound & ringtone settings
+  callerRingtone: text("caller_ringtone").default("default"),
+  receiverRingtone: text("receiver_ringtone").default("default"),
+  notificationSound: text("notification_sound").default("default"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -1046,6 +1052,42 @@ export const referralRewards = pgTable("referral_rewards", {
 
 export type Referral = typeof referrals.$inferSelect;
 export type ReferralReward = typeof referralRewards.$inferSelect;
+
+// Reported cases (private — agent/pickup_agent → admin/super_admin only)
+export const reportedCases = pgTable("reported_cases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reporterId: varchar("reporter_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  reporterRole: varchar("reporter_role", { length: 30 }).notNull(),
+  subject: varchar("subject", { length: 200 }).notNull(),
+  description: text("description").notNull(),
+  priority: varchar("priority", { length: 20 }).notNull().default("medium"), // low | medium | high | critical
+  status: varchar("status", { length: 30 }).notNull().default("open"),       // open | in_review | resolved | closed
+  adminNotes: text("admin_notes"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  reporterIdx: index("reported_cases_reporter_idx").on(table.reporterId),
+  statusIdx: index("reported_cases_status_idx").on(table.status),
+}));
+
+export type ReportedCase = typeof reportedCases.$inferSelect;
+
+// Suggestions (all roles → super_admin; replies labeled "Kiyumart Team")
+export const suggestions = pgTable("suggestions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  userRole: varchar("user_role", { length: 30 }).notNull(),
+  message: text("message").notNull(),
+  reply: text("reply"),
+  repliedAt: timestamp("replied_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userIdx: index("suggestions_user_idx").on(table.userId),
+  createdIdx: index("suggestions_created_idx").on(table.createdAt),
+}));
+
+export type Suggestion = typeof suggestions.$inferSelect;
 
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).pick({

@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/lib/auth";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
-import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard, AlertCircle, Loader2, MapPin } from "lucide-react";
+import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard, AlertCircle, Loader2, MapPin, Headphones } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface Order {
@@ -54,7 +56,29 @@ export default function Orders() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const { currencySymbol, formatPrice } = useLanguage();
+  const { toast } = useToast();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
+
+  const cancelOrderMutation = useMutation({
+    mutationFn: (orderId: string) =>
+      fetch(`/api/orders/${orderId}/cancel`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      }).then(async (r) => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err?.error || err?.message || "Could not cancel order");
+        }
+        return r.json();
+      }),
+    onSuccess: () => {
+      toast({ title: "Order Cancelled", description: "Your order has been cancelled." });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", "buyer-orders"] });
+    },
+    onError: (err: any) =>
+      toast({ title: "Cancel Failed", description: err.message || "Could not cancel the order.", variant: "destructive" }),
+  });
 
   const normalize = (value?: string) => (value || "").toLowerCase().trim();
   const normalizePaymentStatus = (value?: string) => {
@@ -530,7 +554,7 @@ export default function Orders() {
               </>
             )}
           </div>
-            <div className="mt-4">
+            <div className="mt-4 space-y-2">
               <Button
                 className="w-full"
                 variant={paymentButtonConfig.variant}
@@ -544,6 +568,42 @@ export default function Orders() {
               >
                 {paymentButtonConfig.label}
               </Button>
+              {/* Cancel — only for unpaid/pending orders */}
+              {["pending", "created"].includes(normalize(order.status)) &&
+                ["pending", "failed"].includes(normalizePaymentStatus(order.paymentStatus)) && (
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm("Are you sure you want to cancel this order?")) {
+                        cancelOrderMutation.mutate(order.id);
+                      }
+                    }}
+                    disabled={cancelOrderMutation.isPending}
+                    data-testid={`button-cancel-${order.id}`}
+                  >
+                    {cancelOrderMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
+                    Cancel Order
+                  </Button>
+                )}
+              {/* Refund info — only for paid orders */}
+              {normalizePaymentStatus(order.paymentStatus) === "paid" &&
+                !["completed", "delivered"].includes(orderStatus) && (
+                  <Button
+                    className="w-full text-xs"
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate("/support");
+                    }}
+                  >
+                    <Headphones className="h-3 w-3 mr-1" />
+                    Request Refund via Support
+                  </Button>
+                )}
             </div>
         </CardContent>
       </Card>

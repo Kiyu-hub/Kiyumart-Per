@@ -167,6 +167,11 @@ const settingsSchema = z.object({
   referralCustomerThreshold: z.coerce.number().int().min(1).optional(),
   referralSellerThreshold: z.coerce.number().int().min(1).optional(),
   referralSellerPromoHours: z.coerce.number().int().min(1).optional(),
+  suggestionsEnabled: z.boolean().optional(),
+  // Sound & ringtone settings
+  callerRingtone: z.string().optional(),
+  receiverRingtone: z.string().optional(),
+  notificationSound: z.string().optional(),
   // Upload controls
   maxUploadSizeMb: z.coerce.number().int().min(1).max(100).optional(),
   allowedUploadTypes: z.string().optional().or(z.literal("")),
@@ -417,6 +422,301 @@ function ReferralReportSection() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface EnvVar {
+  key: string;
+  label: string;
+  note: string;
+  isSet: boolean;
+  sensitive: boolean;
+  required: boolean;
+  value?: string | null;
+  settingsTab?: string;
+}
+interface EnvStatusData {
+  bootstrap: EnvVar[];
+  payments: EnvVar[];
+  frontend: EnvVar[];
+  storage: EnvVar[];
+  email: EnvVar[];
+  runtime: EnvVar[];
+}
+
+function EnvStatusPanel({ onNavigateToTab }: { onNavigateToTab: (tab: string) => void }) {
+  const { data, isLoading, refetch, isError } = useQuery<EnvStatusData>({
+    queryKey: ["/api/admin/env-status"],
+    queryFn: () => fetch("/api/admin/env-status", { credentials: "include" }).then((r) => r.json()),
+    staleTime: 60_000,
+  });
+
+  const groups: Array<{ key: keyof EnvStatusData; label: string; icon: ReactNode }> = [
+    { key: "bootstrap", label: "Bootstrap (Render only)", icon: <Server className="h-4 w-4" /> },
+    { key: "payments", label: "Payments (Paystack)", icon: <CreditCard className="h-4 w-4" /> },
+    { key: "frontend", label: "Frontend URL", icon: <Globe className="h-4 w-4" /> },
+    { key: "storage", label: "Storage (Cloudinary)", icon: <Cloud className="h-4 w-4" /> },
+    { key: "email", label: "Email (SMTP)", icon: <Mail className="h-4 w-4" /> },
+    { key: "runtime", label: "Runtime", icon: <Zap className="h-4 w-4" /> },
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base"><Database className="h-5 w-5 text-primary" /> Environment Variables</CardTitle>
+          <CardDescription>Live status of all server environment variables. Sensitive values are never shown — only whether they are set.</CardDescription>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isLoading}>
+          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {isLoading && (
+          <div className="flex items-center justify-center py-8 gap-3 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-sm">Loading environment status…</span>
+          </div>
+        )}
+        {isError && (
+          <p className="text-sm text-destructive py-4 text-center">Failed to load environment status.</p>
+        )}
+        {data && (
+          <div className="space-y-5">
+            {groups.map(({ key, label, icon }) => {
+              const vars = data[key] as EnvVar[];
+              if (!vars?.length) return null;
+              const missing = vars.filter((v) => !v.isSet && v.required).length;
+              return (
+                <div key={key} className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    {icon}
+                    <span>{label}</span>
+                    {missing > 0 && (
+                      <span className="ml-auto inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/40 dark:text-red-400">
+                        {missing} missing
+                      </span>
+                    )}
+                  </div>
+                  <div className="rounded-xl border overflow-hidden divide-y">
+                    {vars.map((v) => (
+                      <div key={v.key} className="flex items-start gap-3 px-3 py-2.5 text-xs">
+                        <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${v.isSet ? "bg-emerald-500" : v.required ? "bg-red-500" : "bg-amber-400"}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <code className="font-mono font-semibold text-foreground">{v.key}</code>
+                            {v.isSet && !v.sensitive && v.value && (
+                              <span className="font-mono text-muted-foreground truncate max-w-[180px]">{v.value}</span>
+                            )}
+                            {v.isSet && (v.sensitive || !v.value) && (
+                              <span className="text-emerald-600 dark:text-emerald-400">Configured</span>
+                            )}
+                            {!v.isSet && (
+                              <span className={v.required ? "text-red-600 dark:text-red-400 font-medium" : "text-amber-600 dark:text-amber-400"}>
+                                {v.required ? "Not set (required)" : "Not set (optional)"}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-muted-foreground mt-0.5 leading-relaxed">{v.note}</p>
+                        </div>
+                        {v.settingsTab && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="shrink-0 h-6 px-2 text-[10px] text-primary"
+                            onClick={() => onNavigateToTab(v.settingsTab!)}
+                          >
+                            Configure <ExternalLink className="ml-1 h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Sound & Ringtone Settings ────────────────────────────────────────────────
+
+type RingtoneId = "default" | "whatsapp" | "classic" | "gentle" | "professional";
+type NotificationId = "default" | "chime" | "bell" | "pop" | "soft";
+
+interface RingtonePreset {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+}
+
+const CALLER_PRESETS: RingtonePreset[] = [
+  { id: "default", label: "Default Ringback", description: "Two-tone triangle wave while waiting", icon: "📞" },
+  { id: "whatsapp", label: "WhatsApp Style", description: "Ascending harmonic ringback", icon: "💬" },
+  { id: "classic", label: "Classic Dial", description: "Traditional telephone ringback tone", icon: "☎️" },
+  { id: "gentle", label: "Gentle Pulse", description: "Soft repeating tone", icon: "🎵" },
+  { id: "professional", label: "Professional", description: "Clean single-frequency ringback", icon: "🎙️" },
+];
+
+const RECEIVER_PRESETS: RingtonePreset[] = [
+  { id: "default", label: "Default Ring", description: "Two descending sine tones (880/660 Hz)", icon: "🔔" },
+  { id: "whatsapp", label: "WhatsApp Style", description: "Rising and falling melodic pattern", icon: "💬" },
+  { id: "classic", label: "Classic Ring", description: "Traditional double-ring pattern", icon: "☎️" },
+  { id: "gentle", label: "Gentle Chime", description: "Soft harmonic ring", icon: "🎶" },
+  { id: "professional", label: "Professional", description: "Office-style clean ring burst", icon: "💼" },
+];
+
+const NOTIFICATION_PRESETS: RingtonePreset[] = [
+  { id: "default", label: "Default", description: "Short double-beep notification", icon: "🔔" },
+  { id: "chime", label: "Chime", description: "Soft melodic chime", icon: "🎵" },
+  { id: "bell", label: "Bell", description: "Clear bell strike", icon: "🔕" },
+  { id: "pop", label: "Pop", description: "Quick pop sound", icon: "💧" },
+  { id: "soft", label: "Soft", description: "Gentle notification tone", icon: "🌊" },
+];
+
+function playPreviewSound(type: "caller" | "receiver" | "notification", preset: string) {
+  try {
+    const Ctor = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!Ctor) return;
+    const ctx = new Ctor() as AudioContext;
+    const now = ctx.currentTime;
+
+    const tone = (freq: number, startAt: number, dur: number, vol: number, shape: OscillatorType = "sine") => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = shape;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now + startAt);
+      gain.gain.exponentialRampToValueAtTime(vol, now + startAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + startAt + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + startAt);
+      osc.stop(now + startAt + dur + 0.05);
+    };
+
+    if (type === "caller") {
+      if (preset === "default") { tone(540, 0, 0.22, 0.09, "triangle"); tone(720, 0.26, 0.22, 0.09, "triangle"); }
+      else if (preset === "whatsapp") { [440, 550, 660].forEach((f, i) => tone(f, i * 0.18, 0.14, 0.08)); }
+      else if (preset === "classic") { tone(400, 0, 0.4, 0.1, "sine"); tone(400, 0.5, 0.4, 0.1, "sine"); }
+      else if (preset === "gentle") { tone(480, 0, 0.5, 0.07, "sine"); }
+      else if (preset === "professional") { tone(600, 0, 0.15, 0.08, "sine"); tone(600, 0.4, 0.15, 0.08, "sine"); }
+    } else if (type === "receiver") {
+      if (preset === "default") { tone(880, 0, 0.2, 0.12, "sine"); tone(660, 0.24, 0.2, 0.12, "sine"); }
+      else if (preset === "whatsapp") { [660, 880, 660, 880].forEach((f, i) => tone(f, i * 0.15, 0.12, 0.1)); }
+      else if (preset === "classic") { tone(800, 0, 0.15, 0.12, "square"); tone(800, 0.2, 0.15, 0.12, "square"); tone(800, 0.6, 0.15, 0.12, "square"); tone(800, 0.8, 0.15, 0.12, "square"); }
+      else if (preset === "gentle") { [523, 659, 784].forEach((f, i) => tone(f, i * 0.22, 0.18, 0.09, "sine")); }
+      else if (preset === "professional") { tone(880, 0, 0.1, 0.1, "sine"); tone(1100, 0.15, 0.1, 0.1, "sine"); tone(880, 0.3, 0.1, 0.08, "sine"); }
+    } else {
+      if (preset === "default") { tone(880, 0, 0.08, 0.1, "sine"); tone(880, 0.12, 0.08, 0.1, "sine"); }
+      else if (preset === "chime") { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.1, 0.25, 0.08, "sine")); }
+      else if (preset === "bell") { tone(1047, 0, 0.6, 0.12, "sine"); }
+      else if (preset === "pop") { tone(400, 0, 0.05, 0.15, "sine"); }
+      else if (preset === "soft") { tone(660, 0, 0.3, 0.07, "sine"); tone(880, 0.2, 0.2, 0.05, "sine"); }
+    }
+
+    setTimeout(() => { try { ctx.close(); } catch { /* ignore */ } }, 2500);
+  } catch { /* ignore */ }
+}
+
+function SoundSettingsSection({
+  callerRingtone, receiverRingtone, notificationSound,
+  onCallerChange, onReceiverChange, onNotificationChange,
+}: {
+  callerRingtone: string; receiverRingtone: string; notificationSound: string;
+  onCallerChange: (v: string) => void; onReceiverChange: (v: string) => void; onNotificationChange: (v: string) => void;
+}) {
+  const renderPresets = (
+    presets: RingtonePreset[],
+    selected: string,
+    onChange: (v: string) => void,
+    soundType: "caller" | "receiver" | "notification",
+  ) => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {presets.map((preset) => (
+        <div
+          key={preset.id}
+          onClick={() => onChange(preset.id)}
+          className={`relative cursor-pointer rounded-xl border-2 p-4 transition-all select-none ${
+            selected === preset.id
+              ? "border-primary bg-primary/5 shadow-sm"
+              : "border-border hover:border-primary/40 hover:bg-muted/40"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">{preset.icon}</span>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm">{preset.label}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{preset.description}</p>
+            </div>
+            {selected === preset.id && (
+              <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); playPreviewSound(soundType, preset.id); }}
+            className="mt-3 flex items-center gap-1.5 rounded-lg bg-muted/60 hover:bg-muted px-3 py-1.5 text-xs font-medium transition-colors w-full justify-center"
+          >
+            <Music className="h-3 w-3" />
+            Preview
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Music className="h-5 w-5 text-primary" />
+            Sound & Ringtone Settings
+          </CardTitle>
+          <CardDescription>
+            Configure ringtones for incoming and outgoing calls, and notification sounds across the platform. Click Preview to hear each tone before selecting.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+
+      <CollapsibleDashboardSection
+        title="Caller Ringback Tone"
+        summary="Sound the caller hears while waiting for the other person to pick up"
+        defaultOpen={true}
+      >
+        {renderPresets(CALLER_PRESETS, callerRingtone, onCallerChange, "caller")}
+      </CollapsibleDashboardSection>
+
+      <CollapsibleDashboardSection
+        title="Incoming Call Ringtone"
+        summary="Sound the receiver hears when someone calls them"
+        defaultOpen={true}
+      >
+        {renderPresets(RECEIVER_PRESETS, receiverRingtone, onReceiverChange, "receiver")}
+      </CollapsibleDashboardSection>
+
+      <CollapsibleDashboardSection
+        title="Notification Sound"
+        summary="Sound played when a new notification, message, or alert arrives"
+        defaultOpen={true}
+      >
+        {renderPresets(NOTIFICATION_PRESETS, notificationSound, onNotificationChange, "notification")}
+      </CollapsibleDashboardSection>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-950/20">
+        <p className="text-sm text-amber-700 dark:text-amber-400">
+          <strong>Note:</strong> Click Save Settings at the bottom of the page to apply your sound preferences. Changes take effect on the next call or notification.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -1142,6 +1442,10 @@ export default function AdminSettings() {
         referralCustomerThreshold: Number((mergedData as any).referralCustomerThreshold ?? 5),
         referralSellerThreshold: Number((mergedData as any).referralSellerThreshold ?? 10),
         referralSellerPromoHours: Number((mergedData as any).referralSellerPromoHours ?? 24),
+        suggestionsEnabled: (mergedData as any).suggestionsEnabled === true,
+        callerRingtone: (mergedData as any).callerRingtone || "default",
+        receiverRingtone: (mergedData as any).receiverRingtone || "default",
+        notificationSound: (mergedData as any).notificationSound || "default",
         maxUploadSizeMb: Number((mergedData as any).maxUploadSizeMb ?? 10),
         allowedUploadTypes: (mergedData as any).allowedUploadTypes || "jpg,jpeg,png,webp,gif,avif",
       });
@@ -1316,6 +1620,10 @@ export default function AdminSettings() {
         referralCustomerThreshold: Number((settings as any).referralCustomerThreshold ?? 5),
         referralSellerThreshold: Number((settings as any).referralSellerThreshold ?? 10),
         referralSellerPromoHours: Number((settings as any).referralSellerPromoHours ?? 24),
+        suggestionsEnabled: (settings as any).suggestionsEnabled === true,
+        callerRingtone: (settings as any).callerRingtone || "default",
+        receiverRingtone: (settings as any).receiverRingtone || "default",
+        notificationSound: (settings as any).notificationSound || "default",
         maxUploadSizeMb: Number((settings as any).maxUploadSizeMb ?? 10),
         allowedUploadTypes: (settings as any).allowedUploadTypes || "jpg,jpeg,png,webp,gif,avif",
       });
@@ -1489,6 +1797,12 @@ export default function AdminSettings() {
                 <TabsTrigger value="hosting" data-testid="tab-hosting" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                   <Server className="h-4 w-4 mr-2" />
                   Hosting
+                </TabsTrigger>
+              )}
+              {user?.role === "super_admin" && (
+                <TabsTrigger value="sounds" data-testid="tab-sounds" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                  <Music className="h-4 w-4 mr-2" />
+                  Sounds
                 </TabsTrigger>
               )}
               {user?.role === "super_admin" && (
@@ -2686,6 +3000,27 @@ export default function AdminSettings() {
 
                 {/* Referral Report */}
                 <ReferralReportSection />
+
+                {/* Suggestions Feature */}
+                <Card className="border-border/70 bg-card shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Suggestions</CardTitle>
+                    <CardDescription>Allow all users to send suggestions to the Kiyumart Team from their dashboard.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between rounded-xl border p-4">
+                      <div>
+                        <p className="font-medium text-sm">Enable Suggestions Page</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Admins, sellers, riders, agents, and buyers get a "Suggestions" page in their dashboard. Replies are labeled "Kiyumart Team".</p>
+                      </div>
+                      <Switch
+                        id="suggestionsEnabled"
+                        checked={form.watch("suggestionsEnabled") ?? false}
+                        onCheckedChange={(checked) => form.setValue("suggestionsEnabled", checked)}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
                 </> }
               </TabsContent>
             )}
@@ -3946,6 +4281,9 @@ export default function AdminSettings() {
                         </div>
                       </CardContent>
                     </Card>
+
+                    {/* Environment Variables Status Panel */}
+                    <EnvStatusPanel onNavigateToTab={(tab) => setActiveTab(tab)} />
                   </>
                 )}
               </TabsContent>
@@ -4049,6 +4387,18 @@ export default function AdminSettings() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* ── Sounds & Ringtones ───────────────────────────────────────── */}
+            <TabsContent value="sounds" className="space-y-5">
+              <SoundSettingsSection
+                callerRingtone={form.watch("callerRingtone") || "default"}
+                receiverRingtone={form.watch("receiverRingtone") || "default"}
+                notificationSound={form.watch("notificationSound") || "default"}
+                onCallerChange={(v) => form.setValue("callerRingtone", v)}
+                onReceiverChange={(v) => form.setValue("receiverRingtone", v)}
+                onNotificationChange={(v) => form.setValue("notificationSound", v)}
+              />
             </TabsContent>
 
             {/* ── Deploy Guide ─────────────────────────────────────────────── */}

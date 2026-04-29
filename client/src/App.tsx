@@ -125,6 +125,10 @@ const AdminSentryIssues = React.lazy(() => import("@/pages/AdminSentryIssues"));
 const AdminPlatformAnalytics = React.lazy(() => import("@/pages/AdminPlatformAnalytics"));
 const ReferralPage = React.lazy(() => import("@/pages/ReferralPage"));
 const GroupChatPage = React.lazy(() => import("@/pages/GroupChatPage"));
+const AdminReportedCases = React.lazy(() => import("@/pages/AdminReportedCases"));
+const AdminSuggestions = React.lazy(() => import("@/pages/AdminSuggestions"));
+const SuggestionsPage = React.lazy(() => import("@/pages/SuggestionsPage"));
+const ReportCasePage = React.lazy(() => import("@/pages/ReportCasePage"));
 import { Loader2 } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useQuery } from "@tanstack/react-query";
@@ -465,6 +469,10 @@ function Router() {
       <Route path="/staff-chat" component={() => <GroupChatPage group="staff" />} />
       <Route path="/seller-chat" component={() => <GroupChatPage group="sellers" />} />
       <Route path="/rider-chat" component={() => <GroupChatPage group="riders" />} />
+      <Route path="/reported-cases" component={AdminReportedCases} />
+      <Route path="/admin/suggestions" component={AdminSuggestions} />
+      <Route path="/suggestions" component={SuggestionsPage} />
+      <Route path="/report-case" component={ReportCasePage} />
       <Route path="/pickup-agent" component={PickupAgentDashboard} />
       <Route path="/pickup-agent/verify" component={PickupAgentVerifyPage} />
       <Route path="/pickup-agent/earnings" component={PickupAgentEarnings} />
