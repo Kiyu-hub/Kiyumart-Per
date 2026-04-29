@@ -920,6 +920,23 @@ All settings live in a single row in the `platformSettings` table. Configurable 
 ### Cloudinary
 `cloudinaryCloudName`, `cloudinaryApiKey`, `cloudinaryApiSecret`
 
+### Sound & Ringtones *(super_admin only — Settings → Sounds tab)*
+`callerRingtone`, `receiverRingtone`, `notificationSound`
+
+Controls platform-wide audio for WebRTC calls and notifications. Each field accepts one of five preset IDs (`default`, `whatsapp`, `classic`, `gentle`, `professional`). Admins can preview every preset before saving using the built-in Web Audio API player (no file uploads needed — tones are generated programmatically). Changes take effect on the next call or notification.
+
+- **callerRingtone** — ringback tone the caller hears while waiting for the other party to answer
+- **receiverRingtone** — ringtone the receiver hears when an incoming call arrives
+- **notificationSound** — sound played for in-app notifications, messages, and alerts
+
+### Referral System *(super_admin configurable)*
+`referralEnabled`, `referralEnabledSingleStore`, `referralEnabledMultiVendor`, `referralRewardPercent` (default 10%), `referralCustomerThreshold`, `referralSellerThreshold`, `referralSellerPromoHours`
+
+Visibility rules: in multi-vendor mode all user roles see the referral section; in single-store mode all roles see it **except sellers** (sellers cannot buy their own products, so referral is irrelevant for them in single-store).
+
+### Seller Promotions
+Sellers can submit promotion applications after payment. The application includes a `displaySection` field (`banner` | `homepage`) indicating where they want the promotion placed. Super admins can view and edit the placement, duration, and seller note before approving the promotion.
+
 ---
 
 ## Deployment
