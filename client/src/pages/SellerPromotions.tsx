@@ -34,6 +34,7 @@ interface SellerPromotionApplication {
   unitPrice: string;
   totalPrice: string;
   sellerNote?: string | null;
+  displaySection?: "homepage" | "banner" | null;
   paymentConfirmed: boolean;
   paymentConfirmedAt?: string | null;
   approvedAt?: string | null;
@@ -85,6 +86,7 @@ export default function SellerPromotions() {
   const [type, setType] = useState<"store" | "product">("store");
   const [selectedDurationId, setSelectedDurationId] = useState<string>("");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [displaySection, setDisplaySection] = useState<"homepage" | "banner">("homepage");
   const [sellerNote, setSellerNote] = useState("");
   const [paying, setPaying] = useState(false);
 
@@ -191,6 +193,7 @@ export default function SellerPromotions() {
         durationType: selectedDuration.durationType,
         duration: Number(selectedDuration.duration),
         sellerNote,
+        displaySection,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -286,6 +289,24 @@ export default function SellerPromotions() {
             </div>
 
             <div className="space-y-2">
+              <Label>Placement</Label>
+              <Select value={displaySection} onValueChange={(v) => setDisplaySection(v as "homepage" | "banner")}>
+                <SelectTrigger data-testid="select-display-section">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="homepage">Featured Section (Homepage grid)</SelectItem>
+                  <SelectItem value="banner">Spotlight Banner (Top carousel)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {displaySection === "homepage"
+                  ? "Your promotion will appear in the featured items grid on the homepage."
+                  : "Your promotion will appear as a full banner in the top carousel — maximum visibility."}
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="seller-note">Note (optional)</Label>
               <Input
                 id="seller-note"
@@ -359,6 +380,11 @@ export default function SellerPromotions() {
                       {new Date(application.startAt).toLocaleString()} — {new Date(application.endAt).toLocaleString()}
                     </p>
                   ) : null}
+                  {application.displaySection && (
+                    <p className="text-xs text-muted-foreground">
+                      Placement: {application.displaySection === "banner" ? "Spotlight Banner (carousel)" : "Featured Section (homepage)"}
+                    </p>
+                  )}
                   {application.rejectionReason ? (
                     <p className="text-xs text-destructive">Reason: {application.rejectionReason}</p>
                   ) : null}

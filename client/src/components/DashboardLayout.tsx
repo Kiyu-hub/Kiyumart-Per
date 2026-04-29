@@ -114,8 +114,12 @@ const routeToMenuId: Record<string, string> = {
   "/agent/tickets": "tickets",
   "/agent/customers": "customers",
   "/agent/messages": "messages",
+  "/agent/direct-messages": "direct-messages",
   "/agent/notifications": "notifications",
   "/agent/settings": "settings",
+  "/staff-chat": "staff-chat",
+  "/seller-chat": "seller-chat",
+  "/rider-chat": "rider-chat",
 };
 
 function InactiveAccountNotice({
@@ -269,13 +273,20 @@ export default function DashboardLayout({
       // All roles can access shopping cart
       setLocation("/cart");
     } else if (id === "my-purchases") {
-      // All non-buyer roles access their purchases at /orders
       setLocation("/orders");
     } else if (id === "my-wishlist") {
       // All non-buyer roles access their wishlist at /wishlist
       setLocation("/wishlist");
     } else if (id === "support") {
       setLocation(normalizedRole === "pickup_agent" ? "/pickup-agent/support" : "/support");
+    } else if (id === "referral") {
+      setLocation("/referral");
+    } else if (id === "staff-chat") {
+      setLocation("/staff-chat");
+    } else if (id === "seller-chat") {
+      setLocation("/seller-chat");
+    } else if (id === "rider-chat") {
+      setLocation("/rider-chat");
     } else if (normalizedRole === "buyer" && id === "orders") {
       setLocation("/buyer/orders");
     } else if (normalizedRole === "buyer" && (id === "wishlist" || id === "support" || id === "notifications" || id === "settings")) {

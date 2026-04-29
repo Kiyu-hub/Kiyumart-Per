@@ -199,45 +199,6 @@ export default function RiderDashboard() {
               />
             </div>
 
-            {/* Metrics explainer */}
-            <Card className="border-border/60 bg-card/95">
-              <details>
-                <summary className="cursor-pointer list-none px-6 py-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold">Dashboard Metrics Explained</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">Expand to understand what each number means</p>
-                    </div>
-                    <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
-                  </div>
-                </summary>
-                <CardContent className="pt-0">
-                  <div className="grid gap-3 sm:grid-cols-2 mt-2 text-sm">
-                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                      <p className="font-medium mb-1">Today's Earnings</p>
-                      <p className="text-muted-foreground text-xs">Your total confirmed earnings for today based on completed deliveries.</p>
-                    </div>
-                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                      <p className="font-medium mb-1">This Month</p>
-                      <p className="text-muted-foreground text-xs">Cumulative earnings in the current calendar month across all completed deliveries.</p>
-                    </div>
-                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                      <p className="font-medium mb-1">Active Deliveries</p>
-                      <p className="text-muted-foreground text-xs">Orders currently assigned to you that are not yet delivered (searching, assigned, in transit, etc.).</p>
-                    </div>
-                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                      <p className="font-medium mb-1">Rating</p>
-                      <p className="text-muted-foreground text-xs">Your average rating from customers based on completed deliveries. Higher ratings improve your assignment priority.</p>
-                    </div>
-                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3 sm:col-span-2">
-                      <p className="font-medium mb-1">Availability & Assignments</p>
-                      <p className="text-muted-foreground text-xs">The platform keeps you online and available for assignments. Delivery jobs are automatically sent to you based on your location and active status. Your earnings are updated automatically after each completed delivery.</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </details>
-            </Card>
-
             <div className="mt-6">
               <TrackingMetricsPanel role="rider" title="Live Route Intelligence" />
             </div>

@@ -50,16 +50,45 @@ export default function HeroCarousel() {
     queryKey: ["/api/hero-banners", storeMode],
     queryFn: async () => {
       const res = await fetch(`/api/hero-banners?storeMode=${storeMode}`);
-      if (!res.ok) {
-        return [];
-      }
+      if (!res.ok) return [];
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     },
     enabled: !!platformSettings,
     staleTime: 0,
   });
+
+  const { data: bannerPromos = [] } = useQuery<any[]>({
+    queryKey: ["/api/homepage/promotional", "banner"],
+    queryFn: async () => {
+      const res = await fetch("/api/homepage/promotional?section=banner");
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
   const banners = Array.isArray(bannerResponse) ? bannerResponse : [];
+
+  // Convert banner-section promotions to HeroBanner format
+  const promoBanners: HeroBanner[] = bannerPromos.map((promo: any) => {
+    const target = promo.product || promo.store || null;
+    const image = promo.imageUrl || (promo.type === "product" ? target?.images?.[0] : target?.logo) || null;
+    const link = promo.ctaUrl || (promo.type === "product" ? (target ? `/product/${target.id}` : "/") : (target ? `/sellers/${target.id}` : "/"));
+    return {
+      id: `promo-banner-${promo.id}`,
+      title: promo.title || target?.name || "Featured",
+      subtitle: promo.description || null,
+      image: image || "",
+      ctaText: promo.ctaText || "Shop Now",
+      ctaLink: link,
+      storeMode: "both" as const,
+      isActive: true,
+      displayOrder: 99,
+    };
+  }).filter((b) => !!b.image);
 
   const heroAdFallback =
     platformSettings?.adsEnabled !== false &&
@@ -78,7 +107,8 @@ export default function HeroCarousel() {
         }
       : null;
 
-  const effectiveBanners = banners.length > 0 ? banners : heroAdFallback ? [heroAdFallback] : [];
+  const allBanners = [...banners, ...promoBanners];
+  const effectiveBanners = allBanners.length > 0 ? allBanners : heroAdFallback ? [heroAdFallback] : [];
 
   if (!platformSettings) {
     return (

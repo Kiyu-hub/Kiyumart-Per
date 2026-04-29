@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Loader2, MapPin, Navigation, Package, QrCode, Phone, MessageSquare, ChevronDown } from "lucide-react";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
-import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { useToast } from "@/hooks/use-toast";
 import UserAvatar from "@/components/UserAvatar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -497,22 +496,6 @@ export default function RiderActiveRoute() {
         )}
       </div>
 
-      {/* Jitsi Call Dialog */}
-      <JitsiCallDialog
-        isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
-        roomUrl={jitsiCall.getJitsiUrl()}
-        roomName={jitsiCall.currentRoom?.roomName || null}
-        jitsiConfig={jitsiCall.jitsiConfig}
-        callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || 'voice'}
-        participants={[]}
-        isHost={true}
-        incomingCall={jitsiCall.incomingCall}
-        onAccept={jitsiCall.acceptIncomingCall}
-        onReject={jitsiCall.rejectIncomingCall}
-        onLeave={jitsiCall.leaveCall}
-        onEnd={jitsiCall.endCall}
-        isJoining={jitsiCall.isJoining}
-      />
     </DashboardLayout>
   );
 }

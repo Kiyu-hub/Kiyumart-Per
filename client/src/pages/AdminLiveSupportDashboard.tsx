@@ -141,7 +141,7 @@ export default function AdminLiveSupportDashboard() {
     stats: { totalConversations: number; activeConversations: number; onlineUsers: number; activeCalls: number };
   }>({
     queryKey: ['/api/admin/live-support'],
-    refetchInterval: 5000, // Refresh every 5 seconds for live updates
+    refetchInterval: 30000, // Background poll as fallback
   });
 
   // Fetch messaging stats
@@ -191,8 +191,39 @@ export default function AdminLiveSupportDashboard() {
     },
   });
 
+  // Socket.IO real-time updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const invalidateSupportData = () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/live-support'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/messaging-stats'] });
+    };
+
+    const invalidateConversationDetails = () => {
+      if (selectedConversation) {
+        queryClient.invalidateQueries({
+          queryKey: ['/api/admin/live-support', selectedConversation.user1Id, selectedConversation.user2Id],
+        });
+      }
+      invalidateSupportData();
+    };
+
+    socket.on('support_conversation_updated', invalidateSupportData);
+    socket.on('new_message', invalidateConversationDetails);
+    socket.on('message_delivered', invalidateConversationDetails);
+    socket.on('message_read', invalidateConversationDetails);
+
+    return () => {
+      socket.off('support_conversation_updated', invalidateSupportData);
+      socket.off('new_message', invalidateConversationDetails);
+      socket.off('message_delivered', invalidateConversationDetails);
+      socket.off('message_read', invalidateConversationDetails);
+    };
+  }, [socket, selectedConversation, queryClient]);
+
   // Filter conversations based on search and active/all filter
-  const baseConversations = conversationFilter === 'active' 
+  const baseConversations = conversationFilter === 'active'
     ? (supportData?.activeConversations || [])
     : (supportData?.conversations || []);
     

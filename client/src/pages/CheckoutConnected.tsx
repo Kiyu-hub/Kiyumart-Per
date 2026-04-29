@@ -154,6 +154,8 @@ export default function CheckoutConnected() {
   const [deliveryPhone, setDeliveryPhone] = useState(user?.phone || "");
   const [deliveryLat, setDeliveryLat] = useState<number | null>(null);
   const [deliveryLng, setDeliveryLng] = useState<number | null>(null);
+  const [locationAutoDetected, setLocationAutoDetected] = useState(false);
+  const [showLocationChangeWarning, setShowLocationChangeWarning] = useState(false);
   const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
   const [isAddressSuggesting, setIsAddressSuggesting] = useState(false);
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
@@ -1015,6 +1017,45 @@ export default function CheckoutConnected() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Location change warning modal */}
+      {showLocationChangeWarning && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-background shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Change Detected Location?</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Your location was automatically detected</p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Our system has already detected your accurate location. Providing an incorrect delivery address can lead to failed or delayed deliveries. Are you sure you want to change it?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLocationChangeWarning(false)}
+                className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 transition-colors"
+              >
+                Keep Detected Location
+              </button>
+              <button
+                onClick={() => {
+                  setLocationAutoDetected(false);
+                  setShowLocationChangeWarning(false);
+                  setDeliveryLat(null);
+                  setDeliveryLng(null);
+                }}
+                className="flex-1 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2.5 transition-colors"
+              >
+                Change Location
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="container max-w-7xl mx-auto px-4 py-8">
         <Button
           variant="ghost"
@@ -1204,7 +1245,15 @@ export default function CheckoutConnected() {
                       id="address"
                       placeholder="Enter your full delivery address"
                       value={deliveryAddress}
+                      readOnly={locationAutoDetected}
+                      onClick={() => {
+                        if (locationAutoDetected) setShowLocationChangeWarning(true);
+                      }}
                       onChange={(e) => {
+                        if (locationAutoDetected) {
+                          setShowLocationChangeWarning(true);
+                          return;
+                        }
                         setDeliveryAddress(e.target.value);
                         setDeliveryLat(null);
                         setDeliveryLng(null);
@@ -1271,10 +1320,14 @@ export default function CheckoutConnected() {
                     <div className="mt-3">
                       <AddressMap
                         address={deliveryAddress}
-                        onAddressChange={(addr) => setDeliveryAddress(addr)}
+                        onAddressChange={(addr) => {
+                          setDeliveryAddress(addr);
+                          setLocationAutoDetected(true);
+                        }}
                         onLocationChange={(lat, lng) => {
                           setDeliveryLat(lat);
                           setDeliveryLng(lng);
+                          setLocationAutoDetected(true);
                         }}
                         selectedCoordinates={deliveryLat != null && deliveryLng != null ? [deliveryLat, deliveryLng] : null}
                       />

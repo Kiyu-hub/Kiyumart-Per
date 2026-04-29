@@ -100,7 +100,7 @@ export default function SellerAnalytics() {
     refetchInterval: 60_000,
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
-    staleTime: 55_000,
+    staleTime: 60_000,
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<OrderRow[]>({
@@ -115,7 +115,7 @@ export default function SellerAnalytics() {
     refetchInterval: 60_000,
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
-    staleTime: 55_000,
+    staleTime: 60_000,
   });
 
   const { data: receipts = [] } = useQuery<ReceiptSummary[]>({
@@ -130,7 +130,7 @@ export default function SellerAnalytics() {
     refetchInterval: 60_000,
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
-    staleTime: 55_000,
+    staleTime: 60_000,
   });
 
   const startDate = useMemo(() => {

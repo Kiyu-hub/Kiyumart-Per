@@ -160,8 +160,8 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
   ];
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={(v) => { if (!v && paying === null) onClose(); }}>
+      <DialogContent className="w-full max-w-3xl sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Upgrade Your Listing Plan</DialogTitle>
           <DialogDescription>
@@ -171,9 +171,17 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
           </DialogDescription>
         </DialogHeader>
 
+        {paying !== null && (
+          <div className="flex items-center justify-between rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700/40 px-4 py-2 text-sm text-yellow-800 dark:text-yellow-300">
+            <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Processing payment — complete or close the Paystack window</span>
+            <Button variant="ghost" size="sm" className="h-7 text-xs shrink-0" onClick={() => setPaying(null)}>Cancel</Button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mt-2">
           {plans.map((p) => {
             const isCurrentPlan = currentPlan === p.plan && (p.plan !== "plan_b" || !planBExpired);
+            const isPaying = paying === p.plan;
             return (
               <div
                 key={p.plan}
@@ -203,10 +211,10 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
                 <Button
                   className="w-full mt-2"
                   variant={p.highlight ? "default" : "outline"}
-                  disabled={paying !== null || isCurrentPlan}
+                  disabled={isPaying || (paying !== null && !isPaying) || isCurrentPlan}
                   onClick={() => handlePay(p.plan)}
                 >
-                  {paying === p.plan ? (
+                  {isPaying ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : isCurrentPlan ? (
                     "Current Plan"

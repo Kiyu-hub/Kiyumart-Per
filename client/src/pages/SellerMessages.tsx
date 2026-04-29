@@ -461,16 +461,16 @@ export default function SellerMessages() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {messages.map((msg) => (
+                    {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => (
                       <div
                         key={msg.id}
-                        className={`flex ${msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
+                        className={`flex ${msg.senderId === user?.id ? "justify-start" : "justify-end"}`}
                       >
                         <div
                           className={`max-w-[85%] px-3 py-2 rounded-2xl ${
                             msg.senderId === user?.id
-                              ? "bg-primary text-primary-foreground rounded-br-sm"
-                              : "bg-muted rounded-bl-sm"
+                              ? "bg-muted rounded-bl-sm"
+                              : "bg-primary text-primary-foreground rounded-br-sm"
                           }`}
                         >
                           <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />
@@ -584,10 +584,10 @@ export default function SellerMessages() {
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {messages.map((msg) => (
+                        {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => (
                           <div
                             key={msg.id}
-                            className={`flex gap-3 ${msg.senderId === user?.id ? "flex-row-reverse" : ""}`}
+                            className={`flex gap-3 ${msg.senderId !== user?.id ? "flex-row-reverse" : ""}`}
                           >
                             <UserAvatar
                               profileImage={msg.senderId === user?.id ? (user?.profileImage || null) : (selectedUser?.profileImage || null)}
@@ -596,12 +596,12 @@ export default function SellerMessages() {
                               size="sm"
                               className="flex-shrink-0"
                             />
-                            <div className={`flex-1 ${msg.senderId === user?.id ? "text-right" : ""}`}>
+                            <div className={`flex-1 ${msg.senderId !== user?.id ? "text-right" : ""}`}>
                               <div
                                 className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${
                                   msg.senderId === user?.id
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-muted"
+                                    ? "bg-muted"
+                                    : "bg-primary text-primary-foreground"
                                 }`}
                               >
                                 <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />

@@ -50,6 +50,7 @@ import {
   reportActivityLogs,
   systemActivityLogs,
   receipts,
+  groupChatMessages,
 } from "@shared/schema";
 import { eq, or, isNotNull, isNull, and, desc, sql, inArray, asc, lte, gte } from "drizzle-orm";
 import { 
@@ -1222,7 +1223,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Auto-join user's personal room for targeted messages
       socket.join(decoded.id);
-      
+
+      // Auto-join group chat rooms based on role
+      const groupChatRooms: Record<string, string[]> = {
+        super_admin:   ["group_chat_staff", "group_chat_sellers", "group_chat_riders"],
+        admin:         ["group_chat_staff"],
+        agent:         ["group_chat_staff"],
+        pickup_agent:  ["group_chat_staff"],
+        seller:        ["group_chat_sellers"],
+        rider:         ["group_chat_riders"],
+      };
+      const roomsToJoin = groupChatRooms[decoded.role as string] || [];
+      roomsToJoin.forEach((room) => socket.join(room));
+
       if (SOCKET_VERBOSE_LOGS) {
         console.log(`Socket authenticated: ${decoded.email} (${decoded.id})`);
       }
@@ -1330,87 +1343,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const user = await storage.createUser(userData);
 
-      // Record referral if a referral code was provided
-      if (req.body.referralCode) {
-        recordReferralSignup(String(req.body.referralCode).trim(), user.id).catch(() => {});
-      }
-
-      // Send welcome message from KiyuMart Team
-      try {
-        // Find a super_admin to send the welcome message from
-        const superAdmins = await storage.getUsersByRole("super_admin");
-        const systemSender = superAdmins.length > 0 ? superAdmins[0] : null;
-        
-        // Get platform name from settings
-        const platformSettingsArr = await db.select().from(platformSettingsTable).limit(1);
-        const platformName = platformSettingsArr[0]?.platformName || "KiyuMart";
-        
-        if (systemSender) {
-          const displayName = user.name || user.email?.split('@')[0] || 'there';
-          const welcomeMessage = `Hi ${displayName}! 👋\n\nWelcome to ${platformName}! 🎉\n\nWe're absolutely thrilled to have you join our growing community. Whether you're here to discover amazing products, find great deals, or simply explore what we have to offer — you've come to the right place.\n\nHere's what you can do to get started:\n• 🛍️ Browse our wide selection of quality products\n• ❤️ Save items to your wishlist for later\n• 🔔 Turn on notifications so you never miss a deal\n• 💬 Message us anytime — we're here to help!\n\nIf you ever need assistance, our support team is just a message away. We're committed to making your experience seamless and enjoyable.\n\nHappy shopping, ${displayName}!\nWith love,\n— The ${platformName} Team 💚`;
-          
-          await storage.createMessage({
-            senderId: systemSender.id,
-            receiverId: user.id,
-            message: welcomeMessage,
-            messageType: "text",
-          });
-          
-          // Create notification with FULL welcome message so dialog shows actual content
-          await storage.createNotification({
-            userId: user.id,
-            type: "message",
-            title: `Welcome to ${platformName}, ${displayName}! 🎉`,
-            message: welcomeMessage,
-            metadata: { messageId: "welcome", senderId: systemSender.id } as any,
-          });
-          
-          // Emit real-time notification
-          io.to(user.id).emit("notification", {
-            type: "message",
-            title: `Welcome to ${platformName}, ${displayName}! 🎉`,
-            message: welcomeMessage,
-            data: { senderId: systemSender.id },
-          });
-        }
-      } catch (welcomeError) {
-        console.error("Failed to send welcome message:", welcomeError);
-        // Don't fail signup if welcome message fails
-      }
-
-      // Notify operations users about new signup.
-      await notifyAdmins(
-        "user",
-        "New User Signup",
-        `${user.name} has created an account (${requestedRole}).`,
-        {
-          userId: user.id,
-          role: requestedRole,
-          link:
-            requestedRole === "seller" || requestedRole === "rider"
-              ? `/admin/applications?userId=${user.id}&role=${requestedRole}`
-              : "/admin/users",
-        },
-        {
-          requiredAdminPermission: "manage_users",
-          includeAgents: true,
-          requiredAgentFeature: "users.view",
-        }
-      );
-
+      // Respond immediately — background tasks must not block the response
       const token = generateToken(user);
       const { password, ...userWithoutPassword } = user;
 
-      // Set token as httpOnly cookie for security
-      // Use sameSite: "none" for cross-origin requests (Netlify frontend -> Render backend)
       res.cookie("token", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
       res.json({ user: userWithoutPassword });
+
+      // Fire-and-forget background tasks after response is sent
+      setImmediate(async () => {
+        // Record referral if a referral code was provided
+        if (req.body.referralCode) {
+          recordReferralSignup(String(req.body.referralCode).trim(), user.id, io).catch(() => {});
+        }
+
+        // Send welcome message from KiyuMart Team
+        try {
+          const superAdmins = await storage.getUsersByRole("super_admin");
+          const systemSender = superAdmins.length > 0 ? superAdmins[0] : null;
+          const platformSettingsArr = await db.select().from(platformSettingsTable).limit(1);
+          const platformName = platformSettingsArr[0]?.platformName || "KiyuMart";
+
+          if (systemSender) {
+            const displayName = user.name || user.email?.split('@')[0] || 'there';
+            const welcomeMessage = `Hi ${displayName}! 👋\n\nWelcome to ${platformName}! 🎉\n\nWe're absolutely thrilled to have you join our growing community. Whether you're here to discover amazing products, find great deals, or simply explore what we have to offer — you've come to the right place.\n\nHere's what you can do to get started:\n• 🛍️ Browse our wide selection of quality products\n• ❤️ Save items to your wishlist for later\n• 🔔 Turn on notifications so you never miss a deal\n• 💬 Message us anytime — we're here to help!\n\nIf you ever need assistance, our support team is just a message away. We're committed to making your experience seamless and enjoyable.\n\nHappy shopping, ${displayName}!\nWith love,\n— The ${platformName} Team 💚`;
+
+            await storage.createMessage({
+              senderId: systemSender.id,
+              receiverId: user.id,
+              message: welcomeMessage,
+              messageType: "text",
+            });
+
+            await storage.createNotification({
+              userId: user.id,
+              type: "message",
+              title: `Welcome to ${platformName}, ${displayName}! 🎉`,
+              message: welcomeMessage,
+              metadata: { messageId: "welcome", senderId: systemSender.id } as any,
+            });
+
+            io.to(user.id).emit("notification", {
+              type: "message",
+              title: `Welcome to ${platformName}, ${displayName}! 🎉`,
+              message: welcomeMessage,
+              data: { senderId: systemSender.id },
+            });
+          }
+        } catch (welcomeError) {
+          console.error("Failed to send welcome message:", welcomeError);
+        }
+
+        // Notify operations users about new signup
+        notifyAdmins(
+          "user",
+          "New User Signup",
+          `${user.name} has created an account (${requestedRole}).`,
+          {
+            userId: user.id,
+            role: requestedRole,
+            link:
+              requestedRole === "seller" || requestedRole === "rider"
+                ? `/admin/applications?userId=${user.id}&role=${requestedRole}`
+                : "/admin/users",
+          },
+          {
+            requiredAdminPermission: "manage_users",
+            includeAgents: true,
+            requiredAgentFeature: "users.view",
+          }
+        ).catch(() => {});
+      });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -3604,10 +3613,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const seller = await storage.getUser(req.user!.id);
       if (!seller) return res.status(404).json({ error: "User not found" });
 
-      const { type, targetId, durationType, duration, sellerNote } = req.body;
+      const { type, targetId, durationType, duration, sellerNote, displaySection } = req.body;
       if (!type || !targetId || !durationType || !duration) {
         return res.status(400).json({ error: "type, targetId, durationType, and duration are required" });
       }
+      const safeDisplaySection = displaySection === "banner" ? "banner" : "homepage";
 
       // Look up the pricing row
       const [pricing] = await db
@@ -3658,6 +3668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           unitPrice: pricing.price,
           totalPrice: String(totalPrice),
           sellerNote: sellerNote || null,
+          displaySection: safeDisplaySection,
           status: "pending_payment",
         })
         .returning();
@@ -9453,7 +9464,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Complete referral for buyer on first delivered order
     if (order.buyerId) {
-      checkAndCompleteReferral(order.buyerId).catch(() => {});
+      checkAndCompleteReferral(order.buyerId, io).catch(() => {});
     }
 
     return updatedOrder;
@@ -10998,6 +11009,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Lookup pickup order by OTP (admin/super_admin/pickup_agent only)
+  app.get("/api/admin/orders/by-otp", requireAuth, requireRole("admin", "super_admin", "agent", "pickup_agent"), async (req: AuthRequest, res) => {
+    try {
+      const otp = String(req.query.otp || "").trim();
+      if (!otp || !/^\d{4,8}$/.test(otp)) {
+        return res.status(400).json({ error: "Invalid OTP format" });
+      }
+      const { orders: ordersTable } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const matches = await db
+        .select()
+        .from(ordersTable)
+        .where(and(eq(ordersTable.pickupOtp, otp), eq(ordersTable.deliveryMethod as any, "pickup")))
+        .limit(5);
+      if (matches.length === 0) {
+        return res.status(404).json({ error: "No pickup order found with that OTP" });
+      }
+      // Return safe fields only (exclude the OTP itself)
+      const safe = matches.map((o: any) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        status: o.status,
+        total: o.totalAmount,
+        deliveryMethod: o.deliveryMethod,
+        buyerId: o.buyerId,
+        createdAt: o.createdAt,
+      }));
+      return res.json(safe);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.post(
     "/api/admin/orders/:id/arrange-external-delivery",
     requireAuth,
@@ -11269,7 +11313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Complete referral for buyer on external delivery completion
         if (updatedOrder.buyerId) {
-          checkAndCompleteReferral(updatedOrder.buyerId).catch(() => {});
+          checkAndCompleteReferral(updatedOrder.buyerId, io).catch(() => {});
         }
 
         return res.json({
@@ -12149,6 +12193,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         if (!updated) return res.status(404).json({ error: "Order not found" });
         await emitOrderStatusUpdateToStakeholders(updated, "completed");
+
+        // Complete referral for buyer on pickup order completion
+        if (updated.buyerId) {
+          checkAndCompleteReferral(updated.buyerId, io).catch(() => {});
+        }
 
         // If verified by a pickup agent, send them a completion DB notification
         if (actorRole === "pickup_agent") {
@@ -14423,8 +14472,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Agent contacts: sellers and riders whom the agent has previously messaged.
+  app.get("/api/agent/contacts", requireAuth, requireRole("agent", "admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const agentId = req.user!.id;
+      // Find all users the agent has exchanged messages with
+      const allMessages = await db
+        .select({ senderId: chatMessages.senderId, receiverId: chatMessages.receiverId })
+        .from(chatMessages)
+        .where(sql`${chatMessages.senderId} = ${agentId} OR ${chatMessages.receiverId} = ${agentId}`);
+
+      const partnerIds = new Set<string>();
+      for (const msg of allMessages) {
+        if (String(msg.senderId) !== agentId) partnerIds.add(String(msg.senderId));
+        if (String(msg.receiverId) !== agentId) partnerIds.add(String(msg.receiverId));
+      }
+
+      // Fetch all sellers and riders; filter to those in partnerIds
+      const [allSellers, allRiders] = await Promise.all([
+        storage.getUsersByRole("seller"),
+        storage.getUsersByRole("rider"),
+      ]);
+
+      const toContact = (u: any) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        phone: u.phone || null,
+        profileImage: u.profileImage || null,
+        isActive: u.isActive !== false,
+        hasMessaged: partnerIds.has(String(u.id)),
+      });
+
+      res.json({
+        sellers: allSellers.filter((u: any) => u.isActive !== false).map(toContact),
+        riders: allRiders.filter((u: any) => u.isActive !== false).map(toContact),
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // ============ Presence API Endpoints (WhatsApp-style) ============
-  
+
   // Get single user presence
   app.get("/api/presence/:userId", requireAuth, async (req: AuthRequest, res) => {
     try {
@@ -15400,6 +15491,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allowSellerDirectSupportMessages: settings.allowSellerDirectSupportMessages !== false,
         contactEmail: String(settings.contactEmail || "support@kiyumart.com").trim() || "support@kiyumart.com",
         referralEnabled: settings.referralEnabled === true,
+        referralEnabledSingleStore: settings.referralEnabledSingleStore === true,
+        referralEnabledMultiVendor: settings.referralEnabledMultiVendor === true,
       });
     } catch (error: any) {
       console.warn('[ROUTES] Falling back to public platform settings response:', error?.message || error);
@@ -15410,6 +15503,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allowSellerBankPayouts: true,
         allowSellerDirectSupportMessages: true,
         contactEmail: "support@kiyumart.com",
+        referralEnabled: false,
+        referralEnabledSingleStore: false,
+        referralEnabledMultiVendor: false,
       });
     }
   });
@@ -16310,6 +16406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       rejectedAt: application.rejectedAt,
       rejectedBy: application.rejectedBy,
       rejectionReason: application.rejectionReason,
+      displaySection: (application.displaySection || "homepage") as "homepage" | "banner",
       createdPromotionId: application.createdPromotionId,
       status: derivedStatus,
       isActive: createdPromotion ? Boolean(createdPromotion.isActive) : false,
@@ -16440,6 +16537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const now = new Date();
       const endAt = calculatePromotionEndAt(now, String(application.durationType), Number(application.duration || 0));
+      const promoDisplaySection = (application as any).displaySection === "banner" ? "banner" : "homepage";
       const createdPromotion = await storage.createPromotionalAd({
         type: application.type as "store" | "product",
         targetId: String(application.targetId),
@@ -16452,7 +16550,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ctaText: null,
         ctaUrl: null,
         themeColor: null,
-      });
+        displaySection: promoDisplaySection,
+      } as any);
 
       const [updated] = await db
         .update(promotionApplications)
@@ -16513,10 +16612,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Public: homepage promotions
+  // Public: homepage promotions (section=homepage by default, section=banner for banners)
   app.get('/api/homepage/promotional', async (req, res) => {
     try {
-      const rows = await storage.getActivePromotionalAds();
+      const section = req.query.section === "banner" ? "banner" : "homepage";
+      const allRows = await storage.getActivePromotionalAds();
+      const rows = allRows.filter((r: any) => {
+        const rowSection = (r as any).displaySection || "homepage";
+        return rowSection === section;
+      });
       // Enrich with store or product info for frontend display
       const enriched = await Promise.all(rows.map(async (r: any) => {
         if (r.type === 'store') {
@@ -19683,16 +19787,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Save notification to database
+        // Tag with _adminOnly so the notification API can filter for non-superadmin roles.
         await storage.createNotification({
           userId: recipient.id,
           type: type as any,
           title,
           message,
-          metadata,
+          metadata: { ...(metadata || {}), _adminOnly: true } as any,
         });
-        
-        // Send real-time notification via Socket.IO
-        if (recipient.id) {
+
+        // Send real-time notification via Socket.IO only to super_admin
+        // Other roles (admin, agent) see these via dashboard polling, not real-time popups
+        if (recipient.id && recipient.role === "super_admin") {
           io.to(recipient.id).emit("notification", {
             title,
             message,
@@ -23144,8 +23250,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const parsedLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 500;
       const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 1000)) : 500;
-      const notifications = await storage.getNotificationsByUser(req.user!.id, limit);
-      res.json(notifications);
+      const isSuperAdmin = req.user!.role === "super_admin";
+      const rawNotifications = await storage.getNotificationsByUser(req.user!.id, isSuperAdmin ? limit : limit * 2);
+
+      let filtered = rawNotifications;
+      if (!isSuperAdmin) {
+        // Non-superadmin users do not see admin-only operational notifications (platform-wide events).
+        filtered = rawNotifications.filter((n: any) => {
+          const meta = typeof n.metadata === "string"
+            ? (() => { try { return JSON.parse(n.metadata); } catch { return {}; } })()
+            : (n.metadata || {});
+          return meta._adminOnly !== true;
+        }).slice(0, limit);
+      }
+
+      res.json(filtered);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -23801,6 +23920,97 @@ Analyze this error and provide a specific fix. Respond with ONLY a valid JSON ob
 
       console.info(`[APPLY-FIX] Applied AI fix to ${normalizedPath} by ${req.user!.email}`);
       res.json({ success: true, file: normalizedPath, redeployTriggered });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── Group Chat ──────────────────────────────────────────────────────────────
+  const GROUP_ACCESS: Record<string, string[]> = {
+    staff:   ["super_admin", "admin", "agent", "pickup_agent"],
+    sellers: ["super_admin", "seller"],
+    riders:  ["super_admin", "rider"],
+  };
+
+  function canAccessGroup(role: string, group: string): boolean {
+    return (GROUP_ACCESS[group] || []).includes(role);
+  }
+
+  app.get("/api/group-chat/:group/messages", requireAuth, async (req: AuthRequest, res) => {
+    const { group } = req.params;
+    const role = req.user!.role;
+    if (!GROUP_ACCESS[group]) return res.status(404).json({ error: "Unknown group" });
+    if (!canAccessGroup(role, group)) return res.status(403).json({ error: "Access denied" });
+
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const before = req.query.before ? new Date(String(req.query.before)) : undefined;
+
+    try {
+      const rows = await db
+        .select({
+          id: groupChatMessages.id,
+          groupName: groupChatMessages.groupName,
+          senderId: groupChatMessages.senderId,
+          senderName: users.name,
+          senderRole: users.role,
+          senderProfileImage: users.profileImage,
+          message: groupChatMessages.message,
+          messageType: groupChatMessages.messageType,
+          fileUrl: groupChatMessages.fileUrl,
+          createdAt: groupChatMessages.createdAt,
+        })
+        .from(groupChatMessages)
+        .innerJoin(users, eq(groupChatMessages.senderId, users.id))
+        .where(
+          before
+            ? and(eq(groupChatMessages.groupName, group), lte(groupChatMessages.createdAt, before))
+            : eq(groupChatMessages.groupName, group)
+        )
+        .orderBy(desc(groupChatMessages.createdAt))
+        .limit(limit);
+
+      res.json(rows.reverse());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/group-chat/:group/messages", requireAuth, async (req: AuthRequest, res) => {
+    const { group } = req.params;
+    const role = req.user!.role;
+    if (!GROUP_ACCESS[group]) return res.status(404).json({ error: "Unknown group" });
+    if (!canAccessGroup(role, group)) return res.status(403).json({ error: "Access denied" });
+
+    const { message, messageType = "text", fileUrl } = req.body;
+    if (!message || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ error: "message is required" });
+    }
+    if (message.length > 2000) {
+      return res.status(400).json({ error: "Message too long" });
+    }
+
+    try {
+      const [row] = await db
+        .insert(groupChatMessages)
+        .values({
+          groupName: group,
+          senderId: req.user!.id,
+          message: message.trim(),
+          messageType: ["text", "image", "file"].includes(messageType) ? messageType : "text",
+          fileUrl: fileUrl || null,
+        })
+        .returning();
+
+      const sender = await db.select({ name: users.name, role: users.role, profileImage: users.profileImage }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+      const payload = {
+        ...row,
+        senderName: sender[0]?.name,
+        senderRole: sender[0]?.role,
+        senderProfileImage: sender[0]?.profileImage,
+      };
+
+      io.to(`group_chat_${group}`).emit("group_chat_message", payload);
+      res.json(payload);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

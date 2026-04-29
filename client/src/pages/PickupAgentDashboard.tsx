@@ -201,41 +201,6 @@ export default function PickupAgentDashboard() {
           </Card>
         </div>
 
-        {/* Metrics explainer */}
-        <Card className="border-border/60">
-          <details>
-            <summary className="cursor-pointer list-none px-6 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold">Dashboard Explained</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">What each metric means and how your role works</p>
-                </div>
-                <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
-              </div>
-            </summary>
-            <CardContent className="pt-0">
-              <div className="grid gap-3 sm:grid-cols-2 mt-2 text-sm">
-                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                  <p className="font-medium mb-1">Open Orders</p>
-                  <p className="text-muted-foreground text-xs">All pickup orders assigned to your station that have not yet been collected or cancelled.</p>
-                </div>
-                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                  <p className="font-medium mb-1">Ready to Verify</p>
-                  <p className="text-muted-foreground text-xs">Orders where the seller has marked items ready and the customer can now collect. These require your QR or OTP verification to complete.</p>
-                </div>
-                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                  <p className="font-medium mb-1">Verified Today / All Time</p>
-                  <p className="text-muted-foreground text-xs">How many pickup orders you have successfully verified. Every successful verification marks the order as completed for both the buyer and seller.</p>
-                </div>
-                <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                  <p className="font-medium mb-1">Verification Method</p>
-                  <p className="text-muted-foreground text-xs">Use the QR code on the buyer's receipt or ask for the 6-digit OTP sent to the buyer. Either method works. Camera scanning is available for faster QR verification.</p>
-                </div>
-              </div>
-            </CardContent>
-          </details>
-        </Card>
-
         <Card className="border-border/70 bg-card/95 shadow-sm">
           <CardHeader>
             <CardTitle>Pickup Order Queue</CardTitle>

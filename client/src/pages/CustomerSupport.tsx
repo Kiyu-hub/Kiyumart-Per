@@ -18,7 +18,6 @@ import { formatDistanceToNow } from "date-fns";
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
-import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 
 interface SupportConversation {
   id: string;
@@ -144,6 +143,7 @@ export default function CustomerSupport() {
   }, [user?.role]);
   const isSupportStaff = normalizedRole === "agent" || normalizedRole === "admin" || normalizedRole === "super_admin";
   const isSuperAdmin = normalizedRole === "super_admin";
+  const canInitiateCalls = normalizedRole === "admin" || normalizedRole === "super_admin";
   const isRestrictedOperationalUser =
     (normalizedRole === "seller" || normalizedRole === "rider") && user?.isActive === false;
   const restrictedRoleLabel = normalizedRole === "rider" ? "rider" : "seller";
@@ -193,13 +193,24 @@ export default function CustomerSupport() {
   useEffect(() => {
     if (!socket) return;
 
-    const handleSupportUpdate = () => {
+    const handleSupportUpdate = (payload?: { conversationId?: string; event?: string }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      if (selectedConversation) {
+      const targetConvId = payload?.conversationId || selectedConversation;
+      if (targetConvId) {
         queryClient.invalidateQueries({
-          queryKey: ["/api/support/conversations", selectedConversation, "/messages"],
+          queryKey: ["/api/support/conversations", targetConvId, "/messages"],
         });
+      }
+      if (payload?.event === "message" && payload?.conversationId) {
+        const convData = queryClient.getQueryData<SupportConversation[]>(["/api/support/conversations"]);
+        const conv = convData?.find((c) => c.id === payload.conversationId);
+        if (conv && payload.conversationId !== selectedConversation) {
+          toast({
+            title: isSupportStaff ? "New customer message" : "Support replied",
+            description: conv.subject || "You have a new message in your support ticket",
+          });
+        }
       }
     };
 
@@ -207,7 +218,7 @@ export default function CustomerSupport() {
     return () => {
       socket.off("support_conversation_updated", handleSupportUpdate);
     };
-  }, [socket, selectedConversation]);
+  }, [socket, selectedConversation, isSupportStaff]);
 
   useEffect(() => {
     if (selectedConversation) return;
@@ -260,6 +271,11 @@ export default function CustomerSupport() {
         description: isRestrictedOperationalUser
           ? "Your appeal ticket has been submitted to admin support."
           : "We'll respond to your request soon.",
+      });
+      queryClient.setQueryData<SupportConversation[]>(["/api/support/conversations"], (current = []) => {
+        const exists = current.some((c) => c.id === conversation.id);
+        if (exists) return current;
+        return [conversation, ...current];
       });
       queryClient.invalidateQueries({ queryKey: ["/api/support/conversations"] });
       setSelectedConversation(conversation.id);
@@ -456,6 +472,19 @@ export default function CustomerSupport() {
     },
   });
 
+  const requestCallMutation = useMutation({
+    mutationFn: async (callType: "voice" | "video") => {
+      const res = await apiRequest("POST", "/api/calls/request", { callType });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Call requested", description: "An admin has been notified and will call you back shortly." });
+    },
+    onError: () => {
+      toast({ title: "Request failed", description: "Could not send call request.", variant: "destructive" });
+    },
+  });
+
   const handleSendMessage = () => {
     if (!message.trim() || !selectedConversation) return;
     if (socket && peerUserId) {
@@ -638,6 +667,20 @@ export default function CustomerSupport() {
         variant: "destructive",
       });
       return;
+    }
+    if (!isSupportStaff && !isRestrictedOperationalUser) {
+      const hasOpenTicket = conversations.some((c) => {
+        const s = normalizeSupportStatus(c.status);
+        return s === "open" || s === "assigned";
+      });
+      if (hasOpenTicket) {
+        toast({
+          title: "You already have an open ticket",
+          description: "Please resolve your current ticket before opening a new one.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
     createTicketMutation.mutate({ subject: newSupportSubject, message: newSupportMessage });
   };
@@ -1096,14 +1139,23 @@ export default function CustomerSupport() {
                   </Button>
                 )}
                 {!isSupportStaff && (
-                  <Button
-                    size="sm"
-                    onClick={() => setShowNewTicketForm((prev) => !prev)}
-                    disabled={isRestrictedOperationalUser}
-                    data-testid="button-new-ticket"
-                  >
-                    {isRestrictedOperationalUser ? "Appeal Ticket Required" : showNewTicketForm ? "Close" : "New Ticket"}
-                  </Button>
+                  (() => {
+                    const hasOpenTicket = !isRestrictedOperationalUser && conversations.some((c) => {
+                      const s = normalizeSupportStatus(c.status);
+                      return s === "open" || s === "assigned";
+                    });
+                    return (
+                      <Button
+                        size="sm"
+                        onClick={() => setShowNewTicketForm((prev) => !prev)}
+                        disabled={isRestrictedOperationalUser || hasOpenTicket}
+                        title={hasOpenTicket ? "You already have an open ticket. Resolve it before creating a new one." : undefined}
+                        data-testid="button-new-ticket"
+                      >
+                        {isRestrictedOperationalUser ? "Appeal Ticket Required" : hasOpenTicket ? "Open Ticket Exists" : showNewTicketForm ? "Close" : "New Ticket"}
+                      </Button>
+                    );
+                  })()
                 )}
               </div>
             </div>
@@ -1434,28 +1486,45 @@ export default function CustomerSupport() {
                               )}
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleStartSupportCall("voice")}
-                                disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
-                                data-testid="button-support-voice-call"
-                                title="Start voice call"
-                                className="h-9 w-10 px-0"
-                              >
-                                <Phone className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleStartSupportCall("video")}
-                                disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
-                                data-testid="button-support-video-call"
-                                title="Start video call"
-                                className="h-9 w-10 px-0"
-                              >
-                                <Video className="h-4 w-4" />
-                              </Button>
+                              {canInitiateCalls ? (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleStartSupportCall("voice")}
+                                    disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
+                                    data-testid="button-support-voice-call"
+                                    title="Start voice call"
+                                    className="h-9 w-10 px-0"
+                                  >
+                                    <Phone className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleStartSupportCall("video")}
+                                    disabled={!peerUserId || jitsiCall.isStarting || jitsiCall.inCall}
+                                    data-testid="button-support-video-call"
+                                    title="Start video call"
+                                    className="h-9 w-10 px-0"
+                                  >
+                                    <Video className="h-4 w-4" />
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => requestCallMutation.mutate("voice")}
+                                  disabled={requestCallMutation.isPending}
+                                  data-testid="button-request-call"
+                                  title="Request a call with admin"
+                                  className="h-9 px-3 text-xs"
+                                >
+                                  {requestCallMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Phone className="h-3.5 w-3.5 mr-1" />}
+                                  Request Call
+                                </Button>
+                              )}
                               {canCurrentUserResolve && !isSelectedAppealConversation && (
                                 <Button
                                   size="sm"
@@ -1547,23 +1616,23 @@ export default function CustomerSupport() {
                       <div className="text-center py-10 text-muted-foreground">No messages yet</div>
                     ) : (
                       <div className="space-y-4">
-                        {messages.map((msg, idx) => {
+                        {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg, idx, arr) => {
                           const isMe = msg.senderId === user?.id;
                           const attachment = parseAttachmentMessage(msg.message);
-                          const hasPeerReplyAfter = messages.slice(idx + 1).some((nextMsg) => nextMsg.senderId !== msg.senderId);
+                          const hasPeerReplyAfter = arr.slice(idx + 1).some((nextMsg) => nextMsg.senderId !== msg.senderId);
                           const inferredStatus: "delivered" | "read" = msg.isRead ? "read" : hasPeerReplyAfter ? "read" : "delivered";
                           return (
                             <div
                               key={msg.id}
-                              className={`flex ${isMe ? "justify-start" : "justify-end"}`}
+                              className={`flex ${isMe ? "justify-end" : "justify-start"}`}
                               data-testid={`message-${msg.id}`}
                             >
-                              {isMe && (
+                              {!isMe && (
                                 <div className="mr-2 mt-1">
-                                  {msg.senderProfileImage || user?.profileImage ? (
+                                  {msg.senderProfileImage ? (
                                     <img
-                                      src={msg.senderProfileImage || user?.profileImage || ""}
-                                      alt={msg.senderName || user?.name || "You"}
+                                      src={msg.senderProfileImage}
+                                      alt={msg.senderName || "User"}
                                       className="h-8 w-8 rounded-full object-cover border"
                                     />
                                   ) : (
@@ -1618,12 +1687,12 @@ export default function CustomerSupport() {
                                   {isMe && <MessageStatusTicks status={inferredStatus} variant="primary" />}
                                 </div>
                               </div>
-                              {!isMe && (
+                              {isMe && (
                                 <div className="ml-2 mt-1">
-                                  {msg.senderProfileImage ? (
+                                  {msg.senderProfileImage || user?.profileImage ? (
                                     <img
-                                      src={msg.senderProfileImage}
-                                      alt={msg.senderName || "User"}
+                                      src={msg.senderProfileImage || user?.profileImage || ""}
+                                      alt={msg.senderName || user?.name || "You"}
                                       className="h-8 w-8 rounded-full object-cover border"
                                     />
                                   ) : (
@@ -1733,24 +1802,6 @@ export default function CustomerSupport() {
         </div>
       </div>
 
-      <JitsiCallDialog
-        isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
-        roomUrl={jitsiCall.getJitsiUrl()}
-        roomName={jitsiCall.currentRoom?.roomName || null}
-        jitsiConfig={jitsiCall.jitsiConfig}
-        callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || "video"}
-        participants={jitsiCall.currentRoom?.participants?.map((id) => ({ id, name: "Participant" })) || []}
-        isHost={jitsiCall.currentRoom?.createdBy === user?.id}
-        incomingCall={jitsiCall.incomingCall ? {
-          callerName: jitsiCall.incomingCall.callerName,
-          callType: jitsiCall.incomingCall.callType,
-        } : null}
-        onAccept={() => jitsiCall.acceptIncomingCall()}
-        onReject={() => jitsiCall.rejectIncomingCall()}
-        onLeave={() => jitsiCall.leaveCall()}
-        onEnd={() => jitsiCall.endCall()}
-        isJoining={jitsiCall.isJoining}
-      />
     </DashboardLayout>
   );
 }

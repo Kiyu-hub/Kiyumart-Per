@@ -505,7 +505,7 @@ export default function RiderMessages() {
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {messages.map((msg) => (
+                        {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => (
                           <div key={msg.id} className={`flex gap-3 ${msg.senderId === user?.id ? "flex-row-reverse" : ""}`}>
                             <UserAvatar
                               profileImage={msg.senderId === user?.id ? (user?.profileImage || null) : (selectedUser?.profileImage || null)}

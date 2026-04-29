@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
@@ -46,7 +46,7 @@ interface Order {
     price?: string;
     selectedColor?: string | null;
     selectedSize?: string | null;
-    productImage?: string[] | null;
+    image?: string | null;
   }>;
   customerInfo?: {
     name?: string;
@@ -66,6 +66,9 @@ interface Order {
     area?: string | null;
     city?: string | null;
     region?: string | null;
+    locationLabel?: string | null;
+    pickupAgentName?: string | null;
+    pickupAgentPhone?: string | null;
   } | null;
 }
 
@@ -84,34 +87,6 @@ type SellerOrderFlowFilter =
   | "completed"
   | "cancelled";
 
-function CollapsibleDashboardSection({
-  title,
-  summary,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  summary: string;
-  defaultOpen?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <Card className="border-border/70 bg-card shadow-sm">
-      <details open={defaultOpen}>
-        <summary className="cursor-pointer list-none px-6 py-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-base font-semibold">{title}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
-            </div>
-            <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
-          </div>
-        </summary>
-        <CardContent className="pt-0">{children}</CardContent>
-      </details>
-    </Card>
-  );
-}
 
 export default function SellerOrders() {
   const { user } = useAuth();
@@ -527,11 +502,6 @@ export default function SellerOrders() {
       icon: DollarSign,
     },
   ];
-  const pendingSellerOrderExplanation = [
-    "Pending Fulfillment counts every paid seller order that is still open. It includes both deliveries and pickups that are not yet closed.",
-    "Orders Requiring Action is a smaller subset inside Pending Fulfillment. Those are the open paid orders where the seller still needs to package, mark ready, or hand off for dispatch.",
-    "Completed Fulfillment counts paid seller orders that are already delivered or completed. The delivery and pickup split helps you see which fulfillment path those finished orders came through.",
-  ];
 
   const filteredOrders = referencedOrder
     ? [referencedOrder]
@@ -697,38 +667,6 @@ export default function SellerOrders() {
                 );
               })}
             </div>
-            <CollapsibleDashboardSection
-              title="How These Seller Order Numbers Work"
-              summary="Expand to see how pending, completed, and action-required counts relate to each other."
-            >
-              <div className="space-y-3 pb-2 text-sm text-muted-foreground">
-                {pendingSellerOrderExplanation.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </div>
-            </CollapsibleDashboardSection>
-
-            <CollapsibleDashboardSection
-              title="Gross Sales — Understanding Your Earnings & Net Payout"
-              summary="Expand to understand what Gross Sales means, how the platform service fee works, and how you get paid."
-            >
-              <div className="space-y-4 pb-2">
-                <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
-                  <span className="font-semibold text-foreground">Quick summary: </span>
-                  Your <strong className="text-foreground">Gross Sales</strong> = product prices minus coupon discounts. A small platform service fee is deducted, leaving your <strong className="text-foreground">Net Payout</strong> — the amount sent to your bank or mobile money. Buyers pay the delivery fee and a 1.95% checkout processing fee on top of your product price; neither ever reduces your earnings.
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm">
-                  <div className="rounded-lg border border-border bg-card p-3">
-                    <p className="font-medium mb-1 text-foreground">How Payouts Work</p>
-                    <p className="text-muted-foreground text-xs">Your earnings are sent automatically as soon as a buyer completes payment — no manual request needed. Your net amount (sales minus the platform service fee) goes straight to your configured bank account or mobile money wallet.</p>
-                  </div>
-                  <div className="rounded-lg border border-border bg-card p-3">
-                    <p className="font-medium mb-1 text-foreground">Pending Payout</p>
-                    <p className="text-muted-foreground text-xs">If you haven't set up your payout details yet, your earned funds are held securely and will be released once you add your bank account or mobile money number in your account settings.</p>
-                  </div>
-                </div>
-              </div>
-            </CollapsibleDashboardSection>
           </>
         )}
         <div className="mb-6">
@@ -871,9 +809,9 @@ export default function SellerOrders() {
                                   className="mt-1"
                                 />
                               )}
-                              {Array.isArray(item.productImage) && item.productImage[0] && (
+                              {item.image && (
                                 <img
-                                  src={item.productImage[0]}
+                                  src={item.image}
                                   alt={item.productName}
                                   className="h-14 w-14 rounded-md object-cover shrink-0 border border-border/40"
                                 />
@@ -924,10 +862,22 @@ export default function SellerOrders() {
                     </p>
                   )}
                   {orderDetails.pickupStationInfo?.name && (
-                    <p className="text-sm text-muted-foreground">
-                      Pickup: {orderDetails.pickupStationInfo.name}
-                      {orderDetails.pickupStationInfo.city ? `, ${orderDetails.pickupStationInfo.city}` : ""}
-                    </p>
+                    <div className="mt-1 space-y-0.5">
+                      <p className="text-sm text-muted-foreground">
+                        Pickup station: <span className="font-medium text-foreground">{orderDetails.pickupStationInfo.name}</span>
+                        {orderDetails.pickupStationInfo.city ? `, ${orderDetails.pickupStationInfo.city}` : ""}
+                      </p>
+                      {orderDetails.pickupStationInfo.pickupAgentName && (
+                        <p className="text-sm text-muted-foreground">
+                          Pickup agent: <span className="font-medium text-foreground">{orderDetails.pickupStationInfo.pickupAgentName}</span>
+                        </p>
+                      )}
+                      {orderDetails.pickupStationInfo.pickupAgentPhone && (
+                        <p className="text-sm text-muted-foreground">
+                          Agent contact: <a href={`tel:${orderDetails.pickupStationInfo.pickupAgentPhone}`} className="font-medium text-primary underline-offset-2 hover:underline">{orderDetails.pickupStationInfo.pickupAgentPhone}</a>
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="space-y-2 rounded-lg border border-border/70 p-4">

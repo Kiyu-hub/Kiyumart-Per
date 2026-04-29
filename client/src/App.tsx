@@ -31,6 +31,7 @@ const PickupAgentDashboard = React.lazy(() => import("@/pages/PickupAgentDashboa
 const AgentDashboard = React.lazy(() => import("@/pages/AgentDashboard"));
 const AgentTickets = React.lazy(() => import("@/pages/AgentTickets"));
 const AgentCustomers = React.lazy(() => import("@/pages/AgentCustomers"));
+const AgentDirectMessages = React.lazy(() => import("@/pages/AgentDirectMessages"));
 const AgentNotifications = React.lazy(() => import("@/pages/AgentNotifications"));
 const ChatPage = React.lazy(() => import("@/pages/ChatPageConnected"));
 const OrderTracking = React.lazy(() => import("@/pages/OrderTracking"));
@@ -122,6 +123,8 @@ const AdminPickupVerifyPage = React.lazy(() => import("@/pages/AdminPickupVerify
 const AdminPlatformHealth = React.lazy(() => import("@/pages/AdminPlatformHealth"));
 const AdminSentryIssues = React.lazy(() => import("@/pages/AdminSentryIssues"));
 const AdminPlatformAnalytics = React.lazy(() => import("@/pages/AdminPlatformAnalytics"));
+const ReferralPage = React.lazy(() => import("@/pages/ReferralPage"));
+const GroupChatPage = React.lazy(() => import("@/pages/GroupChatPage"));
 import { Loader2 } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useQuery } from "@tanstack/react-query";
@@ -458,6 +461,10 @@ function Router() {
       <Route path="/buyer" component={BuyerDashboard} />
       <Route path="/buyer/orders" component={BuyerOrders} />
       <Route path="/buyer/tracking/:orderId" component={BuyerOrderTracking} />
+      <Route path="/referral" component={ReferralPage} />
+      <Route path="/staff-chat" component={() => <GroupChatPage group="staff" />} />
+      <Route path="/seller-chat" component={() => <GroupChatPage group="sellers" />} />
+      <Route path="/rider-chat" component={() => <GroupChatPage group="riders" />} />
       <Route path="/pickup-agent" component={PickupAgentDashboard} />
       <Route path="/pickup-agent/verify" component={PickupAgentVerifyPage} />
       <Route path="/pickup-agent/earnings" component={PickupAgentEarnings} />
@@ -468,6 +475,7 @@ function Router() {
       <Route path="/agent" component={AgentDashboard} />
       <Route path="/agent/tickets" component={AgentTickets} />
       <Route path="/agent/messages" component={CustomerSupport} />
+      <Route path="/agent/direct-messages" component={AgentDirectMessages} />
       <Route path="/agent/customers" component={AgentCustomers} />
       <Route path="/agent/notifications" component={AgentNotifications} />
       <Route path="/agent/settings" component={Settings} />

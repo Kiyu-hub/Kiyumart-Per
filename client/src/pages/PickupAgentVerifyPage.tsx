@@ -84,7 +84,7 @@ export default function PickupAgentVerifyPage() {
     (o) =>
       !searchQuery ||
       o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (o.buyerName || "").toLowerCase().includes(searchQuery.toLowerCase()),
+      o.id.toLowerCase() === searchQuery.toLowerCase().trim(),
   );
 
   const handleVerify = () => {
@@ -144,7 +144,7 @@ export default function PickupAgentVerifyPage() {
               <div className="relative mt-2">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Search by order # or customer name"
+                  placeholder="Search by Order Number or Order ID"
                   className="pl-9"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}

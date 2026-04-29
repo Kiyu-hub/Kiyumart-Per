@@ -542,6 +542,7 @@ export interface IStorage {
     price: string;
     selectedColor: string | null;
     selectedSize: string | null;
+    image?: string | null;
   }>>;
   updateOrderStatus(id: string, status: string): Promise<Order | undefined>;
   applyOrderStatusTransition(orderId: string, toStatus: string, changedBy: string, changedByRole: string, reason?: string, sideEffects?: Partial<Order>): Promise<Order | undefined>;

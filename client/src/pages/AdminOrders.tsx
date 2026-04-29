@@ -69,7 +69,7 @@ interface Order {
     price?: string;
     selectedColor?: string | null;
     selectedSize?: string | null;
-    productImage?: string[] | null;
+    image?: string | null;
   }>;
 }
 
@@ -716,9 +716,9 @@ function ViewOrderDialog({
                       key={`${orderDetails.id}-${item.productId}-${index}`}
                       className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
                     >
-                      {Array.isArray(item.productImage) && item.productImage[0] && (
+                      {item.image && (
                         <img
-                          src={item.productImage[0]}
+                          src={item.image}
                           alt={item.productName}
                           className="h-12 w-12 rounded-md object-cover shrink-0 border border-border/40"
                         />

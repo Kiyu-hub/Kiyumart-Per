@@ -12,10 +12,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, ZoomIn, ZoomOut, RotateCw, Tag, Users, Clock, TrendingUp, Megaphone } from "lucide-react";
+import { Loader2, Store, Bike, Check, X, ArrowLeft, Eye, MapPin, CreditCard, User, Car, AlertTriangle, CalendarClock, Trash2, ZoomIn, ZoomOut, RotateCw, Tag, Users, Clock, TrendingUp, Megaphone, Phone, Video } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { PageLoadingState } from "@/components/ui/loading-state";
+import { useJitsiCall } from "@/hooks/useJitsiCall";
 
 interface Application {
   id: string;
@@ -88,6 +89,7 @@ export default function AdminApplications() {
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+  const jitsiCall = useJitsiCall(user?.id || "");
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
   const [viewDetailsOpen, setViewDetailsOpen] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -946,6 +948,19 @@ export default function AdminApplications() {
                 </Button>
                 {isActionable ? (
                   <>
+                    {status === "interview_scheduled" && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => jitsiCall.startCall(application.id, "video")}
+                        disabled={jitsiCall.isStarting || jitsiCall.inCall}
+                        data-testid={`button-interview-call-${application.id}`}
+                        className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        {jitsiCall.isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
+                        Start Interview Call
+                      </Button>
+                    )}
                     <Button
                       variant="secondary"
                       size="sm"
@@ -2036,6 +2051,7 @@ export default function AdminApplications() {
           </DialogContent>
         </Dialog>
       </div>
+
     </DashboardLayout>
   );
 }

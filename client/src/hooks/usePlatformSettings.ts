@@ -7,6 +7,9 @@ export interface PublicPlatformSettings {
   isMultiVendor: boolean;
   allowSellerBankPayouts: boolean;
   allowSellerDirectSupportMessages: boolean;
+  referralEnabled: boolean;
+  referralEnabledSingleStore: boolean;
+  referralEnabledMultiVendor: boolean;
   contactEmail?: string | null;
 }
 
@@ -18,6 +21,9 @@ const defaultPublicPlatformSettings: PublicPlatformSettings = {
   isMultiVendor: false,
   allowSellerBankPayouts: true,
   allowSellerDirectSupportMessages: true,
+  referralEnabled: false,
+  referralEnabledSingleStore: false,
+  referralEnabledMultiVendor: false,
   contactEmail: "support@kiyumart.com",
 };
 
@@ -44,6 +50,9 @@ export function usePlatformSettings() {
     isMultiVendor: query.data?.isMultiVendor === true,
     allowSellerBankPayouts: query.data?.allowSellerBankPayouts !== false,
     allowSellerDirectSupportMessages: query.data?.allowSellerDirectSupportMessages !== false,
+    referralEnabled: query.data?.referralEnabled === true,
+    referralEnabledSingleStore: query.data?.referralEnabledSingleStore === true,
+    referralEnabledMultiVendor: query.data?.referralEnabledMultiVendor === true,
     hasResolvedSettings,
   };
 }

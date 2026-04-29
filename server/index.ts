@@ -604,6 +604,27 @@ app.use(cookieParser());
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allowed_upload_types text DEFAULT 'jpg,jpeg,png,webp,gif,avif'`);
     // Render deploy hook
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS render_deploy_hook_url text`);
+    // Promotion display section
+    await db.execute(sql`ALTER TABLE promotional_ads ADD COLUMN IF NOT EXISTS display_section varchar(20) DEFAULT 'homepage'`);
+    await db.execute(sql`ALTER TABLE promotion_applications ADD COLUMN IF NOT EXISTS display_section varchar(20) DEFAULT 'homepage'`);
+    // Group chat
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'group_chat_messages') THEN
+          CREATE TABLE group_chat_messages (
+            id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+            group_name varchar(30) NOT NULL,
+            sender_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            message text NOT NULL,
+            message_type varchar(20) NOT NULL DEFAULT 'text',
+            file_url text,
+            created_at timestamp DEFAULT now()
+          );
+          CREATE INDEX group_chat_messages_group_idx ON group_chat_messages(group_name);
+          CREATE INDEX group_chat_messages_sender_idx ON group_chat_messages(sender_id);
+          CREATE INDEX group_chat_messages_created_at_idx ON group_chat_messages(created_at);
+        END IF;
+      END $$`);
   } catch (e: any) {
     console.warn("[STARTUP] Could not run schema self-heal compatibility checks:", e?.message || String(e));
   }

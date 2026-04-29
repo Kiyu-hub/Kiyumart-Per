@@ -82,6 +82,8 @@ export function JitsiCallDialog({
 }: JitsiCallDialogProps) {
   const jitsiContainerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<any>(null);
+  const connectionTimeoutRef = useRef<number | null>(null);
+  const conferenceJoinedRef = useRef(false);
   const [participantCount, setParticipantCount] = useState(1);
   const [conferenceJoined, setConferenceJoined] = useState(false);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
@@ -125,6 +127,7 @@ export function JitsiCallDialog({
     if (!isOpen || !roomUrl || !jitsiContainerRef.current) return;
     setMountError(null);
     setConferenceJoined(false);
+    conferenceJoinedRef.current = false;
     setParticipantCount(1);
     setIsAudioMuted(false);
     setIsVideoMuted(callType === "voice");
@@ -195,6 +198,17 @@ export function JitsiCallDialog({
         apiRef.current?.dispose?.();
         jitsiContainerRef.current.innerHTML = "";
 
+        // 60-second connection timeout
+        if (connectionTimeoutRef.current !== null) {
+          window.clearTimeout(connectionTimeoutRef.current);
+        }
+        connectionTimeoutRef.current = window.setTimeout(() => {
+          if (!conferenceJoinedRef.current) {
+            setMountError("Connection timed out. Please end and retry the call.");
+          }
+          connectionTimeoutRef.current = null;
+        }, 60000);
+
         const api = new (window as any).JitsiMeetExternalAPI(parsed.domain, {
           roomName: parsed.room,
           parentNode: jitsiContainerRef.current,
@@ -247,7 +261,12 @@ export function JitsiCallDialog({
         apiRef.current = api;
         api.addListener("videoConferenceJoined", () => {
           setConferenceJoined(true);
+          conferenceJoinedRef.current = true;
           setParticipantCount(1);
+          if (connectionTimeoutRef.current !== null) {
+            window.clearTimeout(connectionTimeoutRef.current);
+            connectionTimeoutRef.current = null;
+          }
           if (callType !== "voice") {
             try {
               api.executeCommand("setTileView", true);
@@ -277,6 +296,10 @@ export function JitsiCallDialog({
     mount();
 
     return () => {
+      if (connectionTimeoutRef.current !== null) {
+        window.clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
       apiRef.current?.dispose?.();
       apiRef.current = null;
     };

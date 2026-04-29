@@ -29,6 +29,8 @@ interface ReferralStats {
 }
 
 function getFrontendBaseUrl(): string {
+  const envUrl = (import.meta.env as any).VITE_FRONTEND_URL || (import.meta.env as any).VITE_APP_URL || "";
+  if (envUrl) return envUrl.replace(/\/$/, "");
   if (typeof window !== "undefined") return window.location.origin;
   return "";
 }

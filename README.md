@@ -92,6 +92,7 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Support ticket creation and live chat with agents
 - Digital e-receipt after payment
 - Order history with full detail view
+- Referral programme (share code → earn rewards when friends complete orders)
 
 ### Seller Features
 - Product management: create, edit, delete, with image/video upload
@@ -106,6 +107,7 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Sales analytics (charts, date filters, export CSV/PDF)
 - Store profile and branding
 - Chat with buyers (if enabled by admin)
+- Seller group chat (real-time channel shared between all sellers and super admin)
 - Seller ratings and reviews received
 - Free tier product limit with optional premium upgrade
 
@@ -134,6 +136,10 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Platform settings (branding, SMTP, fees, Paystack keys, feature flags)
 - Footer CMS (custom pages for Terms, Privacy, etc.)
 - Sentry DSN and Google Analytics configuration
+- Referral programme management and admin reporting
+- Group chat channels: Staff Chat (admins/agents), Seller Chat, Rider Chat
+- Pickup order verification by OTP or order number
+- Notification visibility control (operational events hidden from non-super-admin)
 
 ### Rider Features (Internal Rider Mode Only)
 - View and accept assigned deliveries
@@ -142,6 +148,7 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Earnings dashboard
 - Chat with buyers
 - Rating received from buyers
+- Rider group chat (real-time channel shared between all riders and super admin)
 
 ### Pickup Agent Features
 - Verify pickup orders by scanning QR code or entering OTP
@@ -450,7 +457,7 @@ Access control has three layers:
 
 ## Database Overview
 
-42 tables managed by Drizzle ORM. Schema source of truth: `shared/schema.ts`.
+43 tables managed by Drizzle ORM. Schema source of truth: `shared/schema.ts`.
 
 | Table | Purpose |
 |---|---|
@@ -495,6 +502,9 @@ Access control has three layers:
 | `systemActivityLogs` | Platform events with severity, fingerprinting, resolution |
 | `receipts` | E-receipt records linked to orders |
 | `idempotencyKeys` | Deduplication for payment webhooks |
+| `referrals` | Referral links between referrer and referred user |
+| `referralRewards` | Reward records (discount, free tier, etc.) per completed referral |
+| `group_chat_messages` | Group channel messages (staff/sellers/riders) with sender, type, optional file URL |
 
 ---
 
@@ -598,7 +608,13 @@ POST /api/messages                 Send message
 GET  /api/support/conversations    Support threads (agent/admin)
 POST /api/support/conversations    Create support ticket
 POST /api/support/messages         Reply in support thread
+GET  /api/group-chat/:group/messages   Get recent group chat messages (limit, before)
+POST /api/group-chat/:group/messages   Post message to group channel
 ```
+
+Group `staff` — accessible to: super_admin, admin, agent, pickup_agent  
+Group `sellers` — accessible to: super_admin, seller  
+Group `riders` — accessible to: super_admin, rider
 
 ### Seller-Specific
 ```
@@ -703,6 +719,7 @@ All routes are defined in `client/src/App.tsx`.
 /agent/tickets           Support queue
 /agent/customers         Customer directory
 /agent/messages          Ticket chats
+/agent/direct-messages   Direct messages
 /agent/notifications     Alerts
 /agent/settings          Settings
 ```
@@ -751,6 +768,13 @@ All routes are defined in `client/src/App.tsx`.
 /admin/system-activities       System event audit log
 ```
 
+### Group Chat (role-gated)
+```
+/staff-chat            Staff group channel (super_admin, admin, agent, pickup_agent)
+/seller-chat           Seller group channel (super_admin, seller)
+/rider-chat            Rider group channel (super_admin, rider)
+```
+
 ### Shared (all authenticated roles)
 ```
 /profile               User profile
@@ -760,6 +784,7 @@ All routes are defined in `client/src/App.tsx`.
 /chat                  Direct messaging
 /support               Support ticket creation
 /live-tracking         Open map tracker
+/referral              Referral programme (buyer — shows only when referral feature enabled)
 ```
 
 ---
@@ -815,7 +840,7 @@ Transactional emails sent by the platform:
 
 ## Real-time Events (Socket.IO)
 
-Socket.IO runs on the same Express server. Clients authenticate via JWT on connection. Each user is joined to a personal room (`io.to(userId).emit(...)`) for targeted events.
+Socket.IO runs on the same Express server. Clients authenticate via JWT on connection. Each user is joined to a personal room (`io.to(userId).emit(...)`) for targeted events. Users are also auto-joined to group chat rooms based on their role (`group_chat_staff`, `group_chat_sellers`, `group_chat_riders`).
 
 ### Key events emitted to clients
 
@@ -829,6 +854,8 @@ Socket.IO runs on the same Express server. Clients authenticate via JWT on conne
 | `message_read` | Sender | Their message was read |
 | `typing` | Conversation partner | Typing indicator |
 | `support_message` | Agent + Buyer | New support thread message |
+| `support_conversation_updated` | Agent | Support ticket updated in real time |
+| `group_chat_message` | Group room members | New group chat message |
 | `maintenance_status` | All connected | Maintenance mode toggled |
 | `seller-approved:{userId}` | Admin | Seller/rider application approved |
 

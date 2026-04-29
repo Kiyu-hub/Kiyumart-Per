@@ -356,11 +356,18 @@ export default function AdminDashboardConnected() {
       id === "live-support" ? "/admin/live-support" :
       id === "system-activities" ? "/admin/system-activities" :
       id === "analytics" ? "/admin/analytics" :
+      id === "platform-analytics" ? "/admin/platform-analytics" :
+      id === "sentry" ? "/admin/sentry" :
+      id === "platform-health" ? "/admin/platform-health" :
       id === "platform-earnings" ? "/admin/platform-earnings" :
       id === "sellers-payouts" ? "/admin/sellers-payouts" :
       id === "riders-payouts" ? "/admin/riders-payouts" :
       id === "settings" ? "/admin/settings" :
       id === "promotions" ? "/admin/promotions" :
+      id === "banners" ? "/admin/banners" :
+      id === "hero-banners" ? "/admin/hero-banners" :
+      id === "support" ? "/support" :
+      id === "shop-mode" ? "/" :
       "/admin"
     );
   };

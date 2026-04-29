@@ -53,7 +53,8 @@ export default function AdminPickupVerifyPage() {
   };
 
   const lookupOrder = async (term: string) => {
-    if (!term.trim()) {
+    const trimmed = term.trim();
+    if (!trimmed) {
       setFoundOrder(null);
       setSearchResults([]);
       setLookupError("");
@@ -66,29 +67,45 @@ export default function AdminPickupVerifyPage() {
     setQrCode("");
     setOtp("");
     try {
-      const res = await fetch(`/api/orders?search=${encodeURIComponent(term.trim())}&context=admin`, {
-        credentials: "include",
-      });
+      // If input is 4-8 digits, try OTP-based lookup first
+      if (/^\d{4,8}$/.test(trimmed)) {
+        const otpRes = await fetch(`/api/admin/orders/by-otp?otp=${encodeURIComponent(trimmed)}`, {
+          credentials: "include",
+        });
+        if (otpRes.ok) {
+          const otpData = await otpRes.json();
+          const otpMatches: OrderLookup[] = Array.isArray(otpData) ? otpData : [];
+          if (otpMatches.length === 1) {
+            setFoundOrder(otpMatches[0]);
+            setIsLooking(false);
+            return;
+          } else if (otpMatches.length > 1) {
+            setSearchResults(otpMatches.slice(0, 10));
+            setIsLooking(false);
+            return;
+          }
+        }
+      }
+      // Fall back to order number / order ID search
+      const res = await fetch(`/api/orders?context=admin`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to search orders");
       const data = await res.json();
       const results: OrderLookup[] = Array.isArray(data) ? data : [];
-      const lc = term.trim().toLowerCase();
+      const lc = trimmed.toLowerCase();
       const matches = results.filter(
         (o) =>
           o.orderNumber?.toLowerCase().includes(lc) ||
-          o.id.toLowerCase() === lc ||
-          o.buyerName?.toLowerCase().includes(lc) ||
-          o.buyerPhone?.replace(/\s/g, "").includes(lc.replace(/\s/g, "")),
+          o.id.toLowerCase() === lc,
       );
       if (matches.length === 0) {
-        setLookupError("No order found matching that search.");
+        setLookupError("No order found. Enter the exact Order Number (e.g. KM-20240001), Order ID, or 6-digit OTP.");
       } else if (matches.length === 1) {
         setFoundOrder(matches[0]);
       } else {
         setSearchResults(matches.slice(0, 10));
       }
     } catch {
-      setLookupError("Could not look up order. Check the order number and try again.");
+      setLookupError("Could not look up order. Check the order number, ID, or OTP and try again.");
     } finally {
       setIsLooking(false);
     }
@@ -168,13 +185,13 @@ export default function AdminPickupVerifyPage() {
               <Search className="h-5 w-5" /> Look Up Order
             </CardTitle>
             <CardDescription>
-              Type to search — order number, ID, customer name, or phone. Results update automatically.
+              Enter the OTP (e.g. 123456) or Order Number (e.g. KM-20240001). Results update automatically.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="relative">
               <Input
-                placeholder="e.g. KM-20240001 or customer name"
+                placeholder="Enter OTP (e.g. 123456) or Order Number"
                 value={orderSearch}
                 onChange={(e) => setOrderSearch(e.target.value)}
                 className="pr-9"

@@ -30,6 +30,7 @@ interface Order {
     productName: string;
     quantity: number;
     price: string;
+    image?: string | null;
     selectedColor?: string | null;
     selectedSize?: string | null;
   }>;
@@ -122,6 +123,7 @@ export default function Orders() {
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
     staleTime: 0,
+    refetchInterval: 15000,
   });
 
   const formatItemSelection = (item?: { selectedColor?: string | null; selectedSize?: string | null }) => {
@@ -395,7 +397,16 @@ export default function Orders() {
                 </p>
                 {primaryItem ? (
                   <div className="space-y-1.5">
-                    <div className="flex items-start justify-between gap-3 text-sm">
+                    <div className="flex items-start gap-3 text-sm">
+                      {primaryItem.image ? (
+                        <img
+                          src={primaryItem.image}
+                          alt={primaryItem.productName}
+                          className="h-12 w-12 rounded-md object-cover flex-shrink-0 bg-muted"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-md bg-muted flex-shrink-0" />
+                      )}
                       <div className="min-w-0 flex-1">
                         <span className="block truncate font-medium" title={primaryItem.productName}>
                           {primaryItem.productName}
@@ -405,15 +416,13 @@ export default function Orders() {
                             {formatItemSelection(primaryItem)}
                           </span>
                         )}
+                        <span className="block text-xs text-muted-foreground">Qty: {primaryItem.quantity}</span>
                         {extraItemsCount > 0 && (
                           <span className="block text-xs text-muted-foreground">
                             +{extraItemsCount} more item{extraItemsCount === 1 ? "" : "s"}
                           </span>
                         )}
                       </div>
-                      <span className="shrink-0 text-muted-foreground">
-                        Qty: {primaryItem.quantity}
-                      </span>
                     </div>
                   </div>
                 ) : null}
@@ -576,44 +585,6 @@ export default function Orders() {
               View and track all your orders in one place
             </p>
           </div>
-
-          {/* Finance note — collapsible order total explainer */}
-          <Card className="mb-6 border-border/60 bg-card/95">
-            <details>
-              <summary className="cursor-pointer list-none px-6 py-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-semibold">Understanding Your Order Amounts</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">Expand to see how order totals, statuses, and payment work</p>
-                  </div>
-                  <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
-                </div>
-              </summary>
-              <CardContent className="pt-0 space-y-3 text-sm">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                  <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                    <p className="font-medium mb-1">Order Total</p>
-                    <p className="text-muted-foreground text-xs">The full amount charged to your payment method. It includes the product price, delivery fee, and a small processing fee, minus any coupon discount you applied.</p>
-                  </div>
-                  <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                    <p className="font-medium mb-1">Payment Status</p>
-                    <p className="text-muted-foreground text-xs"><strong>Pending</strong> = payment not yet collected. <strong>Processing</strong> = payment received, order being prepared. <strong>Paid</strong> = fully confirmed. <strong>Failed</strong> = payment was not successful.</p>
-                  </div>
-                  <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                    <p className="font-medium mb-1">Order Stages</p>
-                    <p className="text-muted-foreground text-xs"><strong>Pending</strong> = awaiting payment. <strong>Processing</strong> = paid, seller is preparing. <strong>En Route / Delivered</strong> = dispatch and delivery. <strong>Completed</strong> = order received by you.</p>
-                  </div>
-                  <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                    <p className="font-medium mb-1">Delivery Fee</p>
-                    <p className="text-muted-foreground text-xs">Covers the cost of getting your items from the seller to your door or pickup station. This goes to the rider or logistics provider, not to the platform.</p>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground rounded-lg border border-dashed border-border/50 bg-background/60 px-3 py-2">
-                  <strong>Formula:</strong> Order Total = Product Subtotal + Delivery Fee + Processing Fee − Coupon Discount. No hidden charges beyond what is shown at checkout.
-                </p>
-              </CardContent>
-            </details>
-          </Card>
 
           <Tabs defaultValue="all" className="w-full">
             <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1">

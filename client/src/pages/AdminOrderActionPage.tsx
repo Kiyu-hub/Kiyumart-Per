@@ -16,6 +16,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PickupVerificationScanner from "@/components/PickupVerificationScanner";
 import { ArrowLeft, CheckCircle2, Keyboard, Loader2, MessageCircle, QrCode, ShieldCheck, Store, Truck } from "lucide-react";
 
+type OrderItem = {
+  productId: string;
+  productName?: string;
+  quantity: number;
+  price: string;
+  image?: string | null;
+  productImages?: string[] | null;
+  selectedColor?: string | null;
+  selectedSize?: string | null;
+};
+
 type OrderDetails = {
   id: string;
   orderNumber: string;
@@ -36,6 +47,7 @@ type OrderDetails = {
   sellerInfo?: { name?: string; email?: string; phone?: string; storeName?: string | null } | null;
   riderId?: string | null;
   deliveryZoneId?: string | null;
+  items?: OrderItem[];
   pickupStationInfo?: {
     id: string;
     name: string;
@@ -612,6 +624,48 @@ export default function AdminOrderActionPage() {
               </div>
 
               <div className="space-y-6">
+                {orderDetails.items && orderDetails.items.length > 0 && (
+                  <Card className="border-border/70">
+                    <CardHeader>
+                      <CardTitle>Order Items</CardTitle>
+                      <CardDescription>{orderDetails.items.length} item{orderDetails.items.length !== 1 ? "s" : ""} in this order</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {orderDetails.items.map((item, idx) => {
+                        const imgSrc = item.image || (Array.isArray(item.productImages) ? item.productImages[0] : null);
+                        return (
+                        <div key={item.productId || idx} className="flex items-center gap-3 rounded-xl border border-border/70 bg-muted/20 p-3">
+                          {imgSrc ? (
+                            <img
+                              src={imgSrc}
+                              alt={item.productName || "Product"}
+                              className="h-14 w-14 rounded-lg object-cover flex-shrink-0 bg-muted"
+                            />
+                          ) : (
+                            <div className="h-14 w-14 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                              <span className="text-muted-foreground text-xs">No img</span>
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{item.productName || "Unnamed product"}</p>
+                            {(item.selectedColor || item.selectedSize) && (
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {[item.selectedColor, item.selectedSize].filter(Boolean).join(" · ")}
+                              </p>
+                            )}
+                            <p className="text-xs text-muted-foreground mt-0.5">Qty: {item.quantity}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-sm font-semibold">{formatPrice(parseFloat(item.price || "0"))}</p>
+                            <p className="text-xs text-muted-foreground">each</p>
+                          </div>
+                        </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                )}
+
                 <Card className="border-border/70">
                   <CardHeader>
                     <CardTitle>People Involved</CardTitle>

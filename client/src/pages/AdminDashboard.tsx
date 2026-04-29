@@ -175,20 +175,42 @@ export default function AdminDashboard() {
     const path = location;
     if (path === "/admin" || path === "/admin/") {
       setActiveItem("dashboard");
+    } else if (path.includes("/admin/platform-analytics")) {
+      setActiveItem("platform-analytics");
+    } else if (path.includes("/admin/sentry")) {
+      setActiveItem("sentry");
+    } else if (path.includes("/admin/platform-health")) {
+      setActiveItem("platform-health");
     } else if (path.includes("/admin/products")) {
       setActiveItem("products");
     } else if (path.includes("/admin/orders")) {
       setActiveItem("orders");
+    } else if (path.includes("/admin/sellers-payouts")) {
+      setActiveItem("sellers-payouts");
     } else if (path.includes("/admin/sellers")) {
       setActiveItem("sellers");
+    } else if (path.includes("/admin/riders-payouts")) {
+      setActiveItem("riders-payouts");
     } else if (path.includes("/admin/riders")) {
       setActiveItem("riders");
     } else if (path.includes("/admin/categories")) {
       setActiveItem("categories");
+    } else if (path.includes("/admin/users")) {
+      setActiveItem("users");
+    } else if (path.includes("/admin/applications")) {
+      setActiveItem("applications");
+    } else if (path.includes("/admin/permissions")) {
+      setActiveItem("permissions");
     } else if (path.includes("/admin/pickup-stations")) {
       setActiveItem("pickup-stations");
+    } else if (path.includes("/admin/pickup-verify")) {
+      setActiveItem("pickup-verify");
+    } else if (path.includes("/admin/delivery-tracking")) {
+      setActiveItem("delivery-tracking");
     } else if (path.includes("/admin/zones") || path.includes("/admin/delivery-zones")) {
       setActiveItem("zones");
+    } else if (path.includes("/admin/manual-rider-assignment")) {
+      setActiveItem("manual-rider-assignment");
     } else if (path === "/cart") {
       setActiveItem("my-cart");
     } else if (path === "/orders" || path === "/track") {
@@ -203,46 +225,65 @@ export default function AdminDashboard() {
       setActiveItem("live-support");
     } else if (path.includes("/admin/system-activities")) {
       setActiveItem("system-activities");
+    } else if (path.includes("/admin/platform-earnings")) {
+      setActiveItem("platform-earnings");
     } else if (path.includes("/admin/analytics")) {
       setActiveItem("analytics");
     } else if (path.includes("/admin/promotions")) {
       setActiveItem("promotions");
-    } else if (path.includes("/admin/platform-earnings")) {
-      setActiveItem("platform-earnings");
-    } else if (path.includes("/admin/sellers-payouts")) {
-      setActiveItem("sellers-payouts");
-    } else if (path.includes("/admin/riders-payouts")) {
-      setActiveItem("riders-payouts");
-    } else if (path.includes("/admin/manual-rider-assignment")) {
-      setActiveItem("manual-rider-assignment");
+    } else if (path.includes("/admin/banners")) {
+      setActiveItem("banners");
+    } else if (path.includes("/admin/hero-banners")) {
+      setActiveItem("hero-banners");
+    } else if (path.includes("/admin/branding")) {
+      setActiveItem("branding");
+    } else if (path.includes("/admin/media-library")) {
+      setActiveItem("media-library");
+    } else if (path.includes("/admin/settings")) {
+      setActiveItem("settings");
     }
   }, [location]);
 
   const handleItemClick = (id: string) => {
-    navigate(
-      id === "dashboard" ? "/admin" :
-      id === "categories" ? "/admin/categories" :
-      id === "products" ? "/admin/products" :
-      id === "orders" ? "/admin/orders" :
-      id === "sellers" ? "/admin/sellers" :
-      id === "riders" ? "/admin/riders" :
-      id === "zones" ? "/admin/zones" :
-      id === "pickup-stations" ? "/admin/pickup-stations" :
-      id === "my-cart" ? "/cart" :
-      id === "my-purchases" ? "/orders" :
-      id === "my-wishlist" ? "/wishlist" :
-      id === "notifications" ? "/admin/notifications" :
-      id === "messages" ? "/admin/messages" :
-      id === "live-support" ? "/admin/live-support" :
-      id === "system-activities" ? "/admin/system-activities" :
-      id === "analytics" ? "/admin/analytics" :
-      id === "promotions" ? "/admin/promotions" :
-      id === "platform-earnings" ? "/admin/platform-earnings" :
-      id === "sellers-payouts" ? "/admin/sellers-payouts" :
-      id === "riders-payouts" ? "/admin/riders-payouts" :
-      id === "manual-rider-assignment" ? "/admin/manual-rider-assignment" :
-      "/admin"
-    );
+    const routeMap: Record<string, string> = {
+      "dashboard": "/admin",
+      "branding": "/admin/branding",
+      "categories": "/admin/categories",
+      "media-library": "/admin/media-library",
+      "products": "/admin/products",
+      "orders": "/admin/orders",
+      "users": "/admin/users",
+      "sellers": "/admin/sellers",
+      "riders": "/admin/riders",
+      "applications": "/admin/applications",
+      "permissions": "/admin/permissions",
+      "zones": "/admin/zones",
+      "pickup-stations": "/admin/pickup-stations",
+      "pickup-verify": "/admin/pickup-verify",
+      "delivery-tracking": "/admin/delivery-tracking",
+      "manual-rider-assignment": "/admin/manual-rider-assignment",
+      "my-cart": "/cart",
+      "my-purchases": "/orders",
+      "my-wishlist": "/wishlist",
+      "shop-mode": "/",
+      "notifications": "/admin/notifications",
+      "messages": "/admin/messages",
+      "live-support": "/admin/live-support",
+      "support": "/support",
+      "system-activities": "/admin/system-activities",
+      "analytics": "/admin/analytics",
+      "platform-analytics": "/admin/platform-analytics",
+      "sentry": "/admin/sentry",
+      "platform-health": "/admin/platform-health",
+      "promotions": "/admin/promotions",
+      "banners": "/admin/banners",
+      "hero-banners": "/admin/hero-banners",
+      "platform-earnings": "/admin/platform-earnings",
+      "sellers-payouts": "/admin/sellers-payouts",
+      "riders-payouts": "/admin/riders-payouts",
+      "settings": "/admin/settings",
+    };
+    navigate(routeMap[id] ?? "/admin");
   };
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery<Analytics>({

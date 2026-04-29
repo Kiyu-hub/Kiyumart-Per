@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 import type { PlatformSettings } from "@shared/schema";
 import { ChevronDown, ChevronUp, ChevronRight, Loader2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import heroImage from "@assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png";
 
@@ -355,6 +356,7 @@ export default function HomeConnected() {
   const categories = filteredCategories
     .map(cat => ({
       id: cat.slug,
+      slug: cat.slug,
       name: cat.name,
       image: cat.image,
       requestedBySeller: Boolean(cat.requestedBySeller),
@@ -497,6 +499,29 @@ export default function HomeConnected() {
 
   return (
     <div className="min-h-screen flex flex-col pb-14 md:pb-0">
+      <style>{`
+        .category-grid {
+          display: flex;
+          gap: 16px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          scroll-behavior: smooth;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(99, 102, 241, 0.3) transparent;
+          padding-bottom: 8px;
+        }
+        .category-grid::-webkit-scrollbar { height: 6px; }
+        .category-grid::-webkit-scrollbar-track { background: transparent; }
+        .category-grid::-webkit-scrollbar-thumb { background-color: rgba(99, 102, 241, 0.3); border-radius: 3px; }
+        .category-grid::-webkit-scrollbar-thumb:hover { background-color: rgba(99, 102, 241, 0.5); }
+        .category-grid > * { flex: 0 0 auto; width: 185px; }
+        @media (min-width: 640px) { .category-grid > * { width: 220px; } }
+        @media (min-width: 1024px) { .category-grid > * { width: 245px; } }
+        .dark .category-grid { scrollbar-color: rgba(99, 102, 241, 0.4) transparent; }
+        .dark .category-grid::-webkit-scrollbar-thumb { background-color: rgba(99, 102, 241, 0.4); }
+        .dark .category-grid::-webkit-scrollbar-thumb:hover { background-color: rgba(99, 102, 241, 0.7); }
+      `}</style>
       <div className="flex items-center justify-end p-2 border-b bg-background">
         <ThemeToggle />
       </div>
@@ -543,11 +568,15 @@ export default function HomeConnected() {
                 <p className="text-sm mt-2">Please check back later.</p>
               </div>
             ) : (
-              <div className="flex gap-4 overflow-x-auto pb-3 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50">
+              <div className="category-grid" data-testid="grid-categories">
                 {categories.map((category) => (
-                  <div key={category.id} className="flex-shrink-0" style={{ width: '185px' }}>
-                    <CategoryCard {...category} onClick={(id) => navigate(`/category/${id}`)} />
-                  </div>
+                  <CategoryCard
+                    key={category.id}
+                    category={category}
+                    name={category.name}
+                    image={category.image}
+                    slug={category.slug}
+                  />
                 ))}
               </div>
             )}
@@ -615,9 +644,14 @@ export default function HomeConnected() {
                 </div>
 
               {featuredProductsLoading ? (
-                <div className="flex items-center justify-center py-12 text-muted-foreground">
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
-                  <span>Loading products...</span>
+                <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <div key={i} className="flex flex-col gap-2">
+                      <Skeleton className="aspect-square w-full rounded-xl" />
+                      <Skeleton className="h-4 w-3/4 rounded" />
+                      <Skeleton className="h-4 w-1/2 rounded" />
+                    </div>
+                  ))}
                 </div>
               ) : filteredFeaturedProducts.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
@@ -672,9 +706,14 @@ export default function HomeConnected() {
                   </div>
 
                   {newArrivalProductsLoading ? (
-                    <div className="flex items-center justify-center py-12 text-muted-foreground">
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
-                      <span>Loading products...</span>
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                      {Array.from({ length: 10 }).map((_, i) => (
+                        <div key={i} className="flex flex-col gap-2">
+                          <Skeleton className="aspect-square w-full rounded-xl" />
+                          <Skeleton className="h-4 w-3/4 rounded" />
+                          <Skeleton className="h-4 w-1/2 rounded" />
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
@@ -718,9 +757,14 @@ export default function HomeConnected() {
                 </div>
 
                 {productsLoading ? (
-                  <div className="flex items-center justify-center py-12 text-muted-foreground">
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
-                    <span>Loading products...</span>
+                  <div className={`grid gap-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                    {Array.from({ length: 15 }).map((_, i) => (
+                      <div key={i} className="flex flex-col gap-2">
+                        <Skeleton className="aspect-square w-full rounded-xl" />
+                        <Skeleton className="h-4 w-3/4 rounded" />
+                        <Skeleton className="h-4 w-1/2 rounded" />
+                      </div>
+                    ))}
                   </div>
                 ) : filteredProducts.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">

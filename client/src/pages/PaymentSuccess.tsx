@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { CheckCircle, Package, MapPin, Clock, Star, MessageSquare } from "lucide-react";
+import { CheckCircle, Package, MapPin, Star, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -323,88 +323,6 @@ export default function PaymentSuccess() {
             </CardContent>
           </Card>
 
-          {/* Next Steps */}
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                What's Next?
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="font-semibold text-primary">1</span>
-                </div>
-                <div>
-                  <p className="font-medium">Order Confirmation</p>
-                  <p className="text-sm text-muted-foreground">
-                    You'll receive a confirmation email with your order details
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="font-semibold text-primary">2</span>
-                </div>
-                <div>
-                  <p className="font-medium">Order Processing</p>
-                  <p className="text-sm text-muted-foreground">
-                    We're preparing your order for shipment
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="font-semibold text-primary">3</span>
-                </div>
-                <div>
-                  <p className="font-medium">{isPickupOrder ? "Pickup Updates" : "Delivery Updates"}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {isPickupOrder ? "Check order status and pickup readiness in your orders page" : "Track your order in real-time with live updates"}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Finance Note — collapsible explainer */}
-          <Card className="mb-6 border-border/60">
-            <details>
-              <summary className="cursor-pointer list-none px-6 py-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-sm">Understanding Your Payment Breakdown</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Expand to see how your total is split between products, delivery, and platform fees</p>
-                  </div>
-                  <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
-                </div>
-              </summary>
-              <CardContent className="pt-0 space-y-3 text-sm">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                    <p className="font-medium mb-1">Order Total</p>
-                    <p className="text-muted-foreground text-xs">The full amount charged to your payment method. Includes product subtotal, delivery fee, and any platform processing fee.</p>
-                  </div>
-                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                    <p className="font-medium mb-1">Processing Fee</p>
-                    <p className="text-muted-foreground text-xs">A small fee (typically 1–2 % of subtotal) to cover secure payment processing via Paystack. This is kept by the platform.</p>
-                  </div>
-                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                    <p className="font-medium mb-1">Delivery Fee</p>
-                    <p className="text-muted-foreground text-xs">Covers the cost of getting your order to your address or pickup station. Goes to the logistics provider or rider.</p>
-                  </div>
-                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                    <p className="font-medium mb-1">Seller Payment</p>
-                    <p className="text-muted-foreground text-xs">The seller receives payment for your purchase directly to their account. Your money goes to the seller when you buy their product.</p>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground rounded-lg border border-dashed border-border/50 bg-background/60 px-3 py-2">
-                  <strong>Order Total = Product Subtotal + Delivery Fee + Processing Fee − Coupon Discount.</strong> No hidden charges beyond what was shown at checkout.
-                </p>
-              </CardContent>
-            </details>
-          </Card>
 
           {/* Review Section */}
           {orderItems.length > 0 && (

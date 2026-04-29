@@ -52,6 +52,7 @@ export const promotionalAds = pgTable("promotional_ads", {
   ctaText: varchar("cta_text"),
   ctaUrl: text("cta_url"),
   themeColor: varchar("theme_color"),
+  displaySection: varchar("display_section", { length: 20 }).default("homepage"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => ({
@@ -84,6 +85,7 @@ export const promotionApplications = pgTable("promotion_applications", {
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
   sellerNote: text("seller_note"),
+  displaySection: varchar("display_section", { length: 20 }).default("homepage"),
   customerServiceNote: text("customer_service_note"),
   status: varchar("status", { length: 40 }).notNull().default("pending_payment"),
   paymentConfirmed: boolean("payment_confirmed").default(false),
@@ -721,6 +723,25 @@ export const receipts = pgTable("receipts", {
   generatedByIdx: index("receipts_generated_by_idx").on(table.generatedBy),
   updatedAtIdx: index("receipts_updated_at_idx").on(table.updatedAt),
 }));
+
+// Group chat tables
+export const groupChatMessages = pgTable("group_chat_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  groupName: varchar("group_name", { length: 30 }).notNull(), // 'staff' | 'sellers' | 'riders'
+  senderId: varchar("sender_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  message: text("message").notNull(),
+  messageType: varchar("message_type", { length: 20 }).default("text").notNull(), // 'text' | 'image' | 'voice'
+  fileUrl: text("file_url"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  groupIdx: index("group_chat_messages_group_idx").on(table.groupName),
+  senderIdx: index("group_chat_messages_sender_idx").on(table.senderId),
+  createdAtIdx: index("group_chat_messages_created_at_idx").on(table.createdAt),
+}));
+
+export const insertGroupChatMessageSchema = createInsertSchema(groupChatMessages).omit({ id: true, createdAt: true });
+export type InsertGroupChatMessage = z.infer<typeof insertGroupChatMessageSchema>;
+export type GroupChatMessage = typeof groupChatMessages.$inferSelect;
 
 export const productVariants = pgTable("product_variants", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

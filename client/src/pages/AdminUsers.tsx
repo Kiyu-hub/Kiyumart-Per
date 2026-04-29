@@ -15,7 +15,6 @@ import { Loader2, Search, Edit, Ban, MessageSquare, Trash2, ArrowLeft, CheckCirc
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
-import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import UserAvatar from "@/components/UserAvatar";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { getRoleDisplayName } from "@/lib/roleLabels";
@@ -46,7 +45,6 @@ export default function AdminUsers() {
   
   const [confirmBanUser, setConfirmBanUser] = useState<{ id: string; name: string; isActive: boolean } | null>(null);
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<{ id: string; name: string } | null>(null);
-  const [activeCallTarget, setActiveCallTarget] = useState<{ id: string; name: string } | null>(null);
   const [resetPasswordTarget, setResetPasswordTarget] = useState<UserData | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
@@ -159,11 +157,9 @@ export default function AdminUsers() {
 
   const startJitsiCall = async (target: UserData, callType: "voice" | "video") => {
     try {
-      setActiveCallTarget({ id: target.id, name: target.name || target.username });
       await jitsiCall.startCall(target.id, callType);
     } catch {
       // Errors are surfaced by useJitsiCall toasts.
-      setActiveCallTarget(null);
     }
   };
 
@@ -795,41 +791,6 @@ export default function AdminUsers() {
         </DialogContent>
       </Dialog>
 
-      <JitsiCallDialog
-        isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
-        roomUrl={jitsiCall.getJitsiUrl()}
-        roomName={jitsiCall.currentRoom?.roomName || null}
-        jitsiConfig={jitsiCall.jitsiConfig}
-        callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || "video"}
-        participants={
-          activeCallTarget
-            ? [{ id: activeCallTarget.id, name: activeCallTarget.name }]
-            : []
-        }
-        isHost={jitsiCall.currentRoom?.createdBy === user?.id}
-        incomingCall={
-          jitsiCall.incomingCall
-            ? {
-                callerName: jitsiCall.incomingCall.callerName,
-                callType: jitsiCall.incomingCall.callType,
-              }
-            : null
-        }
-        onAccept={() => jitsiCall.acceptIncomingCall()}
-        onReject={() => {
-          setActiveCallTarget(null);
-          jitsiCall.rejectIncomingCall();
-        }}
-        onLeave={() => {
-          setActiveCallTarget(null);
-          jitsiCall.leaveCall();
-        }}
-        onEnd={() => {
-          setActiveCallTarget(null);
-          jitsiCall.endCall();
-        }}
-        isJoining={jitsiCall.isJoining}
-      />
     </DashboardLayout>
   );
 }

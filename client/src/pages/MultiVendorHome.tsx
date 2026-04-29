@@ -221,11 +221,6 @@ export default function MultiVendorHome() {
             </section>
           ) : null}
 
-          {/* Promotional Ads Grid */}
-          {hasMultiplePromotions && (
-            <PromotionalAdsGrid />
-          )}
-
           {/* Shop by Store/Category Section */}
           {(settings as any)?.showShopBySection !== false && (
           <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6">
@@ -322,9 +317,12 @@ export default function MultiVendorHome() {
           </section>
           )}
 
-          {/* Mobile promo */}
+          {/* Featured Promotions — below shop by category/store */}
+          {hasMultiplePromotions && <PromotionalAdsGrid />}
+
+          {/* Mobile promo (single promotion) */}
           {hasExactlyOnePromotion && (
-            <div className="lg:hidden mb-6">
+            <div className="lg:hidden">
               <PromotionalAd />
             </div>
           )}

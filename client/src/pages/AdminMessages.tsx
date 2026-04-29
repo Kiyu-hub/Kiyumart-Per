@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -21,7 +21,6 @@ import { useGroupCall } from "@/hooks/useGroupCall";
 import { ParticipantSelectorDialog } from "@/components/ParticipantSelectorDialog";
 import { GroupCallDialog } from "@/components/GroupCallDialog";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
-import { JitsiCallDialog } from "@/components/JitsiCallDialog";
 import { usePresence, useBatchPresence, formatLastSeen } from "@/hooks/usePresence";
 import VoiceRecorderControls from "@/components/VoiceRecorderControls";
 import MessageAttachmentContent from "@/components/MessageAttachmentContent";
@@ -143,7 +142,6 @@ export default function AdminMessages() {
     if (!socket || !selectedUserId) return;
 
     const handleMessageDelivered = (data: { messageId: string; deliveredAt: string }) => {
-      console.log("📨 Message delivered:", data);
       queryClient.setQueryData<Message[]>(["/api/messages", selectedUserId], (oldMessages) => {
         if (!oldMessages) return oldMessages;
         return oldMessages.map((msg) =>
@@ -155,7 +153,6 @@ export default function AdminMessages() {
     };
 
     const handleMessageRead = (data: { messageIds: string[]; readAt: string }) => {
-      console.log("👀 Messages read:", data);
       queryClient.setQueryData<Message[]>(["/api/messages", selectedUserId], (oldMessages) => {
         if (!oldMessages) return oldMessages;
         return oldMessages.map((msg) =>
@@ -180,7 +177,6 @@ export default function AdminMessages() {
     if (!socket) return;
 
     const handleCallOffer = (data: { callerId: string; callerName: string; callType: 'voice' | 'video'; offer: RTCSessionDescriptionInit }) => {
-      console.log("📞 Incoming call from:", data.callerName, data.callType);
       setIncomingCall({
         callerId: data.callerId,
         callerName: data.callerName,
@@ -190,34 +186,30 @@ export default function AdminMessages() {
     };
 
     const handleCallAnswer = async (data: { answer: RTCSessionDescriptionInit }) => {
-      console.log("📞 Call answer received");
       try {
         if (peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
         }
-      } catch (error) {
-        console.error("❌ Error setting remote description:", error);
+      } catch {
+        // no-op
       }
     };
 
     const handleIceCandidate = async (data: { candidate: RTCIceCandidateInit }) => {
-      console.log("🧊 ICE candidate received");
       try {
         if (peerConnectionRef.current) {
           await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
         }
-      } catch (error) {
-        console.error("❌ Error adding ICE candidate:", error);
+      } catch {
+        // no-op
       }
     };
 
     const handleCallEnd = () => {
-      console.log("📞 Call ended by remote party");
       endCall();
     };
 
     const handleGroupCallInvite = (data: { callId: string; hostId: string; hostName: string; callType: 'voice' | 'video' }) => {
-      console.log("🎥 Group call invite from:", data.hostName, data.callType);
       setGroupCallInvite({
         callId: data.callId,
         hostId: data.hostId,
@@ -693,7 +685,6 @@ export default function AdminMessages() {
 
     // Handle remote stream
     pc.ontrack = (event) => {
-      console.log("📹 Remote track received:", event.streams[0]);
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
@@ -702,7 +693,6 @@ export default function AdminMessages() {
     // Handle ICE candidates (use parameter instead of state to avoid stale closure)
     pc.onicecandidate = (event) => {
       if (event.candidate && socket) {
-        console.log("🧊 Sending ICE candidate to:", targetUserId);
         socket.emit('ice_candidate', {
           targetUserId: targetUserId,
           candidate: event.candidate
@@ -726,14 +716,12 @@ export default function AdminMessages() {
     }
     
     try {
-      console.log(`📞 Starting Jitsi ${callType} call with ${selectedUser.name}`);
       await jitsiCall.startCall(selectedUserId, callType);
       toast({
         title: `${callType === 'video' ? 'Video' : 'Voice'} Call Started`,
         description: `Connecting to ${selectedUser.name}...`
       });
     } catch (error) {
-      console.error("❌ Jitsi call start error:", error);
       toast({
         title: "Call Failed",
         description: error instanceof Error ? error.message : "Could not start call",
@@ -745,7 +733,6 @@ export default function AdminMessages() {
   // Legacy WebRTC startCall (kept for reference)
   const startCallWebRTC = async (callType: 'voice' | 'video') => {
     try {
-      console.log(`📞 Starting ${callType} call with ${selectedUser?.name}`);
       
       const constraints = callType === 'video' 
         ? { video: true, audio: true }
@@ -779,7 +766,6 @@ export default function AdminMessages() {
         description: `Calling ${selectedUser?.name}...`
       });
     } catch (error) {
-      console.error("❌ Call start error:", error);
       toast({
         title: "Call Failed",
         description: error instanceof Error ? error.message : "Could not access camera/microphone",
@@ -792,7 +778,6 @@ export default function AdminMessages() {
     if (!incomingCall) return;
     
     try {
-      console.log(`📞 Accepting ${incomingCall.callType} call from ${incomingCall.callerName}`);
       
       const constraints = incomingCall.callType === 'video'
         ? { video: true, audio: true }
@@ -827,7 +812,6 @@ export default function AdminMessages() {
         description: `Connected with ${incomingCall.callerName}`
       });
     } catch (error) {
-      console.error("❌ Call accept error:", error);
       toast({
         title: "Call Failed",
         description: error instanceof Error ? error.message : "Could not accept call",
@@ -849,12 +833,8 @@ export default function AdminMessages() {
   };
 
   const endCall = () => {
-    console.log("📞 Ending call");
-    
-    // Stop all media tracks
     localStreamRef.current?.getTracks().forEach(track => {
       track.stop();
-      console.log(`🛑 Stopped track: ${track.kind}`);
     });
     
     // Close peer connection
@@ -1280,7 +1260,7 @@ export default function AdminMessages() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {messages.map((msg) => (
+                    {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => (
                       <div
                         key={msg.id}
                         className={`flex ${msg.messageType === 'missed_call' ? 'justify-center' : msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
@@ -1659,7 +1639,7 @@ export default function AdminMessages() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {messages.map((msg) => (
+                      {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => (
                         msg.messageType === 'missed_call' ? (
                           <div key={msg.id} className="flex justify-center" data-testid={`message-${msg.id}`}>
                             <div className="flex items-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-900/20 rounded-full text-red-600 dark:text-red-400 text-sm">
@@ -1943,25 +1923,6 @@ export default function AdminMessages() {
         onToggleVideo={groupCall.toggleVideo}
       />
 
-      {/* Jitsi Meet Call Dialog */}
-      <JitsiCallDialog
-        isOpen={jitsiCall.inCall || !!jitsiCall.incomingCall}
-        roomUrl={jitsiCall.getJitsiUrl()}
-        roomName={jitsiCall.currentRoom?.roomName || null}
-        jitsiConfig={jitsiCall.jitsiConfig}
-        callType={jitsiCall.currentRoom?.callType || jitsiCall.incomingCall?.callType || 'video'}
-        participants={jitsiCall.currentRoom?.participants?.map(id => ({ id, name: 'Participant' })) || []}
-        isHost={jitsiCall.currentRoom?.createdBy === user?.id}
-        incomingCall={jitsiCall.incomingCall ? {
-          callerName: jitsiCall.incomingCall.callerName,
-          callType: jitsiCall.incomingCall.callType,
-        } : null}
-        onAccept={() => jitsiCall.acceptIncomingCall()}
-        onReject={() => jitsiCall.rejectIncomingCall()}
-        onLeave={() => jitsiCall.leaveCall()}
-        onEnd={() => jitsiCall.endCall()}
-        isJoining={jitsiCall.isJoining}
-      />
     </DashboardLayout>
   );
 }

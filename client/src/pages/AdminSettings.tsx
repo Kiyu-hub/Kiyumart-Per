@@ -2628,16 +2628,9 @@ export default function AdminSettings() {
                         <p className="font-medium text-sm">Enable Referral Programme</p>
                         <p className="text-xs text-muted-foreground">Activates the referral system across the platform.</p>
                       </div>
-                      <FormField
-                        control={form.control}
-                        name="referralEnabled"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormControl>
-                              <Switch checked={!!field.value} onCheckedChange={field.onChange} />
-                            </FormControl>
-                          </FormItem>
-                        )}
+                      <Switch
+                        checked={!!form.watch("referralEnabled")}
+                        onCheckedChange={(checked) => form.setValue("referralEnabled", checked)}
                       />
                     </div>
 
@@ -2648,16 +2641,9 @@ export default function AdminSettings() {
                           <p className="text-sm font-medium">Single-Store Mode</p>
                           <p className="text-xs text-muted-foreground">Referrals active in single-store mode.</p>
                         </div>
-                        <FormField
-                          control={form.control}
-                          name="referralEnabledSingleStore"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormControl>
-                                <Switch checked={!!field.value} onCheckedChange={field.onChange} />
-                              </FormControl>
-                            </FormItem>
-                          )}
+                        <Switch
+                          checked={!!form.watch("referralEnabledSingleStore")}
+                          onCheckedChange={(checked) => form.setValue("referralEnabledSingleStore", checked)}
                         />
                       </div>
                       <div className="flex items-center justify-between rounded-xl border p-4">
@@ -2665,16 +2651,9 @@ export default function AdminSettings() {
                           <p className="text-sm font-medium">Multi-Vendor Mode</p>
                           <p className="text-xs text-muted-foreground">Referrals active in multi-vendor mode.</p>
                         </div>
-                        <FormField
-                          control={form.control}
-                          name="referralEnabledMultiVendor"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormControl>
-                                <Switch checked={!!field.value} onCheckedChange={field.onChange} />
-                              </FormControl>
-                            </FormItem>
-                          )}
+                        <Switch
+                          checked={!!form.watch("referralEnabledMultiVendor")}
+                          onCheckedChange={(checked) => form.setValue("referralEnabledMultiVendor", checked)}
                         />
                       </div>
                     </div>

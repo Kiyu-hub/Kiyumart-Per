@@ -46,11 +46,11 @@ export async function getReferralSettings() {
   };
 }
 
-export async function recordReferralSignup(referralCode: string, newUserId: string): Promise<void> {
+export async function recordReferralSignup(referralCode: string, newUserId: string, io?: any): Promise<void> {
   if (!referralCode || !newUserId) return;
 
   // Find referrer
-  const [referrer] = await db.select({ id: users.id }).from(users).where(eq(users.referralCode, referralCode)).limit(1);
+  const [referrer] = await db.select({ id: users.id, name: users.name, role: users.role }).from(users).where(eq(users.referralCode, referralCode)).limit(1);
   if (!referrer || referrer.id === newUserId) return;
 
   // Don't duplicate
@@ -62,9 +62,58 @@ export async function recordReferralSignup(referralCode: string, newUserId: stri
     referredUserId: newUserId,
     status: "signed_up",
   });
+
+  const settings = await getReferralSettings();
+  const isSeller = referrer.role === "seller";
+  const threshold = isSeller ? settings.referralSellerThreshold : settings.referralCustomerThreshold;
+
+  // Count how many have already signed up via this referrer
+  const [{ total: signedUpCount }] = await db
+    .select({ total: count() })
+    .from(referrals)
+    .where(eq(referrals.referrerId, referrer.id));
+
+  // Notify referrer that someone signed up with their link
+  try {
+    const referrerNotif = {
+      type: "system",
+      title: "Someone Joined via Your Referral Link",
+      message: `A new user signed up using your referral link. They need to make a purchase for it to count. You have ${signedUpCount} referral(s) so far (goal: ${threshold}).`,
+    };
+    await db.insert(notifications).values({
+      userId: referrer.id,
+      type: "system" as const,
+      title: referrerNotif.title,
+      message: referrerNotif.message,
+      isRead: false,
+      metadata: { kind: "referral_signup" } as any,
+    });
+    io?.to(`user_${referrer.id}`).emit("notification", referrerNotif);
+  } catch {}
+
+  // Notify the new user about the referral discount opportunity
+  try {
+    const rewardDesc = isSeller
+      ? `your referrer earns a free promotion`
+      : `your referrer earns a ${settings.referralRewardPercent}% discount reward`;
+    const newUserNotif = {
+      type: "system",
+      title: "Welcome! You Were Referred",
+      message: `You joined via a referral link. When you make your first purchase, ${rewardDesc}. Check out the shop to get started!`,
+    };
+    await db.insert(notifications).values({
+      userId: newUserId,
+      type: "system" as const,
+      title: newUserNotif.title,
+      message: newUserNotif.message,
+      isRead: false,
+      metadata: { kind: "referral_welcome" } as any,
+    });
+    io?.to(`user_${newUserId}`).emit("notification", newUserNotif);
+  } catch {}
 }
 
-export async function checkAndCompleteReferral(buyerId: string): Promise<void> {
+export async function checkAndCompleteReferral(buyerId: string, io?: any): Promise<void> {
   // Find signed_up referral for this buyer
   const [referral] = await db
     .select()
@@ -76,11 +125,43 @@ export async function checkAndCompleteReferral(buyerId: string): Promise<void> {
   // Mark as completed
   await db.update(referrals).set({ status: "completed", completedAt: new Date() }).where(eq(referrals.id, referral.id));
 
+  // Notify referrer that their referred user made a purchase
+  try {
+    const settings = await getReferralSettings();
+    const [referrer] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, referral.referrerId)).limit(1);
+    if (referrer) {
+      const isSeller = referrer.role === "seller";
+      const threshold = isSeller ? settings.referralSellerThreshold : settings.referralCustomerThreshold;
+      const [{ total: completedCount }] = await db
+        .select({ total: count() })
+        .from(referrals)
+        .where(and(eq(referrals.referrerId, referral.referrerId), eq(referrals.status, "completed")));
+      const remaining = Math.max(0, threshold - (completedCount % threshold || threshold));
+      const progressMsg = remaining === 0
+        ? "You've hit the reward threshold! Claim your reward from your dashboard."
+        : `${completedCount} completed so far. ${remaining} more to go before your next reward.`;
+      const purchaseNotif = {
+        type: "system",
+        title: "Your Referral Made a Purchase!",
+        message: `Someone you referred just completed their first order. ${progressMsg}`,
+      };
+      await db.insert(notifications).values({
+        userId: referral.referrerId,
+        type: "system" as const,
+        title: purchaseNotif.title,
+        message: purchaseNotif.message,
+        isRead: false,
+        metadata: { kind: "referral_purchase", referredUserId: buyerId } as any,
+      });
+      io?.to(`user_${referral.referrerId}`).emit("notification", purchaseNotif);
+    }
+  } catch {}
+
   // Check if referrer has now hit the threshold → create reward
-  await checkAndCreateReward(referral.referrerId);
+  await checkAndCreateReward(referral.referrerId, io);
 }
 
-async function checkAndCreateReward(referrerId: string): Promise<void> {
+async function checkAndCreateReward(referrerId: string, io?: any): Promise<void> {
   const settings = await getReferralSettings();
 
   const [referrer] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, referrerId)).limit(1);
@@ -122,16 +203,22 @@ async function checkAndCreateReward(referrerId: string): Promise<void> {
 
   // Send in-app notification
   try {
-    await db.insert(notifications).values({
-      userId: referrerId,
+    const rewardNotif = {
       type: "system",
       title: "Referral Reward Earned!",
       message: isSeller
         ? `You've successfully referred ${threshold} new customers. You've earned ${settings.referralSellerPromoHours} hours of free promotion! Claim it from your dashboard.`
         : `You've referred ${threshold} friends who made purchases! You've earned ${settings.referralRewardPercent}% off your next order. Claim your discount code in your dashboard.`,
+    };
+    await db.insert(notifications).values({
+      userId: referrerId,
+      type: "system" as const,
+      title: rewardNotif.title,
+      message: rewardNotif.message,
       isRead: false,
-      metadata: { rewardId: reward.id, type: rewardType },
+      metadata: { rewardId: reward.id, type: rewardType } as any,
     });
+    io?.to(`user_${referrerId}`).emit("notification", rewardNotif);
   } catch {}
 }
 
