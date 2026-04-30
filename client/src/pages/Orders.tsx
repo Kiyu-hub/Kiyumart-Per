@@ -57,7 +57,7 @@ export default function Orders() {
   const { user } = useAuth();
   const { currencySymbol, formatPrice } = useLanguage();
   const { toast } = useToast();
-  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const { isExternalRiderSystemEnabled, showRefundButton } = usePlatformSettings();
 
   const cancelOrderMutation = useMutation({
     mutationFn: (orderId: string) =>
@@ -588,8 +588,9 @@ export default function Orders() {
                     Cancel Order
                   </Button>
                 )}
-              {/* Refund info — only for paid orders */}
-              {normalizePaymentStatus(order.paymentStatus) === "paid" &&
+              {/* Refund info — only for paid orders and when platform allows it */}
+              {showRefundButton &&
+                normalizePaymentStatus(order.paymentStatus) === "paid" &&
                 !["completed", "delivered"].includes(orderStatus) && (
                   <Button
                     className="w-full text-xs"

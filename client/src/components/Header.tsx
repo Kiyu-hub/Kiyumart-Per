@@ -1,8 +1,8 @@
-import { Search, Menu, User, LayoutDashboard, ShoppingBag, Store as StoreIcon, Truck, Heart } from "lucide-react";
+import { Search, Menu, User, LayoutDashboard, ShoppingBag, Store as StoreIcon, Truck, Heart, Loader2, SearchX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -21,6 +21,14 @@ import Logo from "@/components/Logo";
 import { getDashboardRoleLabel } from "@/lib/roleLabels";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
+interface SearchResult {
+  id: string;
+  name: string;
+  price: string;
+  images: string[];
+  category?: string | null;
+}
+
 interface HeaderProps {
   cartItemsCount?: number;
   onMenuClick?: () => void;
@@ -28,37 +36,211 @@ interface HeaderProps {
   onSearch?: (query: string) => void;
 }
 
-export default function Header({ 
+function SearchBox({
+  value,
+  onChange,
+  onSubmit,
+  onClear,
+  placeholder,
+  testId,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  onClear: () => void;
+  placeholder: string;
+  testId: string;
+  className?: string;
+}) {
+  const [isFocused, setIsFocused] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [, navigate] = useLocation();
+
+  const debouncedQuery = useDebounce(value, 220);
+  const showDropdown = isFocused && debouncedQuery.trim().length >= 2;
+
+  const { data: searchResults = [], isLoading } = useQuery<SearchResult[]>({
+    queryKey: ["/api/products", "header-search", debouncedQuery],
+    queryFn: async () => {
+      const q = debouncedQuery.trim();
+      if (q.length < 2) return [];
+      const res = await fetch(`/api/products?search=${encodeURIComponent(q)}&limit=8`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: showDropdown,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleResultClick = (productId: string) => {
+    setIsFocused(false);
+    navigate(`/product/${productId}`);
+  };
+
+  const handleSeeAll = () => {
+    const q = value.trim();
+    if (!q) return;
+    setIsFocused(false);
+    onSubmit();
+  };
+
+  return (
+    <div ref={containerRef} className={`relative w-full ${className ?? ""}`}>
+      <form onSubmit={(e) => { e.preventDefault(); handleSeeAll(); }}>
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10 pointer-events-none" />
+        <Input
+          placeholder={placeholder}
+          className={`pl-10 ${value ? "pr-8" : "pr-4"}`}
+          data-testid={testId}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); handleSeeAll(); }
+            if (e.key === "Escape") setIsFocused(false);
+          }}
+          autoComplete="off"
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            tabIndex={-1}
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </form>
+
+      {showDropdown && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-background border rounded-lg shadow-xl z-[200] overflow-hidden max-h-[420px] overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Searching…</span>
+            </div>
+          ) : searchResults.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+              <SearchX className="h-9 w-9 opacity-30" />
+              <p className="text-sm font-medium">No products found</p>
+              <p className="text-xs opacity-70">No results for "{debouncedQuery}"</p>
+            </div>
+          ) : (
+            <>
+              {searchResults.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-accent text-left transition-colors"
+                  onClick={() => handleResultClick(product.id)}
+                >
+                  {product.images?.[0] ? (
+                    <img
+                      src={product.images[0]}
+                      alt={product.name}
+                      className="h-10 w-10 rounded object-cover shrink-0 bg-muted"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded bg-muted flex items-center justify-center shrink-0">
+                      <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{product.name}</p>
+                    {product.category && (
+                      <p className="text-xs text-muted-foreground truncate">{product.category}</p>
+                    )}
+                  </div>
+                  <span className="text-sm font-semibold text-primary shrink-0">
+                    GHS {parseFloat(product.price || "0").toFixed(2)}
+                  </span>
+                </button>
+              ))}
+              <button
+                type="button"
+                className="w-full px-4 py-3 text-sm text-center text-primary font-medium border-t hover:bg-accent transition-colors"
+                onClick={handleSeeAll}
+              >
+                See all results for "{debouncedQuery}"
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
+export default function Header({
   cartItemsCount = 0,
   onMenuClick,
   onCartClick,
-  onSearch 
+  onSearch
 }: HeaderProps) {
   const [location, navigate] = useLocation();
   const { t } = useLanguage();
   const { user, isAuthenticated } = useAuth();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
 
-  const { data: platformSettings } = useQuery<{ 
-    allowSellerRegistration: boolean; 
-    allowRiderRegistration: boolean; 
+  const { data: platformSettings } = useQuery<{
+    allowSellerRegistration: boolean;
+    allowRiderRegistration: boolean;
   }>({
     queryKey: ["/api/platform-settings"],
   });
-  
-  // Show "Become a Seller" only for guests or buyers
-  const showBecomeSeller = platformSettings?.allowSellerRegistration && 
+
+  const showBecomeSeller = platformSettings?.allowSellerRegistration &&
     (!isAuthenticated || user?.role === 'buyer');
-  
-  // Show "Become a Delivery Partner" only for guests or buyers
-  const showBecomeRider = platformSettings?.allowRiderRegistration && 
+
+  const showBecomeRider = platformSettings?.allowRiderRegistration &&
     (!isAuthenticated || user?.role === 'buyer') &&
     !isExternalRiderSystemEnabled;
 
   const isActive = (path: string) => location === path;
   const isHomePage = location === "/" || location === "";
-  const [localSearchValue, setLocalSearchValue] = useState("");
+  const isSearchPage = location.startsWith("/search");
+
+  const [localSearchValue, setLocalSearchValue] = useState(() => {
+    if (typeof window !== "undefined" && location.startsWith("/search")) {
+      return new URLSearchParams(location.split("?")[1] || "").get("q") || "";
+    }
+    return "";
+  });
+
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Keep header input in sync when navigating to/from search page
+  useEffect(() => {
+    if (isSearchPage) {
+      const q = new URLSearchParams(location.split("?")[1] || "").get("q") || "";
+      setLocalSearchValue(q);
+    } else if (!isSearchPage && !isHomePage) {
+      // Don't reset on non-search, non-home pages (let user keep their typed value)
+    }
+  }, [location, isSearchPage, isHomePage]);
 
   const handleSearchChange = useCallback((value: string) => {
     setLocalSearchValue(value);
@@ -68,16 +250,21 @@ export default function Header({
     }
   }, [isHomePage, onSearch]);
 
-  const handleSearchSubmit = useCallback((value: string) => {
-    const q = value.trim();
+  const handleSearchSubmit = useCallback(() => {
+    const q = localSearchValue.trim();
     if (!q) return;
     navigate(`/search?q=${encodeURIComponent(q)}`);
-  }, [navigate]);
+  }, [localSearchValue, navigate]);
 
-  // Check if user has a dashboard role (super_admin, admin, seller, rider, pickup_agent, buyer, agent)
+  const handleClearSearch = useCallback(() => {
+    setLocalSearchValue("");
+    if (isHomePage && onSearch) onSearch("");
+    if (isSearchPage) navigate("/");
+  }, [isHomePage, isSearchPage, onSearch, navigate]);
+
   const hasDashboard = user && ['super_admin', 'admin', 'seller', 'rider', 'pickup_agent', 'buyer', 'agent'].includes(user.role);
   const isDashboardPage = location.startsWith('/admin') || location.startsWith('/seller') || location.startsWith('/rider') || location.startsWith('/pickup-agent') || location.startsWith('/buyer') || location.startsWith('/agent');
-  
+
   const getDashboardPath = () => {
     if (user?.role === 'super_admin') return '/admin';
     if (user?.role === 'admin') return '/admin';
@@ -88,7 +275,7 @@ export default function Header({
     if (user?.role === 'agent') return '/agent';
     return '/';
   };
-  
+
   const getDashboardLabel = () => {
     if (user?.role === 'buyer') return 'My Dashboard';
     return getDashboardRoleLabel(user?.role);
@@ -111,9 +298,9 @@ export default function Header({
             >
               <Menu className="h-5 w-5" />
             </Button>
-            
-            <div 
-              className="cursor-pointer flex items-center" 
+
+            <div
+              className="cursor-pointer flex items-center"
               data-testid="logo-container"
               onClick={() => navigate("/")}
             >
@@ -122,23 +309,20 @@ export default function Header({
           </div>
 
           <div className="hidden md:flex flex-1 max-w-xl mx-8">
-            <form className="relative w-full" onSubmit={(e) => { e.preventDefault(); handleSearchSubmit(localSearchValue); }}>
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={t("search")}
-                className="pl-10 pr-4"
-                data-testid="input-search"
-                value={localSearchValue}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearchSubmit(localSearchValue); } }}
-              />
-            </form>
+            <SearchBox
+              value={localSearchValue}
+              onChange={handleSearchChange}
+              onSubmit={handleSearchSubmit}
+              onClear={handleClearSearch}
+              placeholder={t("search")}
+              testId="input-search"
+            />
           </div>
 
           <div className="flex items-center gap-2">
             {showBecomeSeller && (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 className="hidden md:flex"
                 onClick={() => navigate(getApplicationPath("/become-seller"))}
@@ -150,8 +334,8 @@ export default function Header({
             )}
 
             {showBecomeRider && (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 className="hidden md:flex"
                 onClick={() => navigate(getApplicationPath("/become-rider"))}
@@ -180,7 +364,7 @@ export default function Header({
             {hasDashboard && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button 
+                  <Button
                     variant={isDashboardPage ? "default" : "ghost"}
                     size="icon"
                     data-testid="button-role-switcher"
@@ -191,7 +375,7 @@ export default function Header({
                 <DropdownMenuContent align="end">
                   <DropdownMenuLabel>Switch Mode</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     onClick={() => navigate(getDashboardPath())}
                     className="hover:bg-accent hover:text-accent-foreground"
                     data-testid="menu-dashboard"
@@ -199,7 +383,7 @@ export default function Header({
                     <LayoutDashboard className="mr-2 h-4 w-4" />
                     <span>{getDashboardLabel()}</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     onClick={() => navigate("/")}
                     className="hover:bg-accent hover:text-accent-foreground"
                     data-testid="menu-shop"
@@ -213,15 +397,15 @@ export default function Header({
 
             <CartPopover isAuthenticated={isAuthenticated} />
 
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               size="icon"
               onClick={() => isAuthenticated ? navigate("/profile") : navigate("/auth")}
               data-testid="button-account"
               title={user?.name || "Account"}
             >
               {isAuthenticated && user ? (
-                <UserAvatar 
+                <UserAvatar
                   profileImage={user.profileImage}
                   name={user.name}
                   email={user.email}
@@ -235,23 +419,20 @@ export default function Header({
         </div>
 
         <div className="md:hidden mt-3 space-y-2">
-          <form className="relative w-full" onSubmit={(e) => { e.preventDefault(); handleSearchSubmit(localSearchValue); }}>
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search products..."
-              className="pl-10"
-              data-testid="input-search-mobile"
-              value={localSearchValue}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearchSubmit(localSearchValue); } }}
-            />
-          </form>
-          
+          <SearchBox
+            value={localSearchValue}
+            onChange={handleSearchChange}
+            onSubmit={handleSearchSubmit}
+            onClear={handleClearSearch}
+            placeholder="Search products..."
+            testId="input-search-mobile"
+          />
+
           {(showBecomeSeller || showBecomeRider) && (
             <div className="flex gap-2">
               {showBecomeSeller && (
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   className="flex-1"
                   onClick={() => navigate(getApplicationPath("/become-seller"))}
@@ -261,10 +442,10 @@ export default function Header({
                   <span>Become a Seller</span>
                 </Button>
               )}
-              
+
               {showBecomeRider && (
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   className="flex-1"
                   onClick={() => navigate(getApplicationPath("/become-rider"))}

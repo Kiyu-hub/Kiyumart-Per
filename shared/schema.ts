@@ -334,6 +334,8 @@ export const platformSettings = pgTable("platform_settings", {
   allowedUploadTypes: text("allowed_upload_types").default("jpg,jpeg,png,webp,gif,avif"),
   // Suggestions feature
   suggestionsEnabled: boolean("suggestions_enabled").default(false),
+  // Refund button visibility (super_admin controlled)
+  showRefundButton: boolean("show_refund_button").default(true),
   // Sound & ringtone settings
   callerRingtone: text("caller_ringtone").default("default"),
   receiverRingtone: text("receiver_ringtone").default("default"),

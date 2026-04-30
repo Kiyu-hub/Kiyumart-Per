@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Zap, Calendar, Infinity } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
 
 interface TierInfo {
@@ -55,10 +55,15 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
 
   const initMutation = useMutation({
     mutationFn: async (plan: "plan_a" | "plan_b" | "plan_c") => {
-      const res = await apiRequest("POST", "/api/seller/upgrade/initialize", { plan });
+      const res = await fetch("/api/seller/upgrade/initialize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ plan }),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error || "Could not initialize payment");
+        throw new Error(err?.error || `Payment initialization failed (${res.status})`);
       }
       return res.json();
     },

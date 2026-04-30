@@ -608,6 +608,8 @@ app.use(cookieParser());
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS frontend_url text`);
     // Suggestions feature toggle
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS suggestions_enabled boolean DEFAULT false`);
+    // Refund button visibility
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_refund_button boolean DEFAULT true`);
     // Sound & ringtone settings
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS caller_ringtone text DEFAULT 'default'`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS receiver_ringtone text DEFAULT 'default'`);

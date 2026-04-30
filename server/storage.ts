@@ -3651,6 +3651,10 @@ export class DbStorage implements IStorage {
           referralRewardPercent: '10',
           referralSellerPromoHours: 24,
           suggestionsEnabled: false,
+          showRefundButton: true,
+          callerRingtone: 'default',
+          receiverRingtone: 'default',
+          notificationSound: 'default',
           updatedAt: new Date(),
         };
         return { ...defaults, ...(await readPlatformSettingsCompat()) };

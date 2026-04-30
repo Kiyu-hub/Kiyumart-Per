@@ -16,7 +16,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Phone, PhoneOff, Video, Loader2 } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Phone, PhoneOff, Video, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface JitsiCallDialogProps {

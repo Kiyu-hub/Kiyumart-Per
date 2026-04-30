@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -188,13 +188,18 @@ export default function SellerPromotions() {
     }
     setPaying(true);
     try {
-      const res = await apiRequest("POST", "/api/seller/promotions/initialize", {
-        type,
-        targetId,
-        durationType: selectedDuration.durationType,
-        duration: Number(selectedDuration.duration),
-        sellerNote,
-        displaySection,
+      const res = await fetch("/api/seller/promotions/initialize", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          targetId,
+          durationType: selectedDuration.durationType,
+          duration: Number(selectedDuration.duration),
+          sellerNote,
+          displaySection,
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -231,7 +236,12 @@ export default function SellerPromotions() {
     if (!user?.email) return;
     setRetryingId(applicationId);
     try {
-      const res = await apiRequest("POST", `/api/seller/promotions/${applicationId}/retry-payment`, {});
+      const res = await fetch(`/api/seller/promotions/${applicationId}/retry-payment`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err?.error || "Could not initialize payment");

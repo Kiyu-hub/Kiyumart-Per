@@ -15,6 +15,7 @@ export interface PublicPlatformSettings {
   callerRingtone?: string;
   receiverRingtone?: string;
   notificationSound?: string;
+  showRefundButton?: boolean;
 }
 
 export const publicPlatformSettingsQueryKey = ["/api/public/platform-settings"] as const;
@@ -33,6 +34,7 @@ const defaultPublicPlatformSettings: PublicPlatformSettings = {
   callerRingtone: "default",
   receiverRingtone: "default",
   notificationSound: "default",
+  showRefundButton: true,
 };
 
 export function usePlatformSettings() {
@@ -65,6 +67,7 @@ export function usePlatformSettings() {
     callerRingtone: query.data?.callerRingtone || "default",
     receiverRingtone: query.data?.receiverRingtone || "default",
     notificationSound: query.data?.notificationSound || "default",
+    showRefundButton: query.data?.showRefundButton !== false,
     hasResolvedSettings,
   };
 }

@@ -316,7 +316,7 @@ const baseProductSchema = z.object({
   stockQuantity: z.string().optional().default("0"),
   tags: z.string().optional(),
   images: z.array(z.string().url()).max(8, "Maximum 8 images allowed").default([]),
-  videoUrl: z.string().url("Enter a valid video link"),
+  videoUrl: z.string().url("Enter a valid video link").optional().or(z.literal("")),
   deliveryDuration: z.string().optional(),
   inStock: z.boolean().default(true),
   homepageFeatured: z.boolean().default(false),
@@ -589,13 +589,18 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
 
       const normalizedCategoryId = String(data.categoryId || "").trim() || undefined;
 
+      const noVariantsAllowed = store?.storeType === "food_beverages";
+      const directStock = Math.max(0, parseInt(data.stockQuantity || "0", 10) || 0);
+
       const productData: any = {
         name: data.name,
         description: data.description,
         price: data.price,
         costPrice: data.compareAtPrice || null,
         categoryId: normalizedCategoryId,
-        stock: resolveProductStockFromVariants(productVariants, 0),
+        stock: productVariants.length > 0
+          ? resolveProductStockFromVariants(productVariants, directStock)
+          : directStock,
         images: resolveProductImagesFromVariants(productVariants, data.images || []),
         video: data.videoUrl || null,
         deliveryDuration: data.deliveryDuration || null,
@@ -615,7 +620,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         ? data.tags.split(",").map(t => t.trim()).filter(Boolean)
         : [];
 
-      if (productVariants.length === 0) {
+      if (productVariants.length === 0 && !noVariantsAllowed) {
         throw new Error("Add at least one variant before saving this product");
       }
 
@@ -654,12 +659,42 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
       form.reset();
       setProductVariants([]);
     },
-    onError: (error: any) => {
+    onError: async (error: any, variables: ProductFormData) => {
+      const isVariantGuard = error?.message === "Add at least one variant before saving this product";
       toast({
-        title: "Error",
-        description: error.message || "Failed to create product",
+        title: isVariantGuard ? "Variant required" : "Failed to save product",
+        description: error.message || "Something went wrong",
         variant: "destructive",
       });
+      // Attempt draft save for server-side failures (not client-side validation)
+      if (!isVariantGuard && user?.id) {
+        try {
+          const directStock = Math.max(0, parseInt(variables.stockQuantity || "0", 10) || 0);
+          await requestSameOriginJson<any>("POST", "/api/products", {
+            name: variables.name,
+            description: variables.description,
+            price: variables.price || "0",
+            costPrice: variables.compareAtPrice || null,
+            stock: productVariants.length > 0 ? resolveProductStockFromVariants(productVariants, directStock) : directStock,
+            images: resolveProductImagesFromVariants(productVariants, variables.images || []),
+            video: variables.videoUrl || null,
+            deliveryDuration: variables.deliveryDuration || null,
+            sellerId: user.id,
+            storeId: store?.id || null,
+            isActive: false,
+            dynamicFields: variables.dynamicFields || {},
+            tags: variables.tags ? variables.tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
+          });
+          toast({
+            title: "Saved as draft",
+            description: "Product saved as an inactive draft. Activate it from your product list when ready.",
+          });
+          queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/products", "seller", user?.id] });
+        } catch {
+          // Draft save failed silently — user already has the error toast
+        }
+      }
     },
   });
 
@@ -667,13 +702,16 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
     mutationFn: async (data: ProductFormData) => {
       const normalizedCategoryId = String(data.categoryId || "").trim() || undefined;
 
+      const directStockUpd = Math.max(0, parseInt(data.stockQuantity || "0", 10) || 0);
       const updateData: any = {
         name: data.name,
         description: data.description,
         price: data.price,
         costPrice: data.compareAtPrice || null,
         categoryId: normalizedCategoryId,
-        stock: resolveProductStockFromVariants(productVariants, 0),
+        stock: productVariants.length > 0
+          ? resolveProductStockFromVariants(productVariants, directStockUpd)
+          : directStockUpd,
         images: resolveProductImagesFromVariants(productVariants, data.images || effectiveProduct?.images || []),
         video: data.videoUrl || null,
         deliveryDuration: data.deliveryDuration || null,
@@ -727,10 +765,11 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   });
 
   const onSubmit = (data: ProductFormData) => {
-    if (productVariants.length === 0) {
+    const isFoodStore = store?.storeType === "food_beverages";
+    if (productVariants.length === 0 && !isFoodStore) {
       toast({
         title: "Variant required",
-        description: "Add at least one color variant with sizes, stock, and 3-5 images.",
+        description: `Add at least one ${variantConfig.groupLabel.toLowerCase()} variant before saving.`,
         variant: "destructive",
       });
       return;
@@ -818,7 +857,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
 
   const handleUpdateVariant = async (variantData: any) => {
     try {
-      if (!product?.id || !editingVariant) return;
+      if (!editingVariant) return;
       setIsVariantSubmitting(true);
       setActiveVariantGroupId(editingVariant.id);
 
@@ -833,6 +872,39 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         variantData?.sizeStocks && typeof variantData.sizeStocks === "object"
           ? variantData.sizeStocks
           : {};
+
+      // In create mode (no product ID yet), update local state directly
+      if (!product?.id) {
+        const groupVariantIds = new Set(
+          (Array.isArray(editingVariant?.variants) && editingVariant.variants.length > 0
+            ? editingVariant.variants
+            : [editingVariant.primaryVariant || editingVariant]
+          ).map((v: any) => v?.id),
+        );
+        const updatedLocal = perSizeStock
+          ? normalizedSizes.map((size: string, idx: number) => ({
+              ...variantData,
+              size,
+              stock: Math.max(0, parseInt(String(sizeStocks[size] ?? 0), 10) || 0),
+              originalStock: Math.max(0, parseInt(String(sizeStocks[size] ?? 0), 10) || 0),
+              id: `temp-${Date.now()}-${idx}`,
+            }))
+          : [{
+              ...variantData,
+              size: normalizedSizes.join(", "),
+              originalStock: Math.max(0, Number(variantData?.stock) || 0),
+              id: editingVariant?.primaryVariant?.id || editingVariant?.id || `temp-${Date.now()}`,
+            }];
+        setProductVariants((prev) => [
+          ...prev.filter((v) => !groupVariantIds.has(v?.id)),
+          ...updatedLocal,
+        ]);
+        setShowVariantDialog(false);
+        setEditingVariant(null);
+        toast({ title: "Variant updated" });
+        return;
+      }
+
       const existingVariants = Array.isArray(editingVariant?.variants) && editingVariant.variants.length > 0
         ? editingVariant.variants
         : [editingVariant.primaryVariant || editingVariant];

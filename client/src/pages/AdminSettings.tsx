@@ -168,6 +168,7 @@ const settingsSchema = z.object({
   referralSellerThreshold: z.coerce.number().int().min(1).optional(),
   referralSellerPromoHours: z.coerce.number().int().min(1).optional(),
   suggestionsEnabled: z.boolean().optional(),
+  showRefundButton: z.boolean().optional(),
   // Sound & ringtone settings
   callerRingtone: z.string().optional(),
   receiverRingtone: z.string().optional(),
@@ -1443,6 +1444,7 @@ export default function AdminSettings() {
         referralSellerThreshold: Number((mergedData as any).referralSellerThreshold ?? 10),
         referralSellerPromoHours: Number((mergedData as any).referralSellerPromoHours ?? 24),
         suggestionsEnabled: (mergedData as any).suggestionsEnabled === true,
+        showRefundButton: (mergedData as any).showRefundButton !== false,
         callerRingtone: (mergedData as any).callerRingtone || "default",
         receiverRingtone: (mergedData as any).receiverRingtone || "default",
         notificationSound: (mergedData as any).notificationSound || "default",
@@ -1621,6 +1623,7 @@ export default function AdminSettings() {
         referralSellerThreshold: Number((settings as any).referralSellerThreshold ?? 10),
         referralSellerPromoHours: Number((settings as any).referralSellerPromoHours ?? 24),
         suggestionsEnabled: (settings as any).suggestionsEnabled === true,
+        showRefundButton: (settings as any).showRefundButton !== false,
         callerRingtone: (settings as any).callerRingtone || "default",
         receiverRingtone: (settings as any).receiverRingtone || "default",
         notificationSound: (settings as any).notificationSound || "default",
@@ -2843,6 +2846,21 @@ export default function AdminSettings() {
                         checked={form.watch("allowSellerDirectSupportMessages")}
                         onCheckedChange={(checked) => form.setValue("allowSellerDirectSupportMessages", checked)}
                         data-testid="switch-allow-seller-direct-support-messages"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="showRefundButton">Allow Refund Requests</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Show the "Request Refund via Support" button on paid orders in buyer order history. Disable to hide it platform-wide.
+                        </p>
+                      </div>
+                      <Switch
+                        id="showRefundButton"
+                        checked={form.watch("showRefundButton") !== false}
+                        onCheckedChange={(checked) => form.setValue("showRefundButton", checked)}
+                        data-testid="switch-show-refund-button"
                       />
                     </div>
 

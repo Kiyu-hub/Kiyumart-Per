@@ -11855,7 +11855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const order = await storage.getOrder(req.params.id);
       if (!order) return res.status(404).json({ error: "Order not found" });
-      const isOwner = order.userId === req.user!.id;
+      const isOwner = order.buyerId === req.user!.id;
       const isAdminOrSeller =
         ["admin", "super_admin", "seller"].includes(req.user!.role) &&
         (req.user!.role !== "seller" || order.sellerId === req.user!.id);
@@ -15791,6 +15791,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         callerRingtone: String(settings.callerRingtone || "default"),
         receiverRingtone: String(settings.receiverRingtone || "default"),
         notificationSound: String(settings.notificationSound || "default"),
+        showRefundButton: settings.showRefundButton !== false,
       });
     } catch (error: any) {
       console.warn('[ROUTES] Falling back to public platform settings response:', error?.message || error);
@@ -15808,6 +15809,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         callerRingtone: "default",
         receiverRingtone: "default",
         notificationSound: "default",
+        showRefundButton: true,
       });
     }
   });

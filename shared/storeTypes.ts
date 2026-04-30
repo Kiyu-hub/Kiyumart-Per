@@ -122,20 +122,20 @@ export const STORE_TYPE_CONFIG: Record<StoreType, {
   },
   food_beverages: {
     label: "Food & Beverages",
-    description: "Food products, drinks, and consumables",
+    description: "Food products, local dishes, drinks, and consumables",
     icon: "🍔",
     productFields: [
       {
         name: "foodType",
         label: "Food Type",
         type: "multiselect",
-        options: ["Fresh Produce", "Packaged Foods", "Beverages", "Snacks", "Frozen Foods", "Bakery", "Dairy"],
+        options: ["Cooked Meals / Local Dishes", "Street Food", "Fresh Produce", "Packaged Foods", "Beverages", "Snacks", "Frozen Foods", "Bakery / Pastry", "Dairy"],
         description: "Types of food you sell",
         required: true,
       },
       {
         name: "certifications",
-        label: "Certifications",
+        label: "Certifications (optional)",
         type: "multiselect",
         options: ["Halal", "Organic", "FDA Approved", "Kosher", "Vegan", "Gluten-Free"],
         description: "Food certifications you have",
@@ -145,9 +145,9 @@ export const STORE_TYPE_CONFIG: Record<StoreType, {
         name: "storageRequirements",
         label: "Storage Capabilities",
         type: "multiselect",
-        options: ["Room Temperature", "Refrigerated", "Frozen"],
-        description: "How you store products",
-        required: true,
+        options: ["Room Temperature", "Refrigerated", "Frozen", "Serve Fresh / Hot"],
+        description: "How you store or serve products",
+        required: false,
       },
     ],
   },
@@ -369,11 +369,11 @@ export const STORE_TYPE_PRODUCT_CONFIG: Record<StoreType, DynamicField[]> = {
     { name: "condition", label: "Condition", type: "select", options: ["Brand new", "Open box", "Refurbished"], required: true, description: "State the condition clearly." },
   ],
   food_beverages: [
-    { name: "foodType", label: "Food Type", type: "select", options: ["Packaged food", "Beverage", "Snack", "Fresh produce", "Frozen item", "Bakery"], required: true, description: "Choose the product type." },
-    { name: "netWeight", label: "Net Weight / Volume", type: "text", placeholder: "e.g. 500g, 1L", required: true, description: "State the exact pack size." },
-    { name: "ingredients", label: "Ingredients", type: "textarea", placeholder: "List the main ingredients or contents", required: true, description: "Important for buyers checking food contents." },
-    { name: "storageGuide", label: "Storage Guide", type: "select", options: ["Room temperature", "Keep refrigerated", "Keep frozen"], required: true, description: "Tell buyers how the item should be stored." },
-    { name: "expiryInfo", label: "Expiry / Best Before", type: "text", placeholder: "e.g. Best before 12 months from production", required: true, description: "Add a simple shelf-life note." },
+    { name: "foodType", label: "Food Type", type: "select", options: ["Cooked meal / Local dish", "Street food", "Packaged food", "Beverage", "Snack", "Fresh produce", "Frozen item", "Bakery", "Pastry / Dessert", "Other"], required: true, description: "Choose the product type." },
+    { name: "portionOrWeight", label: "Portion / Pack Size", type: "text", placeholder: "e.g. One plate, 500g, 1L, Pack of 2", required: false, description: "Describe the serving size or pack quantity." },
+    { name: "ingredients", label: "Ingredients / Contents", type: "textarea", placeholder: "List the main ingredients or food contents (optional for local dishes)", required: false, description: "Helps buyers know what is in the food." },
+    { name: "storageGuide", label: "Storage / Serving Guide", type: "select", options: ["Serve fresh / hot", "Room temperature", "Keep refrigerated", "Keep frozen"], required: false, description: "How should buyers store or serve this item." },
+    { name: "allergyNote", label: "Allergy / Dietary Note", type: "text", placeholder: "e.g. Contains nuts, Halal, Vegan-friendly", required: false, description: "Optional note for buyers with dietary needs." },
   ],
   beauty_cosmetics: [
     { name: "brand", label: "Brand", type: "text", placeholder: "e.g. Nivea, MAC, Cerave", required: true, description: "Brand name for the product." },
@@ -495,7 +495,7 @@ export function buildStoreTypeProductDefaults(
 
 const CLOTHING_VARIANT_OPTIONS = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "Standard", "Free size"];
 const ELECTRONICS_VARIANT_OPTIONS = ["64GB", "128GB", "256GB", "512GB", "1TB", "UK Plug", "EU Plug", "Type-C", "Lightning", "Bluetooth", "Wi-Fi"];
-const FOOD_VARIANT_OPTIONS = ["250g", "500g", "750g", "1kg", "330ml", "500ml", "1L", "Single pack", "Pack of 3", "Pack of 6"];
+const FOOD_VARIANT_OPTIONS = ["Small portion", "Medium portion", "Large portion", "Extra large", "Single serving", "Double serving", "Family size", "250g", "500g", "1kg", "330ml", "500ml", "1L", "Pack of 2", "Pack of 3", "Pack of 6", "With extras", "Without extras"];
 const BEAUTY_VARIANT_OPTIONS = ["30ml", "50ml", "100ml", "250ml", "Travel size", "Full size", "Shade 01", "Shade 02", "Shade 03"];
 const HOME_VARIANT_OPTIONS = ["Small", "Medium", "Large", "Set of 2", "Set of 4", "Queen", "King"];
 const SPORTS_VARIANT_OPTIONS = ["Small", "Medium", "Large", "Size 5", "Size 6", "Left", "Right", "Pair"];
@@ -565,22 +565,22 @@ export function getStoreTypeVariantConfig(storeType?: StoreType | null): StoreTy
       };
     case "food_beverages":
       return {
-        primaryLabel: "Flavor / Type",
-        primaryPlaceholder: "e.g. Vanilla, Spicy, Orange",
-        secondaryLabel: "Pack Size",
-        secondaryPlaceholder: "e.g. 500g, 1L, Pack of 6",
+        primaryLabel: "Flavor / Variant",
+        primaryPlaceholder: "e.g. Original, Spicy, Special, With egg",
+        secondaryLabel: "Portion / Pack Size",
+        secondaryPlaceholder: "e.g. Small, Medium, Large, 500g, 1L",
         secondaryPresetOptions: FOOD_VARIANT_OPTIONS,
-        secondaryDescription: "Add the exact pack size or quantity buyers will choose.",
-        sectionDescription: "Add each flavor or product type with its own images, then list the pack sizes buyers can choose under it.",
-        groupLabel: "Flavor / Type",
-        optionsLabel: "Pack Sizes",
-        emptyStateLabel: "No product options created yet",
-        emptyStateDescription: "Add at least one flavor or type before saving this product.",
-        addOptionCta: "Add Pack Size",
-        stockSetupDescription: "Choose how stock should work for this flavor or product type.",
-        perOptionStockDescription: "Enter the stock available for each pack size you added.",
+        secondaryDescription: "Add the portion size or pack quantity buyers will choose.",
+        sectionDescription: "Optionally add variants for different flavors or portion sizes. For simple products (single price, no options), you can skip variants and just set stock directly.",
+        groupLabel: "Flavor / Variant",
+        optionsLabel: "Portions / Sizes",
+        emptyStateLabel: "No variants added",
+        emptyStateDescription: "You can add portions or flavors as variants, or leave this empty and use the stock quantity field directly.",
+        addOptionCta: "Add Portion / Size",
+        stockSetupDescription: "Choose how stock should work for this variant.",
+        perOptionStockDescription: "Enter the stock available for each portion or size you added.",
         supportsSizeGuide: false,
-        sizeGuideLabel: "Pack Guide",
+        sizeGuideLabel: "Portion Guide",
       };
     case "beauty_cosmetics":
       return {

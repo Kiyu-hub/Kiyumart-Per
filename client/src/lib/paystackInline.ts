@@ -58,7 +58,7 @@ function cleanupPaystackFrames() {
     // Walk up to find wrapping overlay divs Paystack injects
     let node: HTMLElement | null = frame;
     for (let i = 0; i < 4; i++) {
-      const parent = node?.parentElement;
+      const parent: HTMLElement | null = node?.parentElement ?? null;
       if (!parent || parent === document.body || parent === document.documentElement) break;
       // Paystack wraps its iframe in a div with a high z-index overlay
       const style = window.getComputedStyle(parent);
@@ -297,16 +297,24 @@ export class PaystackInlineService {
 
     return new Promise<string>((resolve, reject) => {
       let completed = false;
+      let settled = false;
       activeInlinePaymentCount += 1;
       paystackPaymentInProgress = true;
 
       const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
         activeInlinePaymentCount = Math.max(0, activeInlinePaymentCount - 1);
         paystackPaymentInProgress = false;
-        // Clean up any frames the SDK left behind
+        if (safetyTimerId !== null) { window.clearTimeout(safetyTimerId); safetyTimerId = null; }
         window.setTimeout(cleanupPaystackFrames, 200);
         callback();
       };
+
+      // Safety net: if Paystack never calls callback or onClose (e.g. SDK bug), reject after 12 minutes
+      let safetyTimerId: number | null = window.setTimeout(() => {
+        finish(() => reject(new Error("Payment was cancelled before completion.")));
+      }, 12 * 60 * 1000);
 
       const handler = window.PaystackPop!.setup({
         key: config.publicKey,

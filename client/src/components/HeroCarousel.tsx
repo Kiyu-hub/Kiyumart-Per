@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Carousel,
@@ -35,6 +36,9 @@ interface PlatformSettings {
 export default function HeroCarousel() {
   const [, navigate] = useLocation();
   const { t } = useLanguage();
+  const autoplayPlugin = useRef(
+    Autoplay({ delay: 5000, stopOnInteraction: false })
+  );
 
   // Fetch platform settings to determine store mode
   const { data: platformSettings } = useQuery<PlatformSettings>({
@@ -128,13 +132,7 @@ export default function HeroCarousel() {
         align: "start",
         loop: true,
       }}
-      plugins={[
-        Autoplay({
-          delay: 5000,
-          stopOnInteraction: false,
-          stopOnMouseEnter: true,
-        }),
-      ]}
+      plugins={[autoplayPlugin.current]}
       className="w-full"
     >
       <CarouselContent>
@@ -163,7 +161,10 @@ export default function HeroCarousel() {
                       {banner.ctaLink && (
                         <Button
                           size="lg"
-                          onClick={() => navigate(banner.ctaLink || "/")}
+                          onPointerDown={() => { try { autoplayPlugin.current.stop(); } catch {} }}
+                          onPointerUp={() => { try { (autoplayPlugin.current as any).play?.(); } catch {} }}
+                          onPointerLeave={() => { try { (autoplayPlugin.current as any).play?.(); } catch {} }}
+                          onClick={(e) => { e.stopPropagation(); navigate(banner.ctaLink || "/"); }}
                           data-testid={`button-hero-cta-${banner.id}`}
                         >
                           {banner.ctaText || t("shopNow")}

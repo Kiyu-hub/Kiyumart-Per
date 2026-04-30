@@ -31,7 +31,6 @@ import {
   Bug,
   LineChart,
   HeartPulse,
-  Gift,
   Mail,
   MessagesSquare,
   Flag,
@@ -245,7 +244,6 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessagesSquare, label: "Seller Chat", id: "seller-chat" },
     { icon: Headphones, label: "Support", id: "support" },
     { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
-    { icon: Gift, label: "Referral", id: "referral" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
@@ -261,7 +259,6 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessagesSquare, label: "Rider Chat", id: "rider-chat" },
     { icon: Headphones, label: "Support", id: "support" },
     { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
-    { icon: Gift, label: "Referral", id: "referral" },
     { icon: BarChart3, label: "Earnings", id: "earnings" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
@@ -274,14 +271,12 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Headphones, label: "Support", id: "support" },
     { icon: Flag, label: "Report a Case", id: "report-case" },
     { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
-    { icon: Gift, label: "Referral", id: "referral" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
   buyer: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: ShoppingBag, label: "My Orders", id: "orders" },
     { icon: Heart, label: "Wishlist", id: "wishlist" },
-    { icon: Gift, label: "Referral", id: "referral" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic" },
     { icon: Headphones, label: "Support", id: "support" },
     { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
@@ -299,7 +294,6 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessagesSquare, label: "Staff Chat", id: "staff-chat" },
     { icon: Flag, label: "Report a Case", id: "report-case" },
     { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
-    { icon: Gift, label: "Referral", id: "referral" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
@@ -318,7 +312,7 @@ export default function DashboardSidebar({
     .replace(/[\s-]+/g, "_")
     .replace(/^superadmin$/, "super_admin") as DashboardSidebarProps["role"];
   const items = Array.isArray(menuItems[normalizedRole]) ? menuItems[normalizedRole] : [];
-  const { isExternalRiderSystemEnabled, hasResolvedSettings, isMultiVendor, allowSellerDirectSupportMessages, suggestionsEnabled, referralEnabled } = usePlatformSettings();
+  const { isExternalRiderSystemEnabled, hasResolvedSettings, isMultiVendor, allowSellerDirectSupportMessages, suggestionsEnabled } = usePlatformSettings();
   const showInternalRiderFeatures = hasResolvedSettings ? !isExternalRiderSystemEnabled : false;
 
   // Ensure we have the current user available for the avatar and user-scoped caches.
@@ -528,14 +522,6 @@ export default function DashboardSidebar({
       // Gate suggestions pages behind suggestionsEnabled platform setting.
       // Admins/super_admins always see admin-suggestions regardless.
       if (item.id === "suggestions" && !suggestionsEnabled) return false;
-
-      // Gate referral: hidden when referral is disabled.
-      // Single-store: all roles except sellers (sellers can't buy their own products)
-      // Multi-vendor: all roles can see referral
-      if (item.id === "referral") {
-        if (!referralEnabled) return false;
-        if (!isMultiVendor && normalizedRole === "seller") return false;
-      }
 
       return true;
     });

@@ -99,12 +99,18 @@ function YouMayAlsoLike({ currencySymbol }: { currencySymbol: string }) {
 }
 
 export default function SearchPage() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { currencySymbol } = useLanguage();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
 
   const searchQuery = new URLSearchParams(location.split("?")[1] || "").get("q") || "";
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      navigate("/", { replace: true });
+    }
+  }, [searchQuery, navigate]);
 
   const { data: wishlist = [] } = useQuery<WishlistItem[]>({
     queryKey: ["/api/wishlist"],

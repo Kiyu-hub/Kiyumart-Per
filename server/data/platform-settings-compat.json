@@ -9,12 +9,16 @@
   "upgradePlanASlots": 10,
   "upgradePlanBPrice": "40",
   "upgradePlanCPrice": "100",
-  "deliveryFeeCommission": 0,
+  "deliveryFeeCommission": 1,
   "referralRewardPercent": 10,
   "referralEnabled": true,
   "referralEnabledSingleStore": true,
   "referralEnabledMultiVendor": true,
   "referralCustomerThreshold": 5,
   "referralSellerThreshold": 10,
-  "referralSellerPromoHours": 24
+  "referralSellerPromoHours": 24,
+  "showRefundButton": true,
+  "callerRingtone": "default",
+  "receiverRingtone": "default",
+  "notificationSound": "default"
 }
