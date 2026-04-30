@@ -532,8 +532,6 @@ export default function CheckoutConnected() {
         ? { checkoutSessionId: data.checkoutSessionId, inline: true }
         : { orderId: data.id, inline: true };
 
-      resetPaystackGuard();
-
       const paymentData = await fetchSameOriginJson<InlinePaymentInitializeResponse>("/api/payments/initialize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -545,6 +543,7 @@ export default function CheckoutConnected() {
         throw new Error("Payment system returned incomplete payment details. Please try again.");
       }
 
+      resetPaystackGuard();
       setIsLaunchingInlinePayment(true);
       await Promise.resolve();
 

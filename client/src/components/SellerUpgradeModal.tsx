@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Loader2, Zap, Calendar, Infinity } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
-import { PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
+import { loadPaystackInlineScript, PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
 
 interface TierInfo {
   isPremiumSeller: boolean;
@@ -47,6 +47,13 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
   const { user } = useAuth();
   const { toast } = useToast();
   const [paying, setPaying] = useState<"plan_a" | "plan_b" | "plan_c" | null>(null);
+
+  // Pre-load Paystack script as soon as the modal opens so it is ready when user clicks Pay
+  useEffect(() => {
+    if (open) {
+      void loadPaystackInlineScript().catch(() => {});
+    }
+  }, [open]);
 
   const { data: tierInfo } = useQuery<TierInfo>({
     queryKey: ["/api/seller/tier-info"],

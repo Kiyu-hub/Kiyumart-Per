@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { Loader2, Tag, Store, Package, CreditCard } from "lucide-react";
-import { PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
+import { loadPaystackInlineScript, PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
 
 interface PromotionPricing {
   id: number;
@@ -101,6 +101,13 @@ export default function SellerPromotions() {
       navigate("/auth");
     }
   }, [authLoading, isAuthenticated, navigate, user?.role]);
+
+  // Pre-load Paystack script as soon as the seller lands on this page
+  useEffect(() => {
+    if (isAuthenticated && user?.role === "seller") {
+      void loadPaystackInlineScript().catch(() => {});
+    }
+  }, [isAuthenticated, user?.role]);
 
   useEffect(() => {
     if (!applicationIdFromUrl) return;
