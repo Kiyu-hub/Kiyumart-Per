@@ -16879,8 +16879,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin: Promotional ads CRUD (basic scaffolding)
   app.post('/api/admin/promotions', requireAuth, requireRole('admin', 'super_admin'), requirePermission("manage_promotions"), async (req, res) => {
     try {
-      const { type, targetId, targetIds, startAt, endAt, title, description, imageUrl, ctaText, ctaUrl, themeColor } = req.body;
+      const { type, targetId, targetIds, startAt, endAt, title, description, imageUrl, ctaText, ctaUrl, themeColor, displaySection } = req.body;
       if (!['store', 'product'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+      const safeAdSection = displaySection === "banner" ? "banner" : "homepage";
 
       // Support bulk creation for products when targetIds array is provided
       if (type === 'product' && Array.isArray(targetIds) && targetIds.length > 0) {
@@ -16910,14 +16911,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         for (const tId of uniqueTargetIds) {
-          const created = await storage.createPromotionalAd({ type, targetId: tId, startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null });
+          const created = await storage.createPromotionalAd({ type, targetId: tId, startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null, displaySection: safeAdSection });
           createdRows.push(created);
         }
         res.json(createdRows);
         return;
       }
 
-      const created = await storage.createPromotionalAd({ type, targetId: targetId || '', startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null });
+      const created = await storage.createPromotionalAd({ type, targetId: targetId || '', startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null, displaySection: safeAdSection });
       res.json(created);
     } catch (e: any) {
       res.status(400).json({ error: e.message });
@@ -17179,7 +17180,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const now = new Date();
       const endAt = calculatePromotionEndAt(now, String(application.durationType), Number(application.duration || 0));
-      const promoDisplaySection = (application as any).displaySection === "banner" ? "banner" : "homepage";
+      const bodySection = req.body?.displaySection;
+      const promoDisplaySection: "banner" | "homepage" =
+        bodySection === "banner" || bodySection === "homepage"
+          ? bodySection
+          : (application as any).displaySection === "banner" ? "banner" : "homepage";
       const bannerConfig = req.body?.bannerConfig || null;
       const createdPromotion = await storage.createPromotionalAd({
         type: application.type as "store" | "product",

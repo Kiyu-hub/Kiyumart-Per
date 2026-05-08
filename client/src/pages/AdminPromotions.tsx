@@ -193,6 +193,10 @@ export default function AdminPromotions() {
   const [ctaUrl, setCtaUrl] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
   const [uploading, setUploading] = useState(false);
+  const [adDisplaySection, setAdDisplaySection] = useState<"homepage" | "banner">("homepage");
+
+  // Per-application placement override state (admin can change before approving)
+  const [approvalSections, setApprovalSections] = useState<Record<string, "homepage" | "banner">>({});
 
   // Pricing form state
   const [pricingType, setPricingType] = useState<PromotionKind>("product");
@@ -261,8 +265,11 @@ export default function AdminPromotions() {
   });
 
   const approvePromotionApplication = useMutation({
-    mutationFn: async ({ id, bannerConfig }: { id: string; bannerConfig?: BannerConfig }) => {
-      const res = await apiRequest("POST", `/api/admin/promotion-applications/${id}/approve`, bannerConfig ? { bannerConfig } : {});
+    mutationFn: async ({ id, bannerConfig, displaySection }: { id: string; bannerConfig?: BannerConfig; displaySection?: "homepage" | "banner" }) => {
+      const body: any = {};
+      if (bannerConfig) body.bannerConfig = bannerConfig;
+      if (displaySection) body.displaySection = displaySection;
+      const res = await apiRequest("POST", `/api/admin/promotion-applications/${id}/approve`, body);
       return res.json();
     },
     onSuccess: async () => {
@@ -294,17 +301,19 @@ export default function AdminPromotions() {
   });
 
   const handleApproveClick = (app: PromotionApplicationRow) => {
-    if (app.displaySection === "banner") {
+    const section = approvalSections[app.id] ?? (app.displaySection as "homepage" | "banner" | null) ?? "homepage";
+    if (section === "banner") {
       setBannerEditorApp(app);
       setBannerEditorOpen(true);
     } else {
-      approvePromotionApplication.mutate({ id: app.id });
+      approvePromotionApplication.mutate({ id: app.id, displaySection: section });
     }
   };
 
   const handleBannerEditorSave = (config: BannerConfig) => {
     if (bannerEditorApp) {
-      approvePromotionApplication.mutate({ id: bannerEditorApp.id, bannerConfig: config });
+      const section = approvalSections[bannerEditorApp.id] ?? "banner";
+      approvePromotionApplication.mutate({ id: bannerEditorApp.id, bannerConfig: config, displaySection: section });
     }
   };
 
@@ -446,6 +455,7 @@ export default function AdminPromotions() {
       type, startAt: now.toISOString(), endAt: endAt.toISOString(),
       title: title || null, description: description || null,
       imageUrl: finalImageUrl || null, ctaText: ctaText || null, ctaUrl: finalCtaUrl || null,
+      displaySection: adDisplaySection,
     };
     if (type === "store") {
       if (!storeId) { toast({ title: "Select a store", variant: "destructive" }); return; }
@@ -699,9 +709,25 @@ export default function AdminPromotions() {
                       <p><span className="font-medium text-foreground">Seller:</span> {app.seller?.name || app.seller?.email || "Unknown"}</p>
                       {app.seller?.phone && <p><span className="font-medium text-foreground">Phone:</span> {app.seller.phone}</p>}
                       <p><span className="font-medium text-foreground">Package:</span> {formatDurationLabel(app.durationType, app.duration)} at GHS {app.unitPrice}/{app.durationType}</p>
-                      {app.displaySection && (
+                      {app.status === "payment_confirmed" && isSuperAdmin ? (
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground">Placement:</span>
+                          <Select
+                            value={approvalSections[app.id] ?? (app.displaySection as string | null) ?? "homepage"}
+                            onValueChange={(v) => setApprovalSections((prev) => ({ ...prev, [app.id]: v as "homepage" | "banner" }))}
+                          >
+                            <SelectTrigger className="h-7 w-48 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="homepage">Featured Section</SelectItem>
+                              <SelectItem value="banner">Spotlight Banner</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : app.displaySection ? (
                         <p><span className="font-medium text-foreground">Placement:</span> {app.displaySection === "banner" ? "Spotlight Banner" : "Featured Section"}</p>
-                      )}
+                      ) : null}
                       <p><span className="font-medium text-foreground">Submitted:</span> {formatDate(app.createdAt)}</p>
                       {app.paymentConfirmedAt && (
                         <p><span className="font-medium text-foreground">Paid at:</span> {formatDate(app.paymentConfirmedAt)}</p>
@@ -747,12 +773,12 @@ export default function AdminPromotions() {
                         >
                           {approvePromotionApplication.isPending ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : app.displaySection === "banner" ? (
+                          ) : (approvalSections[app.id] ?? app.displaySection) === "banner" ? (
                             <Paintbrush className="h-3.5 w-3.5" />
                           ) : (
                             <Rocket className="h-3.5 w-3.5" />
                           )}
-                          {app.displaySection === "banner" ? "Design & Activate" : "Approve & Activate"}
+                          {(approvalSections[app.id] ?? app.displaySection) === "banner" ? "Design & Activate" : "Approve & Activate"}
                         </Button>
                       )}
                       {app.status === "payment_confirmed" && !isSuperAdmin && (
@@ -1075,6 +1101,21 @@ export default function AdminPromotions() {
               <div className="space-y-1.5 md:col-span-2">
                 <label className="text-sm font-medium">CTA URL (optional)</label>
                 <Input value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} placeholder="Leave empty to auto-link to the store or product" />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="text-sm font-medium">Placement *</label>
+                <Select value={adDisplaySection} onValueChange={(v) => setAdDisplaySection(v as "homepage" | "banner")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="homepage">Featured Section (Homepage grid)</SelectItem>
+                    <SelectItem value="banner">Spotlight Banner (Top carousel)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {adDisplaySection === "homepage"
+                    ? "Appears in the featured items grid on the homepage."
+                    : "Full-width banner at the top of the carousel — maximum visibility."}
+                </p>
               </div>
             </div>
 
