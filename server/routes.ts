@@ -6351,6 +6351,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Coupon Routes ============
   app.post("/api/coupons", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
+      // Block coupon creation when seller is at/over their product limit (plan expired or free tier exhausted)
+      if (req.user!.role === "seller") {
+        const [sellerRec, couponSettings] = await Promise.all([
+          storage.getUser(req.user!.id),
+          storage.getPlatformSettings().catch(() => null),
+        ]);
+        const isPremium = (sellerRec as any)?.isPremiumSeller === true;
+        const sellerUpgradePlan: string | null = (sellerRec as any)?.sellerUpgradePlan ?? null;
+        const sellerPlanExpiresAt: Date | null = (sellerRec as any)?.sellerPlanExpiresAt ?? null;
+        const freeTierLimit = Number(couponSettings?.freeTierProductLimit ?? 20);
+        const sellerMonetizationEnabled = freeTierLimit > 0;
+        if (sellerMonetizationEnabled) {
+          const planBExpired = sellerUpgradePlan === "plan_b" && sellerPlanExpiresAt && new Date() > new Date(sellerPlanExpiresAt);
+          const hasUnlimited = isPremium || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
+          if (!hasUnlimited) {
+            const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)` }).from(products)
+              .where(and(eq(products.sellerId, req.user!.id), sql`(dynamic_fields->>'archived') IS DISTINCT FROM 'true'`));
+            const productCount = Number(cnt);
+            const sellerBonusSlots = Number((sellerRec as any)?.sellerBonusSlots ?? 0);
+            const effectiveLimit = sellerUpgradePlan === "plan_a" ? freeTierLimit + sellerBonusSlots : freeTierLimit;
+            if (productCount >= effectiveLimit) {
+              return res.status(403).json({
+                error: planBExpired
+                  ? "Your Plan B subscription has expired. Renew to continue creating coupons."
+                  : "You have reached your free-tier product limit. Upgrade your plan to create coupons.",
+                code: "PLAN_RESTRICTED",
+              });
+            }
+          }
+        }
+      }
+
       const { code, discountType, discountValue, minimumPurchase, usageLimit, expiryDate, isActive } = req.body;
       
       if (!code || !discountType || !discountValue) {

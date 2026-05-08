@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import ThemeToggle from "@/components/ThemeToggle";
-import { ShieldAlert, Menu, X } from "lucide-react";
+import { AlertTriangle, RefreshCw, ShieldAlert, Menu, X } from "lucide-react";
 
 interface User {
   id: string;
@@ -186,6 +186,24 @@ export default function DashboardLayout({
   // CRITICAL: Enforce profile completion for sellers
   // Hook is always called (React Hooks Rules), but internally exempts /seller/settings
   useSellerProfileGuard(role === "seller" ? location : undefined);
+
+  const { data: sellerTierInfo } = useQuery<any>({
+    queryKey: ["/api/seller/tier-info"],
+    enabled: normalizedRole === "seller",
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const sellerRestrictionKind = useMemo(() => {
+    if (normalizedRole !== "seller" || !sellerTierInfo) return null;
+    const { sellerMonetizationEnabled, planBExpired, productCount, effectiveLimit } = sellerTierInfo as any;
+    if (!sellerMonetizationEnabled) return null;
+    const atLimit = effectiveLimit > 0 && productCount >= effectiveLimit;
+    if (planBExpired && atLimit) return "expired_at_limit" as const;
+    if (atLimit) return "free_tier_exhausted" as const;
+    if (planBExpired) return "expired_warning" as const;
+    return null;
+  }, [normalizedRole, sellerTierInfo]);
 
   // Normalize role variants (some tokens may use `superadmin` without underscore)
   const normalizedRole = (role as string) === "superadmin" ? "super_admin" : role;
@@ -386,7 +404,60 @@ export default function DashboardLayout({
             <BackButton fallbackRoute={fallbackRoute} />
           </div>
         )}
-        
+
+        {/* Seller plan restriction / expiry banners — shown on every seller page */}
+        {sellerRestrictionKind === "expired_at_limit" && (
+          <div className="flex items-center gap-3 border-b border-red-300 bg-red-50 dark:bg-red-950/40 dark:border-red-700/50 px-4 py-2.5">
+            <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
+            <p className="flex-1 text-sm text-red-800 dark:text-red-300 font-medium">
+              {sellerTierInfo?.planBExpired
+                ? "Plan B expired — product limit restored. Renew to restore unlimited listings and coupon creation."
+                : "Free-tier product limit reached. Upgrade your plan to add more products and create coupons."}
+            </p>
+            <Button
+              size="sm"
+              className="shrink-0 h-7 gap-1.5 bg-red-600 hover:bg-red-700 text-white border-0 text-xs"
+              onClick={() => setLocation("/seller/products")}
+            >
+              <RefreshCw className="h-3 w-3" />
+              {sellerTierInfo?.planBExpired ? "Renew" : "Upgrade"}
+            </Button>
+          </div>
+        )}
+
+        {sellerRestrictionKind === "free_tier_exhausted" && (
+          <div className="flex items-center gap-3 border-b border-red-300 bg-red-50 dark:bg-red-950/40 dark:border-red-700/50 px-4 py-2.5">
+            <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
+            <p className="flex-1 text-sm text-red-800 dark:text-red-300 font-medium">
+              Free-tier product limit reached ({sellerTierInfo?.productCount}/{sellerTierInfo?.freeTierLimit}). Upgrade to add more products and create coupons.
+            </p>
+            <Button
+              size="sm"
+              className="shrink-0 h-7 gap-1.5 bg-red-600 hover:bg-red-700 text-white border-0 text-xs"
+              onClick={() => setLocation("/seller/products")}
+            >
+              <RefreshCw className="h-3 w-3" /> Upgrade
+            </Button>
+          </div>
+        )}
+
+        {sellerRestrictionKind === "expired_warning" && (
+          <div className="flex items-center gap-3 border-b border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-700/50 px-4 py-2.5">
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <p className="flex-1 text-sm text-amber-800 dark:text-amber-400">
+              Plan B expired — you can still add products up to the free-tier limit ({sellerTierInfo?.productCount}/{sellerTierInfo?.freeTierLimit} used). Renew to keep unlimited access.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 h-7 gap-1.5 text-xs border-amber-400 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+              onClick={() => setLocation("/seller/products")}
+            >
+              <RefreshCw className="h-3 w-3" /> Renew
+            </Button>
+          </div>
+        )}
+
         <main className="flex-1 overflow-y-auto" data-route-scroll-container>
           {isInactiveSellerOrRider ? (
             <div className="space-y-6 p-6 md:p-8">
