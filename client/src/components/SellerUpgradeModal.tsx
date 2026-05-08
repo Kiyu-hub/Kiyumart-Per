@@ -30,6 +30,7 @@ interface SellerUpgradeModalProps {
   open: boolean;
   onClose: () => void;
   onUpgraded?: () => void;
+  isRenewal?: boolean;
 }
 
 interface PlanCard {
@@ -44,7 +45,7 @@ interface PlanCard {
   highlight?: boolean;
 }
 
-export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeModalProps) {
+export function SellerUpgradeModal({ open, onClose, onUpgraded, isRenewal = false }: SellerUpgradeModalProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [paying, setPaying] = useState<"plan_a" | "plan_b" | "plan_c" | null>(null);
@@ -128,9 +129,12 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
         plan_b: "Plan B",
         plan_c: "Plan C",
       };
+      const isRenewedPlan = isRenewal && plan === "plan_b";
       toast({
-        title: `${planLabels[plan]} Payment Successful`,
-        description: "Your plan has been activated. You can now add more products.",
+        title: isRenewedPlan ? "Plan B Renewed" : `${planLabels[plan]} Payment Successful`,
+        description: isRenewedPlan
+          ? "Your Plan B subscription has been renewed for another 30 days. You can now add unlimited products again."
+          : "Your plan has been activated. You can now add more products.",
         duration: 7000,
       });
       onUpgraded?.();
@@ -206,11 +210,11 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
     <Dialog open={open && !hideForPayment} onOpenChange={(v) => { if (!v && paying === null) onClose(); }}>
       <DialogContent className="w-full max-w-3xl sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Upgrade Your Listing Plan</DialogTitle>
+          <DialogTitle>{isRenewal ? "Renew Your Plan" : "Upgrade Your Listing Plan"}</DialogTitle>
           <DialogDescription>
-            You've reached your current product listing limit
-            {tierInfo ? ` (${tierInfo.productCount}/${tierInfo.effectiveLimit > 0 ? tierInfo.effectiveLimit : "∞"})` : ""}.
-            Choose a plan below to continue adding products.
+            {isRenewal
+              ? `Your Plan B subscription has expired. Renew Plan B to restore unlimited listings, or upgrade to Plan C for permanent access.${tierInfo ? ` You currently have ${tierInfo.productCount} products listed (free-tier limit: ${tierInfo.freeTierLimit > 0 ? tierInfo.freeTierLimit : "∞"}).` : ""}`
+              : `You've reached your current product listing limit${tierInfo ? ` (${tierInfo.productCount}/${tierInfo.effectiveLimit > 0 ? tierInfo.effectiveLimit : "∞"})` : ""}. Choose a plan below to continue adding products.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -225,14 +229,25 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
           {plans.map((p) => {
             const isCurrentPlan = currentPlan === p.plan && (p.plan !== "plan_b" || !planBExpired);
             const isPaying = paying === p.plan;
+            const isExpiredPlan = p.plan === "plan_b" && planBExpired;
+            const isRenewalTarget = isRenewal && p.plan === "plan_b";
             return (
               <div
                 key={p.plan}
                 className={`relative flex flex-col rounded-xl border p-4 gap-3 ${
-                  p.highlight ? "border-primary ring-2 ring-primary/20" : "border-border"
+                  isRenewalTarget
+                    ? "border-red-400 ring-2 ring-red-400/30"
+                    : p.highlight
+                    ? "border-primary ring-2 ring-primary/20"
+                    : "border-border"
                 } ${isCurrentPlan ? "opacity-60" : ""}`}
               >
-                {p.highlight && (
+                {isRenewalTarget && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-red-500 px-3 py-0.5 text-xs font-semibold text-white">
+                    Renewal Required
+                  </span>
+                )}
+                {!isRenewalTarget && p.highlight && (
                   <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-xs font-semibold text-primary-foreground">
                     Most Popular
                   </span>
@@ -240,7 +255,12 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
                 <div className="flex items-center gap-2">
                   {p.icon}
                   <span className="font-semibold text-foreground">{p.title}</span>
-                  <Badge variant={p.badgeVariant} className="ml-auto text-xs">{p.badge}</Badge>
+                  <Badge
+                    variant={isExpiredPlan ? "destructive" : p.badgeVariant}
+                    className="ml-auto text-xs"
+                  >
+                    {isExpiredPlan ? "Expired" : p.badge}
+                  </Badge>
                 </div>
                 <p className="text-lg font-bold text-foreground">{p.priceLabel}</p>
                 <ul className="space-y-1.5 flex-1">
@@ -252,8 +272,8 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
                   ))}
                 </ul>
                 <Button
-                  className="w-full mt-2"
-                  variant={p.highlight ? "default" : "outline"}
+                  className={`w-full mt-2 ${isRenewalTarget ? "bg-red-600 hover:bg-red-700 text-white border-0" : ""}`}
+                  variant={isRenewalTarget ? "default" : p.highlight ? "default" : "outline"}
                   disabled={isPaying || (paying !== null && !isPaying) || isCurrentPlan}
                   onClick={() => handlePay(p.plan)}
                 >
@@ -261,6 +281,8 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : isCurrentPlan ? (
                     "Current Plan"
+                  ) : isExpiredPlan ? (
+                    `Renew — GHS ${p.price.toFixed(2)}`
                   ) : (
                     `Pay GHS ${p.price.toFixed(2)}`
                   )}

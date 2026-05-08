@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, Package, Edit, Trash2, Plus, Eye, AlertCircle, RotateCcw, X } from "lucide-react";
+import { Loader2, Search, Package, Edit, Trash2, Plus, Eye, AlertCircle, AlertTriangle, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
@@ -2573,7 +2573,15 @@ export default function SellerProducts() {
     retryDelay: 1000,
   });
 
-  const { data: tierInfo } = useQuery<{ effectiveLimit: number; productCount: number }>({
+  const { data: tierInfo } = useQuery<{
+    effectiveLimit: number;
+    productCount: number;
+    planBExpired: boolean;
+    sellerUpgradePlan: string | null;
+    sellerPlanExpiresAt: string | null;
+    freeTierLimit: number;
+    sellerMonetizationEnabled: boolean;
+  }>({
     queryKey: ["/api/seller/tier-info"],
     enabled: isAuthenticated && user?.role === "seller",
     staleTime: 0,
@@ -2584,6 +2592,9 @@ export default function SellerProducts() {
   // Override the gate when we just paid — don't block the seller until the DB actually
   // confirms the new limit. Clear the override once tier-info reflects the improvement.
   const atProductLimit = !justPurchasedPlan && tierInfo && tierInfo.effectiveLimit > 0 && tierInfo.productCount >= tierInfo.effectiveLimit;
+  // Plan-b expired but product count hasn't yet hit the free-tier floor — show warning
+  const planBExpiredUnderLimit = !justPurchasedPlan && !!tierInfo?.planBExpired && !atProductLimit;
+  const isRenewal = !!tierInfo?.planBExpired;
 
   useEffect(() => {
     if (!justPurchasedPlan || !tierInfo) return;
@@ -2627,23 +2638,72 @@ export default function SellerProducts() {
   return (
     <DashboardLayout role="seller">
       <div className="p-8">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-3xl font-bold text-foreground" data-testid="heading-products">My Products</h1>
             <p className="text-muted-foreground mt-1">Manage your product catalog</p>
           </div>
           {atProductLimit ? (
-            <Button onClick={() => setUpgradeModalOpen(true)} className="gap-2 bg-amber-500 hover:bg-amber-600 text-white">
-              <Plus className="h-4 w-4" /> Add Product (Upgrade Required)
+            <Button
+              onClick={() => setUpgradeModalOpen(true)}
+              className={`gap-2 text-white ${isRenewal ? "bg-red-500 hover:bg-red-600" : "bg-amber-500 hover:bg-amber-600"}`}
+            >
+              <RefreshCw className="h-4 w-4" />
+              {isRenewal ? "Renew Plan to Add Products" : "Add Product (Upgrade Required)"}
             </Button>
           ) : (
             <ProductFormDialog mode="create" />
           )}
         </div>
 
+        {/* Plan expiry banners */}
+        {atProductLimit && isRenewal && (
+          <div className="mb-5 rounded-xl border border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-700/50 p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-red-800 dark:text-red-300">Plan B has expired — product limit restored</p>
+              <p className="text-sm text-red-700 dark:text-red-400 mt-0.5">
+                You've reached your free-tier limit of {tierInfo?.freeTierLimit ?? 20} products.
+                Renew Plan B to get unlimited listings again, or upgrade to Plan C for permanent access.
+              </p>
+              {tierInfo?.sellerPlanExpiresAt && (
+                <p className="text-xs text-red-600/80 dark:text-red-500 mt-1">
+                  Expired: {new Date(tierInfo.sellerPlanExpiresAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                </p>
+              )}
+            </div>
+            <Button size="sm" onClick={() => setUpgradeModalOpen(true)} className="shrink-0 bg-red-600 hover:bg-red-700 text-white border-0 gap-1.5">
+              <RefreshCw className="h-3.5 w-3.5" /> Renew
+            </Button>
+          </div>
+        )}
+
+        {planBExpiredUnderLimit && (
+          <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/50 p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-amber-800 dark:text-amber-300">Plan B expired — listing limit will apply soon</p>
+              <p className="text-sm text-amber-700 dark:text-amber-400 mt-0.5">
+                Your Plan B subscription has expired. You can still add products up to the free-tier limit of {tierInfo?.freeTierLimit ?? 20}.
+                You currently have {tierInfo?.productCount ?? 0} products listed.
+                Renew to keep unlimited access.
+              </p>
+              {tierInfo?.sellerPlanExpiresAt && (
+                <p className="text-xs text-amber-600/80 dark:text-amber-500 mt-1">
+                  Expired: {new Date(tierInfo.sellerPlanExpiresAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                </p>
+              )}
+            </div>
+            <Button size="sm" onClick={() => setUpgradeModalOpen(true)} className="shrink-0 gap-1.5" variant="outline">
+              <RefreshCw className="h-3.5 w-3.5" /> Renew
+            </Button>
+          </div>
+        )}
+
         <SellerUpgradeModal
           open={upgradeModalOpen}
           onClose={() => setUpgradeModalOpen(false)}
+          isRenewal={isRenewal}
           onUpgraded={() => {
             prevTierLimitRef.current = tierInfo?.effectiveLimit ?? null;
             setJustPurchasedPlan(true);
