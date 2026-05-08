@@ -238,6 +238,39 @@ const SIZE_DISPLAY_SYSTEMS = [
   "EU",
 ] as const;
 
+const GHANAIAN_FOOD_PRESETS: { name: string; category: string; url: string }[] = [
+  // Rice & Grains
+  { name: "Jollof Rice", category: "Rice & Grains", url: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=300&h=300&fit=crop&q=80" },
+  { name: "Waakye", category: "Rice & Grains", url: "https://images.unsplash.com/photo-1603048297172-c92544798d5a?w=300&h=300&fit=crop&q=80" },
+  { name: "Fried Rice", category: "Rice & Grains", url: "https://images.unsplash.com/photo-1567620832903-9fc6debc209f?w=300&h=300&fit=crop&q=80" },
+  { name: "Rice & Stew", category: "Rice & Grains", url: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&h=300&fit=crop&q=80" },
+  // Soups & Stews
+  { name: "Groundnut Soup", category: "Soups & Stews", url: "https://images.unsplash.com/photo-1547592180-85f173990554?w=300&h=300&fit=crop&q=80" },
+  { name: "Light Soup", category: "Soups & Stews", url: "https://images.unsplash.com/photo-1551218372-a8789b81b253?w=300&h=300&fit=crop&q=80" },
+  { name: "Kontomire Stew", category: "Soups & Stews", url: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&h=300&fit=crop&q=80" },
+  { name: "Tomato Stew", category: "Soups & Stews", url: "https://images.unsplash.com/photo-1602030638-d73d6d5e7ce4?w=300&h=300&fit=crop&q=80" },
+  { name: "Bean Stew", category: "Soups & Stews", url: "https://images.unsplash.com/photo-1481671703460-040cb8a2d909?w=300&h=300&fit=crop&q=80" },
+  // Staples
+  { name: "Fufu", category: "Staples", url: "https://images.unsplash.com/photo-1574484284002-952d92456975?w=300&h=300&fit=crop&q=80" },
+  { name: "Banku", category: "Staples", url: "https://images.unsplash.com/photo-1555939594-58329b5f9f47?w=300&h=300&fit=crop&q=80" },
+  { name: "Kenkey", category: "Staples", url: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&h=300&fit=crop&q=80&sig=kenkey" },
+  { name: "Yam", category: "Staples", url: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=300&h=300&fit=crop&q=80" },
+  // Proteins
+  { name: "Grilled Tilapia", category: "Proteins", url: "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=300&h=300&fit=crop&q=80" },
+  { name: "Grilled Chicken", category: "Proteins", url: "https://images.unsplash.com/photo-1582169296194-e4d644c48063?w=300&h=300&fit=crop&q=80" },
+  { name: "Grilled Meat / Kebab", category: "Proteins", url: "https://images.unsplash.com/photo-1576866209830-589e1bfbaa4d?w=300&h=300&fit=crop&q=80" },
+  { name: "Egg Stew", category: "Proteins", url: "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=300&h=300&fit=crop&q=80" },
+  // Snacks & Street Food
+  { name: "Kelewele (Spiced Plantain)", category: "Snacks & Street Food", url: "https://images.unsplash.com/photo-1587593810167-a84920ea0781?w=300&h=300&fit=crop&q=80" },
+  { name: "Fried Plantain", category: "Snacks & Street Food", url: "https://images.unsplash.com/photo-1528712306091-ed0763094c98?w=300&h=300&fit=crop&q=80" },
+  { name: "Puff Puff", category: "Snacks & Street Food", url: "https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=300&h=300&fit=crop&q=80" },
+  { name: "Chin Chin", category: "Snacks & Street Food", url: "https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=300&h=300&fit=crop&q=80" },
+  { name: "Bofrot / Togbei", category: "Snacks & Street Food", url: "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=300&h=300&fit=crop&q=80" },
+  // Beverages
+  { name: "Sobolo (Hibiscus)", category: "Beverages", url: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=300&h=300&fit=crop&q=80" },
+  { name: "Fresh Juice", category: "Beverages", url: "https://images.unsplash.com/photo-1494390248081-4e521a5940db?w=300&h=300&fit=crop&q=80" },
+];
+
 const createEmptySizeGuideRow = (labelSize = ""): SizeGuideRow => ({
   labelSize,
   uk: "",
@@ -323,6 +356,105 @@ const baseProductSchema = z.object({
   homepageNewArrival: z.boolean().default(false),
   dynamicFields: z.record(z.any()).optional(),
 });
+
+function FoodImageGallery({ images, onChange }: { images: string[]; onChange: (imgs: string[]) => void }) {
+  const foodCategories = Array.from(new Set(GHANAIAN_FOOD_PRESETS.map((f) => f.category)));
+  const [activeCategory, setActiveCategory] = useState<string>(foodCategories[0]);
+  const presetInView = GHANAIAN_FOOD_PRESETS.filter((f) => f.category === activeCategory);
+
+  return (
+    <Card className="p-4 space-y-4">
+      <div>
+        <p className="text-base font-semibold">Product Images</p>
+        <p className="text-sm text-muted-foreground">Pick from our Ghanaian food gallery or upload your own photos (max 8).</p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {foodCategories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setActiveCategory(cat)}
+              className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${activeCategory === cat ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:border-primary/50"}`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+          {presetInView.map((food) => {
+            const alreadyAdded = images.includes(food.url);
+            return (
+              <button
+                key={food.url}
+                type="button"
+                disabled={alreadyAdded || images.length >= 8}
+                onClick={() => { if (!alreadyAdded && images.length < 8) onChange([...images, food.url]); }}
+                title={food.name}
+                className={`relative aspect-square overflow-hidden rounded-lg border-2 transition-all ${alreadyAdded ? "border-primary opacity-70" : "border-transparent hover:border-primary/60"}`}
+              >
+                <img src={food.url} alt={food.name} className="h-full w-full object-cover" loading="lazy" />
+                <span className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5 text-[10px] text-white leading-tight truncate text-center">{food.name}</span>
+                {alreadyAdded && (
+                  <span className="absolute inset-0 flex items-center justify-center bg-primary/20">
+                    <span className="text-primary text-xl font-bold drop-shadow">✓</span>
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {images.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Selected Images ({images.length}/8)</p>
+          <div className="grid grid-cols-4 gap-2">
+            {images.map((url, idx) => (
+              <div key={idx} className="relative aspect-square overflow-hidden rounded-lg border">
+                <img src={url} alt={`Product ${idx + 1}`} className="h-full w-full object-cover" />
+                {idx === 0 && <span className="absolute top-1 left-1 rounded bg-primary px-1 py-0.5 text-[10px] font-medium text-primary-foreground">Primary</span>}
+                <button
+                  type="button"
+                  onClick={() => onChange(images.filter((_, i) => i !== idx))}
+                  className="absolute top-1 right-1 rounded-full bg-destructive p-0.5 text-destructive-foreground hover:bg-destructive/80"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {images.length < 8 && (
+              <div className="aspect-square rounded-lg border-2 border-dashed flex items-center justify-center p-1">
+                <MediaUploadInput
+                  id="food-store-extra-img"
+                  label=""
+                  value=""
+                  onChange={(url) => { if (url && images.length < 8) onChange([...images, url]); }}
+                  accept="image"
+                  placeholder="Upload"
+                  compact={true}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-lg border-2 border-dashed p-4 text-center space-y-2">
+          <p className="text-sm text-muted-foreground">No images selected yet. Pick from the gallery above or upload your own.</p>
+          <MediaUploadInput
+            id="food-store-img-upload"
+            label="Upload Image"
+            value=""
+            onChange={(url) => { if (url) onChange([url]); }}
+            accept="image"
+            placeholder="Upload image or enter URL"
+          />
+        </div>
+      )}
+    </Card>
+  );
+}
 
 function ProductFormDialog({ product, mode }: { product?: Product; mode: "create" | "edit" }) {
   const [open, setOpen] = useState(false);
@@ -1277,6 +1409,14 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                   })}
                 </div>
               </Card>
+            )}
+
+            {/* Food store: product image gallery + Ghanaian food preset picker */}
+            {store?.storeType === "food_beverages" && (
+              <FoodImageGallery
+                images={form.watch("images") || []}
+                onChange={(imgs) => form.setValue("images", imgs, { shouldValidate: true })}
+              />
             )}
 
             <FormField
@@ -2402,6 +2542,8 @@ export default function SellerProducts() {
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [justPurchasedPlan, setJustPurchasedPlan] = useState(false);
+  const prevTierLimitRef = useRef<number | null>(null);
   const highlightedProductId = useMemo(() => {
     const query = location.split("?")[1] || "";
     return new URLSearchParams(query).get("productId") || "";
@@ -2439,7 +2581,18 @@ export default function SellerProducts() {
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
-  const atProductLimit = tierInfo && tierInfo.effectiveLimit > 0 && tierInfo.productCount >= tierInfo.effectiveLimit;
+  // Override the gate when we just paid — don't block the seller until the DB actually
+  // confirms the new limit. Clear the override once tier-info reflects the improvement.
+  const atProductLimit = !justPurchasedPlan && tierInfo && tierInfo.effectiveLimit > 0 && tierInfo.productCount >= tierInfo.effectiveLimit;
+
+  useEffect(() => {
+    if (!justPurchasedPlan || !tierInfo) return;
+    const oldLimit = prevTierLimitRef.current ?? 0;
+    // 0 = unlimited; or limit increased (plan upgraded); either clears the bypass
+    if (tierInfo.effectiveLimit === 0 || tierInfo.effectiveLimit > oldLimit) {
+      setJustPurchasedPlan(false);
+    }
+  }, [tierInfo?.effectiveLimit, justPurchasedPlan]);
 
   // Use debounced search query for filtering
   const filteredProducts = useMemo(() => {
@@ -2491,7 +2644,11 @@ export default function SellerProducts() {
         <SellerUpgradeModal
           open={upgradeModalOpen}
           onClose={() => setUpgradeModalOpen(false)}
-          onUpgraded={() => setUpgradeModalOpen(false)}
+          onUpgraded={() => {
+            prevTierLimitRef.current = tierInfo?.effectiveLimit ?? null;
+            setJustPurchasedPlan(true);
+            setUpgradeModalOpen(false);
+          }}
         />
 
         <div className="mb-6">

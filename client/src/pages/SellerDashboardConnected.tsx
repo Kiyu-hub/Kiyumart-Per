@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -7,7 +7,8 @@ import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DollarSign, Package, ShoppingBag, TrendingUp, Loader2, AlertCircle, Plus, Pencil, Trash2, Tag, Truck, Star, Crown, Zap } from "lucide-react";
+import { DollarSign, Package, ShoppingBag, TrendingUp, Loader2, AlertCircle, Plus, Pencil, Trash2, Tag, Truck } from "lucide-react";
+import { Stack, CalendarCheck, Infinity as PhInfinity, Storefront, ArrowCircleUp } from "@phosphor-icons/react";
 import { PaystackInlineService } from "@/lib/paystackInline";
 import { SellerUpgradeModal } from "@/components/SellerUpgradeModal";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState, SectionLoadingState } from "@/components/ui/loading-state";
-import ReferralTracker from "@/components/ReferralTracker";
 import { useToast } from "@/hooks/use-toast";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useForm } from "react-hook-form";
@@ -162,34 +162,6 @@ const getProductRemainingStock = (product: Product) => {
   return Math.max(0, Number(product?.stock || 0));
 };
 
-function CollapsibleDashboardSection({
-  title,
-  summary,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  summary: string;
-  defaultOpen?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <Card className="border-border/70 bg-card shadow-sm">
-      <details open={defaultOpen}>
-        <summary className="cursor-pointer list-none px-6 py-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-base font-semibold">{title}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
-            </div>
-            <span className="shrink-0 text-xs font-medium text-muted-foreground">Show / Hide</span>
-          </div>
-        </summary>
-        <CardContent className="pt-0">{children}</CardContent>
-      </details>
-    </Card>
-  );
-}
 
 const SELLER_NAV_ROUTES: Record<string, string> = {
   "media-library": "/seller/media-library",
@@ -232,6 +204,9 @@ export default function SellerDashboardConnected() {
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [justUpgraded, setJustUpgraded] = useState(false);
+  const upgradePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevPlanRef = useRef<string | null | undefined>(undefined);
   const [lastGoodMetrics, setLastGoodMetrics] = useState<SellerDashboardMetricSnapshot | null>(null);
   const metricsStorageKey = user?.id ? `seller-dashboard-metrics:${user.id}` : null;
 
@@ -340,6 +315,9 @@ export default function SellerDashboardConnected() {
         break;
       case "my-wishlist":
         navigate("/wishlist");
+        break;
+      case "referral":
+        navigate("/referral");
         break;
       default: {
         const targetRoute = SELLER_NAV_ROUTES[activeItem];
@@ -478,8 +456,20 @@ export default function SellerDashboardConnected() {
   const { data: tierInfo } = useQuery<TierInfo>({
     queryKey: ["/api/seller/tier-info"],
     enabled: isAuthenticated && user?.role === "seller",
-    staleTime: 60000,
+    staleTime: 15000,
   });
+
+  // Clear justUpgraded only when tier-info actually reflects a plan change.
+  // Only watch sellerUpgradePlan — not isPremiumSeller (which may already be true
+  // for existing premium sellers, causing premature clearing).
+  useEffect(() => {
+    if (!justUpgraded || !tierInfo) return;
+    const planChanged = tierInfo.sellerUpgradePlan !== prevPlanRef.current;
+    if (planChanged) {
+      if (upgradePollRef.current) { clearInterval(upgradePollRef.current); upgradePollRef.current = null; }
+      setJustUpgraded(false);
+    }
+  }, [tierInfo?.sellerUpgradePlan, justUpgraded]);
 
   const {
     data: sellerOrdersResponse,
@@ -919,9 +909,47 @@ export default function SellerDashboardConnected() {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="border-b p-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
-            {activeItem === "coupons" ? "Coupon Management" : activeItem === "reviews" ? "Ratings & Reviews" : "Seller Dashboard"}
-          </h1>
+          <div className="flex items-center gap-2.5" data-testid="text-dashboard-title">
+            <h1 className="text-2xl font-bold">
+              {activeItem === "coupons" ? "Coupon Management" : activeItem === "reviews" ? "Ratings & Reviews" : "Seller Dashboard"}
+            </h1>
+            {tierInfo && (() => {
+              const { isPremiumSeller, sellerUpgradePlan, planBExpired, sellerMonetizationEnabled } = tierInfo as any;
+              if (isPremiumSeller || sellerUpgradePlan === "plan_c") {
+                return (
+                  <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border-amber-300 dark:border-amber-700 text-xs font-semibold flex items-center gap-1">
+                    <PhInfinity size={13} weight="bold" />
+                    Plan C — Unlimited Forever
+                  </Badge>
+                );
+              }
+              if (sellerUpgradePlan === "plan_b" && !planBExpired) {
+                return (
+                  <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border-blue-300 dark:border-blue-700 text-xs font-semibold flex items-center gap-1">
+                    <CalendarCheck size={13} weight="fill" />
+                    Plan B — Monthly Unlimited
+                  </Badge>
+                );
+              }
+              if (sellerUpgradePlan === "plan_a") {
+                return (
+                  <Badge className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200 border-green-300 dark:border-green-700 text-xs font-semibold flex items-center gap-1">
+                    <Stack size={13} weight="fill" />
+                    Plan A — Extra Slots
+                  </Badge>
+                );
+              }
+              if (sellerMonetizationEnabled) {
+                return (
+                  <Badge className="bg-muted text-muted-foreground border-border text-xs font-semibold flex items-center gap-1">
+                    <Storefront size={13} weight="duotone" />
+                    Basic Plan
+                  </Badge>
+                );
+              }
+              return null;
+            })()}
+          </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button variant="outline" onClick={() => navigate("/")} data-testid="button-shop">
@@ -1014,106 +1042,136 @@ export default function SellerDashboardConnected() {
                 })()}
 
                 {/* Seller tier / upgrade prompt */}
-                {tierInfo && (() => {
-                  const { isPremiumSeller, sellerUpgradePlan, planBExpired, sellerBonusSlots, productCount, effectiveLimit, freeTierLimit } = tierInfo;
+                {tierInfo && !justUpgraded && (() => {
+                  const { isPremiumSeller, sellerUpgradePlan, planBExpired, sellerBonusSlots, productCount, effectiveLimit, freeTierLimit, sellerMonetizationEnabled } = tierInfo as any;
+
+                  // When monetization is disabled, sellers can list freely — show nothing
+                  if (!sellerMonetizationEnabled) return null;
+
                   const hasUnlimited = isPremiumSeller || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
                   const displayLimit = effectiveLimit > 0 ? effectiveLimit : null;
+                  const remaining = displayLimit !== null ? displayLimit - productCount : null;
                   const atLimit = displayLimit !== null && productCount >= displayLimit;
-                  const nearLimit = !atLimit && displayLimit !== null && productCount >= Math.floor(displayLimit * 0.8);
+                  const nearLimit = !atLimit && remaining !== null && remaining <= 3;
 
-                  if (hasUnlimited) {
-                    const planLabel = isPremiumSeller && sellerUpgradePlan === "plan_c" ? "Plan C (Unlimited Forever)" :
-                      sellerUpgradePlan === "plan_b" ? "Plan B (Monthly Unlimited)" :
-                      isPremiumSeller ? "Premium Seller" : "";
+                  // Plan B expired — amber warning, no red
+                  if (planBExpired) {
                     return (
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-800 p-3 flex items-center gap-3">
-                        <span className="text-lg">👑</span>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-4">
+                        <div className="flex items-start gap-3">
+                          <span className="text-xl flex-shrink-0">⏰</span>
+                          <div className="flex-1">
+                            <h3 className="font-semibold mb-1 text-amber-900 dark:text-amber-100">Plan B Expired</h3>
+                            <p className="text-sm mb-3 text-amber-800 dark:text-amber-200">
+                              Your monthly unlimited plan has expired. Renew Plan B or upgrade to Plan C for permanent unlimited listings.
+                            </p>
+                            <Button size="sm" onClick={handleUpgrade} className="bg-green-600 hover:bg-green-700 text-white">Renew or Upgrade</Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Unlimited plan — quiet info strip
+                  if (hasUnlimited) {
+                    const planLabel = sellerUpgradePlan === "plan_c" ? "Plan C — Unlimited Forever" :
+                      sellerUpgradePlan === "plan_b" ? "Plan B — Monthly Unlimited" : "Unlimited";
+                    return (
+                      <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-900/10 dark:border-green-800 p-3 flex items-center gap-3">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-amber-900 dark:text-amber-100">{planLabel || "Premium Seller"}</p>
-                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                          <p className="text-sm font-medium text-green-900 dark:text-green-100">{planLabel}</p>
+                          <p className="text-xs text-green-700 dark:text-green-300">
                             Unlimited product listings.
-                            {productCount > 0 ? ` Currently listing ${productCount} product${productCount !== 1 ? "s" : ""}.` : ""}
+                            {productCount > 0 ? ` You currently have ${productCount} product${productCount !== 1 ? "s" : ""} listed.` : ""}
                             {sellerUpgradePlan === "plan_b" && tierInfo.sellerPlanExpiresAt
                               ? ` Renews ${new Date(tierInfo.sellerPlanExpiresAt).toLocaleDateString()}.`
                               : ""}
                           </p>
                         </div>
-                        <Button size="sm" variant="outline" onClick={handleUpgrade} className="gap-1.5 text-xs">
-                          <Zap className="h-3.5 w-3.5" /> Upgrade
-                        </Button>
                       </div>
                     );
                   }
 
-                  if (planBExpired) {
+                  // At limit — green banner, clear call to action
+                  if (atLimit) {
+                    const planName = sellerUpgradePlan === "plan_a" ? `Plan A (${freeTierLimit} free + ${sellerBonusSlots} bonus)` : "Basic Plan";
                     return (
-                      <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 p-4">
+                      <div className="rounded-lg border border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-800 p-4">
                         <div className="flex items-start gap-3">
-                          <span className="text-xl flex-shrink-0">⏰</span>
                           <div className="flex-1">
-                            <h3 className="font-semibold mb-1 text-red-900 dark:text-red-100">Plan B Expired</h3>
-                            <p className="text-sm mb-3 text-red-800 dark:text-red-200">
-                              Your monthly unlimited plan has expired. Renew Plan B or upgrade to Plan C for permanent unlimited listings.
+                            <h3 className="font-semibold mb-1 text-green-900 dark:text-green-100">Listing Limit Reached</h3>
+                            <p className="text-sm mb-3 text-green-800 dark:text-green-200">
+                              You have listed {productCount} of {displayLimit} products on your {planName}.
+                              Upgrade to add more products.
                             </p>
-                            <Button size="sm" onClick={handleUpgrade} className="gap-2">
-                              <Crown className="h-4 w-4" /> Renew or Upgrade
-                            </Button>
+                            <Button size="sm" onClick={handleUpgrade} className="bg-green-600 hover:bg-green-700 text-white">Upgrade Plan</Button>
                           </div>
                         </div>
                       </div>
                     );
                   }
 
-                  if (sellerUpgradePlan === "plan_a") {
-                    return (atLimit || nearLimit) ? (
-                      <div className={`rounded-lg border p-4 ${atLimit ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"}`}>
+                  // 3 or fewer remaining — amber early warning
+                  if (nearLimit && remaining !== null) {
+                    const planName = sellerUpgradePlan === "plan_a" ? `Plan A (${freeTierLimit} + ${sellerBonusSlots} bonus slots)` : "Basic Plan";
+                    return (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-4">
                         <div className="flex items-start gap-3">
-                          <span className="text-xl flex-shrink-0">{atLimit ? "🚫" : "⭐"}</span>
                           <div className="flex-1">
-                            <h3 className={`font-semibold mb-1 ${atLimit ? "text-red-900 dark:text-red-100" : "text-yellow-900 dark:text-yellow-100"}`}>
-                              {atLimit ? "Listing Limit Reached" : "Approaching Listing Limit"}
+                            <h3 className="font-semibold mb-1 text-amber-900 dark:text-amber-100">
+                              {remaining === 0 ? "No slots left" : `${remaining} listing slot${remaining !== 1 ? "s" : ""} remaining`}
                             </h3>
-                            <p className={`text-sm mb-3 ${atLimit ? "text-red-800 dark:text-red-200" : "text-yellow-800 dark:text-yellow-200"}`}>
-                              {productCount} of {displayLimit} products listed ({freeTierLimit} free + {sellerBonusSlots} bonus slots).
-                              Upgrade to Plan B or C for unlimited listings.
+                            <p className="text-sm mb-3 text-amber-800 dark:text-amber-200">
+                              You have used {productCount} of {displayLimit} product slots on your {planName}.
+                              Upgrade now to keep growing your store.
                             </p>
-                            <Button size="sm" onClick={handleUpgrade} className="gap-2">
-                              <Crown className="h-4 w-4" /> Upgrade Plan
-                            </Button>
+                            <Button size="sm" onClick={handleUpgrade} className="bg-green-600 hover:bg-green-700 text-white">Upgrade Plan</Button>
                           </div>
                         </div>
                       </div>
-                    ) : null;
+                    );
                   }
 
-                  if (!atLimit && !nearLimit) return null;
-                  return (
-                    <div className={`rounded-lg border p-4 ${atLimit ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"}`}>
-                      <div className="flex items-start gap-3">
-                        <span className="text-xl flex-shrink-0">{atLimit ? "🚫" : "⭐"}</span>
-                        <div className="flex-1">
-                          <h3 className={`font-semibold mb-1 ${atLimit ? "text-red-900 dark:text-red-100" : "text-yellow-900 dark:text-yellow-100"}`}>
-                            {atLimit ? "Listing Limit Reached" : "Approaching Your Listing Limit"}
-                          </h3>
-                          <p className={`text-sm mb-3 ${atLimit ? "text-red-800 dark:text-red-200" : "text-yellow-800 dark:text-yellow-200"}`}>
-                            {productCount} of {displayLimit} products listed.{" "}
-                            {atLimit ? "Choose an upgrade plan to continue listing products." : "You're almost at your limit."}
+                  // Basic Plan — show a subtle progress indicator so sellers always know their usage
+                  if (!sellerUpgradePlan && displayLimit !== null) {
+                    return (
+                      <div className="rounded-lg border border-border bg-muted/30 p-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground">Basic Plan</p>
+                          <p className="text-xs text-muted-foreground">
+                            {productCount} of {displayLimit} product{displayLimit !== 1 ? "s" : ""} listed.
+                            Upgrade anytime to unlock more slots or unlimited listings.
                           </p>
-                          <Button size="sm" onClick={handleUpgrade} className="gap-2">
-                            <Crown className="h-4 w-4" /> View Upgrade Plans
-                          </Button>
                         </div>
+                        <Button size="sm" variant="outline" onClick={handleUpgrade} className="text-xs shrink-0">Upgrade</Button>
                       </div>
-                    </div>
-                  );
+                    );
+                  }
+
+                  return null;
                 })()}
 
                 <SellerUpgradeModal
                   open={showUpgradeModal}
                   onClose={() => setShowUpgradeModal(false)}
                   onUpgraded={() => {
-                    queryClient.invalidateQueries({ queryKey: ["/api/seller/tier-info"] });
-                    queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+                    prevPlanRef.current = tierInfo?.sellerUpgradePlan ?? null;
+                    setJustUpgraded(true);
+                    setShowUpgradeModal(false);
+                    // SellerUpgradeModal already starts a 60s global poll after payment.
+                    // This local poll is kept as an extra safety net for the dashboard banner.
+                    // Critically: do NOT reset justUpgraded on timeout — the useEffect
+                    // handles clearing only when tier-info actually reflects the new plan.
+                    if (upgradePollRef.current) clearInterval(upgradePollRef.current);
+                    let attempts = 0;
+                    upgradePollRef.current = setInterval(() => {
+                      attempts++;
+                      queryClient.invalidateQueries({ queryKey: ["/api/seller/tier-info"] });
+                      if (attempts >= 30) { // 60s then stop polling; leave justUpgraded alone
+                        clearInterval(upgradePollRef.current!);
+                        upgradePollRef.current = null;
+                      }
+                    }, 2000);
                   }}
                 />
 
@@ -1178,105 +1236,6 @@ export default function SellerDashboardConnected() {
                       value={visibleMetrics.remainingStockUnits.toString()}
                       icon={TrendingUp}
                     />
-                  </div>
-                )}
-
-                <CollapsibleDashboardSection
-                  title="Dashboard Metrics Explained"
-                  summary="Expand to see what each number on your seller dashboard means."
-                >
-                  <div className="space-y-4">
-                    {/* Earnings explanation banner */}
-                    <div className="rounded-xl border border-primary/25 bg-primary/5 p-4 space-y-2">
-                      <p className="text-sm font-semibold text-foreground">Understanding your earnings</p>
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-xs">
-                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
-                          <p className="font-semibold text-foreground">Gross Sales</p>
-                          <p className="text-muted-foreground">Your total product revenue — product prices minus any coupon discounts. This is your top-line figure before the platform service fee.</p>
-                        </div>
-                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
-                          <p className="font-semibold text-foreground">Platform Service Fee</p>
-                          <p className="text-muted-foreground">A small % deducted from your gross sales per transaction. This is the only reduction to your earnings — delivery and processing fees are paid by buyers, not you.</p>
-                        </div>
-                        <div className="rounded-lg border border-border bg-card p-3 space-y-1">
-                          <p className="font-semibold text-foreground">Net Payout = what you receive</p>
-                          <p className="text-muted-foreground">Gross Sales minus the service fee. For bank accounts, your payout arrives automatically the moment the buyer pays. For mobile money, request a withdrawal and the transfer is processed instantly by Paystack — no manual approval needed.</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div className="rounded-xl border border-border/70 bg-card p-4">
-                        <p className="text-sm font-medium text-foreground">Gross Sales</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          The total value of your product sales from all paid orders — product prices minus any coupon discounts. Delivery fees and the checkout processing fee are paid by buyers on top of your product price and are never included in this figure. Your actual payout will be slightly less after the platform service fee is deducted (shown as <strong className="text-foreground">Net Payout</strong>).
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-border/70 bg-card p-4">
-                        <p className="text-sm font-medium text-foreground">Pending Fulfillment</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Every paid order that is still open and not yet completed. Inside the card, deliveries and pickups are shown separately so you can see what is still waiting under each fulfillment method.
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-border/70 bg-card p-4">
-                        <p className="text-sm font-medium text-foreground">Completed Fulfillment</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Paid orders that have already been fully completed and handed off to buyers. Deliveries and pickups are shown separately so you can compare finished orders by fulfillment method.
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-border/70 bg-card p-4">
-                        <p className="text-sm font-medium text-foreground">Total Orders</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          All orders placed by buyers for your products, across every status — paid, pending, processing, and completed.
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-border/70 bg-card p-4">
-                        <p className="text-sm font-medium text-foreground">Orders Requiring Action</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Paid open orders that still need your attention — packaging, preparing, or marking items ready for pickup or dispatch. These are a subset of Pending Fulfillment.
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-border/70 bg-card p-4">
-                        <p className="text-sm font-medium text-foreground">Remaining Stock</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Total stock units remaining across all your active products and their variants.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className={`grid gap-3 ${bankPayoutsAllowed ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
-                      <div className="rounded-xl border border-border/70 bg-card p-4">
-                        <p className="text-sm font-medium text-foreground">Your Net Payout</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          What you actually receive: your Gross Sales minus the platform service fee. The service fee is the only deduction from your product earnings — delivery fees and the 1.95% checkout processing fee are charged to buyers separately and never touch your payout. For <strong className="text-foreground">bank accounts</strong>, your payout arrives automatically the moment the buyer's payment is confirmed. For <strong className="text-foreground">mobile money</strong>, request a withdrawal and the Paystack transfer is processed automatically within seconds — no manual action is required from the platform.
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-border/70 bg-card p-4">
-                        <p className="text-sm font-medium text-foreground">How Payouts Work</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Your earnings are sent automatically as soon as a buyer completes payment — no manual request needed. Your net amount goes straight to your configured bank account or mobile money wallet.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </CollapsibleDashboardSection>
-
-                {publicSettings?.referralEnabled && (
-                  <div className="space-y-3">
-                    <div className="rounded-2xl border bg-primary/5 p-4 text-sm text-muted-foreground">
-                      {publicSettings?.isMultiVendor ? (
-                        <p>
-                          <span className="font-semibold text-foreground">Earn free promotion time.</span>{" "}
-                          Refer 10 new customers who make a purchase from any store on the platform and you'll earn free promotional time for your store or a product listing. Track your progress below.
-                        </p>
-                      ) : (
-                        <p>
-                          <span className="font-semibold text-foreground">Grow your customer base.</span>{" "}
-                          Share your referral link and earn rewards every time a referred customer makes their first purchase. Rewards are funded by the platform to support your growth.
-                        </p>
-                      )}
-                    </div>
-                    <ReferralTracker />
                   </div>
                 )}
 

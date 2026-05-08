@@ -1671,6 +1671,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ user: userWithoutPassword });
     } catch (error: any) {
+      const msg: string = error?.message || "";
+      const isConnectionErr =
+        msg.includes("connection terminated") ||
+        msg.includes("connection timeout") ||
+        msg.includes("connect timeout") ||
+        msg.includes("econnrefused") ||
+        msg.includes("etimedout") ||
+        msg.includes("fetch failed") ||
+        msg.includes("socket hang up") ||
+        msg.includes("terminated unexpectedly");
+      if (isConnectionErr) {
+        return res.status(503).json({ error: "Service temporarily unavailable. Please try again in a moment." });
+      }
       res.status(400).json({ error: error.message });
     }
   });
@@ -3726,9 +3739,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const plan: string = req.body?.plan || "premium_seller";
       const settings = await storage.getPlatformSettings();
-      const { decryptField } = await import("./utils/sensitiveEncrypt");
-      const rawSecret = settings?.paystackSecretKey || process.env.PAYSTACK_SECRET_KEY || "";
-      const paystackSecretKey = decryptField(rawSecret);
+      const keyPair = resolvePaystackKeyPair(settings as any);
+      const paystackSecretKey = keyPair.secretKey;
+      const paystackPublicKey = keyPair.publicKey;
       if (!paystackSecretKey) return res.status(503).json({ error: "Payment gateway not configured" });
 
       let amountGhs: number;
@@ -3783,16 +3796,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const initData = await initRes.json();
       if (!initData.status) return res.status(502).json({ error: initData.message || "Payment initialization failed" });
 
-      const rawPublicKey = settings?.paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || "";
-      const { decryptField: decryptPub } = await import("./utils/sensitiveEncrypt");
-      const publicKey = decryptPub(rawPublicKey) || rawPublicKey;
-
       res.json({
         reference,
         accessCode: initData.data.access_code,
         authorizationUrl: initData.data.authorization_url,
         amountGhs,
-        publicKey,
+        publicKey: paystackPublicKey,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ── Seller upgrade verify — client calls this after Paystack popup succeeds ──
+  app.post("/api/seller/upgrade/verify", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const { reference } = req.body;
+      if (!reference || typeof reference !== "string") {
+        return res.status(400).json({ error: "reference is required" });
+      }
+      const sellerId = req.user!.id;
+      const settings = await storage.getPlatformSettings();
+      const keyPair = resolvePaystackKeyPair(settings as any);
+      const paystackSecretKey = keyPair.secretKey;
+      if (!paystackSecretKey) return res.status(503).json({ error: "Payment gateway not configured" });
+
+      // Verify with Paystack
+      const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+        headers: { Authorization: `Bearer ${paystackSecretKey}` },
+      });
+      if (!verifyRes.ok) return res.status(502).json({ error: "Could not verify payment with Paystack" });
+      const verifyData = await verifyRes.json();
+      if (!verifyData.status || verifyData.data?.status !== "success") {
+        return res.status(402).json({ error: "Payment not successful" });
+      }
+
+      const metadata = verifyData.data?.metadata || {};
+      const upgradeType: string = metadata.upgradeType || "";
+
+      // Only process if this reference belongs to the authenticated seller
+      if (String(metadata.sellerId || "") !== sellerId) {
+        return res.status(403).json({ error: "Reference does not belong to your account" });
+      }
+
+      if (upgradeType === "seller_plan_a") {
+        const ps = await storage.getPlatformSettings().catch(() => null);
+        const addSlots = Number((ps as any)?.upgradePlanASlots ?? 10);
+        const sellerNow = await storage.getUser(sellerId);
+        const currentBonus = Number((sellerNow as any)?.sellerBonusSlots ?? 0);
+        await storage.updateUser(sellerId, { sellerUpgradePlan: "plan_a", sellerBonusSlots: currentBonus + addSlots } as any);
+      } else if (upgradeType === "seller_plan_b") {
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        await storage.updateUser(sellerId, { sellerUpgradePlan: "plan_b", sellerPlanExpiresAt: expiresAt } as any);
+      } else if (upgradeType === "seller_plan_c") {
+        await storage.updateUser(sellerId, { isPremiumSeller: true, sellerUpgradePlan: "plan_c", sellerPlanExpiresAt: null } as any);
+      } else if (upgradeType === "premium_seller") {
+        await storage.updateUser(sellerId, { isPremiumSeller: true, sellerUpgradePlan: "plan_c", sellerPlanExpiresAt: null } as any);
+      } else {
+        return res.status(400).json({ error: "Unknown upgrade type in payment metadata" });
+      }
+
+      // Return updated tier info immediately so client doesn't need to wait for polling
+      const [psNow, sellerRecord, [{ cnt }]] = await Promise.all([
+        storage.getPlatformSettings().catch(() => null),
+        storage.getUser(sellerId),
+        db.select({ cnt: sql<number>`count(*)` }).from(products).where(
+          and(eq(products.sellerId, sellerId), sql`(dynamic_fields->>'archived') IS DISTINCT FROM 'true'`)
+        ),
+      ]);
+      const isPremium = (sellerRecord as any)?.isPremiumSeller === true;
+      const sellerUpgradePlan: string | null = (sellerRecord as any)?.sellerUpgradePlan ?? null;
+      const sellerPlanExpiresAt: Date | null = (sellerRecord as any)?.sellerPlanExpiresAt ?? null;
+      const sellerBonusSlots: number = Number((sellerRecord as any)?.sellerBonusSlots ?? 0);
+      const freeTierLimit = Number(psNow?.freeTierProductLimit ?? 20);
+      const hardMax = Number(psNow?.maxProductsPerSeller || 0);
+      const sellerMonetizationEnabled = freeTierLimit > 0;
+      const planBExpired = sellerUpgradePlan === "plan_b" && sellerPlanExpiresAt && new Date() > new Date(sellerPlanExpiresAt);
+      const hasUnlimited = !sellerMonetizationEnabled || isPremium || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
+      const effectiveLimit = hasUnlimited
+        ? (hardMax > 0 ? hardMax : 0)
+        : sellerUpgradePlan === "plan_a"
+          ? freeTierLimit + sellerBonusSlots
+          : freeTierLimit;
+      res.json({
+        success: true,
+        upgradeType,
+        isPremiumSeller: isPremium,
+        sellerUpgradePlan,
+        sellerPlanExpiresAt,
+        sellerBonusSlots,
+        planBExpired: !!planBExpired,
+        productCount: Number(cnt),
+        freeTierLimit,
+        hardMax,
+        effectiveLimit,
+        sellerMonetizationEnabled,
+        upgradePlanAPrice: Number((psNow as any)?.upgradePlanAPrice ?? 15),
+        upgradePlanASlots: Number((psNow as any)?.upgradePlanASlots ?? 10),
+        upgradePlanBPrice: Number((psNow as any)?.upgradePlanBPrice ?? 40),
+        upgradePlanCPrice: Number((psNow as any)?.upgradePlanCPrice ?? 100),
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -3830,9 +3932,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const amountKobo = Math.round(totalPrice * 100);
 
       const settings = await storage.getPlatformSettings();
-      const { decryptField } = await import("./utils/sensitiveEncrypt");
-      const rawSecret = settings?.paystackSecretKey || process.env.PAYSTACK_SECRET_KEY || "";
-      const paystackSecretKey = decryptField(rawSecret);
+      const keyPair = resolvePaystackKeyPair(settings as any);
+      const paystackSecretKey = keyPair.secretKey;
+      const paystackPublicKey = keyPair.publicKey;
       if (!paystackSecretKey) return res.status(503).json({ error: "Payment gateway not configured" });
 
       // Get target name for the record
@@ -3904,17 +4006,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .set({ updatedAt: new Date() } as any)
         .where(eq(promotionApplications.id, application.id));
 
-      const rawPublicKey = settings?.paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || "";
-      const { decryptField: decryptPub } = await import("./utils/sensitiveEncrypt");
-      const publicKey = decryptPub(rawPublicKey) || rawPublicKey;
-
       res.json({
         reference,
         applicationId: application.id,
         accessCode: initData.data.access_code,
         authorizationUrl: initData.data.authorization_url,
         amountGhs: totalPrice,
-        publicKey,
+        publicKey: paystackPublicKey,
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -3939,9 +4037,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const amountKobo = Math.round(totalPrice * 100);
 
       const settings = await storage.getPlatformSettings();
-      const { decryptField } = await import("./utils/sensitiveEncrypt");
-      const rawSecret = settings?.paystackSecretKey || process.env.PAYSTACK_SECRET_KEY || "";
-      const paystackSecretKey = decryptField(rawSecret);
+      const keyPair = resolvePaystackKeyPair(settings as any);
+      const paystackSecretKey = keyPair.secretKey;
+      const paystackPublicKey = keyPair.publicKey;
       if (!paystackSecretKey) return res.status(503).json({ error: "Payment gateway not configured" });
 
       const reference = `promo-${application.id}-${Date.now()}`;
@@ -3977,18 +4075,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const initData = await initRes.json();
       if (!initData.status) return res.status(502).json({ error: initData.message || "Payment initialization failed" });
 
-      const rawPublicKey = settings?.paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || "";
-      const { decryptField: decryptPub } = await import("./utils/sensitiveEncrypt");
-      const publicKey = decryptPub(rawPublicKey) || rawPublicKey;
-
       res.json({
         reference,
         applicationId: application.id,
         accessCode: initData.data.access_code,
         authorizationUrl: initData.data.authorization_url,
         amountGhs: totalPrice,
-        publicKey,
+        publicKey: paystackPublicKey,
       });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Verify a promotion payment manually (fallback when webhook is delayed)
+  app.post("/api/seller/promotions/:applicationId/verify-payment", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const { applicationId } = req.params;
+      const { reference } = req.body;
+      if (!reference) return res.status(400).json({ error: "Payment reference is required" });
+
+      const [application] = await db.select().from(promotionApplications)
+        .where(and(eq(promotionApplications.id, applicationId), eq(promotionApplications.sellerId, req.user!.id)))
+        .limit(1);
+      if (!application) return res.status(404).json({ error: "Application not found" });
+
+      // Already confirmed — nothing to do
+      if (application.status !== "pending_payment") {
+        return res.json({ status: application.status, alreadyConfirmed: true });
+      }
+
+      const settings = await storage.getPlatformSettings();
+      const keyPair = resolvePaystackKeyPair(settings as any);
+      const paystackSecretKey = keyPair.secretKey;
+      if (!paystackSecretKey) return res.status(503).json({ error: "Payment gateway not configured" });
+
+      const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+        headers: { Authorization: `Bearer ${paystackSecretKey}` },
+      });
+      if (!verifyRes.ok) return res.status(502).json({ error: "Could not verify payment with gateway" });
+      const verifyData = await verifyRes.json();
+
+      if (!verifyData.status || verifyData.data?.status !== "success") {
+        return res.json({ status: "pending_payment", verified: false });
+      }
+
+      // Payment confirmed — update the application
+      await db.update(promotionApplications).set({
+        status: "payment_confirmed",
+        paymentConfirmed: true,
+        paymentConfirmedAt: new Date(),
+        updatedAt: new Date(),
+      } as any).where(eq(promotionApplications.id, applicationId));
+
+      // Notify admins
+      try {
+        const admins = await db.select({ id: users.id }).from(users)
+          .where(or(eq(sql`lower(cast(${users.role} as text))`, "admin"), eq(sql`lower(cast(${users.role} as text))`, "super_admin")));
+        for (const admin of admins) {
+          await storage.createNotification({
+            userId: admin.id,
+            type: "system",
+            title: "New Promotion Awaiting Approval",
+            message: `A paid promotion for "${application.targetName}" is awaiting your review and activation.`,
+            metadata: { link: "/admin/promotions" } as any,
+          });
+          io.to(admin.id).emit("notification", {
+            title: "New Promotion Awaiting Approval",
+            message: `Paid promotion for "${application.targetName}" needs your approval.`,
+            type: "default",
+          });
+        }
+      } catch { /* non-critical */ }
+
+      return res.json({ status: "payment_confirmed", verified: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete an expired or rejected promotion application (seller only)
+  app.delete("/api/seller/promotions/:applicationId", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const { applicationId } = req.params;
+      const [application] = await db.select().from(promotionApplications)
+        .where(and(eq(promotionApplications.id, applicationId), eq(promotionApplications.sellerId, req.user!.id)))
+        .limit(1);
+      if (!application) return res.status(404).json({ error: "Application not found" });
+      if (!["expired", "rejected"].includes(String(application.status))) {
+        return res.status(400).json({ error: "Only expired or rejected applications can be deleted" });
+      }
+      await db.delete(promotionApplications).where(eq(promotionApplications.id, applicationId));
+      res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -5187,7 +5365,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sellerUpgradePlan: string | null = (sellerRecord as any)?.sellerUpgradePlan ?? null;
       const sellerPlanExpiresAt: Date | null = (sellerRecord as any)?.sellerPlanExpiresAt ?? null;
       const sellerBonusSlots: number = Number((sellerRecord as any)?.sellerBonusSlots ?? 0);
-      const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)` }).from(products).where(eq(products.sellerId, req.user!.id));
+      const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)` }).from(products).where(
+        and(eq(products.sellerId, req.user!.id), sql`(dynamic_fields->>'archived') IS DISTINCT FROM 'true'`)
+      );
       const currentCount = Number(cnt);
       // Hard ceiling (applies to everyone)
       const hardMax = Number(prodSettings?.maxProductsPerSeller || 0);
@@ -5196,12 +5376,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       // Determine effective soft limit based on upgrade plan
       const freeTierLimit = Number(prodSettings?.freeTierProductLimit ?? 20);
+      const sellerMonetizationEnabled = freeTierLimit > 0;
       const planBExpired = sellerUpgradePlan === "plan_b" && sellerPlanExpiresAt && new Date() > new Date(sellerPlanExpiresAt);
-      const hasUnlimited = isPremium || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
+      const hasUnlimited = !sellerMonetizationEnabled || isPremium || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
       if (!hasUnlimited) {
-        const softLimit = sellerUpgradePlan === "plan_a" && freeTierLimit > 0
+        const softLimit = sellerUpgradePlan === "plan_a"
           ? freeTierLimit + sellerBonusSlots
-          : (freeTierLimit > 0 ? freeTierLimit : 0);
+          : freeTierLimit;
         if (softLimit > 0 && currentCount >= softLimit) {
           return res.status(403).json({
             error: `You have reached your product listing limit of ${softLimit}. Upgrade your plan for more slots or unlimited listings.`,
@@ -5672,11 +5853,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/products", async (req, res) => {
     try {
-      const { sellerId, category, isActive } = req.query;
-      
+      const { sellerId, category, isActive, search, limit } = req.query;
+      const searchTerm = typeof search === "string" ? search.trim() : "";
+      const limitNum = typeof limit === "string" && parseInt(limit) > 0 ? parseInt(limit) : undefined;
+
       // Get platform settings to check for single-store mode
       const platformSettings = await storage.getPlatformSettings();
-      
+
       // In single-store mode with a primary store set, always force product scope to that exact store.
       let finalSellerId: string | undefined = sellerId as string;
       let finalStoreId: string | undefined;
@@ -5687,19 +5870,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           finalStoreId = primaryStore.id;
         }
       }
-      
+
       const normalizedIsActive =
         isActive === "true" ? true : isActive === "false" ? false : undefined;
-      const cacheKey = JSON.stringify({
-        scope: "products",
-        sellerId: finalSellerId || null,
-        storeId: finalStoreId || null,
-        category: String(category || ""),
-        isActive: normalizedIsActive ?? null,
-      });
-      const cachedProducts = getCachedProductList(cacheKey);
-      if (cachedProducts) {
-        return res.json(cachedProducts);
+
+      // Search queries are never cached — each term is unique and caching would waste memory
+      if (!searchTerm) {
+        const cacheKey = JSON.stringify({
+          scope: "products",
+          sellerId: finalSellerId || null,
+          storeId: finalStoreId || null,
+          category: String(category || ""),
+          isActive: normalizedIsActive ?? null,
+        });
+        const cachedProducts = getCachedProductList(cacheKey);
+        if (cachedProducts) {
+          return res.json(cachedProducts);
+        }
       }
 
       const products = await storage.getProducts({
@@ -5707,6 +5894,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storeId: finalStoreId,
         category: category as string,
         isActive: normalizedIsActive,
+        search: searchTerm || undefined,
+        limit: limitNum,
       });
       const sellerScopedRequest = Boolean(finalSellerId || finalStoreId || sellerId);
       const scopedProducts = sellerScopedRequest
@@ -5720,7 +5909,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const responseProducts = shouldApplyPublicVisibilityFilter
         ? await filterPublicMarketplaceProducts(hydratedProducts)
         : hydratedProducts;
-      setCachedProductList(cacheKey, responseProducts);
+      if (!searchTerm) {
+        const cacheKey = JSON.stringify({
+          scope: "products",
+          sellerId: finalSellerId || null,
+          storeId: finalStoreId || null,
+          category: String(category || ""),
+          isActive: normalizedIsActive ?? null,
+        });
+        setCachedProductList(cacheKey, responseProducts);
+      }
       res.json(responseProducts);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -10208,6 +10406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? {
             ...createdOrders[0],
             checkoutSessionId: sessionId,
+            orderIds: createdOrders.map((o: any) => o.id),
             isMultiVendor: true,
             totalOrders: createdOrders.length,
           }
@@ -10919,10 +11118,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "orderId or checkoutSessionId is required" });
         }
 
-        const allOrders = await storage.getAllOrders();
-        const targetOrders = orderId
-          ? allOrders.filter((o: any) => o.id === orderId)
-          : allOrders.filter((o: any) => o.checkoutSessionId === checkoutSessionId);
+        let targetOrders: any[];
+        if (orderId) {
+          const single = await storage.getOrder(orderId);
+          targetOrders = single ? [single] : [];
+        } else {
+          targetOrders = await (storage as any).getOrdersByCheckoutSession(checkoutSessionId);
+        }
 
         if (targetOrders.length === 0) {
           return res.status(404).json({ error: "No matching orders found" });
@@ -11875,6 +12077,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err: any) {
       console.error("[cancel-order]", err);
       return res.status(500).json({ error: "Could not cancel order" });
+    }
+  });
+
+  // Remove (permanently delete) an unpaid order — buyer-only, only for pending/unpaid orders
+  app.delete("/api/orders/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const order = await storage.getOrder(req.params.id);
+      if (!order) return res.status(404).json({ error: "Order not found" });
+      if (order.buyerId !== req.user!.id) {
+        return res.status(403).json({ error: "You don't have permission to remove this order" });
+      }
+      const paidPaymentStatuses = ["paid", "completed"];
+      if (paidPaymentStatuses.includes(String(order.paymentStatus || "").toLowerCase())) {
+        return res.status(400).json({ error: "Paid orders cannot be removed. Contact support for a refund." });
+      }
+      const removableStatuses = ["pending", "created", "payment_pending", "payment_failed", "cancelled"];
+      if (!removableStatuses.includes(String(order.status || "").toLowerCase())) {
+        return res.status(400).json({ error: `Order in status '${order.status}' cannot be removed.` });
+      }
+      await storage.deleteOrder(req.params.id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("[delete-order]", err);
+      return res.status(500).json({ error: "Could not remove order" });
     }
   });
 
@@ -14395,6 +14621,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete a chat message — sender only; soft-deleted from both sides via socket
+  app.delete("/api/messages/:messageId", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const msg = await storage.getChatMessage(req.params.messageId);
+      if (!msg) return res.status(404).json({ error: "Message not found" });
+      if (String(msg.senderId) !== String(req.user!.id)) {
+        return res.status(403).json({ error: "You can only delete your own messages" });
+      }
+      if ((msg as any).isDeleted) {
+        return res.json({ success: true, message: msg });
+      }
+      const updated = await storage.deleteChatMessage(req.params.messageId);
+      const event = { messageId: req.params.messageId, isDeleted: true, message: "This message was deleted" };
+      io.to(String(msg.senderId)).emit("message_deleted", event);
+      io.to(String(msg.receiverId)).emit("message_deleted", event);
+      return res.json({ success: true, message: updated });
+    } catch (err: any) {
+      console.error("[delete-message]", err);
+      return res.status(500).json({ error: "Could not delete message" });
+    }
+  });
+
+  // Edit a chat message — sender only; updated text pushed to both sides via socket
+  app.patch("/api/messages/:messageId/edit", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { message: newText } = req.body;
+      if (!newText || typeof newText !== "string" || !newText.trim()) {
+        return res.status(400).json({ error: "Message text is required" });
+      }
+      const msg = await storage.getChatMessage(req.params.messageId);
+      if (!msg) return res.status(404).json({ error: "Message not found" });
+      if (String(msg.senderId) !== String(req.user!.id)) {
+        return res.status(403).json({ error: "You can only edit your own messages" });
+      }
+      if ((msg as any).isDeleted) {
+        return res.status(400).json({ error: "Cannot edit a deleted message" });
+      }
+      const updated = await storage.editChatMessage(req.params.messageId, newText.trim());
+      const event = { messageId: req.params.messageId, message: newText.trim(), isEdited: true, editedAt: new Date().toISOString() };
+      io.to(String(msg.senderId)).emit("message_edited", event);
+      io.to(String(msg.receiverId)).emit("message_edited", event);
+      return res.json({ success: true, message: updated });
+    } catch (err: any) {
+      console.error("[edit-message]", err);
+      return res.status(500).json({ error: "Could not edit message" });
+    }
+  });
+
   app.patch("/api/messages/:userId/read", requireAuth, requireRoleFeature("messages.view"), async (req: AuthRequest, res) => {
     try {
       const permission = await chatPermissionService.canInitiateChat(req.user!.id, req.params.userId);
@@ -16676,7 +16950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       : null;
 
     let derivedStatus = String(application.status || "pending_payment");
-    if (derivedStatus === "approved" && createdPromotion) {
+    if ((derivedStatus === "approved" || derivedStatus === "active") && createdPromotion) {
       const now = new Date();
       const endAt = createdPromotion.endAt ? new Date(createdPromotion.endAt) : null;
       derivedStatus = createdPromotion.isActive && (!endAt || endAt > now) ? "active" : "expired";
@@ -16869,6 +17143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const now = new Date();
       const endAt = calculatePromotionEndAt(now, String(application.durationType), Number(application.duration || 0));
       const promoDisplaySection = (application as any).displaySection === "banner" ? "banner" : "homepage";
+      const bannerConfig = req.body?.bannerConfig || null;
       const createdPromotion = await storage.createPromotionalAd({
         type: application.type as "store" | "product",
         targetId: String(application.targetId),
@@ -16882,12 +17157,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ctaUrl: null,
         themeColor: null,
         displaySection: promoDisplaySection,
-      } as any);
+        bannerConfig,
+      });
 
       const [updated] = await db
         .update(promotionApplications)
         .set({
-          status: "approved",
+          status: "active",
           approvedAt: now,
           approvedBy: req.user?.id || null,
           createdPromotionId: createdPromotion.id,
@@ -16900,17 +17176,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.createNotification({
           userId: application.sellerId,
           type: "system" as any,
-          title: "Promotion approved",
-          message: `Your ${application.type} promotion has been approved and is now scheduled to run.`,
+          title: "Promotion is now live!",
+          message: `Your ${application.type} promotion has been approved and is now active.`,
           metadata: {
             promotionApplicationId: application.id,
             promotionId: createdPromotion.id,
-            status: "approved",
+            status: "active",
           } as any,
         });
       }
 
       res.json(await buildPromotionApplicationResponse(updated));
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.patch('/api/admin/promotions/:id/banner-config', requireAuth, requireRole('super_admin'), requirePermission("manage_promotions"), async (req, res) => {
+    try {
+      const { bannerConfig } = req.body;
+      if (!bannerConfig || typeof bannerConfig !== "object") {
+        return res.status(400).json({ error: "bannerConfig object required" });
+      }
+      const updated = await storage.updatePromotionalAdBannerConfig(req.params.id, bannerConfig);
+      if (!updated) return res.status(404).json({ error: "Promotion not found" });
+      res.json(updated);
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
@@ -17466,7 +17756,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ Payment Routes (Paystack) ============
   app.post("/api/payments/initialize", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const { orderId, checkoutSessionId } = req.body;
+      const { orderId, checkoutSessionId, orderIds: requestOrderIds } = req.body;
       const forceRetry = req.body?.forceRetry === true;
       const inlineMode = req.body?.inline === true;
       const normalizePaymentStatus = (value?: string | null) => String(value || "").toLowerCase().trim();
@@ -17530,14 +17820,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let totalAmount = 0;
       
       if (isMultiVendor) {
-        // Multi-vendor: Fetch all orders in the session
-        const allOrders = await storage.getAllOrders();
-        orders = allOrders.filter((o: any) => o.checkoutSessionId === checkoutSessionId);
-        
+        // Multi-vendor: resolve orders by provided IDs first (fast path), then fall back to session query
+        if (Array.isArray(requestOrderIds) && requestOrderIds.length > 0) {
+          const fetched = await Promise.all(requestOrderIds.map((id: string) => storage.getOrder(id)));
+          orders = fetched.filter(Boolean) as any[];
+        } else {
+          orders = await (storage as any).getOrdersByCheckoutSession(checkoutSessionId);
+        }
+
         if (orders.length === 0) {
-          return res.status(404).json({ 
-            error: "No orders found for this checkout session", 
-            userMessage: "We couldn't find any orders for this checkout. Please try again." 
+          return res.status(404).json({
+            error: "No orders found for this checkout session",
+            userMessage: "We couldn't find any orders for this checkout. Please try again."
           });
         }
         
@@ -17789,13 +18083,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        // Fail fast if any seller missing subaccount
+        // Log payout config warnings but proceed — buyers should never be blocked by seller payout setup
         if (storeErrors.length > 0) {
-          return res.status(400).json({
-            error: "Payment configuration incomplete",
-            userMessage: `Some sellers are not set up for payments: ${storeErrors.join("; ")}`,
-            details: storeErrors,
-          });
+          console.warn(`[payments/initialize] Multi-vendor payout config warnings (proceeding without split): ${storeErrors.join("; ")}`);
         }
         
         if (subaccounts.length > 0) {
@@ -17813,7 +18103,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
       } else {
-        // Single-vendor: Original split logic
+        // Single-vendor: Build split config if seller payout is ready; otherwise proceed without split
         const order = orders[0];
         if (order.storeId) {
           try {
@@ -17822,74 +18112,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const commissionRate = parseFloat(settings.defaultCommissionRate?.toString() || "1");
               const sellerShare = calculateSellerShareKobo(order, commissionRate);
 
-              // Only assign as Paystack subaccount when seller uses bank account payouts
               if (store.payoutType === 'bank_account') {
-                if (settings.allowSellerBankPayouts === false) {
-                  return res.status(400).json({
-                    error: "Payment configuration incomplete",
-                    userMessage: `Store ${store.name} bank payout setup is currently disabled by platform settings.`,
-                  });
+                if (settings.allowSellerBankPayouts !== false && store.isPayoutVerified && store.paystackSubaccountId) {
+                  paymentPayload.subaccount = store.paystackSubaccountId;
+                  paymentPayload.transaction_charge = Math.max(0, paymentPayload.amount - sellerShare);
+                  paymentPayload.bearer = "account";
+                  paymentPayload.metadata.storeId = store.id;
+                  paymentPayload.metadata.storeName = store.name;
+                  paymentPayload.metadata.commissionRate = commissionRate;
+                  paymentPayload.metadata.splitEnabled = true;
+                  paymentPayload.metadata.sellerShareKobo = sellerShare;
+                } else {
+                  console.warn(`[payments/initialize] Store ${store.name} bank payout not ready — proceeding without split.`);
+                  paymentPayload.metadata.splitEnabled = false;
                 }
-                if (!store.isPayoutVerified || !store.paystackSubaccountId) {
-                  return res.status(400).json({
-                    error: "Payment configuration incomplete",
-                    userMessage: `Store ${store.name} bank payout setup is incomplete.`,
-                  });
-                }
-                paymentPayload.subaccount = store.paystackSubaccountId;
-                // Keep only the seller's merchandise share with the subaccount.
-                // Commission, processing, and delivery remain with the platform.
-                paymentPayload.transaction_charge = Math.max(0, paymentPayload.amount - sellerShare);
-                paymentPayload.bearer = "account"; // Platform bears Paystack fees
-
-                paymentPayload.metadata.storeId = store.id;
-                paymentPayload.metadata.storeName = store.name;
-                paymentPayload.metadata.commissionRate = commissionRate;
-                paymentPayload.metadata.splitEnabled = true;
-                paymentPayload.metadata.sellerShareKobo = sellerShare;
               } else if (store.payoutType === 'mobile_money') {
                 const normalizedProvider = normalizeGhanaMobileMoneyProvider(store.payoutDetails?.provider);
                 const normalizedMobileNumber = normalizeGhanaMobileMoneyNumber(store.payoutDetails?.mobileNumber);
-                if (
-                  !store.isPayoutVerified ||
-                  !normalizedMobileNumber ||
-                  !normalizedProvider ||
-                  !isValidGhanaMobileMoneyNumber(normalizedMobileNumber, normalizedProvider)
-                ) {
-                  return res.status(400).json({
-                    error: "Payment configuration incomplete",
-                    userMessage: `Store ${store.name} mobile money payout setup is incomplete.`,
-                  });
+                if (store.isPayoutVerified && normalizedMobileNumber && normalizedProvider && isValidGhanaMobileMoneyNumber(normalizedMobileNumber, normalizedProvider)) {
+                  paymentPayload.metadata.storeId = store.id;
+                  paymentPayload.metadata.storeName = store.name;
+                  paymentPayload.metadata.commissionRate = commissionRate;
+                  paymentPayload.metadata.splitEnabled = false;
+                  paymentPayload.metadata.mobilePayout = paymentPayload.metadata.mobilePayout || {};
+                  paymentPayload.metadata.mobilePayout[store.id] = {
+                    provider: normalizedProvider,
+                    mobileNumber: normalizedMobileNumber,
+                    amountKobo: sellerShare,
+                  };
+                } else {
+                  console.warn(`[payments/initialize] Store ${store.name} mobile money payout not ready — proceeding without split.`);
+                  paymentPayload.metadata.splitEnabled = false;
                 }
-                // For mobile money, include payout info for post-processing and do not set subaccount
-                paymentPayload.metadata.storeId = store.id;
-                paymentPayload.metadata.storeName = store.name;
-                paymentPayload.metadata.commissionRate = commissionRate;
-                paymentPayload.metadata.splitEnabled = false;
-                paymentPayload.metadata.mobilePayout = paymentPayload.metadata.mobilePayout || {};
-                paymentPayload.metadata.mobilePayout[store.id] = {
-                  provider: normalizedProvider,
-                  mobileNumber: normalizedMobileNumber,
-                  amountKobo: sellerShare,
-                };
               } else {
-                return res.status(400).json({
-                  error: "Payment configuration incomplete",
-                  userMessage: `Store ${store.name} has an unsupported payout method.`,
-                });
+                console.warn(`[payments/initialize] Store ${store.name} has unsupported payout type '${store.payoutType}' — proceeding without split.`);
+                paymentPayload.metadata.splitEnabled = false;
               }
             } else {
-              return res.status(400).json({
-                error: "Payment configuration incomplete",
-                userMessage: "Store configuration could not be loaded. Please try again or contact support.",
-              });
+              console.warn(`[payments/initialize] Store not found for storeId ${order.storeId} — proceeding without split.`);
+              paymentPayload.metadata.splitEnabled = false;
             }
           } catch (storeError) {
-            console.error("Could not fetch store for split payment:", storeError);
-            return res.status(500).json({
-              error: "Payment configuration error",
-              userMessage: "Could not load store configuration for payment. Please try again.",
-            });
+            console.error("[payments/initialize] Could not fetch store for split payment — proceeding without split:", storeError);
+            paymentPayload.metadata.splitEnabled = false;
           }
         }
       }
@@ -17973,64 +18238,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Reference and status logged via logSystemActivity below
         
         if (!data.status) {
-          await logSystemActivity({
-            category: "payment",
-            severity: "error",
-            title: "Paystack initialize failed",
-            message: data.message || "Paystack returned a failed initialize response.",
-            humanExplanation: "The Paystack gateway declined the initialization request.",
-            rootCause: "Paystack returned a non-success status during initialization.",
-            suggestedFix: "Verify Paystack credentials, order totals, and network connectivity.",
-            preventiveAction: "Keep Paystack keys in sync and monitor gateway health.",
-            source: "/api/payments/initialize",
-            entityType: "payment",
-            entityId: String(orderId || checkoutSessionId || ""),
-            actorId: String(req.user?.id || ""),
-            actorRole: String(req.user?.role || ""),
-            metadata: {
-              paystackStatus: data.status,
-              paystackMessage: data.message || null,
-              reference: data?.data?.reference || null,
-              orderIds: orders.map((o: any) => o.id),
-              orderNumbers: orders.map((o: any) => o.orderNumber),
-              amount: totalAmount,
-              currency: orders[0]?.currency || null,
-              inline: inlineMode,
-            },
-          });
-          return res.status(400).json({ 
+          try {
+            await logSystemActivity({
+              category: "payment",
+              severity: "error",
+              title: "Paystack initialize failed",
+              message: data.message || "Paystack returned a failed initialize response.",
+              humanExplanation: "The Paystack gateway declined the initialization request.",
+              rootCause: "Paystack returned a non-success status during initialization.",
+              suggestedFix: "Verify Paystack credentials, order totals, and network connectivity.",
+              preventiveAction: "Keep Paystack keys in sync and monitor gateway health.",
+              source: "/api/payments/initialize",
+              entityType: "payment",
+              entityId: String(orderId || checkoutSessionId || ""),
+              actorId: String(req.user?.id || ""),
+              actorRole: String(req.user?.role || ""),
+              metadata: {
+                paystackStatus: data.status,
+                paystackMessage: data.message || null,
+                reference: data?.data?.reference || null,
+                orderIds: orders.map((o: any) => o.id),
+                orderNumbers: orders.map((o: any) => o.orderNumber),
+                amount: totalAmount,
+                currency: orders[0]?.currency || null,
+                inline: inlineMode,
+              },
+            });
+          } catch {}
+          return res.status(400).json({
             error: data.message || "Payment initialization failed",
             userMessage: data.message || "Unable to initialize payment. Please try again."
           });
         }
 
         if (!data.data?.authorization_url || !data.data?.reference) {
-          await logSystemActivity({
-            category: "payment",
-            severity: "error",
-            title: "Paystack initialize returned invalid payload",
-            message: "Paystack did not return a valid authorization URL or reference.",
-            humanExplanation: "The gateway response was missing required fields for checkout.",
-            rootCause: "Paystack returned incomplete initialization data.",
-            suggestedFix: "Retry initialization and confirm Paystack API status.",
-            preventiveAction: "Monitor gateway health and validate responses.",
-            source: "/api/payments/initialize",
-            entityType: "payment",
-            entityId: String(orderId || checkoutSessionId || ""),
-            actorId: String(req.user?.id || ""),
-            actorRole: String(req.user?.role || ""),
-            metadata: {
-              paystackStatus: data.status,
-              paystackMessage: data.message || null,
-              reference: data?.data?.reference || null,
-              orderIds: orders.map((o: any) => o.id),
-              orderNumbers: orders.map((o: any) => o.orderNumber),
-              amount: totalAmount,
-              currency: orders[0]?.currency || null,
-              inline: inlineMode,
-            },
-          });
-          return res.status(502).json({ 
+          try {
+            await logSystemActivity({
+              category: "payment",
+              severity: "error",
+              title: "Paystack initialize returned invalid payload",
+              message: "Paystack did not return a valid authorization URL or reference.",
+              humanExplanation: "The gateway response was missing required fields for checkout.",
+              rootCause: "Paystack returned incomplete initialization data.",
+              suggestedFix: "Retry initialization and confirm Paystack API status.",
+              preventiveAction: "Monitor gateway health and validate responses.",
+              source: "/api/payments/initialize",
+              entityType: "payment",
+              entityId: String(orderId || checkoutSessionId || ""),
+              actorId: String(req.user?.id || ""),
+              actorRole: String(req.user?.role || ""),
+              metadata: {
+                paystackStatus: data.status,
+                paystackMessage: data.message || null,
+                reference: data?.data?.reference || null,
+                orderIds: orders.map((o: any) => o.id),
+                orderNumbers: orders.map((o: any) => o.orderNumber),
+                amount: totalAmount,
+                currency: orders[0]?.currency || null,
+                inline: inlineMode,
+              },
+            });
+          } catch {}
+          return res.status(502).json({
             error: "Invalid payment gateway response",
             userMessage: "Payment system returned invalid data. Please try again."
           });
@@ -18047,44 +18316,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await Promise.all(updatePromises);
 
         // Payment initialized — logged via logSystemActivity below
-        await logSystemActivity({
-          category: "payment",
-          severity: "info",
-          title: "Paystack initialize succeeded",
-          message: `Payment initialization created reference ${data.data.reference}.`,
-          humanExplanation: "The payment gateway accepted the initialization request and issued a reference.",
-          rootCause: "Valid Paystack credentials and order data were supplied.",
-          suggestedFix: "Proceed to Paystack inline checkout.",
-          preventiveAction: "Continue monitoring initialization success rate.",
-          source: "/api/payments/initialize",
-          entityType: "payment",
-          entityId: String(data.data.reference || ""),
-          actorId: String(req.user?.id || ""),
-          actorRole: String(req.user?.role || ""),
-          metadata: {
-            reference: data.data.reference,
-            accessCode: data.data.access_code,
-            authorizationUrl: data.data.authorization_url,
-            orderIds: orders.map((o: any) => o.id),
-            orderNumbers: orders.map((o: any) => o.orderNumber),
-            amount: totalAmount,
-            currency: orders[0]?.currency || null,
-            inline: inlineMode,
-            keySource: { secret: secretSource, public: publicSource },
-          },
-        });
+        try {
+          await logSystemActivity({
+            category: "payment",
+            severity: "info",
+            title: "Paystack initialize succeeded",
+            message: `Payment initialization created reference ${data.data.reference}.`,
+            humanExplanation: "The payment gateway accepted the initialization request and issued a reference.",
+            rootCause: "Valid Paystack credentials and order data were supplied.",
+            suggestedFix: "Proceed to Paystack inline checkout.",
+            preventiveAction: "Continue monitoring initialization success rate.",
+            source: "/api/payments/initialize",
+            entityType: "payment",
+            entityId: String(data.data.reference || ""),
+            actorId: String(req.user?.id || ""),
+            actorRole: String(req.user?.role || ""),
+            metadata: {
+              reference: data.data?.reference,
+              accessCode: data.data?.access_code,
+              authorizationUrl: data.data?.authorization_url,
+              orderIds: orders.map((o: any) => o.id),
+              orderNumbers: orders.map((o: any) => o.orderNumber),
+              amount: totalAmount,
+              currency: orders[0]?.currency || null,
+              inline: inlineMode,
+              keySource: { secret: secretSource, public: publicSource },
+            },
+          });
+        } catch {}
 
         const inlineResponse = {
-          reference: data.data.reference,
-          access_code: data.data.access_code,
-          authorization_url: data.data.authorization_url,
+          reference: data.data?.reference,
+          access_code: data.data?.access_code,
+          authorization_url: data.data?.authorization_url,
           inline: {
             publicKey: responsePublicKey,
             email: req.user!.email,
             amount: Math.round(totalAmount * 100),
             currency: orders[0].currency,
-            reference: data.data.reference,
-            accessCode: data.data.access_code,
+            reference: data.data?.reference,
+            accessCode: data.data?.access_code,
             channels: ["card", "bank_transfer", "mobile_money"],
           },
         };
@@ -18150,30 +18421,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
         
-        await logSystemActivity({
-          category: "payment",
-          severity: "error",
-          title: "Paystack initialize request failed",
-          message: fetchError?.message || "Payment gateway request failed.",
-          humanExplanation: "The platform could not reach Paystack to initialize checkout.",
-          rootCause: "Network timeout or Paystack API error during initialization.",
-          suggestedFix: "Check gateway connectivity and retry with valid credentials.",
-          preventiveAction: "Monitor gateway latency and configure retries.",
-          source: "/api/payments/initialize",
-          entityType: "payment",
-          entityId: String(orderId || checkoutSessionId || ""),
-          actorId: String(req.user?.id || ""),
-          actorRole: String(req.user?.role || ""),
-          metadata: {
-            orderIds: orders.map((o: any) => o.id),
-            orderNumbers: orders.map((o: any) => o.orderNumber),
-            amount: totalAmount,
-            currency: orders[0]?.currency || null,
-            inline: inlineMode,
-            error: fetchError?.message || null,
-          },
-        });
-        return res.status(502).json({ 
+        try {
+          await logSystemActivity({
+            category: "payment",
+            severity: "error",
+            title: "Paystack initialize request failed",
+            message: fetchError?.message || "Payment gateway request failed.",
+            humanExplanation: "The platform could not reach Paystack to initialize checkout.",
+            rootCause: "Network timeout or Paystack API error during initialization.",
+            suggestedFix: "Check gateway connectivity and retry with valid credentials.",
+            preventiveAction: "Monitor gateway latency and configure retries.",
+            source: "/api/payments/initialize",
+            entityType: "payment",
+            entityId: String(orderId || checkoutSessionId || ""),
+            actorId: String(req.user?.id || ""),
+            actorRole: String(req.user?.role || ""),
+            metadata: {
+              orderIds: orders.map((o: any) => o.id),
+              orderNumbers: orders.map((o: any) => o.orderNumber),
+              amount: totalAmount,
+              currency: orders[0]?.currency || null,
+              inline: inlineMode,
+              error: fetchError?.message || null,
+            },
+          });
+        } catch {}
+        return res.status(502).json({
           error: "Failed to connect to payment gateway",
           userMessage: "Unable to reach payment gateway. Please check your internet connection and try again."
         });
@@ -18353,8 +18626,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Resolve by checkoutSessionId when explicit IDs are not present
         if ((!Array.isArray(orderIds) || orderIds.length === 0) && checkoutSessionIdFromMeta) {
-          const allOrders = await storage.getAllOrders();
-          const sessionOrders = allOrders.filter((o: any) => o.checkoutSessionId === checkoutSessionIdFromMeta);
+          const sessionOrders = await (storage as any).getOrdersByCheckoutSession(checkoutSessionIdFromMeta);
           if (sessionOrders.length === 0) {
             console.error('[VERIFY] No orders found for checkoutSessionId:', checkoutSessionIdFromMeta);
             throw new Error("Invalid multi-vendor payment data");
@@ -18366,8 +18638,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             throw new Error("Invalid multi-vendor payment data");
           }
 
-          const allOrders = await storage.getAllOrders();
-          orders = allOrders.filter((o: any) => orderIds.includes(o.id));
+          const fetched = await Promise.all(orderIds.map((id: string) => storage.getOrder(id)));
+          orders = fetched.filter(Boolean) as any[];
           if (orders.length !== orderIds.length) {
             console.error('[VERIFY] Some orders from metadata not found', { expected: orderIds, found: orders.map((o:any)=>o.id) });
             throw new Error("Some orders not found");
@@ -18412,27 +18684,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ["completed", "paid", "success"].includes(normalizePaymentStatus(value));
 
       if (orders.every((o: any) => isCompletedPaymentStatus(o.paymentStatus))) {
-        await logSystemActivity({
-          category: "payment",
-          severity: "info",
-          title: "Paystack verification reused completed transaction",
-          message: "Payment verification reused an existing completed transaction record.",
-          humanExplanation: "The platform found a completed transaction for this reference and avoided duplicate processing.",
-          rootCause: "A prior verification or webhook already completed the transaction.",
-          suggestedFix: "No action needed unless the order state is incorrect.",
-          preventiveAction: "Continue to use idempotent verification flows.",
-          source: "/api/payments/verify",
-          entityType: "payment",
-          entityId: reference,
-          actorId: String(currentUserId || ""),
-          actorRole: currentUserId ? "buyer" : "system",
-          metadata: {
-            reference,
-            orderIds: orders.map((o: any) => o.id),
-            orderNumbers: orders.map((o: any) => o.orderNumber),
-            paymentStatus: "completed",
-          },
-        });
+        try {
+          await logSystemActivity({
+            category: "payment",
+            severity: "info",
+            title: "Paystack verification reused completed transaction",
+            message: "Payment verification reused an existing completed transaction record.",
+            humanExplanation: "The platform found a completed transaction for this reference and avoided duplicate processing.",
+            rootCause: "A prior verification or webhook already completed the transaction.",
+            suggestedFix: "No action needed unless the order state is incorrect.",
+            preventiveAction: "Continue to use idempotent verification flows.",
+            source: "/api/payments/verify",
+            entityType: "payment",
+            entityId: reference,
+            actorId: String(currentUserId || ""),
+            actorRole: currentUserId ? "buyer" : "system",
+            metadata: {
+              reference,
+              orderIds: orders.map((o: any) => o.id),
+              orderNumbers: orders.map((o: any) => o.orderNumber),
+              paymentStatus: "completed",
+            },
+          });
+        } catch {}
         return {
           transaction: await storage.getTransactionByReference(reference),
           verified: true,
@@ -18633,44 +18907,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      await logSystemActivity({
-        category: "payment",
-        severity: data.data.status === "success" ? "info" : "warning",
-        title: "Paystack verification completed",
-        message: data.data.status === "success"
-          ? "Payment verified successfully with Paystack."
-          : data.data.gateway_response || "Payment verification completed with a non-success status.",
-        humanExplanation: "The platform verified the payment reference with Paystack.",
-        rootCause: "Paystack verification responded with the latest payment status.",
-        suggestedFix: data.data.status === "success"
-          ? "Continue order fulfillment."
-          : "Review Paystack response and retry verification if needed.",
-        preventiveAction: "Monitor Paystack status codes and keep credentials valid.",
-        source: "/api/payments/verify",
-        entityType: "payment",
-        entityId: reference,
-        actorId: String(currentUserId || ""),
-        actorRole: currentUserId ? "buyer" : "system",
-        metadata: {
-          reference,
-          status: data.data.status,
-          gatewayResponse: data.data.gateway_response || null,
-          amount: Number(data.data.amount || 0) / 100,
-          currency: data.data.currency,
-          channel: data.data.channel,
-          paidAt: data.data.paid_at || null,
-          customer: {
-            id: data.data.customer?.id,
-            email: data.data.customer?.email,
-            firstName: data.data.customer?.first_name,
-            lastName: data.data.customer?.last_name,
+      try {
+        await logSystemActivity({
+          category: "payment",
+          severity: data.data.status === "success" ? "info" : "warning",
+          title: "Paystack verification completed",
+          message: data.data.status === "success"
+            ? "Payment verified successfully with Paystack."
+            : data.data.gateway_response || "Payment verification completed with a non-success status.",
+          humanExplanation: "The platform verified the payment reference with Paystack.",
+          rootCause: "Paystack verification responded with the latest payment status.",
+          suggestedFix: data.data.status === "success"
+            ? "Continue order fulfillment."
+            : "Review Paystack response and retry verification if needed.",
+          preventiveAction: "Monitor Paystack status codes and keep credentials valid.",
+          source: "/api/payments/verify",
+          entityType: "payment",
+          entityId: reference,
+          actorId: String(currentUserId || ""),
+          actorRole: currentUserId ? "buyer" : "system",
+          metadata: {
+            reference,
+            status: data.data.status,
+            gatewayResponse: data.data.gateway_response || null,
+            amount: Number(data.data.amount || 0) / 100,
+            currency: data.data.currency,
+            channel: data.data.channel,
+            paidAt: data.data.paid_at || null,
+            customer: {
+              id: data.data.customer?.id,
+              email: data.data.customer?.email,
+              firstName: data.data.customer?.first_name,
+              lastName: data.data.customer?.last_name,
+            },
+            orderIds: orders.map((o: any) => o.id),
+            orderNumbers: orders.map((o: any) => o.orderNumber),
+            isMultiVendor,
+            metadata: data.data.metadata || {},
           },
-          orderIds: orders.map((o: any) => o.id),
-          orderNumbers: orders.map((o: any) => o.orderNumber),
-          isMultiVendor,
-          metadata: data.data.metadata || {},
-        },
-      });
+        });
+      } catch {}
 
       const transaction = await storage.getTransactionByReference(reference);
 
@@ -18687,15 +18963,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       clearTimeout(timeout);
 
       if (fetchError.name === 'AbortError') {
+        try {
+          await logSystemActivity({
+            category: "payment",
+            severity: "error",
+            title: "Paystack verification timed out",
+            message: "Paystack verification request timed out.",
+            humanExplanation: "The Paystack verification call took too long to respond.",
+            rootCause: "Gateway latency or network interruption.",
+            suggestedFix: "Retry verification after a short delay.",
+            preventiveAction: "Monitor gateway latency and add retries.",
+            source: "/api/payments/verify",
+            entityType: "payment",
+            entityId: reference,
+            actorId: String(currentUserId || ""),
+            actorRole: currentUserId ? "buyer" : "system",
+            metadata: {
+              reference,
+              error: "timeout",
+            },
+          });
+        } catch {}
+        throw new Error('Payment verification timeout');
+      }
+      try {
         await logSystemActivity({
           category: "payment",
           severity: "error",
-          title: "Paystack verification timed out",
-          message: "Paystack verification request timed out.",
-          humanExplanation: "The Paystack verification call took too long to respond.",
-          rootCause: "Gateway latency or network interruption.",
-          suggestedFix: "Retry verification after a short delay.",
-          preventiveAction: "Monitor gateway latency and add retries.",
+          title: "Paystack verification failed",
+          message: fetchError?.message || "Payment verification failed.",
+          humanExplanation: "An error occurred while verifying the Paystack reference.",
+          rootCause: "Gateway or validation error during verification.",
+          suggestedFix: "Retry verification and confirm Paystack status.",
+          preventiveAction: "Maintain resilient verification retries.",
           source: "/api/payments/verify",
           entityType: "payment",
           entityId: reference,
@@ -18703,30 +19003,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           actorRole: currentUserId ? "buyer" : "system",
           metadata: {
             reference,
-            error: "timeout",
+            error: fetchError?.message || null,
           },
         });
-        throw new Error('Payment verification timeout');
-      }
-      await logSystemActivity({
-        category: "payment",
-        severity: "error",
-        title: "Paystack verification failed",
-        message: fetchError?.message || "Payment verification failed.",
-        humanExplanation: "An error occurred while verifying the Paystack reference.",
-        rootCause: "Gateway or validation error during verification.",
-        suggestedFix: "Retry verification and confirm Paystack status.",
-        preventiveAction: "Maintain resilient verification retries.",
-        source: "/api/payments/verify",
-        entityType: "payment",
-        entityId: reference,
-        actorId: String(currentUserId || ""),
-        actorRole: currentUserId ? "buyer" : "system",
-        metadata: {
-          reference,
-          error: fetchError?.message || null,
-        },
-      });
+      } catch {}
       throw fetchError;
     }
   }
@@ -19058,41 +19338,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          // Handle self-service promotion payment
+          // Handle self-service promotion payment — mark payment confirmed, require admin approval
           if (data?.metadata?.upgradeType === "seller_promotion" && data?.metadata?.applicationId) {
             try {
               const applicationId = String(data.metadata.applicationId);
               const sellerId = String(data.metadata.sellerId || "");
-              const promoType = String(data.metadata.promoType || "store");
-              const targetId = String(data.metadata.targetId || "");
-              const durationType = String(data.metadata.durationType || "day");
-              const duration = Number(data.metadata.duration || 1);
-              const totalPrice = Number(data.metadata.totalPrice || 0);
+              const targetName = String(data.metadata.targetName || data.metadata.targetId || "");
 
-              const startAt = new Date();
-              const endAt = new Date(startAt);
-              if (durationType === "hour") endAt.setHours(endAt.getHours() + duration);
-              else if (durationType === "day") endAt.setDate(endAt.getDate() + duration);
-              else if (durationType === "week") endAt.setDate(endAt.getDate() + duration * 7);
-              else if (durationType === "month") endAt.setMonth(endAt.getMonth() + duration);
-
-              // Create the promotional ad
-              const [ad] = await db.insert(promotionalAds).values({
-                type: promoType as any,
-                targetId,
-                startAt,
-                endAt,
-                isActive: true,
-                createdBy: sellerId || null,
-              }).returning();
-
-              // Activate the application
+              // Mark payment confirmed — does NOT auto-activate; superadmin must approve
               await db.update(promotionApplications).set({
-                status: "active",
+                status: "payment_confirmed",
                 paymentConfirmed: true,
                 paymentConfirmedAt: new Date(),
-                approvedAt: new Date(),
-                createdPromotionId: ad.id,
                 updatedAt: new Date(),
               } as any).where(eq(promotionApplications.id, applicationId));
 
@@ -19101,13 +19358,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 await storage.createNotification({
                   userId: sellerId,
                   type: "system",
-                  title: "Promotion Activated",
-                  message: `Your promotion for "${data.metadata.targetName || targetId}" is now live and will run until ${endAt.toLocaleDateString()}.`,
+                  title: "Payment Confirmed — Awaiting Approval",
+                  message: `Your payment for the promotion of "${targetName}" has been received. Our team will review and activate it shortly.`,
                   metadata: { upgradeType: "seller_promotion", reference, link: "/seller/promotions" } as any,
                 });
                 io.to(sellerId).emit("notification", {
-                  title: "Promotion Activated",
-                  message: `Your promotion is now live until ${endAt.toLocaleDateString()}.`,
+                  title: "Promotion Payment Confirmed",
+                  message: `Payment received for "${targetName}". Awaiting admin review.`,
                   type: "default",
                 });
                 try {
@@ -19117,14 +19374,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     const { sendEmail } = await import('./email');
                     await sendEmail({
                       to: seller.email,
-                      subject: `${pName}: Promotion Activated`,
-                      text: `Hi ${seller.name || "there"},\n\nYour promotion payment was confirmed. Your ${promoType} promotion for "${data.metadata.targetName || targetId}" is now live and will run until ${endAt.toLocaleDateString()}.\n\n— ${pName}`,
-                      html: `<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;"><h2 style="color:#10b981;">Promotion Activated</h2><p>Hi ${seller.name || "there"},</p><p>Your promotion for <strong>"${data.metadata.targetName || targetId}"</strong> is now live and will run until <strong>${endAt.toLocaleDateString()}</strong>.</p><p style="font-size:13px;color:#64748b;">— ${pName}</p></div>`,
+                      subject: `${pName}: Promotion Payment Received`,
+                      text: `Hi ${seller.name || "there"},\n\nYour payment for promoting "${targetName}" has been confirmed. Our team will review your request and activate the promotion shortly.\n\nYou can track the status at: ${pName}/seller/promotions\n\n— ${pName}`,
+                      html: `<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:560px;"><h2 style="color:#3b82f6;">Promotion Payment Confirmed</h2><p>Hi ${seller.name || "there"},</p><p>Your payment for promoting <strong>"${targetName}"</strong> has been confirmed.</p><p>Our team will review your request and activate the promotion shortly. You can track the status in your <a href="/seller/promotions">Promotions Dashboard</a>.</p><p style="font-size:13px;color:#64748b;">— ${pName}</p></div>`,
                     });
                   }
                 } catch { /* non-critical */ }
               }
-              // Notify admins
+              // Notify admins that a new promotion needs approval
               try {
                 const admins = await db.select({ id: users.id }).from(users)
                   .where(or(eq(sql`lower(cast(${users.role} as text))`, "admin"), eq(sql`lower(cast(${users.role} as text))`, "super_admin")));
@@ -19132,13 +19389,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   await storage.createNotification({
                     userId: admin.id,
                     type: "system",
-                    title: "New Paid Promotion Active",
-                    message: `A seller promotion for "${data.metadata.targetName || targetId}" is now active (self-service payment confirmed).`,
+                    title: "New Promotion Awaiting Approval",
+                    message: `A paid promotion for "${targetName}" is awaiting your review and activation.`,
                     metadata: { link: "/admin/promotions" } as any,
                   });
                   io.to(admin.id).emit("notification", {
-                    title: "New Paid Promotion Active",
-                    message: `Seller promotion for "${data.metadata.targetName || targetId}" activated via self-service payment.`,
+                    title: "New Promotion Awaiting Approval",
+                    message: `Paid promotion for "${targetName}" needs your approval.`,
                     type: "default",
                   });
                 }
@@ -19271,7 +19528,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [platformSettings, sellerRecord, [{ cnt }]] = await Promise.all([
         storage.getPlatformSettings().catch(() => null),
         storage.getUser(req.user.id),
-        db.select({ cnt: sql<number>`count(*)` }).from(products).where(eq(products.sellerId, req.user.id)),
+        // Exclude archived products — they are invisible to the seller but were being counted against the limit
+        db.select({ cnt: sql<number>`count(*)` }).from(products).where(
+          and(eq(products.sellerId, req.user.id), sql`(dynamic_fields->>'archived') IS DISTINCT FROM 'true'`)
+        ),
       ]);
       const isPremium = (sellerRecord as any)?.isPremiumSeller === true;
       const sellerUpgradePlan: string | null = (sellerRecord as any)?.sellerUpgradePlan ?? null;
@@ -19280,13 +19540,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const freeTierLimit = Number(platformSettings?.freeTierProductLimit ?? 20);
       const hardMax = Number(platformSettings?.maxProductsPerSeller || 0);
+      // monetization is active when the admin has set a free-tier cap (freeTierLimit > 0)
+      const sellerMonetizationEnabled = freeTierLimit > 0;
       const planBExpired = sellerUpgradePlan === "plan_b" && sellerPlanExpiresAt && new Date() > new Date(sellerPlanExpiresAt);
-      const hasUnlimited = isPremium || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
+      const hasUnlimited = !sellerMonetizationEnabled || isPremium || sellerUpgradePlan === "plan_c" || (sellerUpgradePlan === "plan_b" && !planBExpired);
       const effectiveLimit = hasUnlimited
         ? (hardMax > 0 ? hardMax : 0)
         : sellerUpgradePlan === "plan_a"
-          ? (freeTierLimit > 0 ? freeTierLimit + sellerBonusSlots : 0)
-          : (freeTierLimit > 0 ? freeTierLimit : 0);
+          ? freeTierLimit + sellerBonusSlots
+          : freeTierLimit;
 
       res.json({
         isPremiumSeller: isPremium,
@@ -19298,6 +19560,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         freeTierLimit,
         hardMax,
         effectiveLimit,
+        sellerMonetizationEnabled,
         upgradePlanAPrice: Number((platformSettings as any)?.upgradePlanAPrice ?? 15),
         upgradePlanASlots: Number((platformSettings as any)?.upgradePlanASlots ?? 10),
         upgradePlanBPrice: Number((platformSettings as any)?.upgradePlanBPrice ?? 40),

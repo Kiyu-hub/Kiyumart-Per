@@ -10,365 +10,272 @@ export interface InlinePaystackConfig {
   onOpen?: () => void;
 }
 
-interface PaystackCallbackResponse {
-  reference?: string;
-  trxref?: string;
-  status?: string;
-  transaction?: string;
-}
-
-interface PaystackHandler {
-  openIframe: () => void;
-}
-
-interface PaystackPopGlobal {
-  setup: (config: Record<string, unknown>) => PaystackHandler;
-}
-
-declare global {
-  interface Window {
-    PaystackPop?: PaystackPopGlobal;
-  }
-}
-
-let paystackScriptPromise: Promise<void> | null = null;
-let paystackGuardsAttached = false;
-let activeInlinePaymentCount = 0;
 let paystackPaymentInProgress = false;
-let pendingCleanupTimerId: ReturnType<typeof setTimeout> | null = null;
 
-const PAYSTACK_SCRIPT_SRC = "https://js.paystack.co/v1/inline.js";
-const PAYSTACK_LOAD_TIMEOUT_MS = 20000;
-
-function findPaystackFrames(): HTMLIFrameElement[] {
-  if (typeof document === "undefined") return [];
-  return Array.from(
-    document.querySelectorAll<HTMLIFrameElement>(
-      'iframe[src*="paystack"], iframe[src*="checkout.paystack"], iframe[name*="paystack"], iframe[title*="Paystack"]',
-    ),
-  );
-}
-
-function hasActivePaystackFrame() {
-  return findPaystackFrames().length > 0;
-}
-
-/**
- * Remove any lingering Paystack iframes from a completed/cancelled session.
- * NEVER runs while a payment is actively in progress — this prevents the
- * deferred cleanup from removing a freshly-opened payment modal.
- */
-function cleanupPaystackFrames() {
-  if (typeof document === "undefined") return;
-  // Critical guard: never remove the iframe while payment is open
-  if (paystackPaymentInProgress) return;
-
-  findPaystackFrames().forEach((frame) => {
-    // Walk up to find Paystack's wrapping overlay div and remove the whole thing
-    let node: HTMLElement | null = frame;
-    for (let i = 0; i < 5; i++) {
-      const parent: HTMLElement | null = node?.parentElement ?? null;
-      if (!parent || parent === document.body || parent === document.documentElement) break;
-      const style = window.getComputedStyle(parent);
-      if (
-        style.position === "fixed" &&
-        (parseInt(style.zIndex, 10) > 100 || Boolean(parent.style.zIndex))
-      ) {
-        parent.remove();
-        return;
-      }
-      node = parent;
-    }
-    frame.remove();
-  });
-}
-
-function scheduleDeferredCleanup(delayMs: number) {
-  // Cancel any previously scheduled cleanup before scheduling a new one
-  if (pendingCleanupTimerId !== null) {
-    clearTimeout(pendingCleanupTimerId);
-    pendingCleanupTimerId = null;
-  }
-  pendingCleanupTimerId = setTimeout(() => {
-    pendingCleanupTimerId = null;
-    cleanupPaystackFrames();
-  }, delayMs);
-}
-
-function cancelDeferredCleanup() {
-  if (pendingCleanupTimerId !== null) {
-    clearTimeout(pendingCleanupTimerId);
-    pendingCleanupTimerId = null;
-  }
-}
-
-function shouldSuppressPaystackRuntimeNoise(message: string, filename: string) {
-  const normalizedMessage = String(message || "").toLowerCase();
-  const normalizedFilename = String(filename || "").toLowerCase();
-  if (!activeInlinePaymentCount && !hasActivePaystackFrame()) return false;
-  if (normalizedFilename.includes("paystack")) return true;
-  return normalizedMessage === "script error." || normalizedMessage.includes("paystack");
-}
-
-function ensurePaystackRuntimeGuards() {
-  if (typeof window === "undefined" || paystackGuardsAttached) return;
-
-  window.addEventListener(
-    "error",
-    (event) => {
-      if (!shouldSuppressPaystackRuntimeNoise(event.message || "", event.filename || "")) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    },
-    true,
-  );
-
-  window.addEventListener(
-    "unhandledrejection",
-    (event) => {
-      const reason = event.reason;
-      const message =
-        typeof reason === "string"
-          ? reason
-          : reason instanceof Error
-            ? reason.message
-            : String(reason || "");
-      if (!shouldSuppressPaystackRuntimeNoise(message, "")) return;
-      event.preventDefault();
-    },
-    true,
-  );
-
-  paystackGuardsAttached = true;
-}
-
-function ensurePaystackPreconnect() {
-  if (typeof document === "undefined") return;
-  if (!document.querySelector('link[data-paystack-preconnect="true"]')) {
-    const link = document.createElement("link");
-    link.rel = "preconnect";
-    link.href = "https://js.paystack.co";
-    link.dataset.paystackPreconnect = "true";
-    document.head.appendChild(link);
-  }
-  if (!document.querySelector('link[data-paystack-dns-prefetch="true"]')) {
-    const link = document.createElement("link");
-    link.rel = "dns-prefetch";
-    link.href = "//js.paystack.co";
-    link.dataset.paystackDnsPrefetch = "true";
-    document.head.appendChild(link);
-  }
-}
-
-function isPaystackReady() {
-  return Boolean(window.PaystackPop?.setup);
-}
-
-function waitForPaystackReady(timeoutMs = PAYSTACK_LOAD_TIMEOUT_MS): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const start = Date.now();
-    const check = () => {
-      if (isPaystackReady()) { resolve(); return; }
-      if (Date.now() - start >= timeoutMs) {
-        reject(new Error("Paystack payment tools took too long to load."));
-        return;
-      }
-      setTimeout(check, 150);
-    };
-    check();
-  });
-}
-
-function createPaystackScript(cacheBust = false) {
-  const script = document.createElement("script");
-  script.src = cacheBust ? `${PAYSTACK_SCRIPT_SRC}?t=${Date.now()}` : PAYSTACK_SCRIPT_SRC;
-  script.async = true;
-  script.defer = true;
-  script.dataset.paystackInline = "true";
-  return script;
-}
-
+/** No-op: Paystack SDK is no longer needed. Kept for backwards-compat imports. */
 export function loadPaystackInlineScript(): Promise<void> {
-  if (typeof window === "undefined") {
-    return Promise.reject(new Error("Paystack inline payment is only available in the browser."));
-  }
-
-  ensurePaystackPreconnect();
-
-  if (isPaystackReady()) return Promise.resolve();
-  if (paystackScriptPromise) return paystackScriptPromise;
-
-  paystackScriptPromise = new Promise<void>((resolve, reject) => {
-    let attempts = 0;
-
-    const tryLoad = () => {
-      if (isPaystackReady()) { resolve(); return; }
-
-      document.querySelectorAll<HTMLScriptElement>('script[data-paystack-inline="true"]').forEach((s) => s.remove());
-
-      const script = createPaystackScript(attempts > 0);
-      let settled = false;
-
-      const succeed = () => {
-        if (settled) return;
-        settled = true;
-        resolve();
-      };
-
-      const fail = (error: Error) => {
-        if (settled) return;
-        settled = true;
-        script.remove();
-        if (attempts < 1) {
-          attempts += 1;
-          setTimeout(tryLoad, 300);
-          return;
-        }
-        reject(error);
-      };
-
-      script.addEventListener("load", () => {
-        void waitForPaystackReady(12000).then(succeed).catch(() =>
-          fail(new Error("Paystack payment tools took too long to load."))
-        );
-      }, { once: true });
-
-      script.addEventListener("error", () =>
-        fail(new Error("Could not load Paystack payment tools.")), { once: true }
-      );
-
-      document.head.appendChild(script);
-
-      // Also start polling in case the load event fires before we attach
-      void waitForPaystackReady(12000).then(succeed).catch(() => {
-        if (!settled) fail(new Error("Paystack payment tools took too long to load."));
-      });
-    };
-
-    tryLoad();
-  }).catch((error) => {
-    paystackScriptPromise = null;
-    throw error;
-  });
-
-  return paystackScriptPromise;
+  return Promise.resolve();
 }
 
-function normalizePaystackResponseReference(
-  response: PaystackCallbackResponse | undefined,
-  fallbackReference: string,
-) {
-  return String(response?.reference || response?.trxref || fallbackReference || "").trim();
+export function resetPaystackGuard() {
+  paystackPaymentInProgress = false;
 }
 
 /**
- * Reset the Paystack guard flags when recovering from a stuck state.
- * Does NOT schedule deferred cleanup — that would race with an upcoming payment call
- * and remove the active payment iframe. Cleanup is handled inside pay().
+ * Opens Paystack's hosted checkout in a full-screen modal iframe that overlays
+ * the current page — identical visual experience to the Paystack v1 popup but
+ * without any SDK iframe/postMessage race conditions.
+ *
+ * Completion is detected via:
+ *  1. postMessage events that Paystack sends on success/cancel.
+ *  2. The iframe navigating to our origin after payment (callback_url redirect).
  */
-export function resetPaystackGuard() {
-  activeInlinePaymentCount = 0;
-  paystackPaymentInProgress = false;
-  cancelDeferredCleanup();
+function openPaystackCheckoutModal(
+  checkoutUrl: string,
+  fallbackReference: string,
+  onSuccess: (reference: string) => void,
+  onCancel: () => void,
+): () => void {
+  // ── Backdrop ──────────────────────────────────────────────────────────────
+  const backdrop = document.createElement("div");
+  backdrop.style.cssText = [
+    "position:fixed",
+    "inset:0",
+    "z-index:99999",
+    "background:rgba(0,0,0,0.65)",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "padding:16px",
+    "box-sizing:border-box",
+  ].join(";");
+
+  // ── Modal shell ──────────────────────────────────────────────────────────
+  const modal = document.createElement("div");
+  modal.style.cssText = [
+    "position:relative",
+    "width:480px",
+    "max-width:100%",
+    "height:min(700px,90vh)",
+    "border-radius:12px",
+    "overflow:hidden",
+    "background:#fff",
+    "box-shadow:0 25px 60px rgba(0,0,0,0.45)",
+    "display:flex",
+    "flex-direction:column",
+  ].join(";");
+
+  // ── Loading indicator ────────────────────────────────────────────────────
+  const loader = document.createElement("div");
+  loader.style.cssText = [
+    "position:absolute",
+    "inset:0",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "background:#fff",
+    "z-index:2",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    "font-size:14px",
+    "color:#666",
+    "flex-direction:column",
+    "gap:12px",
+  ].join(";");
+  loader.innerHTML = `
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="animation:spin 0.8s linear infinite">
+      <circle cx="20" cy="20" r="16" stroke="#e5e7eb" stroke-width="4"/>
+      <path d="M20 4a16 16 0 0 1 16 16" stroke="#1e40af" stroke-width="4" stroke-linecap="round"/>
+    </svg>
+    <span>Loading secure payment…</span>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+  `;
+
+  // ── iframe ───────────────────────────────────────────────────────────────
+  const iframe = document.createElement("iframe");
+  iframe.src = checkoutUrl;
+  iframe.title = "Secure Payment";
+  iframe.allow = "payment";
+  iframe.style.cssText = "flex:1;width:100%;border:none;display:block;";
+
+  // ── Close button ─────────────────────────────────────────────────────────
+  const closeBtn = document.createElement("button");
+  closeBtn.setAttribute("aria-label", "Close payment");
+  closeBtn.textContent = "✕";
+  closeBtn.style.cssText = [
+    "position:absolute",
+    "top:10px",
+    "right:10px",
+    "z-index:3",
+    "width:28px",
+    "height:28px",
+    "border-radius:50%",
+    "border:none",
+    "background:rgba(0,0,0,0.12)",
+    "color:#222",
+    "font-size:13px",
+    "cursor:pointer",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "padding:0",
+    "line-height:1",
+    "transition:background 0.15s",
+  ].join(";");
+  closeBtn.onmouseenter = () => { closeBtn.style.background = "rgba(0,0,0,0.22)"; };
+  closeBtn.onmouseleave = () => { closeBtn.style.background = "rgba(0,0,0,0.12)"; };
+
+  modal.appendChild(loader);
+  modal.appendChild(iframe);
+  modal.appendChild(closeBtn);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  let resolved = false;
+
+  const cleanup = () => {
+    window.removeEventListener("message", handleMessage);
+    document.removeEventListener("keydown", handleKeydown);
+    if (backdrop.parentNode) backdrop.remove();
+  };
+
+  const succeed = (ref: string) => {
+    if (resolved) return;
+    resolved = true;
+    paystackPaymentInProgress = false;
+    cleanup();
+    onSuccess(ref || fallbackReference);
+  };
+
+  const cancel = () => {
+    if (resolved) return;
+    resolved = true;
+    paystackPaymentInProgress = false;
+    cleanup();
+    onCancel();
+  };
+
+  // ── Hide loader once iframe initial load fires ───────────────────────────
+  iframe.addEventListener("load", () => {
+    if (loader.parentNode) loader.remove();
+
+    // If the iframe navigated to our origin (Paystack redirected to callback_url),
+    // try to read the reference from the URL params.
+    try {
+      const loc = iframe.contentWindow?.location;
+      if (loc && !loc.href.includes("paystack.com")) {
+        const params = new URLSearchParams(loc.search);
+        const ref =
+          params.get("reference") ||
+          params.get("trxref") ||
+          fallbackReference;
+        succeed(ref);
+      }
+    } catch {
+      // Still cross-origin (still on paystack.com) — normal, ignore.
+    }
+  });
+
+  // ── Listen for postMessage events from Paystack's checkout page ───────────
+  const handleMessage = (event: MessageEvent) => {
+    try {
+      if (!String(event.origin || "").includes("paystack")) return;
+    } catch {
+      return;
+    }
+
+    const data = event.data as Record<string, unknown> | null;
+    if (!data || typeof data !== "object") return;
+
+    // Paystack sends various shapes depending on SDK version; handle all.
+    const evt = String(data.event || "");
+    const status = String(
+      (data as any).status ||
+      (data as any).data?.status ||
+      ""
+    );
+    const isSuccess =
+      evt === "success" ||
+      evt === "successful" ||
+      evt === "charge_success" ||
+      status === "success";
+    const isClose = evt === "close" || evt === "closed";
+
+    if (isSuccess) {
+      const ref = String(
+        (data as any).reference ||
+        (data as any).trxref ||
+        (data as any).data?.reference ||
+        (data as any).data?.trxref ||
+        fallbackReference
+      );
+      succeed(ref);
+    } else if (isClose && !resolved) {
+      cancel();
+    }
+  };
+
+  window.addEventListener("message", handleMessage);
+
+  closeBtn.addEventListener("click", cancel);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) cancel();
+  });
+
+  const handleKeydown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") cancel();
+  };
+  document.addEventListener("keydown", handleKeydown);
+
+  return cleanup;
 }
 
 export class PaystackInlineService {
   static async pay(config: InlinePaystackConfig): Promise<string> {
-    // Block only if a payment is genuinely open (iframe visible AND flag set)
-    if (paystackPaymentInProgress && hasActivePaystackFrame()) {
+    if (paystackPaymentInProgress) {
       throw new Error(
         "A payment is already open. Please complete or close it before starting a new one.",
       );
     }
 
-    // Reset any stale state from a previous session
-    paystackPaymentInProgress = false;
-    activeInlinePaymentCount = 0;
-
-    // Cancel any pending deferred cleanup from a previous session —
-    // it must not fire while the new payment iframe is opening
-    cancelDeferredCleanup();
-
-    // Remove ghost iframes from previous sessions (safe now: flag is false)
-    cleanupPaystackFrames();
-
-    ensurePaystackRuntimeGuards();
-    await loadPaystackInlineScript();
-
-    if (!window.PaystackPop?.setup) {
-      throw new Error("Paystack payment tools are not available right now. Please refresh and try again.");
+    if (!config.accessCode) {
+      throw new Error(
+        "Payment cannot be opened: no access code was returned by the server. Please try again.",
+      );
     }
 
-    return new Promise<string>((resolve, reject) => {
-      let completed = false;
-      let settled = false;
-      activeInlinePaymentCount += 1;
-      paystackPaymentInProgress = true;
+    paystackPaymentInProgress = true;
 
-      // Safety net: if Paystack never calls callback or onClose, reject after 12 minutes
+    return new Promise<string>((resolve, reject) => {
       let safetyTimerId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
         safetyTimerId = null;
-        finish(() => reject(new Error("Payment session timed out.")));
+        paystackPaymentInProgress = false;
+        reject(new Error("Payment session timed out."));
       }, 12 * 60 * 1000);
 
-      const finish = (callback: () => void) => {
-        if (settled) return;
-        settled = true;
-        activeInlinePaymentCount = Math.max(0, activeInlinePaymentCount - 1);
-        paystackPaymentInProgress = false;
-        if (safetyTimerId !== null) { clearTimeout(safetyTimerId); safetyTimerId = null; }
-        // Schedule cleanup after the modal closes — safe because paystackPaymentInProgress is now false
-        scheduleDeferredCleanup(250);
-        callback();
+      const done = () => {
+        if (safetyTimerId !== null) {
+          clearTimeout(safetyTimerId);
+          safetyTimerId = null;
+        }
       };
 
-      let handler: PaystackHandler;
-      try {
-        handler = window.PaystackPop!.setup({
-          key: config.publicKey,
-          email: config.email,
-          amount: config.amount,
-          currency: config.currency || "GHS",
-          ref: config.reference,
-          channels: config.channels,
-          metadata: config.metadata,
-          ...(config.accessCode ? { access_code: config.accessCode } : {}),
-          callback: (response: PaystackCallbackResponse) => {
-            completed = true;
-            const ref = normalizePaystackResponseReference(response, config.reference);
-            if (!ref) {
-              finish(() => reject(new Error("Payment completed but no reference was returned.")));
-              return;
-            }
-            finish(() => resolve(ref));
-          },
-          onClose: () => {
-            if (completed) return;
-            finish(() => reject(new Error("Payment was cancelled before completion.")));
-          },
-        });
-      } catch (setupError) {
-        paystackPaymentInProgress = false;
-        activeInlinePaymentCount = Math.max(0, activeInlinePaymentCount - 1);
-        if (safetyTimerId !== null) { clearTimeout(safetyTimerId); safetyTimerId = null; }
-        reject(setupError instanceof Error ? setupError : new Error("Could not initialize payment."));
-        return;
-      }
+      const checkoutUrl = `https://checkout.paystack.com/${encodeURIComponent(config.accessCode!)}`;
 
-      if (!handler || typeof handler.openIframe !== "function") {
-        paystackPaymentInProgress = false;
-        activeInlinePaymentCount = Math.max(0, activeInlinePaymentCount - 1);
-        if (safetyTimerId !== null) { clearTimeout(safetyTimerId); safetyTimerId = null; }
-        reject(new Error("Paystack returned an invalid payment handler. Please refresh and try again."));
-        return;
-      }
+      openPaystackCheckoutModal(
+        checkoutUrl,
+        config.reference,
+        (ref) => {
+          done();
+          resolve(ref);
+        },
+        () => {
+          done();
+          paystackPaymentInProgress = false;
+          reject(new Error("Payment was cancelled before completion."));
+        },
+      );
 
-      try {
-        handler.openIframe();
-        config.onOpen?.();
-      } catch (openError) {
-        finish(() => reject(openError instanceof Error ? openError : new Error("Could not open secure payment.")));
-      }
+      try { config.onOpen?.(); } catch { /* ignore */ }
     });
   }
 }

@@ -3,8 +3,6 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 
-const isDev = process.env.NODE_ENV !== "production";
-
 export default defineConfig({
   plugins: [
     react(),
@@ -69,27 +67,6 @@ export default defineConfig({
       },
       devOptions: { enabled: false },
     }),
-    // All @replit/* plugins are dev-only — never included in production builds
-    ...(isDev
-      ? await (async () => {
-          const devPlugins: any[] = [];
-
-          if (process.env.ENABLE_RUNTIME_ERROR_OVERLAY === "true") {
-            const { default: runtimeErrorOverlay } = await import(
-              "@replit/vite-plugin-runtime-error-modal"
-            );
-            devPlugins.push(runtimeErrorOverlay());
-          }
-
-          if (process.env.REPL_ID !== undefined) {
-            const { cartographer } = await import("@replit/vite-plugin-cartographer");
-            const { devBanner } = await import("@replit/vite-plugin-dev-banner");
-            devPlugins.push(cartographer(), devBanner());
-          }
-
-          return devPlugins;
-        })()
-      : []),
   ],
   resolve: {
     alias: {

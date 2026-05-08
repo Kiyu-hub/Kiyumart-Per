@@ -89,8 +89,8 @@ export default function HomeConnected() {
 
   // Query promotions to determine sidebar display logic
   const { data: allPromotions = [] } = useQuery<any[]>({
-    queryKey: ["/api/homepage/promotional"],
-    queryFn: async () => fetchSameOriginJson<any[]>("/api/homepage/promotional"),
+    queryKey: ["/api/homepage/promotional", "homepage"],
+    queryFn: async () => fetchSameOriginJson<any[]>("/api/homepage/promotional?section=homepage"),
     refetchInterval: 5000,
   });
 
@@ -415,24 +415,9 @@ export default function HomeConnected() {
     }
   };
 
-  // Search redirects to the dedicated search page with the typed query
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Filter products locally while typing; navigation to search page happens on Enter/submit
   const handleSearch = useCallback((query: string) => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    const trimmed = query.trim();
-    if (!trimmed) { setSearchQuery(""); return; }
-    debounceTimerRef.current = setTimeout(() => {
-      navigate(`/search?q=${encodeURIComponent(trimmed)}`);
-    }, 300);
-  }, [navigate]);
-
-  // Cleanup debounce timer on unmount
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
+    setSearchQuery(query.trim());
   }, []);
 
   const matchesProductSearch = (product: Product) => {

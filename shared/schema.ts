@@ -53,6 +53,7 @@ export const promotionalAds = pgTable("promotional_ads", {
   ctaUrl: text("cta_url"),
   themeColor: varchar("theme_color"),
   displaySection: varchar("display_section", { length: 20 }).default("homepage"),
+  bannerConfig: jsonb("banner_config"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => ({
@@ -555,6 +556,10 @@ export const chatMessages = pgTable("chat_messages", {
   deliveredAt: timestamp("delivered_at"), // Timestamp when message delivered to recipient
   isRead: boolean("is_read").default(false),
   readAt: timestamp("read_at"),
+  isDeleted: boolean("is_deleted").default(false),
+  deletedAt: timestamp("deleted_at"),
+  isEdited: boolean("is_edited").default(false),
+  editedAt: timestamp("edited_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   // Index for finding messages by sender and status (batch delivery queries)

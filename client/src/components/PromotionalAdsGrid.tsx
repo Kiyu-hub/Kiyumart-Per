@@ -5,9 +5,9 @@ import { Sparkles } from 'lucide-react';
 
 export default function PromotionalAdsGrid() {
   const { data: promos = [], isLoading } = useQuery<any[]>({
-    queryKey: ['/api/homepage/promotional'],
+    queryKey: ['/api/homepage/promotional', 'homepage'],
     queryFn: async () => {
-      const res = await fetch('/api/homepage/promotional');
+      const res = await fetch('/api/homepage/promotional?section=homepage');
       return res.json();
     },
     refetchInterval: 5000,

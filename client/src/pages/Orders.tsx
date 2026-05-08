@@ -11,7 +11,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
-import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard, AlertCircle, Loader2, MapPin, Headphones } from "lucide-react";
+import { Package, Clock, CheckCircle, XCircle, Truck, CreditCard, AlertCircle, Loader2, MapPin, Headphones, Trash2, AlertTriangle } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface Order {
@@ -78,6 +89,26 @@ export default function Orders() {
     },
     onError: (err: any) =>
       toast({ title: "Cancel Failed", description: err.message || "Could not cancel the order.", variant: "destructive" }),
+  });
+
+  const removeOrderMutation = useMutation({
+    mutationFn: (orderId: string) =>
+      fetch(`/api/orders/${orderId}`, {
+        method: "DELETE",
+        credentials: "include",
+      }).then(async (r) => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err?.error || err?.message || "Could not remove order");
+        }
+        return r.json();
+      }),
+    onSuccess: () => {
+      toast({ title: "Order Removed", description: "The order has been removed from your list." });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", "buyer-orders"] });
+    },
+    onError: (err: any) =>
+      toast({ title: "Remove Failed", description: err.message || "Could not remove the order.", variant: "destructive" }),
   });
 
   const normalize = (value?: string) => (value || "").toLowerCase().trim();
@@ -571,22 +602,82 @@ export default function Orders() {
               {/* Cancel — only for unpaid/pending orders */}
               {["pending", "created"].includes(normalize(order.status)) &&
                 ["pending", "failed"].includes(normalizePaymentStatus(order.paymentStatus)) && (
-                  <Button
-                    className="w-full"
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm("Are you sure you want to cancel this order?")) {
-                        cancelOrderMutation.mutate(order.id);
-                      }
-                    }}
-                    disabled={cancelOrderMutation.isPending}
-                    data-testid={`button-cancel-${order.id}`}
-                  >
-                    {cancelOrderMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
-                    Cancel Order
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={cancelOrderMutation.isPending}
+                        data-testid={`button-cancel-${order.id}`}
+                      >
+                        {cancelOrderMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
+                        Cancel Order
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Cancel this order?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Order <strong>#{getDisplayOrderNumber(order)}</strong> will be marked as cancelled.
+                          Since it is unpaid, no charge was made.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep Order</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => cancelOrderMutation.mutate(order.id)}
+                          disabled={cancelOrderMutation.isPending}
+                        >
+                          {cancelOrderMutation.isPending ? "Cancelling…" : "Cancel Order"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              {/* Remove — permanently delete unpaid / pending orders */}
+              {["pending", "created", "cancelled"].includes(normalize(order.status)) &&
+                ["pending", "failed"].includes(normalizePaymentStatus(order.paymentStatus)) && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        className="w-full"
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={removeOrderMutation.isPending}
+                        data-testid={`button-remove-${order.id}`}
+                      >
+                        {removeOrderMutation.isPending
+                          ? <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                          : <Trash2 className="h-3 w-3 mr-1" />}
+                        Remove Order
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                          <AlertTriangle className="h-5 w-5 text-destructive" />
+                          Remove this order?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Order <strong>#{getDisplayOrderNumber(order)}</strong> will be permanently deleted.
+                          This cannot be undone. Since this order is unpaid, no charge was made.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep Order</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => removeOrderMutation.mutate(order.id)}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          disabled={removeOrderMutation.isPending}
+                        >
+                          {removeOrderMutation.isPending ? "Removing…" : "Remove Permanently"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
               {/* Refund info — only for paid orders and when platform allows it */}
               {showRefundButton &&

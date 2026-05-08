@@ -35,6 +35,7 @@ import {
   MessagesSquare,
   Flag,
   Lightbulb,
+  Gift,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -47,7 +48,7 @@ interface MenuItem {
   icon: React.ElementType;
   label: string;
   id: string;
-  badge?: number | "dynamic" | "applications_dynamic" | "assignments_dynamic" | "issues_dynamic";
+  badge?: number | "dynamic" | "applications_dynamic" | "assignments_dynamic" | "issues_dynamic" | "promotions_dynamic";
   separator?: boolean;
   adminPermission?: keyof AdminPermissions;
 }
@@ -167,6 +168,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Truck, label: "Riders", id: "riders", adminPermission: "canManageUsers" },
     { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment", badge: "assignments_dynamic", adminPermission: "canManageOrders" },
     { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic", adminPermission: "canManageUsers" },
+    { icon: Tag, label: "Promotions", id: "promotions", badge: "promotions_dynamic", adminPermission: "canManagePromotions" },
     { icon: Shield, label: "Permissions", id: "permissions", adminPermission: "canManageFeatures" },
     { icon: MapPin, label: "Delivery Zones", id: "zones", adminPermission: "canManagePlatformSettings" },
     { icon: MapPin, label: "Pickup Stations", id: "pickup-stations", adminPermission: "canManagePlatformSettings" },
@@ -191,7 +193,6 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings", adminPermission: "canViewPayouts" },
     { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts", adminPermission: "canManagePayouts" },
     { icon: Truck, label: "Rider Payouts", id: "riders-payouts", adminPermission: "canManagePayouts" },
-    { icon: Tag, label: "Promotions", id: "promotions", adminPermission: "canManagePromotions" },
     { icon: Settings, label: "Settings", id: "settings", adminPermission: "canManagePlatformSettings" },
   ],
   admin: [
@@ -223,7 +224,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: DollarSign, label: "Platform Earnings", id: "platform-earnings", adminPermission: "canViewPayouts" },
     { icon: CreditCard, label: "Seller Payouts", id: "sellers-payouts", adminPermission: "canManagePayouts" },
     { icon: Truck, label: "Rider Payouts", id: "riders-payouts", adminPermission: "canManagePayouts" },
-    { icon: Tag, label: "Promotions", id: "promotions", adminPermission: "canManagePromotions" },
+    { icon: Tag, label: "Promotions", id: "promotions", badge: "promotions_dynamic", adminPermission: "canManagePromotions" },
   ],
   seller: [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
@@ -244,6 +245,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: MessagesSquare, label: "Seller Chat", id: "seller-chat" },
     { icon: Headphones, label: "Support", id: "support" },
     { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
+    { icon: Gift, label: "Referral", id: "referral" },
     { icon: BarChart3, label: "Analytics", id: "analytics" },
     { icon: Settings, label: "Settings", id: "settings" },
   ],
@@ -277,6 +279,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: ShoppingBag, label: "My Orders", id: "orders" },
     { icon: Heart, label: "Wishlist", id: "wishlist" },
+    { icon: Gift, label: "Referral", id: "referral" },
     { icon: Bell, label: "Notifications", id: "notifications", badge: "dynamic" },
     { icon: Headphones, label: "Support", id: "support" },
     { icon: Lightbulb, label: "Suggestions", id: "suggestions" },
@@ -466,6 +469,23 @@ export default function DashboardSidebar({
   const reportedCasesCount = reportedCasesBadge?.count || 0;
   const suggestionsCount = suggestionsBadge?.count || 0;
 
+  const { data: promotionsBadgeData } = useQuery<{ count: number }>({
+    queryKey: ["/api/sidebar/promotions-pending-count"],
+    queryFn: async () => {
+      if (normalizedRole !== "admin" && normalizedRole !== "super_admin") return { count: 0 };
+      const res = await fetch("/api/admin/promotion-applications", { credentials: "include" });
+      if (!res.ok) return { count: 0 };
+      const apps = await res.json();
+      const count = Array.isArray(apps) ? apps.filter((a: any) => a.status === "payment_confirmed").length : 0;
+      return { count };
+    },
+    enabled: normalizedRole === "admin" || normalizedRole === "super_admin",
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
+  const pendingPromotionsCount = promotionsBadgeData?.count || 0;
+
   const visibleItems = (() => {
     const isRestrictedInactiveAccount =
       (normalizedRole === "seller" || normalizedRole === "rider") &&
@@ -557,6 +577,8 @@ export default function DashboardSidebar({
                 ? (pendingAssignmentsCount > 0 ? (pendingAssignmentsCount > 99 ? "99+" : String(pendingAssignmentsCount)) : null)
               : item.badge === "issues_dynamic"
                 ? (activeSystemIssuesCount > 0 ? (activeSystemIssuesCount > 99 ? "99+" : String(activeSystemIssuesCount)) : null)
+              : item.badge === "promotions_dynamic"
+                ? (pendingPromotionsCount > 0 ? (pendingPromotionsCount > 99 ? "99+" : String(pendingPromotionsCount)) : null)
               : item.id === "reported-cases"
                 ? (reportedCasesCount > 0 ? (reportedCasesCount > 99 ? "99+" : String(reportedCasesCount)) : null)
               : item.id === "admin-suggestions"

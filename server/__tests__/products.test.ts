@@ -20,6 +20,7 @@ async function run() {
     images: [],
     discount: 0,
     stock: 5,
+    isActive: true,
     sellerId: 'seller-1',
     storeId: 'store-1',
     createdAt: new Date().toISOString(),
@@ -33,17 +34,23 @@ async function run() {
     return [product];
   };
   storageModule.storage.getProduct = async (id: string) => id === product.id ? product : undefined;
-  storageModule.storage.getCategories = async () => ([
-    {
-      id: 'cat-1',
-      name: 'Electronics',
-      slug: 'electronics',
-      isActive: true,
-    },
+  storageModule.storage.getProductVariants = async (productId: string) => [] as any[];
+  storageModule.storage.getCategory = async (id: string) => id === 'cat-1'
+    ? ({ id: 'cat-1', name: 'Electronics', slug: 'electronics', isActive: true } as any)
+    : undefined;
+  storageModule.storage.getCategories = async (filters?: any) => ([
+    { id: 'cat-1', name: 'Electronics', slug: 'electronics', isActive: true },
   ] as any);
+  storageModule.storage.getStores = async (filters?: any) => ([
+    { id: 'store-1', primarySellerId: 'seller-1', name: 'Primary Store', isActive: true, isApproved: true },
+  ] as any);
+  storageModule.storage.getUsersByRole = async (role: string) => role === 'seller'
+    ? [{ id: 'seller-1', isActive: true, isApproved: true }] as any[]
+    : [] as any[];
   storageModule.storage.getPlatformSettings = async () => ({
     isMultiVendor: false,
     primaryStoreId: 'store-1',
+    isMaintenanceMode: false,
   } as any);
   storageModule.storage.getStore = async (id?: string) => id === 'store-1'
     ? ({ id: 'store-1', primarySellerId: 'seller-1' } as any)
@@ -99,7 +106,7 @@ async function run() {
   }
 
   console.log('✅ products.test passed');
-  server.close();
+  server.close(() => process.exit(0));
 }
 
 run().catch(err => { console.error('❌ products.test failed', err); throw err; });

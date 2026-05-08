@@ -40,9 +40,11 @@ export default function AuthPage() {
         description: "Welcome back!",
       });
     } catch (error: any) {
+      const rawMsg: string = error?.message || "";
+      const desc = rawMsg.replace(/^\d{3}:\s*/, "") || "Invalid email or password";
       toast({
         title: "Login Failed",
-        description: error.message || "Invalid email or password",
+        description: desc,
         variant: "destructive",
       });
     } finally {

@@ -1,5 +1,92 @@
 # Changelog
 
+## 2026-05-08 (v1.2.0)
+
+### Banner Promotion Designer
+- **Feature:** Visual drag-and-drop Banner Designer for hero carousel promotions
+  - Admin can design fully custom hero banners when approving or editing promotion applications
+  - `BannerConfig` JSONB field stored on `promotional_ads` table with background, title, subtitle, CTA, overlay, layout, and element positions
+  - **Media Library integration:** Background and overlay image pickers pull from the seller/admin's uploaded media library (`GET /api/media-library`)
+  - **Free-position dragging:** Title, subtitle, CTA button, and "Sponsored" label can each be dragged anywhere on the banner canvas in the interactive preview
+  - `positions` field in `BannerConfig` stores `{ x, y }` percentages per element; `LAYOUT_DEFAULTS` used as fallback when positions are null
+  - `InteractivePreview` component uses `setPointerCapture` + `latestPosRef` anti-stale-closure pattern for smooth drag behaviour
+  - `PATCH /api/admin/promotions/:id/banner-config` — update banner design post-approval
+  - HeroCarousel renders absolutely-positioned elements when `cfg.positions` is set; falls back to flex layout for backward compat
+
+### Message Delete / Edit
+- **Feature:** Chat messages can be deleted (soft delete) or edited by the sender
+  - `DELETE /api/messages/:messageId` — soft-deletes message; sets `is_deleted` and `deleted_at`; redacts text to "This message was deleted"
+  - `PATCH /api/messages/:messageId/edit` — edits message text; sets `is_edited` and `edited_at`
+  - Real-time socket events `message_deleted` and `message_edited` propagate changes to all participants instantly
+  - Deleted messages display "This message was deleted" placeholder in all chat UIs
+  - Edited messages show an "edited" label alongside the message
+
+### Order Cleanup for Buyers
+- **Feature:** Buyers can remove pending/unpaid orders
+  - `DELETE /api/orders/:id` — hard-deletes the order record if status is `pending` or `created` (buyer-only)
+  - AlertDialog confirmation before removal in the Orders page
+
+### Seller Upgrade — Instant Verify
+- **Feature:** Seller premium upgrade no longer waits for webhook
+  - `POST /api/seller/upgrade/verify` — verifies Paystack reference directly, upgrades plan, returns full `tier-info` in response
+  - SellerUpgradeModal calls this endpoint after payment succeeds and seeds TanStack Query cache immediately
+  - `hideForPayment` state in modal hides Radix Dialog while Paystack popup is open so the overlay does not block pointer events
+
+### Seller Promotions Redesign
+- **Feature:** SellerPromotions page fully rebuilt with tabs: Pending / Active / History
+  - `STATUS_CONFIG` map drives status badges and labels for every promotion state
+  - `POST /api/seller/promotions/:applicationId/verify-payment` — re-verifies payment reference if application is stuck in `pending_payment`
+  - `DELETE /api/seller/promotions/:applicationId` — removes expired or rejected applications
+  - Payment receipts display `CalendarCheck` timestamps per promotion
+
+### AddressMap Confirm/Cancel
+- **Feature:** Map location selections now require explicit confirmation
+  - Clicking the map sets a `pendingLocation` state instead of immediately committing
+  - Confirm/Cancel buttons appear at the bottom of the map panel
+  - `hideCurrentLocationButton` prop added
+
+### Audio Upload (Super Admin)
+- **Feature:** Super admin can upload custom notification and ringtone audio files
+  - `POST /api/upload/audio` with MIME validation and `AUDIO_UPLOAD_MAX_BYTES` env-var limit (default 5 MB)
+  - 5 new caller ringtone presets, 5 receiver ring presets, and 5 notification presets added to AdminSettings
+
+### Ghanaian Food Presets
+- **Feature:** ~40 Ghanaian food product presets added to SellerProducts quick-add panel
+  - Categories: Rice & Grains, Soups & Stews, Staples, Proteins, Snacks & Street Food, Beverages
+
+### Database Schema Changes
+- `promotional_ads.banner_config` — JSONB column for `BannerConfig`
+- `chat_messages.is_deleted` — boolean (default false)
+- `chat_messages.deleted_at` — timestamp
+- `chat_messages.is_edited` — boolean (default false)
+- `chat_messages.edited_at` — timestamp
+- All columns added as startup self-heal migrations (`IF NOT EXISTS` blocks in `server/index.ts`)
+
+### Bug Fixes / UX
+- SellerDashboard referral now navigates to `/referral` route instead of inline tracker widget
+- Sidebar nav for sellers and buyers now includes a "Referral" link
+- PaymentSuccess page shows "Items Ordered" card with product thumbnails, variants (color/size), and `ShoppingBag` icon
+- DashboardSidebar includes Referral nav item for both seller and buyer roles
+- Server startup DB ping with 8 s timeout — skips self-heal migrations if Neon DB is cold rather than hanging
+
+### API Routes Added
+```
+POST  /api/seller/upgrade/verify                         Verify upgrade payment & return tier-info
+POST  /api/seller/promotions/:appId/verify-payment       Re-verify promo payment reference
+DELETE /api/seller/promotions/:appId                     Remove expired/rejected promo application
+DELETE /api/orders/:id                                   Remove pending/unpaid order (buyer)
+DELETE /api/messages/:messageId                          Soft-delete chat message
+PATCH  /api/messages/:messageId/edit                     Edit chat message text
+PATCH  /api/admin/promotions/:id/banner-config           Update banner designer config
+POST   /api/upload/audio                                 Upload custom audio notification files
+```
+
+### Verification
+- `npm run typecheck` passed
+- `npm run build:frontend` passed
+
+---
+
 ## 2026-02-21 (v1.1.8)
 
 ### Phase 1 Remediation Progress

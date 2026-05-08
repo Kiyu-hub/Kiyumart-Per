@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import DashboardLayout from "@/components/DashboardLayout";
 import ReferralTracker from "@/components/ReferralTracker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Gift, Users, Star } from "lucide-react";
+import { Gift, Users, Star, CheckCircle, Clock } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { PageLoadingState } from "@/components/ui/loading-state";
 
@@ -18,6 +19,13 @@ export default function ReferralPage() {
   }, [authLoading, isAuthenticated, navigate]);
 
   const role = user?.role ?? "buyer";
+
+  const { data: referralStats } = useQuery<{ completed: number; signedUp: number; threshold: number }>({
+    queryKey: ["/api/referral/stats"],
+    queryFn: () => fetch("/api/referral/stats", { credentials: "include" }).then((r) => r.ok ? r.json() : null),
+    enabled: isAuthenticated,
+    staleTime: 30_000,
+  });
 
   const layoutRole =
     role === "agent" ? "agent" :
@@ -94,6 +102,50 @@ export default function ReferralPage() {
             </CardContent>
           </Card>
         </div>
+
+        {referralStats && (
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                    <Users className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{(referralStats.completed ?? 0) + (referralStats.signedUp ?? 0)}</p>
+                    <p className="text-xs text-muted-foreground">Total Referrals Made</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/30">
+                    <CheckCircle className="h-5 w-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{referralStats.completed ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Completed (Made a Purchase)</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/30">
+                    <Clock className="h-5 w-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{referralStats.signedUp ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Signed Up (Awaiting Purchase)</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         <ReferralTracker />
       </div>

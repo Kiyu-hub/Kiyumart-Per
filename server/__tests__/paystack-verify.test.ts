@@ -9,9 +9,12 @@ async function run() {
     getOrder: async (id: string) => ({ id, buyerId: 'u1', orderNumber: '1001', total: '10.00', currency: 'GHS' }),
     createTransaction: async (data: any) => { calls.push('createTransaction'); return data; },
     updateOrder: async (id: string, data: any) => { calls.push(`updateOrder:${id}`); return { id, ...data }; },
-    createCommissionWithEarning: async (orderId: string) => { calls.push(`commission:${orderId}`); return { commission: {}, earning: {} }; },
+    createCommissionWithEarning: async (orderId: string) => { calls.push(`commission:${orderId}`); return { commission: { id: `c-${orderId}`, sellerId: 's1' }, earning: {} }; },
+    ensureAutomaticSellerPayoutForCommission: async (id: string) => ({}),
     getUser: async (id: string) => ({ id, name: 'Buyer' }),
-    createNotification: async (n: any) => { calls.push('notify'); return n; }
+    getUsersByRole: async (role: string) => [],
+    createNotification: async (n: any) => { calls.push('notify'); return n; },
+    clearCart: async (userId: string) => {},
   };
   const fakeIo = { to: (_: string) => ({ emit: (_: string, __: any) => calls.push('emit') }) } as any;
 

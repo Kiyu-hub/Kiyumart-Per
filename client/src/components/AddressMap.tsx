@@ -25,14 +25,16 @@ type Props = {
   onLocationChange?: (lat: number, lng: number, addr?: string) => void;
   className?: string;
   selectedCoordinates?: [number, number] | null;
+  hideCurrentLocationButton?: boolean;
 };
 
-export default function AddressMap({ address, onAddressChange, onLocationChange, className, selectedCoordinates = null }: Props) {
+export default function AddressMap({ address, onAddressChange, onLocationChange, className, selectedCoordinates = null, hideCurrentLocationButton = false }: Props) {
   const { toast } = useToast();
   const [position, setPosition] = useState<[number, number] | null>(null);
   const [searching, setSearching] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [mapboxConfigVersion, setMapboxConfigVersion] = useState(0);
+  const [pendingLocation, setPendingLocation] = useState<{ lat: number; lng: number; source: "click" | "drag" } | null>(null);
   const debounceRef = useRef<number | null>(null);
   const skipNextAddressLookupRef = useRef<string | null>(null);
   const positionRef = useRef<[number, number] | null>(null);
@@ -374,14 +376,31 @@ export default function AddressMap({ address, onAddressChange, onLocationChange,
     return null;
   }
 
+  const handleConfirmLocation = async () => {
+    if (!pendingLocation) return;
+    await updateSelectedLocation(pendingLocation.lat, pendingLocation.lng, {
+      showToast: true,
+      toastTitle: "Location updated",
+    });
+    setPendingLocation(null);
+  };
+
+  const handleCancelLocation = () => {
+    if (pendingLocation?.source === "drag" && markerRef.current && position) {
+      markerRef.current.setLatLng(position as [number, number]);
+    }
+    setPendingLocation(null);
+  };
+
   function MapEvents() {
     useMapEvents({
-      click: async (e) => {
+      click: (e) => {
         const { lat, lng } = e.latlng;
-        await updateSelectedLocation(lat, lng, { showOutsideGhanaToast: true });
-      },
-      dragend: async (e) => {
-        // no-op here (marker handles drag)
+        if (!inGhana(lat, lng)) {
+          toast({ title: "Location outside service area", description: "Please keep the delivery point within Ghana.", variant: "destructive" });
+          return;
+        }
+        setPendingLocation({ lat, lng, source: "click" });
       },
     });
     return null;
@@ -487,14 +506,15 @@ export default function AddressMap({ address, onAddressChange, onLocationChange,
               icon={markerIcon}
               draggable
               eventHandlers={{
-                dragend: async (event) => {
+                dragend: (event) => {
                   const marker = event.target;
-                  const nextPosition = marker.getLatLng();
-                  await updateSelectedLocation(nextPosition.lat, nextPosition.lng, {
-                    showToast: true,
-                    toastTitle: "Location updated",
-                    showOutsideGhanaToast: true,
-                  });
+                  const next = marker.getLatLng();
+                  if (!inGhana(next.lat, next.lng)) {
+                    if (position) marker.setLatLng(position as [number, number]);
+                    toast({ title: "Location outside service area", description: "Please keep the delivery point within Ghana.", variant: "destructive" });
+                    return;
+                  }
+                  setPendingLocation({ lat: next.lat, lng: next.lng, source: "drag" });
                 },
               }}
             >
@@ -509,31 +529,46 @@ export default function AddressMap({ address, onAddressChange, onLocationChange,
           )}
         </MapContainer>
 
+        {pendingLocation && (
+          <div className="absolute inset-0 z-[2000] flex items-end justify-center pb-4 bg-black/30 backdrop-blur-sm">
+            <div className="bg-background border rounded-xl shadow-xl p-4 w-full max-w-xs mx-4">
+              <p className="font-semibold text-sm">Update delivery location?</p>
+              <p className="text-xs text-muted-foreground mt-1 mb-3">Confirm to use this pin position as your delivery address.</p>
+              <div className="flex gap-2 justify-end">
+                <button type="button" onClick={handleCancelLocation} className="px-3 py-1.5 text-sm rounded-lg border bg-background hover:bg-muted transition-colors">Cancel</button>
+                <button type="button" onClick={handleConfirmLocation} className="px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">Confirm</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded-full border border-white/10 bg-slate-950/80 px-3 py-1.5 text-[11px] font-medium tracking-[0.18em] text-slate-100 shadow-lg backdrop-blur-md">
           {mapboxTileUrl ? "MAPBOX VIEW | GHANA ONLY" : "SATELLITE VIEW | GHANA ONLY"}
         </div>
 
         {/* Current location shortcut pinned inside the map */}
-        <div className="pointer-events-none absolute top-3 right-3 z-[1000]">
-          <button
-            type="button"
-            aria-label="Use current location"
-            title="Use current location"
-            className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/15 bg-slate-950/90 px-4 py-2 text-sm font-medium text-white shadow-[0_14px_32px_rgba(0,0,0,0.32)] backdrop-blur-md transition hover:border-cyan-300/30 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isLocating}
-            onPointerDown={stopMapEvent}
-            onClick={(event) => {
-              stopMapEvent(event);
-              requestCurrentLocation("manual");
-            }}
-            data-testid="button-use-current-location"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-cyan-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m0 14v1m8-8h1M3 12H2m15.364-6.364l.707.707M6.343 17.657l-.707.707m12.728 0l.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
-            </svg>
-            <span>{isLocating ? "Finding location..." : "Use current location"}</span>
-          </button>
-        </div>
+        {!hideCurrentLocationButton && (
+          <div className="pointer-events-none absolute top-3 right-3 z-[1000]">
+            <button
+              type="button"
+              aria-label="Use current location"
+              title="Use current location"
+              className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/15 bg-slate-950/90 px-4 py-2 text-sm font-medium text-white shadow-[0_14px_32px_rgba(0,0,0,0.32)] backdrop-blur-md transition hover:border-cyan-300/30 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={isLocating}
+              onPointerDown={stopMapEvent}
+              onClick={(event) => {
+                stopMapEvent(event);
+                requestCurrentLocation("manual");
+              }}
+              data-testid="button-use-current-location"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-cyan-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m0 14v1m8-8h1M3 12H2m15.364-6.364l.707.707M6.343 17.657l-.707.707m12.728 0l.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+              </svg>
+              <span>{isLocating ? "Finding location..." : "Use current location"}</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

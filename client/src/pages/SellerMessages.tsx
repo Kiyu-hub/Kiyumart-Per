@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, MessageSquare, Send, ArrowLeft, Phone } from "lucide-react";
+import { Loader2, MessageSquare, Send, ArrowLeft, Phone, Pencil, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { TypingIndicator } from "@/components/TypingIndicator";
@@ -45,6 +45,9 @@ interface Message {
   status: 'sent' | 'delivered' | 'read';
   deliveredAt?: string | null;
   readAt?: string | null;
+  isDeleted?: boolean;
+  isEdited?: boolean;
+  editedAt?: string | null;
 }
 
 export default function SellerMessages() {
@@ -61,6 +64,31 @@ export default function SellerMessages() {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+
+  const deleteMessageMutation = useMutation({
+    mutationFn: (messageId: string) =>
+      fetch(`/api/messages/${messageId}`, { method: "DELETE", credentials: "include" }).then(async (r) => {
+        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.error || "Could not delete message"); }
+        return r.json();
+      }),
+    onError: (err: any) => toast({ title: "Delete Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const editMessageMutation = useMutation({
+    mutationFn: ({ messageId, message }: { messageId: string; message: string }) =>
+      fetch(`/api/messages/${messageId}/edit`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      }).then(async (r) => {
+        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.error || "Could not edit message"); }
+        return r.json();
+      }),
+    onSuccess: () => setEditingMessageId(null),
+    onError: (err: any) => toast({ title: "Edit Failed", description: err.message, variant: "destructive" }),
+  });
 
   // Get userId from URL search params
   const urlParams = new URLSearchParams(window.location.search);
@@ -116,11 +144,29 @@ export default function SellerMessages() {
       });
     };
 
+    const handleMessageDeleted = (data: { messageId: string; isDeleted: boolean; message: string }) => {
+      queryClient.setQueryData<Message[]>(["/api/messages", selectedUserId], (old) => {
+        if (!old) return old;
+        return old.map((m) => m.id === data.messageId ? { ...m, isDeleted: true, message: "This message was deleted" } : m);
+      });
+    };
+
+    const handleMessageEdited = (data: { messageId: string; message: string; isEdited: boolean; editedAt: string }) => {
+      queryClient.setQueryData<Message[]>(["/api/messages", selectedUserId], (old) => {
+        if (!old) return old;
+        return old.map((m) => m.id === data.messageId ? { ...m, message: data.message, isEdited: true, editedAt: data.editedAt } : m);
+      });
+    };
+
     socket.on("new_message", handleNewMessage);
     socket.on("message_status_updated", handleMessageStatusUpdated);
+    socket.on("message_deleted", handleMessageDeleted);
+    socket.on("message_edited", handleMessageEdited);
     return () => {
       socket.off("new_message", handleNewMessage);
       socket.off("message_status_updated", handleMessageStatusUpdated);
+      socket.off("message_deleted", handleMessageDeleted);
+      socket.off("message_edited", handleMessageEdited);
     };
   }, [socket, selectedUserId, user?.id]);
 
@@ -461,35 +507,42 @@ export default function SellerMessages() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={`flex ${msg.senderId === user?.id ? "justify-start" : "justify-end"}`}
-                      >
-                        <div
-                          className={`max-w-[85%] px-3 py-2 rounded-2xl ${
-                            msg.senderId === user?.id
-                              ? "bg-muted rounded-bl-sm"
-                              : "bg-primary text-primary-foreground rounded-br-sm"
-                          }`}
-                        >
-                          <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />
-                          <div className="flex items-center gap-1 mt-1">
-                            <span className="text-[10px] opacity-70">
-                              {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
-                            </span>
-                            {msg.senderId === user?.id && (
-                              <MessageStatusTicks
-                                status={msg.status || "sent"}
-                                deliveredAt={msg.deliveredAt}
-                                readAt={msg.readAt}
-                                isRead={msg.isRead}
-                              />
+                    {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => {
+                      const isSender = msg.senderId === user?.id;
+                      const isBeingEdited = editingMessageId === msg.id;
+                      return (
+                        <div key={msg.id} className={`flex group ${isSender ? "justify-end" : "justify-start"}`}>
+                          <div className="relative max-w-[85%]">
+                            {isSender && !msg.isDeleted && (
+                              <div className="absolute -left-8 top-1 hidden group-hover:flex flex-col gap-0.5 z-10">
+                                {msg.messageType !== "audio" && !isBeingEdited && (
+                                  <button onClick={() => { setEditingMessageId(msg.id); setEditText(msg.message); }} className="p-1 rounded bg-muted hover:bg-accent" title="Edit"><Pencil className="h-3 w-3" /></button>
+                                )}
+                                <button onClick={() => { if (window.confirm("Delete this message for everyone?")) deleteMessageMutation.mutate(msg.id); }} className="p-1 rounded bg-muted hover:bg-destructive hover:text-destructive-foreground" title="Delete"><Trash2 className="h-3 w-3" /></button>
+                              </div>
                             )}
+                            <div className={`px-3 py-2 rounded-2xl ${isSender ? "bg-green-500 text-white rounded-br-sm" : "bg-muted rounded-bl-sm"}`}>
+                              {msg.isDeleted ? (
+                                <span className="text-sm italic opacity-50">This message was deleted</span>
+                              ) : isBeingEdited ? (
+                                <div className="flex gap-2 items-center min-w-[180px]">
+                                  <input className="flex-1 text-sm bg-transparent border-b border-current outline-none" value={editText} onChange={(e) => setEditText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") editMessageMutation.mutate({ messageId: msg.id, message: editText }); if (e.key === "Escape") setEditingMessageId(null); }} autoFocus />
+                                  <button onClick={() => editMessageMutation.mutate({ messageId: msg.id, message: editText })} className="text-xs font-semibold shrink-0">Save</button>
+                                  <button onClick={() => setEditingMessageId(null)} className="text-xs opacity-60 shrink-0">✕</button>
+                                </div>
+                              ) : (
+                                <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />
+                              )}
+                              <div className="flex items-center gap-1 mt-1">
+                                {msg.isEdited && !msg.isDeleted && <span className="text-[9px] opacity-50 italic">edited</span>}
+                                <span className="text-[10px] opacity-70">{formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}</span>
+                                {isSender && <MessageStatusTicks status={msg.status || "sent"} deliveredAt={msg.deliveredAt} readAt={msg.readAt} isRead={msg.isRead} />}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {isPeerTyping && (
                       <div className="flex justify-start">
                         <TypingIndicator />
@@ -584,44 +637,49 @@ export default function SellerMessages() {
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => (
-                          <div
-                            key={msg.id}
-                            className={`flex gap-3 ${msg.senderId !== user?.id ? "flex-row-reverse" : ""}`}
-                          >
-                            <UserAvatar
-                              profileImage={msg.senderId === user?.id ? (user?.profileImage || null) : (selectedUser?.profileImage || null)}
-                              name={msg.senderId === user?.id ? (user?.name || "You") : (selectedUser?.name || selectedUser?.username || "User")}
-                              email={msg.senderId === user?.id ? user?.email : selectedUser?.email}
-                              size="sm"
-                              className="flex-shrink-0"
-                            />
-                            <div className={`flex-1 ${msg.senderId !== user?.id ? "text-right" : ""}`}>
-                              <div
-                                className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${
-                                  msg.senderId === user?.id
-                                    ? "bg-muted"
-                                    : "bg-primary text-primary-foreground"
-                                }`}
-                              >
-                                <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />
-                                <div className="flex items-center gap-1 mt-1">
-                                  <span className={`text-[10px] ${msg.senderId === user?.id ? 'opacity-70' : 'text-muted-foreground'}`}>
-                                    {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
-                                  </span>
-                                  {msg.senderId === user?.id && (
-                                    <MessageStatusTicks
-                                      status={msg.status || "sent"}
-                                      deliveredAt={msg.deliveredAt}
-                                      readAt={msg.readAt}
-                                      isRead={msg.isRead}
-                                    />
+                        {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => {
+                          const isSender = msg.senderId === user?.id;
+                          const isBeingEdited = editingMessageId === msg.id;
+                          return (
+                            <div key={msg.id} className={`flex gap-3 group ${isSender ? "flex-row-reverse" : ""}`}>
+                              <UserAvatar
+                                profileImage={isSender ? (user?.profileImage || null) : (selectedUser?.profileImage || null)}
+                                name={isSender ? (user?.name || "You") : (selectedUser?.name || selectedUser?.username || "User")}
+                                email={isSender ? user?.email : selectedUser?.email}
+                                size="sm"
+                                className="flex-shrink-0"
+                              />
+                              <div className={`flex-1 relative ${isSender ? "text-right" : ""}`}>
+                                {isSender && !msg.isDeleted && (
+                                  <div className="absolute -left-8 top-0 hidden group-hover:flex flex-col gap-0.5 z-10">
+                                    {msg.messageType !== "audio" && !isBeingEdited && (
+                                      <button onClick={() => { setEditingMessageId(msg.id); setEditText(msg.message); }} className="p-1 rounded bg-muted hover:bg-accent" title="Edit"><Pencil className="h-3 w-3" /></button>
+                                    )}
+                                    <button onClick={() => { if (window.confirm("Delete this message for everyone?")) deleteMessageMutation.mutate(msg.id); }} className="p-1 rounded bg-muted hover:bg-destructive hover:text-destructive-foreground" title="Delete"><Trash2 className="h-3 w-3" /></button>
+                                  </div>
+                                )}
+                                <div className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${isSender ? "bg-green-500 text-white" : "bg-muted"}`}>
+                                  {msg.isDeleted ? (
+                                    <span className="text-sm italic opacity-50">This message was deleted</span>
+                                  ) : isBeingEdited ? (
+                                    <div className="flex gap-2 items-center min-w-[180px]">
+                                      <input className="flex-1 text-sm bg-transparent border-b border-current outline-none" value={editText} onChange={(e) => setEditText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") editMessageMutation.mutate({ messageId: msg.id, message: editText }); if (e.key === "Escape") setEditingMessageId(null); }} autoFocus />
+                                      <button onClick={() => editMessageMutation.mutate({ messageId: msg.id, message: editText })} className="text-xs font-semibold shrink-0">Save</button>
+                                      <button onClick={() => setEditingMessageId(null)} className="text-xs opacity-60 shrink-0">✕</button>
+                                    </div>
+                                  ) : (
+                                    <MessageAttachmentContent message={msg.message} className="text-sm whitespace-pre-wrap" />
                                   )}
+                                  <div className="flex items-center gap-1 mt-1">
+                                    {msg.isEdited && !msg.isDeleted && <span className="text-[9px] opacity-50 italic">edited</span>}
+                                    <span className={`text-[10px] ${isSender ? 'opacity-70' : 'text-muted-foreground'}`}>{formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}</span>
+                                    {isSender && <MessageStatusTicks status={msg.status || "sent"} deliveredAt={msg.deliveredAt} readAt={msg.readAt} isRead={msg.isRead} />}
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                         {isPeerTyping && (
                           <div className="flex justify-start">
                             <TypingIndicator />

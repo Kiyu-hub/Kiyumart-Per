@@ -169,13 +169,14 @@ export default function CheckoutConnected() {
   const [isVerifyingInlinePayment, setIsVerifyingInlinePayment] = useState(false);
   const [isRedirectingToSuccess, setIsRedirectingToSuccess] = useState(false);
   // Tracks the pending order created in this session — reused on retries to prevent duplicate orders
-  const pendingOrderRef = useRef<{ orderId: string; checkoutSessionId?: string; isMultiVendor?: boolean } | null>(null);
+  const pendingOrderRef = useRef<{ id: string; checkoutSessionId?: string; isMultiVendor?: boolean; orderIds?: string[] } | null>(null);
   const previousExternalModeRef = useRef<boolean | null>(null);
   const suggestionDebounceRef = useRef<number | null>(null);
   const activeSuggestionRequestRef = useRef(0);
   const suppressNextSuggestionLookupRef = useRef(false);
   const hasAttemptedCouponRestoreRef = useRef(false);
   const checkoutSubmissionLockedRef = useRef(false);
+  const pendingMapLocationRef = useRef<{ lat: number; lng: number } | null>(null);
   const checkoutDraftStorageKey = user?.id ? `${CHECKOUT_DRAFT_STORAGE_PREFIX}.${user.id}` : null;
 
   useEffect(() => {
@@ -517,19 +518,20 @@ export default function CheckoutConnected() {
     },
   });
 
-  const initializeAndPay = async (data: { id?: string; checkoutSessionId?: string; isMultiVendor?: boolean }) => {
+  const initializeAndPay = async (data: { id?: string; checkoutSessionId?: string; isMultiVendor?: boolean; orderIds?: string[] }) => {
     try {
       // Store the order reference so retries can reuse it without creating a new order
       if (data.id) {
         pendingOrderRef.current = {
-          orderId: data.id,
+          id: data.id,
           checkoutSessionId: data.checkoutSessionId,
           isMultiVendor: data.isMultiVendor,
+          orderIds: data.orderIds,
         };
       }
 
       const paymentPayload = data.isMultiVendor && data.checkoutSessionId
-        ? { checkoutSessionId: data.checkoutSessionId, inline: true }
+        ? { checkoutSessionId: data.checkoutSessionId, orderIds: data.orderIds, inline: true }
         : { orderId: data.id, inline: true };
 
       const paymentData = await fetchSameOriginJson<InlinePaymentInitializeResponse>("/api/payments/initialize", {
@@ -666,24 +668,8 @@ export default function CheckoutConnected() {
   });
 
 
-  if (!cartItems.length && !productsLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Card className="max-w-md">
-          <CardHeader>
-            <CardTitle>Cart is Empty</CardTitle>
-            <CardDescription>Add some products to your cart before checking out</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => navigate("/")} className="w-full">
-              Continue Shopping
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
+  // Compute cart-derived values before any early return so hooks below are
+  // always called in the same order regardless of cart state.
   const itemsWithProducts = cartItems.map(item => {
     const product = cartProducts.find(p => p.id === item.productId);
     return { ...item, product };
@@ -698,40 +684,7 @@ export default function CheckoutConnected() {
   const subtotal = pricingSummary.subtotal;
   const originalSubtotal = pricingSummary.originalSubtotal;
   const productSavings = pricingSummary.productSavings;
-
-  const selectedZone = deliveryZones.find(z => z.id === selectedZoneId);
-  const selectedPickupStation = pickupStations.find((station) => station.id === selectedPickupStationId);
-  const usingExternalDeliveryFlow = isExternalRiderSystemEnabled && deliveryMethod !== "pickup";
-  const deliveryFeeCommission = !isExternalRiderSystemEnabled ? Number((settings as any)?.deliveryFeeCommission ?? 0) : 0;
-  const deliveryFee =
-    deliveryMethod === "pickup"
-      ? 0
-      : usingExternalDeliveryFlow
-        ? 0
-        : selectedZone
-          ? parseFloat(selectedZone.fee) + deliveryFeeCommission
-          : 0;
-
-  // Calculate coupon discount
-  const calculateCouponDiscount = () => {
-    if (!appliedCoupon) return 0;
-    
-    if (appliedCoupon.discountType === "percentage") {
-      return (subtotal * parseFloat(appliedCoupon.discountValue)) / 100;
-    } else {
-      return parseFloat(appliedCoupon.discountValue);
-    }
-  };
-
-  const couponDiscount = calculateCouponDiscount();
-  const discountedSubtotal = Math.max(0, subtotal - couponDiscount);
-  const processingFeePercent = Number(settings?.processingFeePercent ?? "1.95");
-  const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
-  const processingFee = computeExactProcessingFee(discountedSubtotal + deliveryFee, processingFeeRate);
-  const total = discountedSubtotal + deliveryFee + processingFee;
   const checkoutSellerId = itemsWithProducts[0]?.product?.sellerId || user?.id || null;
-  const isInlinePaymentBusy =
-    createOrderMutation.isPending || isLaunchingInlinePayment || isVerifyingInlinePayment;
 
   const { data: availableCoupons = [] } = useQuery<Coupon[]>({
     queryKey: ["/api/coupons/available", checkoutSellerId, subtotal],
@@ -741,9 +694,7 @@ export default function CheckoutConnected() {
         `/api/coupons/available?sellerId=${encodeURIComponent(String(checkoutSellerId))}&orderTotal=${encodeURIComponent(
           subtotal.toFixed(2),
         )}`,
-        {
-          cache: "no-store",
-        },
+        { cache: "no-store" },
       ),
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
@@ -790,24 +741,69 @@ export default function CheckoutConnected() {
           clearPersistedCheckoutCoupon(user.id);
         }
       })
-      .catch(() => {
-        // Keep the coupon persisted for the next retry if checkout temporarily fails.
-      })
-      .finally(() => {
-        setIsRestoringCoupon(false);
-      });
+      .catch(() => {})
+      .finally(() => { setIsRestoringCoupon(false); });
   }, [checkoutSellerId, itemsWithProducts.length, subtotal, user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
     if (!appliedCoupon) return;
-
     writePersistedCheckoutCoupon(user.id, {
       code: String(appliedCoupon.code || couponCode).trim().toUpperCase(),
       sellerId: checkoutSellerId,
       savedAt: Date.now(),
     });
   }, [appliedCoupon, checkoutSellerId, couponCode, user?.id]);
+
+  // Early return AFTER all hooks — cart empty and loading done
+  if (!cartItems.length && !productsLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle>Cart is Empty</CardTitle>
+            <CardDescription>Add some products to your cart before checking out</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => navigate("/")} className="w-full">
+              Continue Shopping
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const selectedZone = deliveryZones.find(z => z.id === selectedZoneId);
+  const selectedPickupStation = pickupStations.find((station) => station.id === selectedPickupStationId);
+  const usingExternalDeliveryFlow = isExternalRiderSystemEnabled && deliveryMethod !== "pickup";
+  const deliveryFeeCommission = !isExternalRiderSystemEnabled ? Number((settings as any)?.deliveryFeeCommission ?? 0) : 0;
+  const deliveryFee =
+    deliveryMethod === "pickup"
+      ? 0
+      : usingExternalDeliveryFlow
+        ? 0
+        : selectedZone
+          ? parseFloat(selectedZone.fee) + deliveryFeeCommission
+          : 0;
+
+  const calculateCouponDiscount = () => {
+    if (!appliedCoupon) return 0;
+    if (appliedCoupon.discountType === "percentage") {
+      return (subtotal * parseFloat(appliedCoupon.discountValue)) / 100;
+    } else {
+      return parseFloat(appliedCoupon.discountValue);
+    }
+  };
+
+  const couponDiscount = calculateCouponDiscount();
+  const discountedSubtotal = Math.max(0, subtotal - couponDiscount);
+  const processingFeePercent = Number(settings?.processingFeePercent ?? "1.95");
+  const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
+  const processingFee = computeExactProcessingFee(discountedSubtotal + deliveryFee, processingFeeRate);
+  const total = discountedSubtotal + deliveryFee + processingFee;
+  const isInlinePaymentBusy =
+    createOrderMutation.isPending || isLaunchingInlinePayment || isVerifyingInlinePayment;
 
   const handleApplyCoupon = () => {
     if (!couponCode.trim()) {
@@ -1065,8 +1061,14 @@ export default function CheckoutConnected() {
                 onClick={() => {
                   setLocationAutoDetected(false);
                   setShowLocationChangeWarning(false);
-                  setDeliveryLat(null);
-                  setDeliveryLng(null);
+                  if (pendingMapLocationRef.current) {
+                    setDeliveryLat(pendingMapLocationRef.current.lat);
+                    setDeliveryLng(pendingMapLocationRef.current.lng);
+                    pendingMapLocationRef.current = null;
+                  } else {
+                    setDeliveryLat(null);
+                    setDeliveryLng(null);
+                  }
                 }}
                 className="flex-1 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2.5 transition-colors"
               >
@@ -1346,11 +1348,17 @@ export default function CheckoutConnected() {
                           setLocationAutoDetected(true);
                         }}
                         onLocationChange={(lat, lng) => {
-                          setDeliveryLat(lat);
-                          setDeliveryLng(lng);
-                          setLocationAutoDetected(true);
+                          if (locationAutoDetected) {
+                            pendingMapLocationRef.current = { lat, lng };
+                            setShowLocationChangeWarning(true);
+                          } else {
+                            setDeliveryLat(lat);
+                            setDeliveryLng(lng);
+                            setLocationAutoDetected(true);
+                          }
                         }}
                         selectedCoordinates={deliveryLat != null && deliveryLng != null ? [deliveryLat, deliveryLng] : null}
+                        hideCurrentLocationButton={true}
                       />
                     </div>
                   ) : null}

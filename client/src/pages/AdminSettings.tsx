@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image as ImageIcon, ArrowLeft, Cloud, Trash2, Pencil, Plus, Eye, ArrowRightLeft, Store, Layers, EyeOff, Edit, Globe, LayoutGrid, Activity,
-  Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive, BarChart2, Server, Zap, BookOpen, ExternalLink, Copy, ListChecks
+  Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive, BarChart2, Server, Zap, BookOpen, ExternalLink, Copy, ListChecks, Upload, FileAudio
 } from "lucide-react";
 import { insertFooterPageSchema, type FooterPage } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -548,8 +548,8 @@ function EnvStatusPanel({ onNavigateToTab }: { onNavigateToTab: (tab: string) =>
 
 // ─── Sound & Ringtone Settings ────────────────────────────────────────────────
 
-type RingtoneId = "default" | "whatsapp" | "classic" | "gentle" | "professional";
-type NotificationId = "default" | "chime" | "bell" | "pop" | "soft";
+type RingtoneId = "default" | "whatsapp" | "classic" | "gentle" | "professional" | "marimba" | "jazz" | "digital" | "nature" | "retro";
+type NotificationId = "default" | "chime" | "bell" | "pop" | "soft" | "ding" | "triple" | "alert" | "sparkle" | "swoosh";
 
 interface RingtonePreset {
   id: string;
@@ -564,6 +564,11 @@ const CALLER_PRESETS: RingtonePreset[] = [
   { id: "classic", label: "Classic Dial", description: "Traditional telephone ringback tone", icon: "☎️" },
   { id: "gentle", label: "Gentle Pulse", description: "Soft repeating tone", icon: "🎵" },
   { id: "professional", label: "Professional", description: "Clean single-frequency ringback", icon: "🎙️" },
+  { id: "marimba", label: "Marimba", description: "Warm xylophone-style tones", icon: "🪘" },
+  { id: "jazz", label: "Jazz", description: "Bluesy melodic ringback pattern", icon: "🎷" },
+  { id: "digital", label: "Digital", description: "Modern electronic beep pattern", icon: "📱" },
+  { id: "nature", label: "Nature", description: "Birdsong-inspired ascending melody", icon: "🌿" },
+  { id: "retro", label: "Retro", description: "8-bit chiptuned ringback tone", icon: "🕹️" },
 ];
 
 const RECEIVER_PRESETS: RingtonePreset[] = [
@@ -572,6 +577,11 @@ const RECEIVER_PRESETS: RingtonePreset[] = [
   { id: "classic", label: "Classic Ring", description: "Traditional double-ring pattern", icon: "☎️" },
   { id: "gentle", label: "Gentle Chime", description: "Soft harmonic ring", icon: "🎶" },
   { id: "professional", label: "Professional", description: "Office-style clean ring burst", icon: "💼" },
+  { id: "xylophone", label: "Xylophone", description: "Clear bright xylophone melody", icon: "🎼" },
+  { id: "cosmic", label: "Cosmic", description: "Space-themed ascending ring", icon: "🌌" },
+  { id: "minimal", label: "Minimal", description: "Single clean tone", icon: "⚪" },
+  { id: "vibrant", label: "Vibrant", description: "Fast energetic ring burst", icon: "⚡" },
+  { id: "warm", label: "Warm", description: "Warm harmonic overtone ring", icon: "🌅" },
 ];
 
 const NOTIFICATION_PRESETS: RingtonePreset[] = [
@@ -580,9 +590,23 @@ const NOTIFICATION_PRESETS: RingtonePreset[] = [
   { id: "bell", label: "Bell", description: "Clear bell strike", icon: "🔕" },
   { id: "pop", label: "Pop", description: "Quick pop sound", icon: "💧" },
   { id: "soft", label: "Soft", description: "Gentle notification tone", icon: "🌊" },
+  { id: "ding", label: "Ding", description: "Single crisp ding tone", icon: "🔊" },
+  { id: "triple", label: "Triple", description: "Three quick ascending pops", icon: "🎯" },
+  { id: "alert", label: "Alert", description: "Urgent two-tone alert", icon: "⚠️" },
+  { id: "sparkle", label: "Sparkle", description: "Rising sparkle effect", icon: "✨" },
+  { id: "swoosh", label: "Swoosh", description: "Quick swoosh notification", icon: "💨" },
 ];
 
 function playPreviewSound(type: "caller" | "receiver" | "notification", preset: string) {
+  if (preset.startsWith("http")) {
+    try {
+      const audio = new Audio(preset);
+      audio.volume = 0.7;
+      audio.play().catch(() => {});
+      setTimeout(() => { try { audio.pause(); audio.currentTime = 0; } catch { /* ignore */ } }, 3000);
+    } catch { /* ignore */ }
+    return;
+  }
   try {
     const Ctor = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!Ctor) return;
@@ -609,18 +633,33 @@ function playPreviewSound(type: "caller" | "receiver" | "notification", preset: 
       else if (preset === "classic") { tone(400, 0, 0.4, 0.1, "sine"); tone(400, 0.5, 0.4, 0.1, "sine"); }
       else if (preset === "gentle") { tone(480, 0, 0.5, 0.07, "sine"); }
       else if (preset === "professional") { tone(600, 0, 0.15, 0.08, "sine"); tone(600, 0.4, 0.15, 0.08, "sine"); }
+      else if (preset === "marimba") { [523, 659, 784, 659].forEach((f, i) => tone(f, i * 0.15, 0.12, 0.1, "triangle")); }
+      else if (preset === "jazz") { [330, 415, 494, 415, 330].forEach((f, i) => tone(f, i * 0.14, 0.11, 0.09, "sine")); }
+      else if (preset === "digital") { [880, 880, 1100, 880].forEach((f, i) => tone(f, i * 0.12, 0.07, 0.08, "square")); }
+      else if (preset === "nature") { [440, 554, 659, 554, 440].forEach((f, i) => tone(f, i * 0.2, 0.18, 0.07, "sine")); }
+      else if (preset === "retro") { [262, 330, 392, 330, 262].forEach((f, i) => tone(f, i * 0.1, 0.08, 0.1, "square")); }
     } else if (type === "receiver") {
       if (preset === "default") { tone(880, 0, 0.2, 0.12, "sine"); tone(660, 0.24, 0.2, 0.12, "sine"); }
       else if (preset === "whatsapp") { [660, 880, 660, 880].forEach((f, i) => tone(f, i * 0.15, 0.12, 0.1)); }
       else if (preset === "classic") { tone(800, 0, 0.15, 0.12, "square"); tone(800, 0.2, 0.15, 0.12, "square"); tone(800, 0.6, 0.15, 0.12, "square"); tone(800, 0.8, 0.15, 0.12, "square"); }
       else if (preset === "gentle") { [523, 659, 784].forEach((f, i) => tone(f, i * 0.22, 0.18, 0.09, "sine")); }
       else if (preset === "professional") { tone(880, 0, 0.1, 0.1, "sine"); tone(1100, 0.15, 0.1, 0.1, "sine"); tone(880, 0.3, 0.1, 0.08, "sine"); }
+      else if (preset === "xylophone") { [784, 988, 1175, 988].forEach((f, i) => tone(f, i * 0.15, 0.18, 0.1, "triangle")); }
+      else if (preset === "cosmic") { [220, 330, 440, 660, 880].forEach((f, i) => tone(f, i * 0.18, 0.14, 0.08, "sine")); }
+      else if (preset === "minimal") { tone(800, 0, 0.3, 0.1, "sine"); }
+      else if (preset === "vibrant") { [880, 1100, 880, 1100, 880].forEach((f, i) => tone(f, i * 0.09, 0.07, 0.11, "sine")); }
+      else if (preset === "warm") { tone(440, 0, 0.25, 0.09, "sine"); tone(550, 0.05, 0.25, 0.07, "sine"); tone(660, 0.3, 0.2, 0.09, "sine"); tone(550, 0.35, 0.2, 0.07, "sine"); }
     } else {
       if (preset === "default") { tone(880, 0, 0.08, 0.1, "sine"); tone(880, 0.12, 0.08, 0.1, "sine"); }
       else if (preset === "chime") { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.1, 0.25, 0.08, "sine")); }
       else if (preset === "bell") { tone(1047, 0, 0.6, 0.12, "sine"); }
       else if (preset === "pop") { tone(400, 0, 0.05, 0.15, "sine"); }
       else if (preset === "soft") { tone(660, 0, 0.3, 0.07, "sine"); tone(880, 0.2, 0.2, 0.05, "sine"); }
+      else if (preset === "ding") { tone(1320, 0, 0.4, 0.12, "sine"); }
+      else if (preset === "triple") { [660, 784, 988].forEach((f, i) => tone(f, i * 0.1, 0.07, 0.1, "sine")); }
+      else if (preset === "alert") { tone(1100, 0, 0.1, 0.14, "square"); tone(880, 0.14, 0.1, 0.12, "square"); }
+      else if (preset === "sparkle") { [523, 659, 784, 988, 1175].forEach((f, i) => tone(f, i * 0.07, 0.1, 0.08, "sine")); }
+      else if (preset === "swoosh") { tone(200, 0, 0.18, 0.12, "sine"); tone(600, 0.05, 0.1, 0.07, "sine"); }
     }
 
     setTimeout(() => { try { ctx.close(); } catch { /* ignore */ } }, 2500);
@@ -634,43 +673,113 @@ function SoundSettingsSection({
   callerRingtone: string; receiverRingtone: string; notificationSound: string;
   onCallerChange: (v: string) => void; onReceiverChange: (v: string) => void; onNotificationChange: (v: string) => void;
 }) {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
+  const [uploadingFor, setUploadingFor] = useState<"caller" | "receiver" | "notification" | null>(null);
+
+  const isCustomUrl = (value: string) => value.startsWith("http");
+
+  const handleCustomUpload = async (soundType: "caller" | "receiver" | "notification", file: File) => {
+    setUploadingFor(soundType);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload/audio", { method: "POST", credentials: "include", body: formData });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.url) throw new Error(payload?.error || "Upload failed");
+      if (soundType === "caller") onCallerChange(payload.url);
+      else if (soundType === "receiver") onReceiverChange(payload.url);
+      else onNotificationChange(payload.url);
+    } catch { /* ignore */ } finally {
+      setUploadingFor(null);
+    }
+  };
+
   const renderPresets = (
     presets: RingtonePreset[],
     selected: string,
     onChange: (v: string) => void,
     soundType: "caller" | "receiver" | "notification",
   ) => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {presets.map((preset) => (
-        <div
-          key={preset.id}
-          onClick={() => onChange(preset.id)}
-          className={`relative cursor-pointer rounded-xl border-2 p-4 transition-all select-none ${
-            selected === preset.id
-              ? "border-primary bg-primary/5 shadow-sm"
-              : "border-border hover:border-primary/40 hover:bg-muted/40"
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            <span className="text-2xl">{preset.icon}</span>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm">{preset.label}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{preset.description}</p>
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {presets.map((preset) => (
+          <div
+            key={preset.id}
+            onClick={() => onChange(preset.id)}
+            className={`relative cursor-pointer rounded-xl border-2 p-4 transition-all select-none ${
+              selected === preset.id
+                ? "border-primary bg-primary/5 shadow-sm"
+                : "border-border hover:border-primary/40 hover:bg-muted/40"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">{preset.icon}</span>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm">{preset.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{preset.description}</p>
+              </div>
+              {selected === preset.id && (
+                <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+              )}
             </div>
-            {selected === preset.id && (
-              <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); playPreviewSound(soundType, preset.id); }}
+              className="mt-3 flex items-center gap-1.5 rounded-lg bg-muted/60 hover:bg-muted px-3 py-1.5 text-xs font-medium transition-colors w-full justify-center"
+            >
+              <Music className="h-3 w-3" />
+              Preview
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {isSuperAdmin && (
+        <div className={`rounded-xl border-2 p-4 transition-all ${isCustomUrl(selected) ? "border-primary bg-primary/5 shadow-sm" : "border-dashed border-border"}`}>
+          <div className="flex items-start gap-3 mb-3">
+            <FileAudio className="h-5 w-5 shrink-0 text-muted-foreground mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm">Custom Upload <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded ml-1">Super Admin</span></p>
+              <p className="text-xs text-muted-foreground mt-0.5">Upload an MP3 or WAV file to use as a custom sound.</p>
+              {isCustomUrl(selected) && (
+                <p className="text-xs text-primary mt-1 truncate">Active: {selected.split("/").pop()}</p>
+              )}
+            </div>
+            {isCustomUrl(selected) && <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />}
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                accept="audio/mp3,audio/mpeg,audio/wav,audio/ogg,audio/*"
+                className="hidden"
+                disabled={uploadingFor !== null}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleCustomUpload(soundType, file);
+                  e.target.value = "";
+                }}
+              />
+              <span className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${uploadingFor === soundType ? "bg-muted text-muted-foreground cursor-not-allowed" : "bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer"}`}>
+                {uploadingFor === soundType ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                {uploadingFor === soundType ? "Uploading..." : "Upload File"}
+              </span>
+            </label>
+            {isCustomUrl(selected) && (
+              <button type="button" onClick={() => { onChange("default"); playPreviewSound(soundType, selected); }} className="inline-flex items-center gap-1.5 rounded-lg bg-muted/60 hover:bg-muted px-3 py-1.5 text-xs font-medium transition-colors">
+                <Music className="h-3 w-3" />
+                Preview
+              </button>
+            )}
+            {isCustomUrl(selected) && (
+              <button type="button" onClick={() => onChange("default")} className="inline-flex items-center gap-1.5 rounded-lg border hover:bg-muted px-3 py-1.5 text-xs font-medium transition-colors">
+                Remove Custom
+              </button>
             )}
           </div>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); playPreviewSound(soundType, preset.id); }}
-            className="mt-3 flex items-center gap-1.5 rounded-lg bg-muted/60 hover:bg-muted px-3 py-1.5 text-xs font-medium transition-colors w-full justify-center"
-          >
-            <Music className="h-3 w-3" />
-            Preview
-          </button>
         </div>
-      ))}
+      )}
     </div>
   );
 

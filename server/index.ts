@@ -349,6 +349,17 @@ app.use(cookieParser());
 
 (async () => {
   // Backward-compatible schema self-heal for environments missing latest migration.
+  // Probe DB first — if Neon is cold, fail fast and skip all migrations so the
+  // server can start immediately rather than hanging for 30+ seconds per statement.
+  let schemaHealEnabled = false;
+  try {
+    await withTimeout(db.execute(sql`SELECT 1`), 8000, "startup DB ping");
+    schemaHealEnabled = true;
+  } catch {
+    console.warn("[STARTUP] DB not reachable on startup — skipping schema self-heal. Server will start without it.");
+  }
+
+  if (schemaHealEnabled)
   try {
     await db.execute(sql`
       DO $$
@@ -619,6 +630,7 @@ app.use(cookieParser());
     // Promotion display section
     await db.execute(sql`ALTER TABLE promotional_ads ADD COLUMN IF NOT EXISTS display_section varchar(20) DEFAULT 'homepage'`);
     await db.execute(sql`ALTER TABLE promotion_applications ADD COLUMN IF NOT EXISTS display_section varchar(20) DEFAULT 'homepage'`);
+    await db.execute(sql`ALTER TABLE promotional_ads ADD COLUMN IF NOT EXISTS banner_config jsonb`);
     // Group chat
     await db.execute(sql`
       DO $$ BEGIN
@@ -675,9 +687,14 @@ app.use(cookieParser());
           CREATE INDEX suggestions_created_idx ON suggestions(created_at);
         END IF;
       END $$`);
+    // Chat message delete/edit support
+    await db.execute(sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_deleted boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS deleted_at timestamp`);
+    await db.execute(sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_edited boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edited_at timestamp`);
   } catch (e: any) {
     console.warn("[STARTUP] Could not run schema self-heal compatibility checks:", e?.message || String(e));
-  }
+  } // end if (schemaHealEnabled)
 
   // Validate frontend URL on startup
   try {
@@ -690,12 +707,14 @@ app.use(cookieParser());
 
   const server = await registerRoutes(app);
 
-  try {
-    const { storage } = await import("./storage");
-    await storage.getPlatformSettings();
-    console.log("[BOOT] Warmed platform settings cache");
-  } catch (e) {
-    console.warn("[BOOT] Could not warm platform settings cache:", (e as any)?.message ?? String(e));
+  if (schemaHealEnabled) {
+    try {
+      const { storage } = await import("./storage");
+      await storage.getPlatformSettings();
+      console.log("[BOOT] Warmed platform settings cache");
+    } catch (e) {
+      console.warn("[BOOT] Could not warm platform settings cache:", (e as any)?.message ?? String(e));
+    }
   }
 
   // ALWAYS serve the app on the port specified in the environment variable PORT.
@@ -719,7 +738,9 @@ app.use(cookieParser());
     log(`serving on ${host}:${port}`);
   });
 
-  // Seed default role features on startup (without overriding existing custom config)
+  // Seed default role features and footer defaults in the background so they never
+  // delay Vite startup. Both are non-critical and safe to run after the server is live.
+  void (async () => {
   try {
     const { storage } = await import('./storage');
     const roleDefaults: Record<string, Record<string, boolean>> = {
@@ -877,6 +898,7 @@ app.use(cookieParser());
   } catch (e) {
     console.warn('[BOOT] Could not populate footer defaults:', (e as any)?.message ?? String(e));
   }
+  })(); // end background boot tasks
 
   // Global Error Handler - Must be after all routes
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {

@@ -72,7 +72,7 @@ async function run() {
   console.log('calls:', calls);
   console.log('✅ paystack-verify-route.test passed');
 
-  server.close();
+  server.close(() => process.exit(0));
 }
 
 run().catch(err => { console.error('❌ paystack-verify-route.test failed', err); throw err; });

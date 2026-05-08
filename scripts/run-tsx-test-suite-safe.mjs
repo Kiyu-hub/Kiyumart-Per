@@ -8,6 +8,9 @@ loadEnv();
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || "testsecret";
 process.env.DATABASE_URL =
   process.env.DATABASE_URL || "postgresql://test:test@localhost:5432/test";
+// Disable the 60-second auto-maintenance blackout that production mode enables on restart.
+// Tests start a fresh server and immediately send requests, so the window would always block them.
+process.env.AUTO_MAINTENANCE_DURATION_MS = "0";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

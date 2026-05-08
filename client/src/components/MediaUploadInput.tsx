@@ -217,11 +217,22 @@ export default function MediaUploadInput({
     }
 
     setValidationStatus("Checking file...");
-    const maxSize = 10 * 1024 * 1024;
-    if (isImage && file.size > maxSize) {
+    const maxImageSize = 10 * 1024 * 1024;
+    const maxVideoSize = 20 * 1024 * 1024;
+    if (isImage && file.size > maxImageSize) {
       toast({
         title: "File too large",
         description: `File is ${formatFileSize(file.size)}. Maximum size is 10MB`,
+        variant: "destructive",
+      });
+      setFileInfo(null);
+      return;
+    }
+
+    if (isVideo && file.size > maxVideoSize) {
+      toast({
+        title: "Video too large",
+        description: `Video is ${formatFileSize(file.size)}. Maximum size is 20MB`,
         variant: "destructive",
       });
       setFileInfo(null);

@@ -145,7 +145,7 @@ function SearchBox({
                 <button
                   key={product.id}
                   type="button"
-                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-accent text-left transition-colors"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-primary/10 text-left transition-colors"
                   onClick={() => handleResultClick(product.id)}
                 >
                   {product.images?.[0] ? (
@@ -172,7 +172,7 @@ function SearchBox({
               ))}
               <button
                 type="button"
-                className="w-full px-4 py-3 text-sm text-center text-primary font-medium border-t hover:bg-accent transition-colors"
+                className="w-full px-4 py-3 text-sm text-center text-primary font-medium border-t hover:bg-primary/10 transition-colors"
                 onClick={handleSeeAll}
               >
                 See all results for "{debouncedQuery}"

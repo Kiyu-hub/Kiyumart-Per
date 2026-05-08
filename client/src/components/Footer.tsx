@@ -373,7 +373,9 @@ export default function Footer() {
                   {isMultiVendor && (
                     <>
                       <li>{renderInternalLink("/stores", "Browse Stores")}</li>
-                      <li>{renderInternalLink("/become-seller", "Become a Seller")}</li>
+                      {!(isAuthenticated && user?.role === "seller") && (
+                        <li>{renderInternalLink("/become-seller", "Become a Seller")}</li>
+                      )}
                       {settings?.allowRiderRegistration && !isExternalRiderSystemEnabled && (
                         <li>{renderInternalLink("/become-rider", "Become a Rider")}</li>
                       )}

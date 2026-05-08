@@ -124,6 +124,7 @@ const routeToMenuId: Record<string, string> = {
   "/admin/suggestions": "admin-suggestions",
   "/suggestions": "suggestions",
   "/report-case": "report-case",
+  "/referral": "referral",
 };
 
 function InactiveAccountNotice({

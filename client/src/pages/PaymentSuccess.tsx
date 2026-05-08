@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { CheckCircle, Package, MapPin, Star, MessageSquare } from "lucide-react";
+import { CheckCircle, Package, MapPin, Star, MessageSquare, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +59,9 @@ export default function PaymentSuccess() {
     productName: string;
     quantity: number;
     price: string;
+    image?: string | null;
+    selectedColor?: string | null;
+    selectedSize?: string | null;
   }>>({
     queryKey: [`/api/orders/${orderId}/items`],
     queryFn: () =>
@@ -68,6 +71,9 @@ export default function PaymentSuccess() {
           productName: string;
           quantity: number;
           price: string;
+          image?: string | null;
+          selectedColor?: string | null;
+          selectedSize?: string | null;
         }>
       >(`/api/orders/${orderId}/items`),
     enabled: !!orderId,
@@ -324,6 +330,52 @@ export default function PaymentSuccess() {
           </Card>
 
 
+          {/* Items Ordered */}
+          {orderItems.length > 0 && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ShoppingBag className="h-5 w-5" />
+                  Items Ordered
+                </CardTitle>
+                <CardDescription>
+                  {orderItems.length} item{orderItems.length === 1 ? "" : "s"} in this order
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="divide-y">
+                  {orderItems.map((item) => (
+                    <div key={item.productId} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
+                      {item.image ? (
+                        <img
+                          src={item.image}
+                          alt={item.productName}
+                          className="h-16 w-16 rounded-lg object-cover flex-shrink-0 bg-muted border"
+                        />
+                      ) : (
+                        <div className="h-16 w-16 rounded-lg bg-muted flex-shrink-0 flex items-center justify-center border">
+                          <Package className="h-6 w-6 text-muted-foreground/40" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{item.productName}</p>
+                        {(item.selectedColor || item.selectedSize) && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {[item.selectedColor && `Color: ${item.selectedColor}`, item.selectedSize && `Size: ${item.selectedSize}`].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
+                        <p className="text-sm text-muted-foreground mt-0.5">Qty: {item.quantity}</p>
+                      </div>
+                      <p className="font-semibold text-right shrink-0">
+                        {formatPrice(parseFloat(item.price) * item.quantity)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Review Section */}
           {orderItems.length > 0 && (
             <Card className="mb-6">
@@ -337,18 +389,30 @@ export default function PaymentSuccess() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {orderItems.map((item) => (
-                    <div key={item.productId} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex-1">
-                        <h4 className="font-medium">{item.productName}</h4>
-                        <p className="text-sm text-muted-foreground">Quantity: {item.quantity}</p>
+                    <div key={item.productId} className="flex items-center gap-3 p-3 border rounded-lg">
+                      {item.image ? (
+                        <img
+                          src={item.image}
+                          alt={item.productName}
+                          className="h-10 w-10 rounded-md object-cover flex-shrink-0 bg-muted border"
+                        />
+                      ) : (
+                        <div className="h-10 w-10 rounded-md bg-muted flex-shrink-0 flex items-center justify-center border">
+                          <Package className="h-4 w-4 text-muted-foreground/40" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium truncate text-sm">{item.productName}</h4>
+                        <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
                       </div>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setSelectedProductForReview(item.productId)}
                         disabled={submitReviewMutation.isPending}
+                        className="shrink-0"
                       >
                         Write Review
                       </Button>

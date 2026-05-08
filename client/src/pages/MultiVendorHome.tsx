@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
@@ -91,11 +91,11 @@ export default function MultiVendorHome() {
     },
   });
 
-  // Fetch active promotions
+  // Fetch active promotions (homepage section only — banner promos go to HeroCarousel)
   const { data: promos = [] } = useQuery<any[]>({
-    queryKey: ['/api/homepage/promotional'],
+    queryKey: ['/api/homepage/promotional', 'homepage'],
     queryFn: async () => {
-      return fetchApiJson<any[]>("/api/homepage/promotional");
+      return fetchApiJson<any[]>("/api/homepage/promotional?section=homepage");
     },
     refetchInterval: 5000,
   });
@@ -188,22 +188,10 @@ export default function MultiVendorHome() {
   // Sidebar is visible when it has promo or ad to show
   const hasSidebarContent = sidebarItemCount > 0;
 
-  // --- Search — redirects to dedicated /search page automatically while typing ---
+  // Filter products locally while typing; navigation to /search happens on Enter/submit via Header
   const [searchQuery, setSearchQuery] = useState("");
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const handleSearch = useCallback((query: string) => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    const trimmed = query.trim();
-    if (!trimmed) { setSearchQuery(""); return; }
-    debounceTimerRef.current = setTimeout(() => {
-      navigate(`/search?q=${encodeURIComponent(trimmed)}`);
-    }, 300);
-  }, [navigate]);
-
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    };
+    setSearchQuery(query.trim());
   }, []);
 
   const matchesProductSearch = (product: ProductWithCategoryMeta) => {
@@ -246,10 +234,10 @@ export default function MultiVendorHome() {
         <ThemeToggle />
       </div>
       
-      <div className="relative z-10">
+      <div className="relative z-50">
         <Header onSearch={handleSearch} />
       </div>
-      
+
       {/* Full-width Hero Carousel */}
       <div className="relative z-10">
         <HeroCarousel />

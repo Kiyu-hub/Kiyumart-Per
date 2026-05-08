@@ -96,7 +96,7 @@ async function run() {
 
     console.log('✅ paystack-init.test passed');
 
-  server.close();
+  server.close(() => process.exit(0));
 }
 
 run().catch(err => { console.error('❌ paystack-init.test failed', err); throw err; });

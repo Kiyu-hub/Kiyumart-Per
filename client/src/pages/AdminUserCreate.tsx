@@ -35,7 +35,7 @@ const createUserSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  phone: z.string().optional(),
+  phone: z.string().optional().or(z.literal("")),
   role: z.enum(["buyer", "seller", "rider", "pickup_agent", "agent", "admin"]),
   // Shared KYC fields for seller/rider admin setup
   nationalIdCard: z.string().optional(),
@@ -66,6 +66,14 @@ const createUserSchema = z.object({
 }, {
   message: "Ghana card number, address, city, region, vehicle type and color are required for riders",
   path: ["vehicleType"],
+}).refine((data) => {
+  if (data.role === "pickup_agent") {
+    return Boolean(data.phone?.trim());
+  }
+  return true;
+}, {
+  message: "Phone number is required for pickup agents",
+  path: ["phone"],
 }).refine((data) => {
   if (data.role === "pickup_agent") {
     return Boolean(data.businessAddress?.trim() && data.deliveryZoneId?.trim());
@@ -266,7 +274,7 @@ export default function AdminUserCreate() {
                   name="phone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Phone (Optional)</FormLabel>
+                      <FormLabel>Phone {selectedRole === "pickup_agent" ? <span className="text-destructive">*</span> : "(Optional)"}</FormLabel>
                       <FormControl>
                         <Input placeholder="+233 XX XXX XXXX" {...field} data-testid="input-phone" />
                       </FormControl>

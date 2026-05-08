@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
@@ -93,6 +94,7 @@ export default function SellerAnalytics() {
   const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
   const [range, setRange] = useState<"7d" | "30d" | "90d" | "all">("all");
   const [exporting, setExporting] = useState<"none" | "csv" | "pdf">("none");
+  const [, navigate] = useLocation();
 
   const { data: stats, isLoading: statsLoading } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
@@ -100,7 +102,7 @@ export default function SellerAnalytics() {
     refetchInterval: 60_000,
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
-    staleTime: 60_000,
+    staleTime: 0,
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<OrderRow[]>({
@@ -115,7 +117,7 @@ export default function SellerAnalytics() {
     refetchInterval: 60_000,
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
-    staleTime: 60_000,
+    staleTime: 0,
   });
 
   const { data: receipts = [] } = useQuery<ReceiptSummary[]>({
@@ -130,7 +132,7 @@ export default function SellerAnalytics() {
     refetchInterval: 60_000,
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
-    staleTime: 60_000,
+    staleTime: 0,
   });
 
   const startDate = useMemo(() => {
@@ -727,14 +729,6 @@ export default function SellerAnalytics() {
               <Card><CardHeader className="pb-2"><CardDescription>Conversion Quality</CardDescription><CardTitle className="text-2xl">{totals.paidRate.toFixed(1)}%</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><TrendingUp className="h-4 w-4" />Paid completed ratio</CardContent></Card>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Gross Sales</p><p className="mt-1 text-sm text-muted-foreground">Your top-line product revenue — product prices minus any coupon discounts you applied. Delivery fees and the checkout processing fee are paid by buyers on top of your price and are <strong className="text-foreground">never included</strong> in this figure. The platform service fee is not yet deducted here.</p></CardContent></Card>
-              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Net Payout (Settlement)</p><p className="mt-1 text-sm text-muted-foreground">What you actually receive: Gross Sales minus the platform service fee. <strong className="text-foreground">Bank account:</strong> your net payout is split to your bank instantly when the buyer pays. <strong className="text-foreground">Mobile money:</strong> request a withdrawal and the transfer is sent to your wallet automatically within seconds — fully automated.</p></CardContent></Card>
-              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Pending Payout</p><p className="mt-1 text-sm text-muted-foreground">Your net earnings that have been confirmed but not yet transferred to your payout account. Once your bank or mobile money details are verified, these funds will be released.</p></CardContent></Card>
-              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Seller Wallet</p><p className="mt-1 text-sm text-muted-foreground">The total net amount already paid out and successfully received in your bank account or mobile money.</p></CardContent></Card>
-              <Card className="border-border/70 bg-card"><CardContent className="p-4"><p className="text-sm font-medium text-foreground">Checkout Processing Fee — paid by buyers</p><p className="mt-1 text-sm text-muted-foreground">Buyers pay an additional 1.95% on top of your product price at checkout to cover Paystack's transaction cost. This fee is shown separately on the buyer's receipt and goes to the platform. It is <strong className="text-foreground">never deducted from your earnings</strong> and has no effect on your Gross Sales or Net Payout.</p></CardContent></Card>
-            </div>
-
             <div className="grid gap-4 xl:grid-cols-2">
               <Card>
                 <CardHeader><CardTitle>Sales Overview</CardTitle><CardDescription>Revenue trend by day</CardDescription></CardHeader>
@@ -782,13 +776,18 @@ export default function SellerAnalytics() {
               </CardHeader>
               <CardContent className="space-y-2">
                 {receipts.slice(0, 6).map((receipt) => (
-                  <a key={receipt.id} href={`/orders/${receipt.orderId}/receipt`} className="flex items-center justify-between rounded-lg border p-3 text-sm transition-colors hover:border-primary/30 hover:bg-primary/5 dark:hover:bg-primary/10">
+                  <button
+                    key={receipt.id}
+                    type="button"
+                    onClick={() => navigate(`/orders/${receipt.orderId}/receipt`)}
+                    className="w-full flex items-center justify-between rounded-lg border p-3 text-sm transition-colors hover:border-primary/30 hover:bg-primary/5 dark:hover:bg-primary/10 text-left"
+                  >
                     <div className="min-w-0">
                       <p className="font-medium truncate">{receipt.receiptNumber}</p>
                       <p className="text-xs text-muted-foreground truncate">Order #{receipt.orderNumber} • {receipt.orderStatus}</p>
                     </div>
                     <p className="font-semibold">{formatPrice(Number(receipt.total || 0))}</p>
-                  </a>
+                  </button>
                 ))}
                 {!receipts.length && <p className="text-sm text-muted-foreground">No receipts generated yet for this seller scope.</p>}
               </CardContent>

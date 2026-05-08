@@ -25,7 +25,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Table,
@@ -225,9 +224,15 @@ export function AdminDeliveryZonesPage({
     mutationFn: async (data: ZoneFormData) => {
       const normalizedData = normalizeZonePayload(data);
       const res = await apiRequest("POST", "/api/delivery-zones", normalizedData);
-      return res.json();
+      const result = await res.json().catch(() => ({}));
+      return result as DeliveryZone;
     },
     onSuccess: async (zone: DeliveryZone) => {
+      if (!zone?.id) {
+        toast({ title: "Unexpected response", description: "Station was likely created. Please refresh to confirm.", variant: "destructive" });
+        handleDialogOpenChange(false);
+        return;
+      }
       let assignmentError: Error | null = null;
       if (isPickupStationPage) {
         try {
@@ -269,9 +274,15 @@ export function AdminDeliveryZonesPage({
     mutationFn: async ({ id, data }: { id: string; data: ZoneFormData }) => {
       const normalizedData = normalizeZonePayload(data);
       const res = await apiRequest("PATCH", `/api/delivery-zones/${id}`, normalizedData);
-      return res.json();
+      const result = await res.json().catch(() => ({}));
+      return result as DeliveryZone;
     },
     onSuccess: async (zone: DeliveryZone) => {
+      if (!zone?.id) {
+        toast({ title: "Unexpected response", description: "Station was likely updated. Please refresh to confirm.", variant: "destructive" });
+        handleDialogOpenChange(false);
+        return;
+      }
       let assignmentError: Error | null = null;
       if (isPickupStationPage) {
         try {
@@ -363,7 +374,7 @@ export function AdminDeliveryZonesPage({
       type: (zone.type as "city" | "region") || "city",
       city: zone.city || "",
       region: zone.region || "",
-      fee: zone.fee,
+      fee: zone.fee ?? "0",
       isActive: zone.isActive,
     });
     setSelectedPickupAgentIds([]);
@@ -441,14 +452,15 @@ export function AdminDeliveryZonesPage({
             </p>
           </div>
           
-          <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
-            <DialogTrigger asChild>
-              <Button onClick={openCreateDialog} data-testid="button-add-zone">
-                <Plus className="h-4 w-4 mr-2" />
-                {isPickupStationPage ? "Add Pickup Station" : "Add Zone"}
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-3xl">
+          <Button onClick={openCreateDialog} data-testid="button-add-zone">
+            <Plus className="h-4 w-4 mr-2" />
+            {isPickupStationPage ? "Add Pickup Station" : "Add Zone"}
+          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            if (!open && (createZoneMutation.isPending || updateZoneMutation.isPending)) return;
+            handleDialogOpenChange(open);
+          }}>
+            <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
               <form onSubmit={form.handleSubmit(handleSubmit)}>
                 <DialogHeader>
                   <DialogTitle>

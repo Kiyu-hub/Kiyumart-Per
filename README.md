@@ -90,26 +90,29 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Wishlist
 - Product reviews and ratings
 - Support ticket creation and live chat with agents
-- Digital e-receipt after payment
-- Order history with full detail view
+- Digital e-receipt after payment with "Items Ordered" summary (thumbnails, variants)
+- Order history with full detail view; pending/unpaid orders can be removed
 - Referral programme (share code → earn rewards when friends complete orders)
+- Chat message delete and edit (with real-time sync)
 
 ### Seller Features
 - Product management: create, edit, delete, with image/video upload
 - Product variants (size, color) with per-variant stock and images
 - Category assignment per product
+- **Ghanaian food presets:** ~40 quick-add product presets covering Rice & Grains, Soups & Stews, Staples, Proteins, Snacks & Street Food, and Beverages
 - Coupon creation (discount codes, min purchase, expiry, usage limits)
-- Promotional ad campaigns (multi-vendor mode)
+- Promotional ad campaigns (multi-vendor mode) — apply for promotion slots and track status across Pending / Active / History tabs
 - Media library: upload and reuse images across products
 - Order management: view, process, package, mark ready
 - Payout setup (bank account or mobile money)
 - Automatic payouts when orders are fulfilled (no manual request needed)
 - Sales analytics (charts, date filters, export CSV/PDF)
 - Store profile and branding
-- Chat with buyers (if enabled by admin)
+- Chat with buyers (if enabled by admin) — includes message delete and edit with real-time sync
 - Seller group chat (real-time channel shared between all sellers and super admin)
 - Seller ratings and reviews received
-- Free tier product limit with optional premium upgrade
+- Free tier product limit with optional premium upgrade (instant verification — no webhook wait)
+- Referral programme (share code → earn rewards)
 
 ### Admin / Super Admin Features
 - User directory: create, edit, activate/deactivate, change roles
@@ -123,6 +126,7 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Pickup station configuration
 - Pickup order verification (QR / OTP)
 - Promotional ad management with pricing tiers
+- **Banner Promotion Designer:** visual drag-and-drop canvas to design hero carousel banners for approved promotions — set backgrounds (gradient, solid colour, or image from media library), add overlay product/store images, freely position title, subtitle, CTA button, and "Sponsored" label by dragging on the live preview
 - Banner management (hero banners, carousel banners, sidebar ads)
 - Seller payout management and approval
 - Rider payout management
@@ -134,6 +138,7 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - System activity audit log with severity and resolution tracking
 - Maintenance mode (manual on/off + auto on server restart)
 - Platform settings (branding, SMTP, fees, Paystack keys, feature flags)
+- **Custom audio upload:** upload custom ringtone/notification audio files (WAV, MP3, OGG) for call and notification sounds
 - Footer CMS (custom pages for Terms, Privacy, etc.)
 - Sentry DSN and Google Analytics configuration
 - Referral programme management and admin reporting
@@ -477,7 +482,7 @@ Access control has three layers:
 | `wishlist` | Buyer saved products |
 | `reviews` | Product reviews with rating, text, images, seller response |
 | `riderReviews` | Buyer ratings of rider delivery quality |
-| `chatMessages` | Direct messages between users, with media attachments |
+| `chatMessages` | Direct messages between users, with media attachments. Supports soft-delete (`is_deleted`, `deleted_at`) and edit (`is_edited`, `edited_at`) |
 | `supportConversations` | Buyer–agent support threads |
 | `supportMessages` | Messages within support threads |
 | `transactions` | Paystack payment records (reference, amount, status) |
@@ -489,7 +494,7 @@ Access control has three layers:
 | `sellerPayouts` | Seller settlement records (created on payment, processed by worker) |
 | `riderPayouts` | Rider earning settlement records |
 | `platformEarnings` | Daily aggregated platform revenue |
-| `promotionalAds` | Time-limited promoted stores/products |
+| `promotionalAds` | Time-limited promoted stores/products. `banner_config` JSONB stores the visual Banner Designer output (`BannerConfig`) |
 | `promotionPricing` | Pricing tiers for promo applications |
 | `promotionApplications` | Seller applications to run promotions |
 | `heroBanners` | Hero section images with CTA |
@@ -544,6 +549,7 @@ GET    /api/orders/:id                           Order detail
 POST   /api/orders                               Create order
 PATCH  /api/orders/:id/status                    Transition status
 POST   /api/orders/:id/cancel                    Cancel (buyer/admin)
+DELETE /api/orders/:id                           Remove pending/unpaid order (buyer only)
 POST   /api/orders/:id/verify-customer-pickup    Verify pickup (QR/OTP)
 POST   /api/admin/orders/:id/arrange-external-delivery   Move to external_dispatch_arranged
 POST   /api/admin/orders/:id/mark-external-delivered     Complete external delivery
@@ -554,6 +560,7 @@ POST   /api/admin/orders/:id/mark-external-delivered     Complete external deliv
 POST /api/payments/initialize             Initialize Paystack transaction
 POST /api/webhooks/paystack               Paystack webhook (HMAC verified, idempotent)
 POST /api/seller/upgrade/initialize       Initialize premium seller upgrade payment
+POST /api/seller/upgrade/verify           Verify upgrade payment reference & return tier-info immediately
 ```
 
 ### Users & Applications
@@ -603,13 +610,15 @@ POST   /api/rider/location               Submit rider GPS update
 
 ### Chat & Support
 ```
-GET  /api/messages/:userId         Conversation with a user
-POST /api/messages                 Send message
-GET  /api/support/conversations    Support threads (agent/admin)
-POST /api/support/conversations    Create support ticket
-POST /api/support/messages         Reply in support thread
-GET  /api/group-chat/:group/messages   Get recent group chat messages (limit, before)
-POST /api/group-chat/:group/messages   Post message to group channel
+GET    /api/messages/:userId              Conversation with a user
+POST   /api/messages                      Send message
+DELETE /api/messages/:messageId           Soft-delete a message (sender only)
+PATCH  /api/messages/:messageId/edit      Edit message text (sender only)
+GET    /api/support/conversations         Support threads (agent/admin)
+POST   /api/support/conversations         Create support ticket
+POST   /api/support/messages              Reply in support thread
+GET    /api/group-chat/:group/messages    Get recent group chat messages (limit, before)
+POST   /api/group-chat/:group/messages    Post message to group channel
 ```
 
 Group `staff` — accessible to: super_admin, admin, agent, pickup_agent  
@@ -618,12 +627,25 @@ Group `riders` — accessible to: super_admin, rider
 
 ### Seller-Specific
 ```
-GET  /api/seller/earnings          Earnings history
-GET  /api/seller/payouts           Payout records
-GET  /api/seller/analytics         Sales analytics
-POST /api/seller/payout-setup      Configure bank/mobile money
-GET  /api/coupons                  List seller's coupons
-POST /api/coupons                  Create coupon
+GET    /api/seller/earnings                              Earnings history
+GET    /api/seller/payouts                               Payout records
+GET    /api/seller/analytics                             Sales analytics
+POST   /api/seller/payout-setup                          Configure bank/mobile money
+GET    /api/coupons                                      List seller's coupons
+POST   /api/coupons                                      Create coupon
+POST   /api/seller/promotions/:appId/verify-payment      Re-verify promo payment reference
+DELETE /api/seller/promotions/:appId                     Remove expired or rejected promo application
+```
+
+### Promotions & Banners (Admin)
+```
+PATCH  /api/admin/promotions/:id/banner-config    Update Banner Designer config for a promotion
+```
+
+### Media & Uploads
+```
+POST /api/upload/audio    Upload custom audio notification files (WAV, MP3, OGG; max AUDIO_UPLOAD_MAX_BYTES)
+GET  /api/media-library   List uploaded media assets (images, videos) for the current user
 ```
 
 ### Health & Monitoring

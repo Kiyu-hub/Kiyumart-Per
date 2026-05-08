@@ -3,7 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Zap, Calendar, Infinity } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { Stack, CalendarCheck, Infinity as PhInfinity } from "@phosphor-icons/react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
@@ -47,6 +48,9 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
   const { user } = useAuth();
   const { toast } = useToast();
   const [paying, setPaying] = useState<"plan_a" | "plan_b" | "plan_c" | null>(null);
+  // Temporarily hide the Radix Dialog while Paystack is open so its overlay
+  // doesn't block pointer events on the Paystack iframe.
+  const [hideForPayment, setHideForPayment] = useState(false);
 
   // Pre-load Paystack script as soon as the modal opens so it is ready when user clicks Pay
   useEffect(() => {
@@ -82,6 +86,7 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
     try {
       const init = await initMutation.mutateAsync(plan);
       resetPaystackGuard();
+      setHideForPayment(true);
       const reference = await PaystackInlineService.pay({
         publicKey: init.publicKey,
         email: user.email,
@@ -90,14 +95,33 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
         reference: init.reference,
         accessCode: init.accessCode,
       });
-      // Webhook handles the DB update; we just poll tier-info to reflect the change
-      await queryClient.invalidateQueries({ queryKey: ["/api/seller/tier-info"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      // Retry fetch tier-info after brief delay (webhook may not have fired yet)
-      setTimeout(() => {
+      setHideForPayment(false);
+
+      // Immediately verify with the server so the plan activates without waiting for the webhook
+      try {
+        const verifyRes = await fetch("/api/seller/upgrade/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ reference }),
+        });
+        if (verifyRes.ok) {
+          const tierData = await verifyRes.json();
+          // Seed the cache directly so the UI updates instantly
+          queryClient.setQueryData(["/api/seller/tier-info"], tierData);
+        }
+      } catch { /* non-critical — webhook is the authoritative path */ }
+
+      // Also run a short polling burst in case the webhook fires concurrently and updates bonus slots
+      queryClient.invalidateQueries({ queryKey: ["/api/seller/tier-info"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      let pollCount = 0;
+      const pollTierInfo = () => {
         queryClient.invalidateQueries({ queryKey: ["/api/seller/tier-info"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      }, 3000);
+        pollCount++;
+        if (pollCount < 5) setTimeout(pollTierInfo, 3000); // 5 × 3s = 15s — short burst
+      };
+      setTimeout(pollTierInfo, 3000);
 
       const planLabels: Record<string, string> = {
         plan_a: "Plan A",
@@ -112,6 +136,7 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
       onUpgraded?.();
       onClose();
     } catch (err: any) {
+      setHideForPayment(false);
       if (err?.message !== "Payment was cancelled before completion.") {
         toast({
           title: "Payment failed",
@@ -134,7 +159,7 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
   const plans: PlanCard[] = [
     {
       plan: "plan_a",
-      icon: <Zap className="h-5 w-5 text-yellow-500" />,
+      icon: <Stack size={20} weight="fill" className="text-yellow-500" />,
       title: "Plan A",
       badge: "Extra Slots",
       badgeVariant: "secondary",
@@ -148,7 +173,7 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
     },
     {
       plan: "plan_b",
-      icon: <Calendar className="h-5 w-5 text-blue-500" />,
+      icon: <CalendarCheck size={20} weight="fill" className="text-blue-500" />,
       title: "Plan B",
       badge: "Monthly",
       badgeVariant: "default",
@@ -163,7 +188,7 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
     },
     {
       plan: "plan_c",
-      icon: <Infinity className="h-5 w-5 text-green-500" />,
+      icon: <PhInfinity size={20} weight="bold" className="text-green-500" />,
       title: "Plan C",
       badge: "Unlimited Forever",
       badgeVariant: "outline",
@@ -178,7 +203,7 @@ export function SellerUpgradeModal({ open, onClose, onUpgraded }: SellerUpgradeM
   ];
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v && paying === null) onClose(); }}>
+    <Dialog open={open && !hideForPayment} onOpenChange={(v) => { if (!v && paying === null) onClose(); }}>
       <DialogContent className="w-full max-w-3xl sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Upgrade Your Listing Plan</DialogTitle>

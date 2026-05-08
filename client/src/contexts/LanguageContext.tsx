@@ -69,8 +69,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     const numericPrice = Number(priceInGHS);
     const validPrice = isNaN(numericPrice) ? 0 : numericPrice;
     
-    // Format in GHS
-    return `GH₵${validPrice.toFixed(2)}`;
+    // Format in GHS with thousands separators
+    return `GH₵${validPrice.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   useEffect(() => {

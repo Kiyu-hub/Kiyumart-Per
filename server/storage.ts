@@ -20,7 +20,7 @@ import {
   type RiderPayout, type InsertRiderPayout,
   type OrderStatusHistory, type InsertOrderStatusHistory
 } from "@shared/schema";
-import { eq, and, asc, desc, sql, lte, gte, or, isNull, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, sql, lte, gte, or, isNull, isNotNull, inArray, ilike } from "drizzle-orm";
 import { promises as fs } from "fs";
 import path from "path";
 import {
@@ -69,6 +69,9 @@ async function ensurePlatformSettingsSchemaCompat() {
       // If any fail, reset the singleton so the next call retries.
       let anyFailed = false;
       const runAlter = async (query: Parameters<typeof db.execute>[0]) => {
+        // Fail fast on connection errors — no point hammering a cold/unreachable DB
+        // with 80 sequential statements each waiting for a full timeout.
+        if (anyFailed) return;
         try {
           await db.execute(query);
         } catch (e: any) {
@@ -526,7 +529,7 @@ export interface IStorage {
   // Product operations
   createProduct(product: InsertProduct & { sellerId: string }): Promise<Product>;
   getProduct(id: string): Promise<Product | undefined>;
-  getProducts(filters?: { sellerId?: string; storeId?: string; category?: string; isActive?: boolean }): Promise<Product[]>;
+  getProducts(filters?: { sellerId?: string; storeId?: string; category?: string; isActive?: boolean; search?: string; limit?: number }): Promise<Product[]>;
   updateProduct(id: string, data: Partial<Product>): Promise<Product | undefined>;
   deleteProduct(id: string): Promise<boolean>;
   
@@ -534,6 +537,7 @@ export interface IStorage {
   createOrder(order: InsertOrder, items: Array<{ productId: string; quantity: number; price: string; total: string }>): Promise<Order>;
   getOrder(id: string): Promise<Order | undefined>;
   getAllOrders(): Promise<Order[]>;
+  getOrdersByCheckoutSession(sessionId: string): Promise<Order[]>;
   getOrdersByUser(userId: string, role: "buyer" | "seller" | "rider"): Promise<Order[]>;
   getOrderItems(orderId: string): Promise<Array<{
     productId: string;
@@ -1133,7 +1137,22 @@ export class DbStorage implements IStorage {
     maxRetries: number = 3
   ): Promise<T> {
     let lastError: Error | null = null;
-    
+
+    const isConnectionError = (e: Error): boolean => {
+      const msg = e.message.toLowerCase();
+      return (
+        msg.includes("connection terminated") ||
+        msg.includes("connection timeout") ||
+        msg.includes("connect timeout") ||
+        msg.includes("econnrefused") ||
+        msg.includes("enotfound") ||
+        msg.includes("socket hang up") ||
+        msg.includes("etimedout") ||
+        msg.includes("fetch failed") ||
+        msg.includes("terminated unexpectedly")
+      );
+    };
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         return await operation();
@@ -1144,7 +1163,14 @@ export class DbStorage implements IStorage {
           `Database operation ${operationName} failed (attempt ${attempt}/${maxRetries}):`,
           normalizedError.message
         );
-        
+
+        // Don't retry connection/timeout errors — Neon cold-start timeouts total
+        // 37s across 3 attempts (10s + 1s + 10s + 2s + 10s + 4s), exceeding the
+        // 30s request timeout and leaving the client hanging with no response.
+        if (isConnectionError(normalizedError)) {
+          break;
+        }
+
         if (attempt < maxRetries) {
           // Exponential backoff: 1s, 2s, 4s
           const delay = Math.pow(2, attempt - 1) * 1000;
@@ -1152,7 +1178,7 @@ export class DbStorage implements IStorage {
         }
       }
     }
-    
+
     const finalError = lastError ?? new Error(`Database operation ${operationName} failed`);
     console.error(`Database operation ${operationName} failed after ${maxRetries} attempts:`, finalError);
     throw finalError;
@@ -1218,7 +1244,7 @@ export class DbStorage implements IStorage {
     return product;
   }
 
-  async getProducts(filters?: { sellerId?: string; storeId?: string; category?: string; isActive?: boolean }): Promise<Product[]> {
+  async getProducts(filters?: { sellerId?: string; storeId?: string; category?: string; isActive?: boolean; search?: string; limit?: number }): Promise<Product[]> {
     const conditions = [];
 
     if (filters?.sellerId) {
@@ -1233,11 +1259,15 @@ export class DbStorage implements IStorage {
     if (filters?.isActive !== undefined) {
       conditions.push(eq(products.isActive, filters.isActive));
     }
+    if (filters?.search?.trim()) {
+      conditions.push(ilike(products.name, `%${filters.search.trim()}%`));
+    }
 
-    const query = db.select().from(products);
-    const rows = await (conditions.length > 0 ? query.where(and(...conditions)) : query).orderBy(desc(products.createdAt));
+    const baseQuery = db.select().from(products);
+    const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
+    const orderedQuery = filteredQuery.orderBy(desc(products.createdAt));
+    const rows = filters?.limit ? await orderedQuery.limit(filters.limit) : await orderedQuery;
 
-    if (rows.length === 0) return rows;
     return rows;
   }
 
@@ -1415,6 +1445,15 @@ export class DbStorage implements IStorage {
     const result = await db.select().from(orders).orderBy(desc(orders.createdAt));
     this.setCachedResult(cacheKey, result);
     return result;
+  }
+
+  async getOrdersByCheckoutSession(sessionId: string): Promise<Order[]> {
+    if (!sessionId) return [];
+    return db
+      .select()
+      .from(orders)
+      .where(eq(orders.checkoutSessionId, sessionId))
+      .orderBy(desc(orders.createdAt));
   }
 
   async getOrdersByUser(userId: string, role: "buyer" | "seller" | "rider"): Promise<Order[]> {
@@ -1599,6 +1638,12 @@ export class DbStorage implements IStorage {
     }).where(eq(orders.id, orderId)).returning();
     if (result[0]) this.invalidateOrderCache();
     return result[0];
+  }
+
+  async deleteOrder(orderId: string): Promise<boolean> {
+    const result = await db.delete(orders).where(eq(orders.id, orderId)).returning();
+    if (result.length > 0) this.invalidateOrderCache();
+    return result.length > 0;
   }
 
   async assignRider(orderId: string, riderId: string): Promise<Order | undefined> {
@@ -1811,6 +1856,27 @@ export class DbStorage implements IStorage {
             (${chatMessages.senderId} = ${userId2} AND ${chatMessages.receiverId} = ${userId1})`
       )
       .orderBy(chatMessages.createdAt);
+  }
+
+  async getChatMessage(messageId: string): Promise<ChatMessage | undefined> {
+    const result = await db.select().from(chatMessages).where(eq(chatMessages.id, messageId));
+    return result[0];
+  }
+
+  async deleteChatMessage(messageId: string): Promise<ChatMessage | undefined> {
+    const result = await db.update(chatMessages)
+      .set({ isDeleted: true, deletedAt: new Date(), message: "This message was deleted" } as any)
+      .where(eq(chatMessages.id, messageId))
+      .returning();
+    return result[0];
+  }
+
+  async editChatMessage(messageId: string, newMessage: string): Promise<ChatMessage | undefined> {
+    const result = await db.update(chatMessages)
+      .set({ message: newMessage, isEdited: true, editedAt: new Date() } as any)
+      .where(eq(chatMessages.id, messageId))
+      .returning();
+    return result[0];
   }
 
   async markMessageDelivered(messageId: string): Promise<void> {
@@ -3837,7 +3903,16 @@ export class DbStorage implements IStorage {
   }
 
   // Promotional Ads management
-  async createPromotionalAd(payload: { type: 'store' | 'product'; targetId: string; startAt?: Date | null; endAt?: Date | null; createdBy?: string | null; title?: string | null; description?: string | null; imageUrl?: string | null; ctaText?: string | null; ctaUrl?: string | null; themeColor?: string | null }) {
+  async updatePromotionalAdBannerConfig(id: string, bannerConfig: Record<string, any>): Promise<any> {
+    const [updated] = await db
+      .update(promotionalAds)
+      .set({ updatedAt: new Date(), bannerConfig: bannerConfig as any })
+      .where(eq(promotionalAds.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async createPromotionalAd(payload: { type: 'store' | 'product'; targetId: string; startAt?: Date | null; endAt?: Date | null; createdBy?: string | null; title?: string | null; description?: string | null; imageUrl?: string | null; ctaText?: string | null; ctaUrl?: string | null; themeColor?: string | null; displaySection?: string | null; bannerConfig?: Record<string, any> | null }) {
     try {
       const now = new Date();
       const [existingActive] = await db
@@ -3873,6 +3948,8 @@ export class DbStorage implements IStorage {
         ctaText: payload.ctaText || null,
         ctaUrl: payload.ctaUrl || null,
         themeColor: payload.themeColor || null,
+        displaySection: payload.displaySection === "banner" ? "banner" : "homepage",
+        bannerConfig: (payload.bannerConfig as any) || null,
       }).returning();
       return created;
     } catch (err: any) {

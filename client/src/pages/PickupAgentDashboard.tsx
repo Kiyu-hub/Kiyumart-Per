@@ -143,15 +143,15 @@ export default function PickupAgentDashboard() {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
-          <Card className="border-primary/20 bg-card/95">
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+          <Card className="border-primary/20 bg-card/95 sm:col-span-2 md:col-span-1">
             <CardContent className="flex items-center gap-4 p-5">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                 <MapPin className="h-5 w-5" />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Pickup Station</p>
-                <p className="text-lg font-semibold">{primaryZone}</p>
+                <p className="text-lg font-semibold truncate">{primaryZone}</p>
               </div>
             </CardContent>
           </Card>
@@ -235,14 +235,14 @@ export default function PickupAgentDashboard() {
                     >
                       <CardContent className="space-y-4 p-5">
                         <div className="flex items-start justify-between gap-3">
-                          <div>
+                          <div className="min-w-0 flex-1">
                             <p className="text-lg font-semibold">#{order.orderNumber}</p>
                             <p className="text-sm text-muted-foreground">
                               {new Date(order.createdAt).toLocaleString()}
                             </p>
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Badge variant="outline">{order.zoneName || "Pickup station"}</Badge>
+                          <div className="flex shrink-0 flex-wrap gap-2 justify-end">
+                            <Badge variant="outline" className="truncate max-w-[140px]">{order.zoneName || "Pickup station"}</Badge>
                             <Badge className={isClosed ? "bg-emerald-600 hover:bg-emerald-600" : "bg-amber-600 hover:bg-amber-600"}>
                               {order.status}
                             </Badge>
