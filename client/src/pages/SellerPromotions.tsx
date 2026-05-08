@@ -334,6 +334,18 @@ export default function SellerPromotions() {
   const selectedDuration = durationOptions.find((item) => String(item.id) === selectedDurationId) || null;
   const totalPrice = selectedDuration ? Number(selectedDuration.price) * Number(selectedDuration.duration) : 0;
 
+  const selectedTargetId = type === "store" ? (myStore?.id ?? "") : selectedProductId;
+  const targetHasOpenApplication = useMemo(
+    () =>
+      !!selectedTargetId &&
+      applications.some(
+        (a) =>
+          a.targetId === selectedTargetId &&
+          (["pending_payment", "payment_confirmed", "approved", "active"] as const).includes(a.status as any),
+      ),
+    [applications, selectedTargetId],
+  );
+
   const handlePromote = async () => {
     if (!selectedDuration || !user?.email) return;
     const targetId = type === "store" ? myStore?.id : selectedProductId;
@@ -740,6 +752,15 @@ export default function SellerPromotions() {
               </div>
             )}
 
+            {targetHasOpenApplication && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3 text-sm text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  This {type} already has an active or pending promotion. You can only apply again once the current promotion expires or is rejected.
+                </span>
+              </div>
+            )}
+
             {selectedDuration && (
               <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
@@ -756,7 +777,7 @@ export default function SellerPromotions() {
                 </div>
                 <Button
                   onClick={handlePromote}
-                  disabled={paying || !selectedDuration || (type === "store" ? !myStore?.id : !selectedProductId)}
+                  disabled={paying || !selectedDuration || (type === "store" ? !myStore?.id : !selectedProductId) || targetHasOpenApplication}
                   size="lg"
                   className="gap-2 shrink-0"
                   data-testid="button-submit-promotion-application"

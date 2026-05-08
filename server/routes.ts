@@ -3937,6 +3937,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const paystackPublicKey = keyPair.publicKey;
       if (!paystackSecretKey) return res.status(503).json({ error: "Payment gateway not configured" });
 
+      // Block duplicate applications: active promotion or open application for same target
+      const now = new Date();
+      const [existingActivePromotion] = await db
+        .select({ id: promotionalAds.id })
+        .from(promotionalAds)
+        .where(
+          and(
+            eq(promotionalAds.type, type),
+            eq(promotionalAds.targetId, targetId),
+            eq(promotionalAds.isActive, true),
+            or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now)),
+          ),
+        )
+        .limit(1);
+      if (existingActivePromotion) {
+        return res.status(400).json({ error: `This ${type} already has an active promotion running.` });
+      }
+
+      const [existingOpenApplication] = await db
+        .select({ id: promotionApplications.id, status: promotionApplications.status })
+        .from(promotionApplications)
+        .where(
+          and(
+            eq(promotionApplications.sellerId, req.user!.id),
+            eq(promotionApplications.type, type),
+            eq(promotionApplications.targetId, targetId),
+            or(
+              eq(promotionApplications.status, "pending_payment"),
+              eq(promotionApplications.status, "payment_confirmed"),
+            ),
+          ),
+        )
+        .limit(1);
+      if (existingOpenApplication) {
+        return res.status(400).json({ error: `A promotion application for this ${type} is already in progress.` });
+      }
+
       // Get target name for the record
       let targetName = targetId;
       try {
