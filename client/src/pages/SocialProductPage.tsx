@@ -477,6 +477,11 @@ export default function SocialProductPage() {
   const [paying, setPaying] = useState(false);
   const [locating, setLocating] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<CompletedOrder | null>(null);
+  const [paymentSummary, setPaymentSummary] = useState<{
+    subtotal: number; processingFee: number; finalTotal: number;
+    cfg: any; orderId: string; orderNumber: string;
+  } | null>(null);
+  const [confirmingPay, setConfirmingPay] = useState(false);
 
   useEffect(() => { void loadPaystackInlineScript().catch(() => {}); }, []);
 
@@ -556,42 +561,59 @@ export default function SocialProductPage() {
       const data = await res.json();
       if (data?.error) {
         toast({ title: data.error, variant: "destructive" });
-        setPaying(false);
         return;
       }
       if (data?.paystackConfig) {
-        const cfg = data.paystackConfig;
-        try {
-          await PaystackInlineService.pay({
-            publicKey: cfg.key || cfg.publicKey,
-            email: cfg.email,
-            amount: cfg.amount,
-            reference: cfg.reference || cfg.ref,
-            currency: "GHS",
-            accessCode: cfg.accessCode || cfg.access_code,
-          });
-          setCompletedOrder({
-            orderId: data.orderId,
-            orderNumber: data.orderNumber,
-            total: totalAmount,
-            productName: product.name,
-            quantity,
-            storeName: product.store?.name ?? "",
-            date: new Date().toLocaleDateString("en-GH", { year: "numeric", month: "short", day: "numeric" }),
-            address: address.trim(),
-          });
-        } catch (payErr: any) {
-          if (cfg.authorization_url) {
-            window.location.href = cfg.authorization_url;
-          } else {
-            toast({ title: "Payment cancelled" });
-          }
-        }
+        // Show payment breakdown to user BEFORE opening Paystack
+        setPaymentSummary({
+          subtotal: parseFloat(data.subtotal ?? String(totalAmount)),
+          processingFee: parseFloat(data.processingFee ?? "0"),
+          finalTotal: parseFloat(data.finalTotal ?? String(data.paystackConfig.amount / 100)),
+          cfg: data.paystackConfig,
+          orderId: data.orderId,
+          orderNumber: data.orderNumber,
+        });
       }
     } catch (e: any) {
       toast({ title: e?.message || "Failed to start checkout", variant: "destructive" });
     } finally {
       setPaying(false);
+    }
+  };
+
+  const handleConfirmPay = async () => {
+    if (!paymentSummary || !product) return;
+    setConfirmingPay(true);
+    const { cfg, orderId, orderNumber, finalTotal } = paymentSummary;
+    try {
+      await PaystackInlineService.pay({
+        publicKey: cfg.key || cfg.publicKey,
+        email: cfg.email,
+        amount: cfg.amount,
+        reference: cfg.reference || cfg.ref,
+        currency: "GHS",
+        accessCode: cfg.accessCode || cfg.access_code,
+      });
+      setPaymentSummary(null);
+      setCompletedOrder({
+        orderId,
+        orderNumber,
+        total: finalTotal,
+        productName: product.name,
+        quantity,
+        storeName: product.store?.name ?? "",
+        date: new Date().toLocaleDateString("en-GH", { year: "numeric", month: "short", day: "numeric" }),
+        address: address.trim(),
+      });
+    } catch {
+      if (cfg.authorization_url) {
+        window.location.href = cfg.authorization_url;
+      } else {
+        toast({ title: "Payment cancelled" });
+        setPaymentSummary(null);
+      }
+    } finally {
+      setConfirmingPay(false);
     }
   };
 
@@ -751,19 +773,72 @@ export default function SocialProductPage() {
           </div>
         </div>
 
+        {/* Payment Summary Confirmation Sheet */}
+        {paymentSummary && (
+          <div className="rounded-2xl border-2 overflow-hidden" style={{ borderColor: primaryColor + "40" }}>
+            <div className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-white" style={{ backgroundColor: primaryColor }}>
+              Payment Summary
+            </div>
+            <div className="p-4 space-y-2.5 text-sm bg-background">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">
+                  {product?.name} × {quantity}
+                </span>
+                <span className="font-semibold">GHS {paymentSummary.subtotal.toFixed(2)}</span>
+              </div>
+              {paymentSummary.processingFee > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Processing fee</span>
+                  <span className="font-semibold">GHS {paymentSummary.processingFee.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="border-t pt-2.5 flex justify-between font-bold text-base">
+                <span>Total you&apos;ll pay</span>
+                <span style={{ color: primaryColor }}>GHS {paymentSummary.finalTotal.toFixed(2)}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This is the exact amount Paystack will charge your card / mobile money.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  className="flex-1 rounded-xl"
+                  onClick={() => setPaymentSummary(null)}
+                  disabled={confirmingPay}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 rounded-xl font-bold"
+                  style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
+                  onClick={handleConfirmPay}
+                  disabled={confirmingPay}
+                >
+                  {confirmingPay
+                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Opening…</>
+                    : <>Confirm &amp; Pay GHS {paymentSummary.finalTotal.toFixed(2)}</>
+                  }
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Pay Now Button */}
-        <Button
-          onClick={handlePayNow}
-          disabled={paying}
-          className="w-full py-6 text-base font-bold rounded-2xl shadow-lg"
-          style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
-        >
-          {paying ? (
-            <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Processing…</>
-          ) : (
-            <>Pay Now — GHS {totalAmount.toFixed(2)}</>
-          )}
-        </Button>
+        {!paymentSummary && (
+          <Button
+            onClick={handlePayNow}
+            disabled={paying}
+            className="w-full py-6 text-base font-bold rounded-2xl shadow-lg"
+            style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
+          >
+            {paying ? (
+              <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Calculating total…</>
+            ) : (
+              <>Pay Now — GHS {totalAmount.toFixed(2)}</>
+            )}
+          </Button>
+        )}
 
         {branding?.tagline && <p className="text-center text-xs text-muted-foreground italic">{branding.tagline}</p>}
         <p className="text-center text-xs text-muted-foreground pb-4">Secured by Paystack • Powered by KiyuMart</p>

@@ -6255,6 +6255,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         orderId: order.id,
         orderNumber: order.orderNumber,
+        subtotal: serverSubtotal.toFixed(2),
+        processingFee: processingFee.toFixed(2),
+        finalTotal: finalTotal.toFixed(2),
         paystackConfig: {
           key: keyPair.publicKey,
           email: guestEmail,

@@ -329,6 +329,11 @@ export default function CartLinkCheckout() {
   const [address, setAddress] = useState("");
   const [locating, setLocating] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<CompletedOrder | null>(null);
+  const [paymentSummary, setPaymentSummary] = useState<{
+    subtotal: number; processingFee: number; finalTotal: number;
+    cfg: any; orderNumber: string;
+  } | null>(null);
+  const [confirmingPay, setConfirmingPay] = useState(false);
 
   const { data: cart, isLoading, error } = useQuery<CartLinkData>({
     queryKey: ["/api/cart-links", token],
@@ -338,7 +343,7 @@ export default function CartLinkCheckout() {
   });
 
   const brandColor = cart?.storeColor || "#16a34a";
-  const subtotal = cart?.items.reduce((sum, item) => sum + item.price * item.quantity, 0) ?? 0;
+  const frontendSubtotal = cart?.items.reduce((sum, item) => sum + item.price * item.quantity, 0) ?? 0;
 
   const checkoutMutation = useMutation({
     mutationFn: async () => {
@@ -352,41 +357,57 @@ export default function CartLinkCheckout() {
       return res.json();
     },
     onSuccess: (data: any) => {
-      const { paystackConfig, orderNumber: oNum } = data;
-
-      const completeOrder = () => {
-        setCompletedOrder({
-          orderNumber: oNum || "N/A",
-          storeName: cart?.storeName ?? "",
-          items: cart?.items ?? [],
-          subtotal,
-          address: address.trim(),
-          date: new Date().toLocaleDateString("en-GH", { year: "numeric", month: "short", day: "numeric" }),
-        });
-      };
-
-      const PaystackPop = (window as any).PaystackPop;
-      if (PaystackPop && paystackConfig) {
-        const handler = PaystackPop.setup({
-          ...paystackConfig,
-          onClose: () => {
-            toast({ title: "Payment cancelled", description: "You can try again.", variant: "destructive" });
-          },
-          callback: (response: any) => {
-            if (response.status === "success" || response.status === "completed") {
-              completeOrder();
-            }
-          },
-        });
-        handler.openIframe();
-      } else {
-        completeOrder();
+      if (data?.error) {
+        toast({ title: data.error, variant: "destructive" });
+        return;
       }
+      // Show payment breakdown to user BEFORE opening Paystack
+      setPaymentSummary({
+        subtotal: parseFloat(data.subtotal ?? String(frontendSubtotal)),
+        processingFee: parseFloat(data.processingFee ?? "0"),
+        finalTotal: parseFloat(data.finalTotal ?? String(data.paystackConfig?.amount / 100 ?? frontendSubtotal)),
+        cfg: data.paystackConfig,
+        orderNumber: data.orderNumber || "N/A",
+      });
     },
     onError: (error: any) => {
       toast({ title: "Checkout failed", description: error?.message || "Please try again.", variant: "destructive" });
     },
   });
+
+  const handleConfirmPay = async () => {
+    if (!paymentSummary) return;
+    setConfirmingPay(true);
+    const { cfg, orderNumber, finalTotal } = paymentSummary;
+    const PaystackPop = (window as any).PaystackPop;
+    if (PaystackPop && cfg) {
+      const handler = PaystackPop.setup({
+        ...cfg,
+        onClose: () => {
+          toast({ title: "Payment cancelled", description: "You can try again.", variant: "destructive" });
+          setConfirmingPay(false);
+          setPaymentSummary(null);
+        },
+        callback: (response: any) => {
+          if (response.status === "success" || response.status === "completed") {
+            setPaymentSummary(null);
+            setCompletedOrder({
+              orderNumber,
+              storeName: cart?.storeName ?? "",
+              items: cart?.items ?? [],
+              subtotal: finalTotal,
+              address: address.trim(),
+              date: new Date().toLocaleDateString("en-GH", { year: "numeric", month: "short", day: "numeric" }),
+            });
+          }
+          setConfirmingPay(false);
+        },
+      });
+      handler.openIframe();
+    } else {
+      setConfirmingPay(false);
+    }
+  };
 
   useEffect(() => {
     if (!document.getElementById("paystack-inline-js")) {
@@ -502,8 +523,8 @@ export default function CartLinkCheckout() {
             ))}
           </div>
           <div className="border-t bg-muted/40 px-4 py-3 flex items-center justify-between">
-            <p className="text-sm font-semibold">Total</p>
-            <p className="text-base font-bold" style={{ color: brandColor }}>GHS {subtotal.toFixed(2)}</p>
+            <p className="text-sm font-semibold">Subtotal</p>
+            <p className="text-base font-bold" style={{ color: brandColor }}>GHS {frontendSubtotal.toFixed(2)}</p>
           </div>
         </div>
 
@@ -557,18 +578,71 @@ export default function CartLinkCheckout() {
           </div>
         </div>
 
-        <Button
-          className="w-full h-12 text-base font-semibold"
-          style={{ backgroundColor: brandColor, color: "#fff" }}
-          disabled={!canSubmit || checkoutMutation.isPending}
-          onClick={() => checkoutMutation.mutate()}
-        >
-          {checkoutMutation.isPending ? (
-            <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Processing…</>
-          ) : (
-            `Pay GHS ${subtotal.toFixed(2)}`
-          )}
-        </Button>
+        {/* Payment Summary Confirmation */}
+        {paymentSummary && (
+          <div className="rounded-2xl border-2 overflow-hidden" style={{ borderColor: brandColor + "40" }}>
+            <div className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-white" style={{ backgroundColor: brandColor }}>
+              Payment Summary
+            </div>
+            <div className="p-4 space-y-2.5 text-sm bg-background">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">
+                  Items ({cart?.items.length ?? 0})
+                </span>
+                <span className="font-semibold">GHS {paymentSummary.subtotal.toFixed(2)}</span>
+              </div>
+              {paymentSummary.processingFee > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Processing fee</span>
+                  <span className="font-semibold">GHS {paymentSummary.processingFee.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="border-t pt-2.5 flex justify-between font-bold text-base">
+                <span>Total you&apos;ll pay</span>
+                <span style={{ color: brandColor }}>GHS {paymentSummary.finalTotal.toFixed(2)}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This is the exact amount Paystack will charge your card / mobile money.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  className="flex-1 rounded-xl"
+                  onClick={() => setPaymentSummary(null)}
+                  disabled={confirmingPay}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 rounded-xl font-bold"
+                  style={{ backgroundColor: brandColor, color: "#fff" }}
+                  onClick={handleConfirmPay}
+                  disabled={confirmingPay}
+                >
+                  {confirmingPay
+                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Opening…</>
+                    : <>Confirm &amp; Pay GHS {paymentSummary.finalTotal.toFixed(2)}</>
+                  }
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!paymentSummary && (
+          <Button
+            className="w-full h-12 text-base font-semibold"
+            style={{ backgroundColor: brandColor, color: "#fff" }}
+            disabled={!canSubmit || checkoutMutation.isPending}
+            onClick={() => checkoutMutation.mutate()}
+          >
+            {checkoutMutation.isPending ? (
+              <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Calculating total…</>
+            ) : (
+              `Proceed to Payment`
+            )}
+          </Button>
+        )}
 
         <p className="text-center text-xs text-muted-foreground">
           Secured by Paystack · Your payment is encrypted and protected
