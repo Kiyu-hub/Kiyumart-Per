@@ -88,7 +88,7 @@ export async function recordReferralSignup(referralCode: string, newUserId: stri
       isRead: false,
       metadata: { kind: "referral_signup" } as any,
     });
-    io?.to(`user_${referrer.id}`).emit("notification", referrerNotif);
+    io?.to(referrer.id).emit("notification", referrerNotif);
   } catch {}
 
   // Notify the new user about the referral discount opportunity and encourage them to share their own link
@@ -109,7 +109,7 @@ export async function recordReferralSignup(referralCode: string, newUserId: stri
       isRead: false,
       metadata: { kind: "referral_welcome" } as any,
     });
-    io?.to(`user_${newUserId}`).emit("notification", newUserNotif);
+    io?.to(newUserId).emit("notification", newUserNotif);
   } catch {}
 }
 
@@ -153,7 +153,7 @@ export async function checkAndCompleteReferral(buyerId: string, io?: any): Promi
         isRead: false,
         metadata: { kind: "referral_purchase", referredUserId: buyerId } as any,
       });
-      io?.to(`user_${referral.referrerId}`).emit("notification", purchaseNotif);
+      io?.to(referral.referrerId).emit("notification", purchaseNotif);
     }
   } catch {}
 
@@ -218,7 +218,7 @@ async function checkAndCreateReward(referrerId: string, io?: any): Promise<void>
       isRead: false,
       metadata: { rewardId: reward.id, type: rewardType } as any,
     });
-    io?.to(`user_${referrerId}`).emit("notification", rewardNotif);
+    io?.to(referrerId).emit("notification", rewardNotif);
   } catch {}
 }
 
@@ -395,7 +395,7 @@ export async function sendReferralReminders(io?: any) {
 
         // Real-time push via socket
         if (io) {
-          io.to(`user_${user.id}`).emit("notification", {
+          io.to(user.id).emit("notification", {
             type: "system",
             title: "Earn a Reward — Share Your Referral Link",
             message,

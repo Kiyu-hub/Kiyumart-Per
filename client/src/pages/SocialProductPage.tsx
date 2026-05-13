@@ -101,13 +101,127 @@ function ModifierGroup({ mod, selected, onChange }: {
   );
 }
 
+async function generateReceiptPdf(order: CompletedOrder, primaryColor: string, platformName: string, contactEmail?: string | null, contactPhone?: string | null, logoUrl?: string | null): Promise<Blob> {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a5" });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const col = primaryColor.startsWith("#") ? primaryColor : "#16a34a";
+  const r = parseInt(col.slice(1, 3), 16);
+  const g = parseInt(col.slice(3, 5), 16);
+  const b = parseInt(col.slice(5, 7), 16);
+
+  // Header band
+  doc.setFillColor(r, g, b);
+  doc.rect(0, 0, W, 28, "F");
+
+  // Logo / platform name centred in header
+  let headerY = 10;
+  if (logoUrl) {
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject();
+        img.src = logoUrl;
+        setTimeout(() => reject(), 3000);
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth || 120;
+      canvas.height = img.naturalHeight || 120;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      const dataUrl = canvas.toDataURL("image/png");
+      const logoSize = 14;
+      doc.addImage(dataUrl, "PNG", (W - logoSize) / 2, 5, logoSize, logoSize);
+      headerY = 21;
+    } catch { headerY = 10; }
+  }
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(logoUrl ? 9 : 14);
+  doc.setFont("helvetica", "bold");
+  doc.text(platformName || "Order Receipt", W / 2, headerY + (logoUrl ? 0 : 4), { align: "center" });
+
+  // Order title
+  doc.setTextColor(r, g, b);
+  doc.setFontSize(13);
+  doc.text("Payment Receipt", W / 2, 38, { align: "center" });
+
+  // Divider
+  doc.setDrawColor(r, g, b);
+  doc.setLineWidth(0.4);
+  doc.line(14, 41, W - 14, 41);
+
+  // Receipt rows
+  const rows: [string, string][] = [
+    ["Order #", order.orderNumber],
+    ["Date", order.date],
+    ["Item", `${order.productName} × ${order.quantity}`],
+    ["Store", order.storeName],
+    ["Delivery Address", order.address],
+  ];
+
+  doc.setFontSize(9);
+  let y = 48;
+  rows.forEach(([label, value]) => {
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(120, 120, 120);
+    doc.text(label, 14, y);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 30, 30);
+    const wrapped = doc.splitTextToSize(value, W - 60);
+    doc.text(wrapped, W - 14, y, { align: "right" });
+    y += wrapped.length > 1 ? wrapped.length * 5 + 3 : 8;
+  });
+
+  // Total row
+  doc.setLineWidth(0.3);
+  doc.setDrawColor(220, 220, 220);
+  doc.line(14, y, W - 14, y);
+  y += 6;
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(80, 80, 80);
+  doc.text("Total Paid", 14, y);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(r, g, b);
+  doc.text(`GHS ${order.total.toFixed(2)}`, W - 14, y, { align: "right" });
+  y += 12;
+
+  // Contact / support section
+  if (contactEmail || contactPhone) {
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(120, 120, 120);
+    doc.text("NEED HELP?", 14, y);
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    if (contactEmail) { doc.setTextColor(50, 50, 50); doc.text(contactEmail, 14, y); y += 5; }
+    if (contactPhone) { doc.text(contactPhone, 14, y); y += 5; }
+    y += 3;
+  }
+
+  // Footer
+  doc.setFillColor(r, g, b);
+  doc.rect(0, H - 12, W, 12, "F");
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(255, 255, 255);
+  doc.text("Secured by Paystack", W / 2, H - 5, { align: "center" });
+
+  return doc.output("blob");
+}
+
 function ReceiptScreen({
   order,
   primaryColor,
+  logoUrl,
   onClose,
 }: {
   order: CompletedOrder;
   primaryColor: string;
+  logoUrl?: string | null;
   onClose: () => void;
 }) {
   const { toast } = useToast();
@@ -115,6 +229,7 @@ function ReceiptScreen({
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   const receiptText = [
     `===== ORDER RECEIPT =====`,
@@ -130,29 +245,50 @@ function ReceiptScreen({
     ``,
     `Total Paid: GHS ${order.total.toFixed(2)}`,
     ``,
-    `=========================`,
-    `Contact Us`,
     contactEmail ? `Email: ${contactEmail}` : "",
     contactPhone ? `Phone: ${contactPhone}` : "",
-    `=========================`,
   ].filter(Boolean).join("\n");
 
-  const handleDownload = () => {
-    const blob = new Blob([receiptText], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `receipt-${order.orderNumber}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Receipt downloaded" });
+  const handleDownload = async () => {
+    setGeneratingPdf(true);
+    try {
+      const blob = await generateReceiptPdf(order, primaryColor, platformName || "KiyuMart", contactEmail, contactPhone, logoUrl);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `receipt-${order.orderNumber}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "PDF receipt downloaded" });
+    } catch {
+      // fallback to text
+      const blob = new Blob([receiptText], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `receipt-${order.orderNumber}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Receipt downloaded" });
+    } finally {
+      setGeneratingPdf(false);
+    }
   };
 
   const handleShare = async () => {
     if (navigator.share) {
       try {
+        setGeneratingPdf(true);
+        const blob = await generateReceiptPdf(order, primaryColor, platformName || "KiyuMart", contactEmail, contactPhone, logoUrl);
+        const file = new File([blob], `receipt-${order.orderNumber}.pdf`, { type: "application/pdf" });
+        if (navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ files: [file], title: `Receipt #${order.orderNumber}` });
+          return;
+        }
         await navigator.share({ title: `Order Receipt #${order.orderNumber}`, text: receiptText });
-      } catch { /* user cancelled */ }
+      } catch { /* user cancelled */ } finally {
+        setGeneratingPdf(false);
+      }
     } else {
       await navigator.clipboard.writeText(receiptText);
       toast({ title: "Receipt copied to clipboard" });
@@ -240,11 +376,11 @@ function ReceiptScreen({
 
         {/* Download / Share */}
         <div className="grid grid-cols-2 gap-3">
-          <Button variant="outline" className="gap-2" onClick={handleDownload}>
-            <Download className="h-4 w-4" />
-            Download
+          <Button variant="outline" className="gap-2" onClick={handleDownload} disabled={generatingPdf}>
+            {generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            PDF Receipt
           </Button>
-          <Button variant="outline" className="gap-2" onClick={handleShare}>
+          <Button variant="outline" className="gap-2" onClick={handleShare} disabled={generatingPdf}>
             <Share2 className="h-4 w-4" />
             Share
           </Button>
@@ -371,18 +507,10 @@ export default function SocialProductPage() {
       async (pos) => {
         const { latitude, longitude } = pos.coords;
         try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=en`,
-            { headers: { "User-Agent": "KiyuMart/1.0" } }
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const addr = data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-            setAddress(addr);
-            toast({ title: "Location detected", description: "Delivery address updated." });
-          } else {
-            setAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
-          }
+          const res = await fetch(`/api/public/geocode/reverse?lat=${latitude}&lon=${longitude}`);
+          const data = await res.json();
+          setAddress(data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+          toast({ title: "Location detected", description: "Delivery address updated." });
         } catch {
           setAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
         } finally {
@@ -472,6 +600,7 @@ export default function SocialProductPage() {
       <ReceiptScreen
         order={completedOrder}
         primaryColor={primaryColor}
+        logoUrl={branding?.logoOverride || product?.store?.logo || null}
         onClose={() => navigate("/")}
       />
     );

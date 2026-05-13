@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { CheckCircle, Package, MapPin, Star, MessageSquare, ShoppingBag, Download, Share2, X } from "lucide-react";
+import { CheckCircle, Package, MapPin, Star, MessageSquare, ShoppingBag, Download, Share2, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
 import { clearAllPersistedCheckoutCoupons } from "@/lib/checkoutCoupon";
 import { fetchSameOrigin, fetchSameOriginJson, queryClient } from "@/lib/queryClient";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface Order {
   id: string;
@@ -33,7 +34,9 @@ export default function PaymentSuccess() {
   const [, navigate] = useLocation();
   const { formatPrice } = useLanguage();
   const { toast } = useToast();
+  const { logo, platformName, contactEmail, contactPhone } = usePlatformSettings();
   const cleanupCompletedRef = useRef(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const orderId =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("orderId")
@@ -533,27 +536,82 @@ export default function PaymentSuccess() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                const lines = [
-                  `===== ORDER RECEIPT =====`,
-                  `Order #${order.orderNumber}`,
-                  `Date: ${new Date(order.createdAt).toLocaleDateString()}`,
-                  `Total: ${formatPrice(parseFloat(order.total))}`,
-                  `Status: Paid`,
-                  order.deliveryAddress ? `Address: ${order.deliveryAddress}` : "",
-                  `=========================`,
-                ].filter(Boolean).join("\n");
-                const blob = new Blob([lines], { type: "text/plain" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `receipt-${order.orderNumber}.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
+              disabled={generatingPdf}
+              onClick={async () => {
+                setGeneratingPdf(true);
+                try {
+                  const { jsPDF } = await import("jspdf");
+                  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a5" });
+                  const W = doc.internal.pageSize.getWidth();
+                  const H = doc.internal.pageSize.getHeight();
+                  const primaryHex = "#16a34a";
+                  const r = parseInt(primaryHex.slice(1, 3), 16);
+                  const g = parseInt(primaryHex.slice(3, 5), 16);
+                  const b = parseInt(primaryHex.slice(5, 7), 16);
+                  doc.setFillColor(r, g, b);
+                  doc.rect(0, 0, W, 28, "F");
+                  let headerY = 10;
+                  if (logo) {
+                    try {
+                      const img = new Image(); img.crossOrigin = "anonymous";
+                      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = logo; setTimeout(rej, 3000); });
+                      const canvas = document.createElement("canvas");
+                      canvas.width = img.naturalWidth || 120; canvas.height = img.naturalHeight || 120;
+                      const ctx = canvas.getContext("2d")!; ctx.drawImage(img, 0, 0);
+                      doc.addImage(canvas.toDataURL("image/png"), "PNG", (W - 14) / 2, 5, 14, 14);
+                      headerY = 21;
+                    } catch { /* no logo */ }
+                  }
+                  doc.setTextColor(255, 255, 255); doc.setFontSize(logo ? 9 : 14); doc.setFont("helvetica", "bold");
+                  doc.text(platformName || "KiyuMart", W / 2, headerY + (logo ? 0 : 4), { align: "center" });
+                  doc.setTextColor(r, g, b); doc.setFontSize(13); doc.text("Payment Receipt", W / 2, 38, { align: "center" });
+                  doc.setDrawColor(r, g, b); doc.setLineWidth(0.4); doc.line(14, 41, W - 14, 41);
+                  const rows: [string, string][] = [
+                    ["Order #", order.orderNumber],
+                    ["Date", new Date(order.createdAt).toLocaleDateString("en-GH", { year: "numeric", month: "short", day: "numeric" })],
+                    ["Status", "Paid"],
+                    ...(order.deliveryAddress ? [["Address", order.deliveryAddress] as [string, string]] : []),
+                  ];
+                  let y = 48;
+                  doc.setFontSize(9);
+                  rows.forEach(([label, value]) => {
+                    doc.setFont("helvetica", "normal"); doc.setTextColor(120, 120, 120); doc.text(label, 14, y);
+                    doc.setFont("helvetica", "bold"); doc.setTextColor(30, 30, 30);
+                    const wrapped = doc.splitTextToSize(value, W - 60);
+                    doc.text(wrapped, W - 14, y, { align: "right" });
+                    y += wrapped.length > 1 ? wrapped.length * 5 + 3 : 8;
+                  });
+                  doc.setLineWidth(0.3); doc.setDrawColor(220, 220, 220); doc.line(14, y, W - 14, y); y += 6;
+                  doc.setFontSize(11); doc.setFont("helvetica", "normal"); doc.setTextColor(80, 80, 80); doc.text("Total Paid", 14, y);
+                  doc.setFont("helvetica", "bold"); doc.setTextColor(r, g, b);
+                  doc.text(formatPrice(parseFloat(order.total)), W - 14, y, { align: "right" }); y += 12;
+                  if (contactEmail || contactPhone) {
+                    doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(120, 120, 120); doc.text("NEED HELP?", 14, y); y += 5;
+                    doc.setFont("helvetica", "normal"); doc.setTextColor(50, 50, 50);
+                    if (contactEmail) { doc.text(contactEmail, 14, y); y += 5; }
+                    if (contactPhone) { doc.text(contactPhone, 14, y); }
+                  }
+                  doc.setFillColor(r, g, b); doc.rect(0, H - 12, W, 12, "F");
+                  doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(255, 255, 255);
+                  doc.text("Secured by Paystack", W / 2, H - 5, { align: "center" });
+                  const blob = doc.output("blob");
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url; a.download = `receipt-${order.orderNumber}.pdf`; a.click();
+                  URL.revokeObjectURL(url);
+                  toast({ title: "PDF receipt downloaded" });
+                } catch {
+                  const lines = [`Order #${order.orderNumber}`, `Total: ${formatPrice(parseFloat(order.total))}`, `Status: Paid`].join("\n");
+                  const blob = new Blob([lines], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url; a.download = `receipt-${order.orderNumber}.txt`; a.click();
+                  URL.revokeObjectURL(url);
+                } finally { setGeneratingPdf(false); }
               }}
             >
-              <Download className="h-4 w-4 mr-1.5" />
-              Download Receipt
+              {generatingPdf ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
+              PDF Receipt
             </Button>
             <Button
               variant="outline"

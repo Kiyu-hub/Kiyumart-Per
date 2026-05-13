@@ -16561,6 +16561,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Geocoding proxy — avoids CORS + User-Agent issues with Nominatim from the browser
+  app.get("/api/public/geocode/reverse", async (req, res) => {
+    const lat = parseFloat(String(req.query.lat));
+    const lon = parseFloat(String(req.query.lon));
+    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      return res.status(400).json({ error: "Invalid coordinates" });
+    }
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&zoom=16`,
+        { headers: { "User-Agent": "KiyuMart/1.0 (contact@kiyumart.com)" } }
+      );
+      if (!response.ok) {
+        return res.json({ display_name: `${lat.toFixed(5)}, ${lon.toFixed(5)}` });
+      }
+      const data: any = await response.json();
+      const addr = data.address || {};
+      // Build a concise human-readable address (neighbourhood/suburb, city, country)
+      const parts = [
+        addr.road,
+        addr.neighbourhood || addr.suburb || addr.quarter,
+        addr.city || addr.town || addr.village || addr.county,
+        addr.state,
+        addr.country,
+      ].filter(Boolean);
+      const display_name = parts.length > 0 ? parts.join(", ") : (data.display_name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+      res.json({ display_name, raw: data });
+    } catch {
+      res.json({ display_name: `${lat.toFixed(5)}, ${lon.toFixed(5)}` });
+    }
+  });
+
   // Cart Link routes for social commerce
   app.post("/api/seller/cart-links", requireAuth, requireRole("seller"), async (req: any, res) => {
     try {

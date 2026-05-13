@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, MessageSquare, Send, ArrowLeft, Phone, Pencil, Trash2 } from "lucide-react";
+import { Loader2, MessageSquare, Send, ArrowLeft, Phone, Pencil, Trash2, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageStatusTicks } from "@/components/MessageStatusTicks";
 import { TypingIndicator } from "@/components/TypingIndicator";
@@ -66,6 +66,16 @@ export default function SellerMessages() {
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [activeMsgId, setActiveMsgId] = useState<string | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startLongPress = useCallback((msgId: string) => {
+    longPressTimerRef.current = setTimeout(() => setActiveMsgId(msgId), 500);
+  }, []);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+  }, []);
 
   const deleteMessageMutation = useMutation({
     mutationFn: (messageId: string) =>
@@ -89,6 +99,13 @@ export default function SellerMessages() {
     onSuccess: () => setEditingMessageId(null),
     onError: (err: any) => toast({ title: "Edit Failed", description: err.message, variant: "destructive" }),
   });
+
+  // Dismiss message action menu on outside click
+  useEffect(() => {
+    const handleClickOutside = () => setActiveMsgId(null);
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, []);
 
   // Get userId from URL search params
   const urlParams = new URLSearchParams(window.location.search);
@@ -510,16 +527,38 @@ export default function SellerMessages() {
                     {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => {
                       const isSender = msg.senderId === user?.id;
                       const isBeingEdited = editingMessageId === msg.id;
+                      const isMenuOpen = activeMsgId === msg.id;
                       return (
                         <div key={msg.id} className={`flex group ${isSender ? "justify-end" : "justify-start"}`}>
-                          <div className="relative max-w-[85%]">
+                          <div
+                            className="relative max-w-[85%]"
+                            onTouchStart={() => isSender && !msg.isDeleted && startLongPress(msg.id)}
+                            onTouchEnd={cancelLongPress}
+                            onTouchMove={cancelLongPress}
+                            onContextMenu={(e) => { if (isSender && !msg.isDeleted) { e.preventDefault(); setActiveMsgId(msg.id); } }}
+                          >
                             {isSender && !msg.isDeleted && (
-                              <div className="absolute -left-8 top-1 hidden group-hover:flex flex-col gap-0.5 z-10">
-                                {msg.messageType !== "audio" && !isBeingEdited && (
-                                  <button onClick={() => { setEditingMessageId(msg.id); setEditText(msg.message); }} className="p-1 rounded bg-muted hover:bg-accent" title="Edit"><Pencil className="h-3 w-3" /></button>
+                              <>
+                                {/* Desktop hover buttons */}
+                                <div className="absolute -left-8 top-1 hidden group-hover:flex flex-col gap-0.5 z-10">
+                                  {msg.messageType !== "audio" && !isBeingEdited && (
+                                    <button onClick={() => { setEditingMessageId(msg.id); setEditText(msg.message); setActiveMsgId(null); }} className="p-1 rounded bg-muted hover:bg-accent" title="Edit"><Pencil className="h-3 w-3" /></button>
+                                  )}
+                                  <button onClick={() => { if (window.confirm("Delete this message for everyone?")) deleteMessageMutation.mutate(msg.id); setActiveMsgId(null); }} className="p-1 rounded bg-muted hover:bg-destructive hover:text-destructive-foreground" title="Delete"><Trash2 className="h-3 w-3" /></button>
+                                </div>
+                                {/* Long-press action popup (mobile + fallback) */}
+                                {isMenuOpen && (
+                                  <div className="absolute -top-9 right-0 z-20 flex items-center gap-1 bg-popover border shadow-lg rounded-full px-2 py-1" onClick={(e) => e.stopPropagation()}>
+                                    {msg.messageType !== "audio" && !isBeingEdited && (
+                                      <button onClick={() => { setEditingMessageId(msg.id); setEditText(msg.message); setActiveMsgId(null); }} className="flex items-center gap-1 px-2 py-1 text-xs rounded-full hover:bg-muted transition-colors"><Pencil className="h-3 w-3" />Edit</button>
+                                    )}
+                                    <div className="w-px h-4 bg-border" />
+                                    <button onClick={() => { if (window.confirm("Delete this message for everyone?")) deleteMessageMutation.mutate(msg.id); setActiveMsgId(null); }} className="flex items-center gap-1 px-2 py-1 text-xs rounded-full hover:bg-destructive hover:text-destructive-foreground transition-colors"><Trash2 className="h-3 w-3" />Delete</button>
+                                    <div className="w-px h-4 bg-border" />
+                                    <button onClick={() => setActiveMsgId(null)} className="p-1 rounded-full hover:bg-muted transition-colors"><X className="h-3 w-3" /></button>
+                                  </div>
                                 )}
-                                <button onClick={() => { if (window.confirm("Delete this message for everyone?")) deleteMessageMutation.mutate(msg.id); }} className="p-1 rounded bg-muted hover:bg-destructive hover:text-destructive-foreground" title="Delete"><Trash2 className="h-3 w-3" /></button>
-                              </div>
+                              </>
                             )}
                             <div className={`px-3 py-2 rounded-2xl ${isSender ? "bg-green-500 text-white rounded-br-sm" : "bg-muted rounded-bl-sm"}`}>
                               {msg.isDeleted ? (
@@ -640,6 +679,7 @@ export default function SellerMessages() {
                         {Array.from(new Map(messages.map((m) => [m.id, m])).values()).map((msg) => {
                           const isSender = msg.senderId === user?.id;
                           const isBeingEdited = editingMessageId === msg.id;
+                          const isMenuOpen = activeMsgId === msg.id;
                           return (
                             <div key={msg.id} className={`flex gap-3 group ${isSender ? "flex-row-reverse" : ""}`}>
                               <UserAvatar
@@ -649,14 +689,35 @@ export default function SellerMessages() {
                                 size="sm"
                                 className="flex-shrink-0"
                               />
-                              <div className={`flex-1 relative ${isSender ? "text-right" : ""}`}>
+                              <div
+                                className={`flex-1 relative ${isSender ? "text-right" : ""}`}
+                                onTouchStart={() => isSender && !msg.isDeleted && startLongPress(msg.id)}
+                                onTouchEnd={cancelLongPress}
+                                onTouchMove={cancelLongPress}
+                                onContextMenu={(e) => { if (isSender && !msg.isDeleted) { e.preventDefault(); setActiveMsgId(msg.id); } }}
+                              >
                                 {isSender && !msg.isDeleted && (
-                                  <div className="absolute -left-8 top-0 hidden group-hover:flex flex-col gap-0.5 z-10">
-                                    {msg.messageType !== "audio" && !isBeingEdited && (
-                                      <button onClick={() => { setEditingMessageId(msg.id); setEditText(msg.message); }} className="p-1 rounded bg-muted hover:bg-accent" title="Edit"><Pencil className="h-3 w-3" /></button>
+                                  <>
+                                    {/* Desktop hover buttons */}
+                                    <div className="absolute -left-8 top-0 hidden group-hover:flex flex-col gap-0.5 z-10">
+                                      {msg.messageType !== "audio" && !isBeingEdited && (
+                                        <button onClick={() => { setEditingMessageId(msg.id); setEditText(msg.message); setActiveMsgId(null); }} className="p-1 rounded bg-muted hover:bg-accent" title="Edit"><Pencil className="h-3 w-3" /></button>
+                                      )}
+                                      <button onClick={() => { if (window.confirm("Delete this message for everyone?")) deleteMessageMutation.mutate(msg.id); setActiveMsgId(null); }} className="p-1 rounded bg-muted hover:bg-destructive hover:text-destructive-foreground" title="Delete"><Trash2 className="h-3 w-3" /></button>
+                                    </div>
+                                    {/* Long-press action popup */}
+                                    {isMenuOpen && (
+                                      <div className="absolute -top-9 right-0 z-20 flex items-center gap-1 bg-popover border shadow-lg rounded-full px-2 py-1" onClick={(e) => e.stopPropagation()}>
+                                        {msg.messageType !== "audio" && !isBeingEdited && (
+                                          <button onClick={() => { setEditingMessageId(msg.id); setEditText(msg.message); setActiveMsgId(null); }} className="flex items-center gap-1 px-2 py-1 text-xs rounded-full hover:bg-muted transition-colors"><Pencil className="h-3 w-3" />Edit</button>
+                                        )}
+                                        <div className="w-px h-4 bg-border" />
+                                        <button onClick={() => { if (window.confirm("Delete this message for everyone?")) deleteMessageMutation.mutate(msg.id); setActiveMsgId(null); }} className="flex items-center gap-1 px-2 py-1 text-xs rounded-full hover:bg-destructive hover:text-destructive-foreground transition-colors"><Trash2 className="h-3 w-3" />Delete</button>
+                                        <div className="w-px h-4 bg-border" />
+                                        <button onClick={() => setActiveMsgId(null)} className="p-1 rounded-full hover:bg-muted transition-colors"><X className="h-3 w-3" /></button>
+                                      </div>
                                     )}
-                                    <button onClick={() => { if (window.confirm("Delete this message for everyone?")) deleteMessageMutation.mutate(msg.id); }} className="p-1 rounded bg-muted hover:bg-destructive hover:text-destructive-foreground" title="Delete"><Trash2 className="h-3 w-3" /></button>
-                                  </div>
+                                  </>
                                 )}
                                 <div className={`inline-block px-3 py-2 rounded-lg max-w-[80%] ${isSender ? "bg-green-500 text-white" : "bg-muted"}`}>
                                   {msg.isDeleted ? (

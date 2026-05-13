@@ -31,13 +31,104 @@ interface CompletedOrder {
   date: string;
 }
 
+async function generateCartReceiptPdf(order: CompletedOrder, brandColor: string, platformName: string, contactEmail?: string | null, contactPhone?: string | null, logoUrl?: string | null): Promise<Blob> {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a5" });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const col = brandColor.startsWith("#") ? brandColor : "#16a34a";
+  const r = parseInt(col.slice(1, 3), 16);
+  const g = parseInt(col.slice(3, 5), 16);
+  const b = parseInt(col.slice(5, 7), 16);
+
+  // Header band
+  doc.setFillColor(r, g, b);
+  doc.rect(0, 0, W, 28, "F");
+
+  let headerY = 10;
+  if (logoUrl) {
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve(); img.onerror = () => reject();
+        img.src = logoUrl; setTimeout(() => reject(), 3000);
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth || 120; canvas.height = img.naturalHeight || 120;
+      const ctx = canvas.getContext("2d")!; ctx.drawImage(img, 0, 0);
+      doc.addImage(canvas.toDataURL("image/png"), "PNG", (W - 14) / 2, 5, 14, 14);
+      headerY = 21;
+    } catch { headerY = 10; }
+  }
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(logoUrl ? 9 : 14);
+  doc.setFont("helvetica", "bold");
+  doc.text(platformName || "Order Receipt", W / 2, headerY + (logoUrl ? 0 : 4), { align: "center" });
+
+  doc.setTextColor(r, g, b);
+  doc.setFontSize(13);
+  doc.text("Payment Receipt", W / 2, 38, { align: "center" });
+  doc.setDrawColor(r, g, b);
+  doc.setLineWidth(0.4);
+  doc.line(14, 41, W - 14, 41);
+
+  let y = 48;
+  doc.setFontSize(9);
+  const meta: [string, string][] = [
+    ["Order #", order.orderNumber],
+    ["Date", order.date],
+    ["Store", order.storeName],
+    ["Address", order.address],
+  ];
+  meta.forEach(([label, value]) => {
+    doc.setFont("helvetica", "normal"); doc.setTextColor(120, 120, 120); doc.text(label, 14, y);
+    doc.setFont("helvetica", "bold"); doc.setTextColor(30, 30, 30);
+    const wrapped = doc.splitTextToSize(value, W - 60);
+    doc.text(wrapped, W - 14, y, { align: "right" });
+    y += wrapped.length > 1 ? wrapped.length * 5 + 3 : 8;
+  });
+
+  // Items
+  doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.3); doc.line(14, y, W - 14, y); y += 5;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(100, 100, 100); doc.text("ITEMS", 14, y); y += 5;
+  order.items.forEach((item) => {
+    doc.setFont("helvetica", "normal"); doc.setTextColor(40, 40, 40); doc.setFontSize(8.5);
+    doc.text(`${item.name} × ${item.quantity}`, 14, y);
+    doc.setFont("helvetica", "bold");
+    doc.text(`GHS ${(item.price * item.quantity).toFixed(2)}`, W - 14, y, { align: "right" });
+    y += 6;
+  });
+
+  // Total
+  doc.setLineWidth(0.3); doc.setDrawColor(220, 220, 220); doc.line(14, y, W - 14, y); y += 6;
+  doc.setFontSize(11); doc.setFont("helvetica", "normal"); doc.setTextColor(80, 80, 80); doc.text("Total Paid", 14, y);
+  doc.setFont("helvetica", "bold"); doc.setTextColor(r, g, b);
+  doc.text(`GHS ${order.subtotal.toFixed(2)}`, W - 14, y, { align: "right" }); y += 12;
+
+  if (contactEmail || contactPhone) {
+    doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(120, 120, 120); doc.text("NEED HELP?", 14, y); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setTextColor(50, 50, 50);
+    if (contactEmail) { doc.text(contactEmail, 14, y); y += 5; }
+    if (contactPhone) { doc.text(contactPhone, 14, y); y += 5; }
+  }
+
+  doc.setFillColor(r, g, b); doc.rect(0, H - 12, W, 12, "F");
+  doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(255, 255, 255);
+  doc.text("Secured by Paystack", W / 2, H - 5, { align: "center" });
+
+  return doc.output("blob");
+}
+
 function ReceiptScreen({
   order,
   brandColor,
+  logoUrl,
   onClose,
 }: {
   order: CompletedOrder;
   brandColor: string;
+  logoUrl?: string | null;
   onClose: () => void;
 }) {
   const { toast } = useToast();
@@ -45,46 +136,51 @@ function ReceiptScreen({
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   const itemLines = order.items.map((it) => `  • ${it.name} × ${it.quantity}  GHS ${(it.price * it.quantity).toFixed(2)}`).join("\n");
   const receiptText = [
-    `===== ORDER RECEIPT =====`,
-    `${platformName}`,
-    ``,
     `Order #${order.orderNumber}`,
     `Date: ${order.date}`,
     `Store: ${order.storeName}`,
-    ``,
-    `Items:`,
     itemLines,
-    ``,
     `Total Paid: GHS ${order.subtotal.toFixed(2)}`,
-    ``,
-    `Delivery Address: ${order.address}`,
-    ``,
-    `=========================`,
-    `Need Help?`,
+    `Address: ${order.address}`,
     contactEmail ? `Email: ${contactEmail}` : "",
     contactPhone ? `Phone: ${contactPhone}` : "",
-    `=========================`,
   ].filter(Boolean).join("\n");
 
-  const handleDownload = () => {
-    const blob = new Blob([receiptText], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `receipt-${order.orderNumber}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Receipt downloaded" });
+  const handleDownload = async () => {
+    setGeneratingPdf(true);
+    try {
+      const blob = await generateCartReceiptPdf(order, brandColor, platformName || "KiyuMart", contactEmail, contactPhone, logoUrl);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `receipt-${order.orderNumber}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "PDF receipt downloaded" });
+    } catch {
+      const blob = new Blob([receiptText], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `receipt-${order.orderNumber}.txt`; a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Receipt downloaded" });
+    } finally { setGeneratingPdf(false); }
   };
 
   const handleShare = async () => {
     if (navigator.share) {
       try {
+        setGeneratingPdf(true);
+        const blob = await generateCartReceiptPdf(order, brandColor, platformName || "KiyuMart", contactEmail, contactPhone, logoUrl);
+        const file = new File([blob], `receipt-${order.orderNumber}.pdf`, { type: "application/pdf" });
+        if (navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ files: [file], title: `Receipt #${order.orderNumber}` });
+          return;
+        }
         await navigator.share({ title: `Order Receipt #${order.orderNumber}`, text: receiptText });
-      } catch { /* user cancelled */ }
+      } catch { /* user cancelled */ } finally { setGeneratingPdf(false); }
     } else {
       await navigator.clipboard.writeText(receiptText);
       toast({ title: "Receipt copied to clipboard" });
@@ -156,10 +252,10 @@ function ReceiptScreen({
 
         {/* Download / Share */}
         <div className="grid grid-cols-2 gap-3">
-          <Button variant="outline" className="gap-2" onClick={handleDownload}>
-            <Download className="h-4 w-4" />Download
+          <Button variant="outline" className="gap-2" onClick={handleDownload} disabled={generatingPdf}>
+            {generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}PDF Receipt
           </Button>
-          <Button variant="outline" className="gap-2" onClick={handleShare}>
+          <Button variant="outline" className="gap-2" onClick={handleShare} disabled={generatingPdf}>
             <Share2 className="h-4 w-4" />Share
           </Button>
         </div>
@@ -312,17 +408,10 @@ export default function CartLinkCheckout() {
       async (pos) => {
         const { latitude, longitude } = pos.coords;
         try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=en`,
-            { headers: { "User-Agent": "KiyuMart/1.0" } }
-          );
-          if (res.ok) {
-            const data = await res.json();
-            setAddress(data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
-            toast({ title: "Location detected", description: "Delivery address updated." });
-          } else {
-            setAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
-          }
+          const res = await fetch(`/api/public/geocode/reverse?lat=${latitude}&lon=${longitude}`);
+          const data = await res.json();
+          setAddress(data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+          toast({ title: "Location detected", description: "Delivery address updated." });
         } catch {
           setAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
         } finally {
@@ -340,7 +429,7 @@ export default function CartLinkCheckout() {
   const isExpired = cart ? new Date(cart.expiresAt) < new Date() : false;
 
   if (completedOrder) {
-    return <ReceiptScreen order={completedOrder} brandColor={brandColor} onClose={() => window.location.href = "/"} />;
+    return <ReceiptScreen order={completedOrder} brandColor={brandColor} logoUrl={cart?.storeLogo || null} onClose={() => window.location.href = "/"} />;
   }
 
   if (isLoading) {

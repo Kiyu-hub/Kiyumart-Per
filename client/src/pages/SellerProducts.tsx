@@ -2600,7 +2600,7 @@ function ProductShareDialog({ product }: { product: Product }) {
           <Share2 className="h-3 w-3" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Share2 className="h-4 w-4" />

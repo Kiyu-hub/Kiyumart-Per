@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useRoute } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -9,7 +10,8 @@ import ProductCard from "@/components/ProductCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Store, Package, Star } from "lucide-react";
+import { Store, Package, Star, Instagram, Globe, Facebook } from "lucide-react";
+import { FaWhatsapp, FaTiktok } from "react-icons/fa";
 import type { Product } from "@shared/schema";
 
 interface StoreData {
@@ -24,6 +26,10 @@ interface StoreData {
   primarySellerId?: string;
   isActive?: boolean;
   isApproved?: boolean;
+  whatsappNumber?: string | null;
+  merchantCategory?: string | null;
+  socialLinks?: { instagram?: string; facebook?: string; tiktok?: string; twitter?: string; website?: string } | null;
+  brandingConfig?: { primaryColor?: string; accentColor?: string; logoOverride?: string; coverImage?: string; tagline?: string } | null;
 }
 
 const withImageVersion = (url?: string | null, version?: string | null): string | undefined => {
@@ -100,7 +106,7 @@ export default function SellerStorePage() {
           storeData.logo && storeData.logo !== storeData.banner
             ? storeData.logo
             : null;
-        // Merge store + basic seller info
+        // Merge store + basic seller info (preserve branding fields for CSS injection)
         return {
           id: sellerId,
           name: storeData.name || "Store",
@@ -110,6 +116,10 @@ export default function SellerStorePage() {
           storeBio: storeData.description,
           profilePicture: storeData.sellerProfileImage || normalizedStoreLogo,
           ratings: "0",
+          whatsappNumber: storeData.whatsappNumber || null,
+          socialLinks: storeData.socialLinks || null,
+          brandingConfig: storeData.brandingConfig || null,
+          merchantCategory: storeData.merchantCategory || null,
         };
       }
       return null;
@@ -145,6 +155,28 @@ export default function SellerStorePage() {
     enabled: !!sellerId,
   });
 
+  const s = displayData || {} as any;
+  const imageVersion = s.storeUpdatedAt || s.updatedAt || s.id || "";
+  const bannerSrc = withImageVersion(s.storeBanner, imageVersion);
+  const profileSrc = withImageVersion(s.profilePicture, imageVersion);
+
+  const branding = store?.brandingConfig ?? (seller as any)?.brandingConfig ?? null;
+  const primaryColor = branding?.primaryColor || "#16a34a";
+  const accentColor = branding?.accentColor || "#0ea5e9";
+  const effectiveLogo = branding?.logoOverride || store?.logo || undefined;
+  const whatsappNumber = store?.whatsappNumber ?? (seller as any)?.whatsappNumber ?? null;
+  const socialLinks = store?.socialLinks ?? (seller as any)?.socialLinks ?? null;
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--store-brand-primary", primaryColor);
+    root.style.setProperty("--store-brand-accent", accentColor);
+    return () => {
+      root.style.removeProperty("--store-brand-primary");
+      root.style.removeProperty("--store-brand-accent");
+    };
+  }, [primaryColor, accentColor]);
+
   if (storeLoading || sellerLoading) {
     return (
       <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900">
@@ -177,13 +209,8 @@ export default function SellerStorePage() {
     );
   }
 
-  const s = displayData || {} as any;
-  const imageVersion = s.storeUpdatedAt || s.updatedAt || s.id || "";
-  const bannerSrc = withImageVersion(s.storeBanner, imageVersion);
-  const profileSrc = withImageVersion(s.profilePicture, imageVersion);
-
   return (
-    <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900">
+    <div className="min-h-screen flex flex-col bg-background dark:bg-gray-900" style={{ "--brand-color": primaryColor, "--brand-accent": accentColor } as React.CSSProperties}>
       <Header />
 
       <main className="flex-1">
@@ -199,15 +226,18 @@ export default function SellerStorePage() {
                 />
               </div>
             ) : (
-              <div className="h-32 md:h-40 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                <Store className="w-12 h-12 text-primary/40" />
+              <div
+                className="h-32 md:h-40 rounded-lg flex items-center justify-center"
+                style={{ background: `linear-gradient(135deg, ${primaryColor}33, ${primaryColor}0d)` }}
+              >
+                <Store className="w-12 h-12 opacity-40" style={{ color: primaryColor }} />
               </div>
             )}
 
             <div className="absolute -bottom-8 left-4">
               <Avatar className="h-16 w-16 border-4 border-background">
-                <AvatarImage src={profileSrc} />
-                <AvatarFallback className="bg-primary text-white text-lg">
+                <AvatarImage src={effectiveLogo || profileSrc} />
+                <AvatarFallback className="text-white text-lg" style={{ backgroundColor: primaryColor }}>
                   {s.storeName?.[0] || s.name?.[0] || "S"}
                 </AvatarFallback>
               </Avatar>
@@ -232,6 +262,43 @@ export default function SellerStorePage() {
                     <span>{products.length} Products</span>
                   </div>
                 </div>
+
+                {/* Social links & WhatsApp */}
+                {(whatsappNumber || socialLinks?.instagram || socialLinks?.facebook || socialLinks?.tiktok || socialLinks?.website) && (
+                  <div className="flex flex-wrap items-center gap-3 pt-1">
+                    {whatsappNumber && (
+                      <a
+                        href={`https://wa.me/${whatsappNumber.replace(/\D/g, "")}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-sm text-green-600 hover:text-green-700 font-medium"
+                      >
+                        <FaWhatsapp className="h-4 w-4" />
+                        Chat
+                      </a>
+                    )}
+                    {socialLinks?.instagram && (
+                      <a href={socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
+                        <Instagram className="h-4 w-4" />
+                      </a>
+                    )}
+                    {socialLinks?.facebook && (
+                      <a href={socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
+                        <Facebook className="h-4 w-4" />
+                      </a>
+                    )}
+                    {socialLinks?.tiktok && (
+                      <a href={socialLinks.tiktok} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
+                        <FaTiktok className="h-4 w-4" />
+                      </a>
+                    )}
+                    {socialLinks?.website && (
+                      <a href={socialLinks.website} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
+                        <Globe className="h-4 w-4" />
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
 
               <Badge variant="outline" className="text-sm" data-testid="badge-seller">
@@ -242,6 +309,11 @@ export default function SellerStorePage() {
             {s.storeBio && (
               <p className="text-sm text-muted-foreground max-w-2xl" data-testid="text-store-bio">
                 {s.storeBio}
+              </p>
+            )}
+            {branding?.tagline && (
+              <p className="text-sm italic max-w-2xl" style={{ color: primaryColor }}>
+                {branding.tagline}
               </p>
             )}
           </div>
