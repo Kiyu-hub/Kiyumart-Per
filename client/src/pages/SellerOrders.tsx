@@ -399,6 +399,54 @@ export default function SellerOrders() {
     },
   });
 
+  // For Third-Party Delivery: chain packaged → ready in one tap
+  const markThirdPartyReadyMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const r1 = await apiRequest("PATCH", `/api/orders/${orderId}/status`, {
+        status: "packaged",
+        reason: "seller_packaged_for_external_delivery",
+      });
+      if (!r1.ok) {
+        const err = await r1.json().catch(() => ({}));
+        throw new Error(err?.error || err?.message || "Could not mark as packaged");
+      }
+      const r2 = await apiRequest("PATCH", `/api/orders/${orderId}/status`, {
+        status: "ready",
+        reason: "seller_marked_ready_for_external_delivery",
+      });
+      if (!r2.ok) {
+        const err = await r2.json().catch(() => ({}));
+        throw new Error(err?.error || err?.message || "Could not mark as ready");
+      }
+      return r2.json();
+    },
+    onSuccess: (_data, orderId) => {
+      queryClient.setQueryData<Order>(
+        ["/api/orders", "seller-order-detail", orderId, orderContext],
+        (old) => (old ? { ...old, status: "ready" as any } : old),
+      );
+      queryClient.setQueryData<Order[]>(
+        ["/api/orders", "seller-orders", user?.id, orderContext],
+        (old) => old ? old.map((o) => o.id === orderId ? { ...o, status: "ready" as any } : o) : old,
+      );
+      toast({ title: "Order updated", description: "Order marked as packaged and ready for Third-Party delivery." });
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          return typeof key === "string" && key.startsWith("/api/orders");
+        },
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-orders"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Status update failed",
+        description: extractApiErrorMessage(error),
+        variant: "destructive",
+      });
+    },
+  });
+
   const startRiderMatchingMutation = useMutation({
     mutationFn: async (orderId: string) => {
       const res = await apiRequest("POST", `/api/orders/${orderId}/start-rider-matching`, {});
@@ -738,6 +786,9 @@ export default function SellerOrders() {
               const detailDeliveryMethod = normalize(orderDetails.deliveryMethod);
               const detailHasRiderAssigned = Boolean(orderDetails.riderId);
               const detailIsExternalDelivery = isExternalRiderSystemEnabled && detailDeliveryMethod !== "pickup";
+              const detailIsThirdParty =
+                detailIsExternalDelivery &&
+                normalize(String(orderDetails.externalDeliveryType || "")) === "third_party";
               const detailCanStartPackaging =
                 orderContext === "seller" &&
                 detailIsPaid &&
@@ -1016,7 +1067,27 @@ export default function SellerOrders() {
                           Start Packaging
                         </Button>
                       )}
-                      {detailCanMarkPackaged && (
+                      {/* Third-Party Delivery: single combined button skips the separate packaged step */}
+                      {detailCanMarkPackaged && detailIsThirdParty && (
+                        <Button
+                          className="w-full"
+                          disabled={
+                            markThirdPartyReadyMutation.isPending ||
+                            updateOrderStatusMutation.isPending ||
+                            startRiderMatchingMutation.isPending ||
+                            !allItemsChecked
+                          }
+                          onClick={() => markThirdPartyReadyMutation.mutate(orderDetails.id)}
+                        >
+                          {markThirdPartyReadyMutation.isPending ? (
+                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating…</>
+                          ) : (
+                            <><Package className="h-4 w-4 mr-2" />Packaged &amp; Ready for Delivery</>
+                          )}
+                        </Button>
+                      )}
+                      {/* Non-third-party external / pickup: keep the two separate steps */}
+                      {detailCanMarkPackaged && !detailIsThirdParty && (
                         <Button
                           variant="secondary"
                           className="w-full"
@@ -1035,7 +1106,7 @@ export default function SellerOrders() {
                             })
                           }
                         >
-                          {detailIsExternalDelivery ? "Mark Packaged" : "Mark Packaged"}
+                          Mark Packaged
                         </Button>
                       )}
                       {detailCanMarkReady && (
@@ -1068,7 +1139,8 @@ export default function SellerOrders() {
                       {!detailCanStartPackaging &&
                         !detailCanMarkPackaged &&
                         !detailCanMarkReady &&
-                        !detailCanStartRiderMatching && (
+                        !detailCanStartRiderMatching &&
+                        !markThirdPartyReadyMutation.isPending && (
                           <p className="text-sm text-muted-foreground">
                             No seller action is required right now.
                           </p>
