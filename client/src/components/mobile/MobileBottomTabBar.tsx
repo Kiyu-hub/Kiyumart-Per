@@ -82,63 +82,75 @@ export function MobileBottomTabBar() {
       {/* Content spacer */}
       <div
         className="md:hidden"
-        style={{ height: `calc(56px + env(safe-area-inset-bottom, 0px))` }}
+        style={{ height: `calc(68px + env(safe-area-inset-bottom, 0px))` }}
         aria-hidden
       />
 
       <nav
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 glass border-t border-border/40"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         role="tablist"
         aria-label="Main navigation"
       >
-        <div className="flex h-14">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const active = isActive(tab.href);
-            const badge = tab.href === "/cart" ? cartCount : 0;
+        {/* Floating bar */}
+        <div
+          className="mx-3 mb-2 rounded-[28px] border border-border/40 shadow-xl shadow-black/10"
+          style={{
+            background: "hsl(var(--background))",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+          }}
+        >
+          <div className="flex h-[58px] px-1">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = isActive(tab.href);
+              const badge = tab.href === "/cart" ? cartCount : 0;
 
-            return (
-              <button
-                key={tab.href}
-                role="tab"
-                aria-selected={active}
-                aria-label={tab.label}
-                onClick={() => { haptic("light"); navigate(tab.href); }}
-                className={cn(
-                  "touch-ripple flex flex-col items-center justify-center flex-1 h-full gap-0.5 relative",
-                  "transition-all duration-150 select-none",
-                  active ? "text-primary" : "text-muted-foreground/70",
-                )}
-              >
-                {/* Active pill background */}
-                {active && (
-                  <span className="absolute top-1.5 left-1/2 -translate-x-1/2 w-10 h-7 rounded-full bg-primary/10 mobile-bounce-in" />
-                )}
-
-                <div className="relative z-10">
-                  <Icon
-                    className={cn(
-                      "transition-all duration-200",
-                      active ? "w-[22px] h-[22px] stroke-[2.5]" : "w-[22px] h-[22px] stroke-[1.8]",
-                    )}
-                  />
-                  {badge > 0 && (
-                    <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-[3px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center mobile-bounce-in">
-                      {badge > 99 ? "99+" : badge}
-                    </span>
+              return (
+                <button
+                  key={tab.href}
+                  role="tab"
+                  aria-selected={active}
+                  aria-label={tab.label}
+                  onClick={() => { haptic("light"); navigate(tab.href); }}
+                  className={cn(
+                    "touch-ripple flex flex-col items-center justify-center flex-1 h-full gap-0.5 relative",
+                    "transition-all duration-200 select-none rounded-[24px]",
+                    active ? "text-primary" : "text-muted-foreground/60",
                   )}
-                </div>
+                >
+                  {/* Active pill highlight */}
+                  {active && (
+                    <span className="absolute inset-x-1 top-1 bottom-1 rounded-[22px] bg-primary/10 mobile-bounce-in" />
+                  )}
 
-                <span className={cn(
-                  "text-[10px] leading-none z-10 transition-all duration-200",
-                  active ? "font-semibold" : "font-normal",
-                )}>
-                  {tab.label}
-                </span>
-              </button>
-            );
-          })}
+                  <div className="relative z-10 flex flex-col items-center gap-0.5">
+                    <div className="relative">
+                      <Icon
+                        className={cn(
+                          "transition-all duration-200",
+                          active ? "w-[22px] h-[22px] stroke-[2.5]" : "w-[21px] h-[21px] stroke-[1.8]",
+                        )}
+                        style={active ? { filter: "drop-shadow(0 0 4px oklch(var(--primary) / 0.4))" } : {}}
+                      />
+                      {badge > 0 && (
+                        <span className="absolute -top-2 -right-2.5 min-w-[17px] h-[17px] px-[3px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center mobile-bounce-in border-2 border-background">
+                          {badge > 99 ? "99+" : badge}
+                        </span>
+                      )}
+                    </div>
+                    <span className={cn(
+                      "text-[10px] leading-none transition-all duration-200",
+                      active ? "font-bold" : "font-medium",
+                    )}>
+                      {tab.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </nav>
     </>
