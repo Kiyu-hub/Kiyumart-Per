@@ -1,4 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+const MobileHomeComp = lazy(() => import("@/pages/mobile/MobileHome").then(m => ({ default: m.MobileHome })));
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
@@ -171,9 +175,11 @@ export default function MultiVendorHome() {
   const showHomepageFeaturedSection = (settings as any)?.showHomepageFeaturedSection !== false;
   const showHomepageNewArrivalSection = (settings as any)?.showHomepageNewArrivalSection !== false;
 
-  const hasMultiplePromotions = promos && promos.length > 1;
-  const hasExactlyOnePromotion = promos && promos.length === 1;
-  const singlePromotion = hasExactlyOnePromotion ? promos[0] : null;
+  // Client-side guard: drop any promo whose endAt has already passed
+  const activePromos = promos.filter((p: any) => !p.endAt || new Date(p.endAt).getTime() > Date.now());
+  const hasMultiplePromotions = activePromos.length > 1;
+  const hasExactlyOnePromotion = activePromos.length === 1;
+  const singlePromotion = hasExactlyOnePromotion ? activePromos[0] : null;
 
   // Sidebar content stacking: both promo + ad can coexist
   const hasSidebarAd = adsEnabled && sidebarAdEnabled;
@@ -219,9 +225,70 @@ export default function MultiVendorHome() {
   const [showAllCategories, setShowAllCategories] = useState(false);
   const CATEGORY_VISIBLE_THRESHOLD = 6;
 
+  // GSAP scroll-entry animations for content sections
+  useEffect(() => {
+    gsap.registerPlugin(ScrollTrigger);
+    const ctx = gsap.context(() => {
+      gsap.utils.toArray<HTMLElement>(".mv-glass-card").forEach((el, i) => {
+        gsap.fromTo(
+          el,
+          { y: 36, opacity: 0 },
+          {
+            y: 0,
+            opacity: 1,
+            duration: 0.65,
+            ease: "power3.out",
+            delay: i === 0 ? 0 : 0,
+            scrollTrigger: {
+              trigger: el,
+              start: "top 90%",
+              once: true,
+            },
+          }
+        );
+      });
+      // Kinetic heading stagger inside each section
+      gsap.utils.toArray<HTMLElement>(".mv-glass-card h2").forEach((el) => {
+        gsap.fromTo(
+          el,
+          { x: -18, opacity: 0 },
+          {
+            x: 0,
+            opacity: 1,
+            duration: 0.5,
+            ease: "power2.out",
+            scrollTrigger: {
+              trigger: el,
+              start: "top 92%",
+              once: true,
+            },
+          }
+        );
+      });
+    });
+    return () => ctx.revert();
+  }, []);
+
+  const { isMobile } = useMobileDevice();
+  if (isMobile) {
+    return (
+      <Suspense fallback={null}>
+        <MobileHomeComp
+          featuredProducts={filteredFeaturedProducts}
+          newArrivalProducts={filteredNewArrivalProducts}
+          categories={categoriesWithProducts}
+          stores={stores}
+          wishlist={wishlist}
+          isLoading={productsLoading || categoriesLoading}
+          onToggleWishlist={handleToggleWishlist}
+        />
+      </Suspense>
+    );
+  }
+
   return (
     <div className="mv-home min-h-screen flex flex-col relative">
-      {/* Animated gradient background — contained to prevent horizontal overflow */}
+      {/* Animated gradient background */}
       <div className="overflow-hidden absolute inset-0 pointer-events-none">
         <div className="mv-bg-gradient" />
         <div className="mv-bg-orb mv-bg-orb-1" />

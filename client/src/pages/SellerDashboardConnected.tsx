@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { MobileSellerDashboard } from "@/pages/mobile/MobileSellerDashboard";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -718,13 +720,14 @@ export default function SellerDashboardConnected() {
     const deliveryMethod = normalizeOrderStatus(order?.deliveryMethod ?? undefined);
     return deliveryMethod === "pickup" ? "pickup" : "delivery";
   };
-  // Gross product revenue: prefer the analytics API value (uses subtotal - couponDiscount from DB,
-  // which excludes delivery fees and processing fees that don't belong to the seller).
-  // Fall back to a client-side sum using subtotal - couponDiscount (never use order.total which includes fees).
+  // Gross product revenue: prefer the analytics API value (server uses status=completed + paid filter).
+  // Client-side fallback must apply the same completed+paid filter so cached values stay accurate.
   const paidRevenueFromOrders = safeOrders
     .filter((order) => {
       if (order?.sellerId !== user.id) return false;
-      return isPaidSellerOrder(order);
+      if (!isPaidSellerOrder(order)) return false;
+      // Must match server analytics: only finalised (completed) orders count as revenue.
+      return normalizeOrderStatus(order?.status) === "completed";
     })
     .reduce((sum, order) => {
       const sub = safeNumber(order.subtotal ?? order.total);
@@ -734,10 +737,12 @@ export default function SellerDashboardConnected() {
   const totalRevenue = typeof analytics?.totalRevenue === "number" && analytics.totalRevenue >= 0
     ? analytics.totalRevenue
     : paidRevenueFromOrders;
-  // Net payout = totalRevenue minus the platform service fee, recorded in commissions table
-  const netPayout = typeof analytics?.sellerSettlementTotal === "number" && analytics.sellerSettlementTotal >= 0
+  // Net earnings = sellerSettlementTotal (gross minus platform commission).
+  // availableBalance is the current wallet cash-out balance — a separate figure shown elsewhere.
+  const sellerEarnings = typeof analytics?.sellerSettlementTotal === "number" && analytics.sellerSettlementTotal >= 0
     ? analytics.sellerSettlementTotal
     : null;
+  const netPayout = sellerEarnings;
   const isCompletedSellerOrder = (order?: Order) => {
     const status = normalizeOrderStatus(order?.status);
     return status === "completed" || status === "delivered";
@@ -897,6 +902,34 @@ export default function SellerDashboardConnected() {
     void refetchProducts();
     void refetchOrders();
   }, [activeItem, isAuthenticated, refetchAnalytics, refetchOrders, refetchProducts, user?.role]);
+
+  const { isMobile } = useMobileDevice();
+  if (isMobile && activeItem === "dashboard") {
+    return (
+      <MobileSellerDashboard
+        user={{ name: user.name, profileImage: user.profileImage }}
+        stats={{
+          todayRevenue: 0,
+          totalRevenue: sellerEarnings,
+          pendingOrders,
+          totalOrders: sellerOrdersCount,
+          activeProducts: safeProducts.filter((p: any) => p.isActive).length,
+          totalProducts: safeProducts.length,
+          pendingPayouts: typeof analytics?.pendingPayoutValue === "number" ? analytics.pendingPayoutValue : 0,
+        }}
+        recentOrders={safeOrders.slice(0, 5).map((o: any) => ({
+          id: o.id,
+          orderNumber: o.orderNumber,
+          status: o.status,
+          totalAmount: o.totalAmount,
+          createdAt: o.createdAt,
+          itemCount: o.items?.length,
+        }))}
+        isLoading={ordersLoading || productsLoading}
+        unreadCount={0}
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -1182,13 +1215,16 @@ export default function SellerDashboardConnected() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     <MetricCard
-                      title="Gross Sales"
-                      value={formatPrice(visibleMetrics.totalRevenue)}
+                      title="My Earnings"
+                      value={netPayout !== null ? formatPrice(netPayout) : formatPrice(visibleMetrics.totalRevenue)}
                       icon={DollarSign}
                       details={
-                        netPayout !== null ? (
-                          <span>Net payout: <strong>{formatPrice(netPayout)}</strong> (after service fee)</span>
-                        ) : undefined
+                        <span>
+                          {netPayout !== null
+                            ? <span>Net earnings after platform fee • Gross: <strong>{formatPrice(visibleMetrics.totalRevenue)}</strong></span>
+                            : <span>Gross sales — visit Analytics for full breakdown</span>
+                          }
+                        </span>
                       }
                     />
                     <MetricCard

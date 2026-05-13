@@ -3,6 +3,8 @@ import { useLocation } from "wouter";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { MobileOrders } from "@/pages/mobile/MobileOrders";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -574,14 +576,23 @@ export default function Orders() {
                     {order.pickupStationInfo.locationLabel}
                   </span>
                 </div>
-                {order.pickupStationInfo.pickupAgentPhone && (
-                  <div className="flex justify-between text-sm gap-3">
-                    <span className="text-muted-foreground">Pickup Contact:</span>
-                    <span className="font-medium text-right">
-                      {order.pickupStationInfo.pickupAgentName || "Pickup Agent"} - {order.pickupStationInfo.pickupAgentPhone}
-                    </span>
-                  </div>
-                )}
+                {order.pickupStationInfo.pickupAgentPhone && (() => {
+                  const contactRevealed = ["packaged", "ready", "completed", "delivered", "external_dispatch_arranged"].includes(order.status);
+                  return (
+                    <div className="flex justify-between text-sm gap-3">
+                      <span className="text-muted-foreground">Pickup Contact:</span>
+                      {contactRevealed ? (
+                        <span className="font-medium text-right">
+                          {order.pickupStationInfo!.pickupAgentName || "Pickup Agent"} - {order.pickupStationInfo!.pickupAgentPhone}
+                        </span>
+                      ) : (
+                        <span className="font-medium text-right text-muted-foreground italic">
+                          Available once order is packaged
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </>
             )}
           </div>
@@ -716,6 +727,17 @@ export default function Orders() {
           </div>
         </main>
       </div>
+    );
+  }
+
+  const { isMobile } = useMobileDevice();
+  if (isMobile) {
+    return (
+      <MobileOrders
+        orders={orders as any}
+        isLoading={isLoading}
+        onDeleteOrder={(id) => removeOrderMutation.mutate(id)}
+      />
     );
   }
 

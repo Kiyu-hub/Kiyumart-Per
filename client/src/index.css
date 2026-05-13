@@ -780,3 +780,236 @@ input, select, textarea {
     display: none !important;
   }
 }
+
+/* ============================================================
+   KIYUMART MOBILE ENHANCEMENT LAYER  — additive only
+   ============================================================ */
+
+/* ── iOS-Style Spring Animations ── */
+@keyframes slideUpSpring {
+  0%   { transform: translateY(100%); opacity: 0; }
+  60%  { transform: translateY(-4px); opacity: 1; }
+  80%  { transform: translateY(2px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes slideDownOut {
+  0%   { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+@keyframes fadeScaleIn {
+  0%   { transform: scale(0.94); opacity: 0; }
+  60%  { transform: scale(1.01); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes mobileShimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pressScale {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+
+@keyframes bounceIn {
+  0%   { transform: scale(0.3); opacity: 0; }
+  50%  { transform: scale(1.05); opacity: 1; }
+  70%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+@keyframes tabLabelFadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Mobile Utility Classes ── */
+.mobile-slide-up   { animation: slideUpSpring 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+.mobile-fade-scale { animation: fadeScaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+.mobile-bounce-in  { animation: bounceIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+.mobile-press:active { transform: scale(0.96); transition: transform 0.1s ease; }
+
+/* ── Skeleton Shimmer ── */
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 25%,
+    hsl(var(--muted) / 0.4) 50%,
+    hsl(var(--muted)) 75%
+  );
+  background-size: 200% 100%;
+  animation: mobileShimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* ── Mobile Bottom Sheet ── */
+.mobile-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 60;
+  animation: fadeScaleIn 0.2s ease forwards;
+}
+
+.mobile-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 70;
+  background: hsl(var(--background));
+  border-radius: 20px 20px 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: slideUpSpring 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  max-height: 92dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mobile-sheet-handle {
+  width: 36px;
+  height: 4px;
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 999px;
+  margin: 12px auto 4px;
+}
+
+/* ── Frosted Glass ── */
+.glass {
+  background: hsl(var(--background) / 0.88);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+.glass-card {
+  background: hsl(var(--card) / 0.92);
+  backdrop-filter: saturate(150%) blur(12px);
+  -webkit-backdrop-filter: saturate(150%) blur(12px);
+  border: 1px solid hsl(var(--border) / 0.5);
+}
+
+/* ── Mobile Typography ── */
+@media (max-width: 767px) {
+  .mobile-large-title  { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; line-height: 1.1; }
+  .mobile-title-1      { font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
+  .mobile-title-2      { font-size: 22px; font-weight: 700; }
+  .mobile-title-3      { font-size: 20px; font-weight: 600; }
+  .mobile-headline     { font-size: 17px; font-weight: 600; }
+  .mobile-body         { font-size: 17px; font-weight: 400; }
+  .mobile-subhead      { font-size: 15px; font-weight: 400; }
+  .mobile-caption      { font-size: 12px; font-weight: 400; letter-spacing: 0.1px; }
+}
+
+/* ── Mobile Card Style ── */
+@media (max-width: 767px) {
+  .mobile-card {
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+    border: 1px solid hsl(var(--border) / 0.5);
+    overflow: hidden;
+  }
+  .mobile-grouped-list {
+    background: hsl(var(--muted) / 0.4);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .mobile-grouped-list-item {
+    background: hsl(var(--card));
+    padding: 14px 16px;
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+  }
+  .mobile-grouped-list-item:last-child { border-bottom: none; }
+}
+
+/* ── Scroll Helpers ── */
+@media (max-width: 767px) {
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  .mobile-scroll::-webkit-scrollbar { display: none; }
+
+  .mobile-pill-scroll {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mobile-pill-scroll::-webkit-scrollbar { display: none; }
+
+  .mobile-hscroll {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .mobile-hscroll::-webkit-scrollbar { display: none; }
+}
+
+/* ── Touch Ripple ── */
+.touch-ripple {
+  position: relative;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-ripple::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  border-radius: inherit;
+  transition: opacity 0.12s;
+}
+.touch-ripple:active::after { opacity: 0.07; }
+
+/* ── Mobile Section Header ── */
+@media (max-width: 767px) {
+  .mobile-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 0 8px;
+  }
+}
+
+/* ── Status Color Bar (left edge on order cards) ── */
+.status-bar-left {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 0;
+}
+
+/* ── Dark Mode Refinements ── */
+@media (max-width: 767px) {
+  .dark .mobile-card {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.2);
+  }
+  .dark .glass {
+    background: rgba(18, 18, 20, 0.88);
+  }
+}
+
+/* ── Page Transition ── */
+@media (max-width: 767px) {
+  .mobile-page-enter {
+    animation: fadeScaleIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+}

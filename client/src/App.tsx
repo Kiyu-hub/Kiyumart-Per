@@ -136,7 +136,7 @@ import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
-import MobileStorefrontNav from "@/components/MobileStorefrontNav";
+import { MobileBottomTabBar } from "@/components/mobile/MobileBottomTabBar";
 
 function RouteGateLoader() {
   return (
@@ -646,7 +646,7 @@ function App() {
               </MaintenanceGuard>
               <AnalyticsInjector />
               <FaviconInjector />
-              <MobileStorefrontNav />
+              <MobileBottomTabBar />
               <PWAInstallPrompt />
             </TooltipProvider>
             </JitsiCallProvider>

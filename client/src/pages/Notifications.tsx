@@ -2,6 +2,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { MobileNotifications } from "@/pages/mobile/MobileNotifications";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Card, CardContent } from "@/components/ui/card";
@@ -287,6 +289,19 @@ export default function Notifications() {
         return "text-muted-foreground";
     }
   };
+
+  const { isMobile } = useMobileDevice();
+  if (isMobile) {
+    return (
+      <MobileNotifications
+        notifications={notifications as any}
+        isLoading={isLoading}
+        onMarkRead={(id) => markAsReadMutation.mutate(id)}
+        onMarkAllRead={() => markAllAsReadMutation.mutate()}
+        onDelete={(id) => deleteNotificationMutation.mutate(id)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">

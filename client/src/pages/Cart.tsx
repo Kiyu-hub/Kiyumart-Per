@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { MobileCart } from "@/pages/mobile/MobileCart";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -169,8 +171,40 @@ export default function Cart() {
 
   const isLoading = cartLoading || productsLoading;
 
+  const { isMobile } = useMobileDevice();
+
   if (!isAuthenticated) {
     return null;
+  }
+
+  if (isMobile) {
+    return (
+      <MobileCart
+        cartItems={cartItemsWithProducts.map((item) => ({
+          id: item.cartId,
+          productId: item.productId,
+          productName: item.name,
+          productImage: item.image,
+          price: String(item.price),
+          quantity: item.quantity,
+          selectedColor: item.selectedColor,
+          selectedSize: item.selectedSize,
+          availableStock: item.stock,
+        }))}
+        isLoading={isLoading}
+        onQuantityChange={(itemId, delta) => {
+          const item = cartItemsWithProducts.find((i) => i.cartId === itemId);
+          if (!item) return;
+          const newQty = Math.max(1, item.quantity + delta);
+          updateCartMutation.mutate({ id: itemId, quantity: newQty });
+        }}
+        onRemoveItem={(itemId) => removeFromCartMutation.mutate(itemId)}
+        subtotal={subtotal}
+        deliveryFee={0}
+        total={subtotal}
+        onCheckout={() => navigate("/checkout")}
+      />
+    );
   }
 
   return (

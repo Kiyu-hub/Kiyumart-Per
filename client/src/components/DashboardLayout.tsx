@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import DashboardSidebar from "./DashboardSidebar";
+import { MobileBottomTabBar } from "@/components/mobile/MobileBottomTabBar";
 import BackButton from "./BackButton";
 import { useQuery } from "@tanstack/react-query";
 import { useSellerProfileGuard } from "@/hooks/useSellerProfileGuard";
@@ -183,6 +184,9 @@ export default function DashboardLayout({
     refetchIntervalInBackground: true,
   });
 
+  // Normalize role variants (some tokens may use `superadmin` without underscore)
+  const normalizedRole = (role as string) === "superadmin" ? "super_admin" : role;
+
   // CRITICAL: Enforce profile completion for sellers
   // Hook is always called (React Hooks Rules), but internally exempts /seller/settings
   useSellerProfileGuard(role === "seller" ? location : undefined);
@@ -204,9 +208,6 @@ export default function DashboardLayout({
     if (planBExpired) return "expired_warning" as const;
     return null;
   }, [normalizedRole, sellerTierInfo]);
-
-  // Normalize role variants (some tokens may use `superadmin` without underscore)
-  const normalizedRole = (role as string) === "superadmin" ? "super_admin" : role;
 
   const activeItem = useMemo(() => {
     // Handle shopping routes for all roles
@@ -472,6 +473,7 @@ export default function DashboardLayout({
           )}
         </main>
       </div>
+      <MobileBottomTabBar />
     </div>
   );
 }

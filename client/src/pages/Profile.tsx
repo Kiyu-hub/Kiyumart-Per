@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 import { useAuth } from "@/lib/auth";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { MobileProfile } from "@/pages/mobile/MobileProfile";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -263,6 +265,17 @@ export default function Profile() {
           </div>
         </main>
       </div>
+    );
+  }
+
+  const { isMobile } = useMobileDevice();
+  if (isMobile) {
+    return (
+      <MobileProfile
+        profile={profile ?? null}
+        stats={{ orders: (orders as any[]).length }}
+        onLogout={logout}
+      />
     );
   }
 
