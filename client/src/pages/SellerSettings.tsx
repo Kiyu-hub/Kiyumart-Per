@@ -115,6 +115,7 @@ export default function SellerSettings() {
   const [tiktok, setTiktok] = useState("");
   const [website, setWebsite] = useState("");
   const [merchantCat, setMerchantCat] = useState("");
+  const [personaEditing, setPersonaEditing] = useState(false);
   const [socialSaved, setSocialSaved] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
@@ -202,6 +203,7 @@ export default function SellerSettings() {
     onSuccess: () => {
       toast({ title: "Store persona updated!" });
       setPersonaSaved(true);
+      setPersonaEditing(false);
       setTimeout(() => setPersonaSaved(false), 2000);
       queryClient.invalidateQueries({ queryKey: ["/api/stores/my-store"] });
     },
@@ -521,43 +523,81 @@ export default function SellerSettings() {
           {/* Store Persona */}
           <Card data-testid="card-store-persona" className="lg:col-span-3">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Store className="h-5 w-5 text-primary" />
-                Store Persona
-              </CardTitle>
-              <CardDescription>
-                Choose the category that best describes what you sell. This controls which product fields appear when you list items — you can update it any time your focus changes.
-              </CardDescription>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Store className="h-5 w-5 text-primary" />
+                    Store Persona
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    Your store category controls which product fields appear when listing items.
+                  </CardDescription>
+                </div>
+                {merchantCat && !personaEditing && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 text-xs"
+                    onClick={() => setPersonaEditing(true)}
+                  >
+                    Change
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {MERCHANT_CATEGORIES.map((cat) => (
-                  <button
-                    key={cat.value}
-                    type="button"
-                    onClick={() => setMerchantCat(cat.value)}
-                    className={`rounded-xl border p-3 text-left transition-colors ${
-                      merchantCat === cat.value
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:bg-muted"
-                    }`}
-                  >
-                    <span className="text-2xl">{cat.icon}</span>
-                    <p className="mt-1.5 text-xs font-medium leading-tight">{cat.label}</p>
-                  </button>
-                ))}
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={() => savePersonaMutation.mutate()} disabled={savePersonaMutation.isPending}>
-                  {savePersonaMutation.isPending ? (
-                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
-                  ) : personaSaved ? (
-                    <><Check className="h-4 w-4 mr-2" /> Saved!</>
-                  ) : (
-                    "Save Persona"
-                  )}
-                </Button>
-              </div>
+              {merchantCat && !personaEditing ? (
+                /* Compact read-only — already configured */
+                (() => {
+                  const active = MERCHANT_CATEGORIES.find((c) => c.value === merchantCat);
+                  return active ? (
+                    <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+                      <span className="text-2xl">{active.icon}</span>
+                      <div>
+                        <p className="text-sm font-semibold text-primary">{active.label}</p>
+                        <p className="text-xs text-muted-foreground">Set during store setup. Tap "Change" to update.</p>
+                      </div>
+                    </div>
+                  ) : null;
+                })()
+              ) : (
+                /* Edit mode — show full picker */
+                <>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {MERCHANT_CATEGORIES.map((cat) => (
+                      <button
+                        key={cat.value}
+                        type="button"
+                        onClick={() => setMerchantCat(cat.value)}
+                        className={`rounded-xl border p-3 text-left transition-colors ${
+                          merchantCat === cat.value
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border hover:bg-muted"
+                        }`}
+                      >
+                        <span className="text-2xl">{cat.icon}</span>
+                        <p className="mt-1.5 text-xs font-medium leading-tight">{cat.label}</p>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    {personaEditing && (
+                      <Button variant="ghost" size="sm" onClick={() => { setMerchantCat(store?.merchantCategory || ""); setPersonaEditing(false); }}>
+                        Cancel
+                      </Button>
+                    )}
+                    <Button onClick={() => savePersonaMutation.mutate()} disabled={savePersonaMutation.isPending}>
+                      {savePersonaMutation.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
+                      ) : personaSaved ? (
+                        <><Check className="h-4 w-4 mr-2" /> Saved!</>
+                      ) : (
+                        "Save Persona"
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 

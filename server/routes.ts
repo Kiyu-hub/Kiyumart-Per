@@ -16533,16 +16533,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch {
       // fall through to defaults
     }
+    // Use purpose "any" only — "maskable" would cause browsers to fill the icon's
+    // transparent areas with theme_color (green), showing a coloured background
+    // behind the icon in install prompts. "any" renders the icon as-is.
     const icons = iconUrl
       ? [
-          { src: iconUrl, sizes: "192x192", type: "image/png" },
-          { src: iconUrl, sizes: "512x512", type: "image/png" },
-          { src: iconUrl, sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          { src: iconUrl, sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: iconUrl, sizes: "512x512", type: "image/png", purpose: "any" },
         ]
       : [
-          { src: "/icons/pwa-192x192.png", sizes: "192x192", type: "image/png" },
-          { src: "/icons/pwa-512x512.png", sizes: "512x512", type: "image/png" },
-          { src: "/icons/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          { src: "/icons/pwa-192x192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icons/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any" },
         ];
     res.setHeader("Content-Type", "application/manifest+json");
     res.setHeader("Cache-Control", "public, max-age=3600");
