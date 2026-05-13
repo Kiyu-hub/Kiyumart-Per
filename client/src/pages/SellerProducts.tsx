@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
@@ -2566,9 +2566,12 @@ function ProductShareDialog({ product }: { product: Product }) {
   const magicLink = localSlug ? `${origin}/p/${localSlug}` : null;
 
   const generateSlugMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/products/${product.id}/generate-slug`),
-    onSuccess: async (data: any) => {
-      const slug = data?.slug as string;
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/products/${product.id}/generate-slug`);
+      return res.json() as Promise<{ slug: string }>;
+    },
+    onSuccess: async (data) => {
+      const slug = data?.slug;
       setLocalSlug(slug);
       queryClient.invalidateQueries({ queryKey: ["/api/products", "seller"] });
       toast({ title: "Link generated", description: "Your product now has a shareable link." });

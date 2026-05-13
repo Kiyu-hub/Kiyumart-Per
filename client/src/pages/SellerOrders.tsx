@@ -70,6 +70,14 @@ interface Order {
     pickupAgentName?: string | null;
     pickupAgentPhone?: string | null;
   } | null;
+  riderInfo?: {
+    id: string;
+    name: string | null;
+    phone: string | null;
+    vehicleType: string | null;
+    vehiclePlateNumber: string | null;
+    rating: string | number | null;
+  } | null;
 }
 
 interface SellerAnalytics {
@@ -242,10 +250,14 @@ export default function SellerOrders() {
       };
     }
 
-    if (pickupFlow && status === "packaged") {
+    if (status === "packaged") {
       return {
         label: "Packaged",
-        hint: "Awaiting pickup completion",
+        hint: pickupFlow
+          ? "Awaiting pickup station assignment"
+          : externalDeliveryFlow
+            ? "Order packaged — mark ready to hand off for external delivery"
+            : "Order is packaged",
         className: "bg-indigo-100 text-indigo-900 dark:bg-indigo-900/30 dark:text-indigo-200",
       };
     }
@@ -357,7 +369,18 @@ export default function SellerOrders() {
       const res = await apiRequest("PATCH", `/api/orders/${orderId}/status`, { status, reason });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      // Immediately write the new status into both caches so buttons re-evaluate
+      // before the background refetch completes. This prevents double-click errors
+      // like "Cannot transition from packaged to packaged".
+      queryClient.setQueryData<Order>(
+        ["/api/orders", "seller-order-detail", variables.orderId, orderContext],
+        (old) => (old ? { ...old, status: variables.status as any } : old),
+      );
+      queryClient.setQueryData<Order[]>(
+        ["/api/orders", "seller-orders", user?.id, orderContext],
+        (old) => old ? old.map((o) => o.id === variables.orderId ? { ...o, status: variables.status as any } : o) : old,
+      );
       toast({ title: "Order updated", description: "Order status was updated successfully." });
       queryClient.invalidateQueries({
         predicate: (query) => {
@@ -714,6 +737,7 @@ export default function SellerOrders() {
               const detailIsPaid = detailPaymentStatus === "paid";
               const detailDeliveryMethod = normalize(orderDetails.deliveryMethod);
               const detailHasRiderAssigned = Boolean(orderDetails.riderId);
+              const detailIsExternalDelivery = isExternalRiderSystemEnabled && detailDeliveryMethod !== "pickup";
               const detailCanStartPackaging =
                 orderContext === "seller" &&
                 detailIsPaid &&
@@ -722,15 +746,17 @@ export default function SellerOrders() {
                 orderContext === "seller" &&
                 detailIsPaid &&
                 detailDeliveryMethod !== "pickup" &&
-                ["processing", "confirmed"].includes(detailStatus);
+                (detailIsExternalDelivery
+                  ? ["packaged"].includes(detailStatus)
+                  : ["processing", "confirmed"].includes(detailStatus));
               const detailCanMarkPackaged =
                 orderContext === "seller" &&
                 detailIsPaid &&
-                detailDeliveryMethod === "pickup" &&
+                (detailDeliveryMethod === "pickup" || detailIsExternalDelivery) &&
                 ["processing", "confirmed"].includes(detailStatus);
               const detailCanStartRiderMatching =
                 orderContext === "seller" &&
-                isExternalRiderSystemEnabled &&
+                !isExternalRiderSystemEnabled &&
                 detailIsPaid &&
                 !detailHasRiderAssigned &&
                 ["rider", "bus"].includes(detailDeliveryMethod) &&
@@ -892,6 +918,55 @@ export default function SellerOrders() {
                 </div>
               </div>
 
+              {/* Searching for rider — neutral animation while platform finds a rider */}
+              {showInternalRiderFeatures && detailStatus === "searching_rider" && (
+                <div className="rounded-lg border border-border/70 p-4 flex items-center gap-4">
+                  <div className="relative shrink-0">
+                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <Package className="h-5 w-5 text-primary" />
+                    </div>
+                    <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-amber-400 animate-pulse" />
+                  </div>
+                  <div className="space-y-0.5 min-w-0">
+                    <p className="text-sm font-semibold">Searching for Logistics Partner</p>
+                    <p className="text-xs text-muted-foreground">We are finding the best available rider for this order. This usually takes under 2 minutes.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Rider identity — shown only in internal rider mode when rider is assigned */}
+              {showInternalRiderFeatures && orderDetails.riderInfo && [
+                "assigned", "rider_arrived", "picked_up", "in_transit", "en_route", "delivered", "completed",
+              ].includes(detailStatus) && (
+                <div className="rounded-lg border border-border/70 p-4 space-y-2">
+                  <p className="text-sm font-medium text-muted-foreground">Assigned Rider</p>
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                      {(orderDetails.riderInfo.name || "R").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="font-semibold text-sm">{orderDetails.riderInfo.name || "Rider"}</p>
+                      {orderDetails.riderInfo.phone && (
+                        <a
+                          href={`tel:${orderDetails.riderInfo.phone}`}
+                          className="text-xs text-primary underline-offset-2 hover:underline"
+                        >
+                          {orderDetails.riderInfo.phone}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  {(orderDetails.riderInfo.vehicleType || orderDetails.riderInfo.vehiclePlateNumber) && (
+                    <p className="text-xs text-muted-foreground">
+                      {[orderDetails.riderInfo.vehicleType, orderDetails.riderInfo.vehiclePlateNumber].filter(Boolean).join(" • ")}
+                    </p>
+                  )}
+                  {orderDetails.riderInfo.rating != null && Number(orderDetails.riderInfo.rating) > 0 && (
+                    <p className="text-xs text-muted-foreground">Rating: {Number(orderDetails.riderInfo.rating).toFixed(1)} / 5</p>
+                  )}
+                </div>
+              )}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2 rounded-lg border border-border/70 p-4">
                   <p className="text-sm font-medium text-muted-foreground">Order Summary</p>
@@ -954,11 +1029,13 @@ export default function SellerOrders() {
                             updateOrderStatusMutation.mutate({
                               orderId: orderDetails.id,
                               status: "packaged",
-                              reason: "seller_packaged_for_pickup",
+                              reason: detailIsExternalDelivery
+                                ? "seller_packaged_for_external_delivery"
+                                : "seller_packaged_for_pickup",
                             })
                           }
                         >
-                          Mark Packaged
+                          {detailIsExternalDelivery ? "Mark Packaged" : "Mark Packaged"}
                         </Button>
                       )}
                       {detailCanMarkReady && (
@@ -970,15 +1047,13 @@ export default function SellerOrders() {
                             updateOrderStatusMutation.mutate({
                               orderId: orderDetails.id,
                               status: "ready",
-                              reason: "seller_marked_ready_for_dispatch",
+                              reason: detailIsExternalDelivery
+                                ? "seller_marked_ready_for_external_delivery"
+                                : "seller_marked_ready_for_dispatch",
                             })
                           }
                         >
-                          {detailDeliveryMethod === "pickup"
-                            ? "Mark Ready for Pickup"
-                            : isExternalRiderSystemEnabled
-                              ? "Mark Ready for Delivery"
-                              : "Mark Ready"}
+                          {detailIsExternalDelivery ? "Mark Ready for Delivery" : "Mark Ready"}
                         </Button>
                       )}
                       {detailCanStartRiderMatching && (
@@ -1112,19 +1187,22 @@ export default function SellerOrders() {
                     orderContext === "seller" &&
                     isPaid &&
                     ["created", "pending", "confirmed"].includes(s);
+                  const isExternalDelivery = isExternalRiderSystemEnabled && deliveryMethod !== "pickup";
                   const canMarkReady =
                     orderContext === "seller" &&
                     isPaid &&
                     deliveryMethod !== "pickup" &&
-                    ["processing", "confirmed"].includes(s);
+                    (isExternalDelivery
+                      ? ["packaged"].includes(s)
+                      : ["processing", "confirmed"].includes(s));
                   const canMarkPackaged =
                     orderContext === "seller" &&
                     isPaid &&
-                    deliveryMethod === "pickup" &&
+                    (deliveryMethod === "pickup" || isExternalDelivery) &&
                     ["processing", "confirmed"].includes(s);
                   const canStartRiderMatching =
                     orderContext === "seller" &&
-                    isExternalRiderSystemEnabled &&
+                    !isExternalRiderSystemEnabled &&
                     isPaid &&
                     !hasRiderAssigned &&
                     ["rider", "bus"].includes(deliveryMethod) &&

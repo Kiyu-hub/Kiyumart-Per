@@ -8,38 +8,34 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      injectRegister: "auto",
-      includeAssets: ["favicon.png", "favicon.ico", "robots.txt", "apple-touch-icon.png"],
-      manifest: {
-        name: "KiyuMart",
-        short_name: "KiyuMart",
-        description: "Your Fashion Marketplace — shop, sell, and track deliveries across Ghana.",
-        theme_color: "#16a34a",
-        background_color: "#ffffff",
-        display: "standalone",
-        orientation: "portrait",
-        scope: "/",
-        start_url: "/",
-        icons: [
-          { src: "/icons/pwa-192x192.png", sizes: "192x192", type: "image/png" },
-          { src: "/icons/pwa-512x512.png", sizes: "512x512", type: "image/png" },
-          { src: "/icons/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
-        ],
-        categories: ["shopping", "lifestyle"],
-        screenshots: [],
-      },
+      // manifest: false — do NOT generate a static manifest.webmanifest.
+      // The dynamic manifest is served by the backend at /api/public/app-manifest
+      // (reads icon, name, and primaryColor from the DB so admins can update
+      // them without a redeploy). index.html already has:
+      //   <link rel="manifest" href="/api/public/app-manifest" />
+      manifest: false,
+      injectRegister: null,
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ["**/*.{js,css,html,ico,png,svg,webp,avif,woff2}"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api/, /^\/socket\.io/],
         runtimeCaching: [
           {
-            urlPattern: /^\/api\/public\//,
+            // All API calls: network first so online users always get fresh data.
+            // Falls back to cache only when offline (timeout 10s).
+            urlPattern: ({ url }: { url: URL }) =>
+              url.pathname.startsWith("/api/") &&
+              !url.pathname.startsWith("/api/webhooks") &&
+              !url.pathname.startsWith("/api/socket"),
             handler: "NetworkFirst",
             options: {
-              cacheName: "api-public-cache",
-              expiration: { maxEntries: 50, maxAgeSeconds: 300 },
+              cacheName: "api-cache",
+              networkTimeoutSeconds: 10,
+              expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
           {
