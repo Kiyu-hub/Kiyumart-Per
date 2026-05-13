@@ -72,16 +72,22 @@ export default function HeroCarousel() {
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 0,
+    refetchInterval: 10_000,
   });
 
   const banners = Array.isArray(bannerResponse) ? bannerResponse : [];
 
+  // Client-side guard: drop any banner promo whose endAt has already passed
+  const activeBannerPromos = bannerPromos.filter((p: any) => {
+    if (!p.endAt) return true;
+    return new Date(p.endAt).getTime() > Date.now();
+  });
+
   // Convert banner-section promotions to HeroBanner format
   // Use a placeholder gradient image URL when the target has no image so banner promos are never silently dropped
   const PROMO_FALLBACK_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='500'%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236366f1'/%3E%3Cstop offset='1' stop-color='%2310b981'/%3E%3C/linearGradient%3E%3Crect width='1200' height='500' fill='url(%23g)'/%3E%3C/svg%3E";
-  const promoBanners: HeroBanner[] = bannerPromos.map((promo: any) => {
+  const promoBanners: HeroBanner[] = activeBannerPromos.map((promo: any) => {
     const target = promo.product || promo.store || null;
     const image = promo.imageUrl || (promo.type === "product" ? target?.images?.[0] : target?.logo) || PROMO_FALLBACK_IMAGE;
     const link = promo.ctaUrl || (promo.type === "product" ? (target ? `/product/${target.id}` : "/") : (target ? `/sellers/${target.id}` : "/"));

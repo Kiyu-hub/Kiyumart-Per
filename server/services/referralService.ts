@@ -91,7 +91,7 @@ export async function recordReferralSignup(referralCode: string, newUserId: stri
     io?.to(`user_${referrer.id}`).emit("notification", referrerNotif);
   } catch {}
 
-  // Notify the new user about the referral discount opportunity
+  // Notify the new user about the referral discount opportunity and encourage them to share their own link
   try {
     const rewardDesc = isSeller
       ? `your referrer earns a free promotion`
@@ -99,7 +99,7 @@ export async function recordReferralSignup(referralCode: string, newUserId: stri
     const newUserNotif = {
       type: "system",
       title: "Welcome! You Were Referred",
-      message: `You joined via a referral link. When you make your first purchase, ${rewardDesc}. Check out the shop to get started!`,
+      message: `You joined via a referral link — great start! When you make your first purchase, ${rewardDesc}. You also have your own referral link in your profile. Share it with friends and earn your own rewards when they shop!`,
     };
     await db.insert(notifications).values({
       userId: newUserId,

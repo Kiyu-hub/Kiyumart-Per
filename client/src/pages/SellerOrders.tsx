@@ -429,7 +429,7 @@ export default function SellerOrders() {
         ["/api/orders", "seller-orders", user?.id, orderContext],
         (old) => old ? old.map((o) => o.id === orderId ? { ...o, status: "ready" as any } : o) : old,
       );
-      toast({ title: "Order updated", description: "Order marked as packaged and ready for Third-Party delivery." });
+      toast({ title: "Order updated", description: "Order marked as packaged and ready for delivery." });
       queryClient.invalidateQueries({
         predicate: (query) => {
           const key = query.queryKey?.[0];
@@ -786,9 +786,8 @@ export default function SellerOrders() {
               const detailDeliveryMethod = normalize(orderDetails.deliveryMethod);
               const detailHasRiderAssigned = Boolean(orderDetails.riderId);
               const detailIsExternalDelivery = isExternalRiderSystemEnabled && detailDeliveryMethod !== "pickup";
-              const detailIsThirdParty =
-                detailIsExternalDelivery &&
-                normalize(String(orderDetails.externalDeliveryType || "")) === "third_party";
+              // Both Third-Party and VIP Bus use the combined one-tap flow
+              const detailIsThirdParty = detailIsExternalDelivery;
               const detailCanStartPackaging =
                 orderContext === "seller" &&
                 detailIsPaid &&
@@ -1067,7 +1066,7 @@ export default function SellerOrders() {
                           Start Packaging
                         </Button>
                       )}
-                      {/* Third-Party Delivery: single combined button skips the separate packaged step */}
+                      {/* External delivery (Third-Party & VIP Bus): single combined button */}
                       {detailCanMarkPackaged && detailIsThirdParty && (
                         <Button
                           className="w-full"

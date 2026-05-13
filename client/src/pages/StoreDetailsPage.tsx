@@ -1,15 +1,18 @@
-import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { format } from "date-fns";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   ArrowLeft,
   BarChart3,
@@ -17,6 +20,7 @@ import {
   DollarSign,
   Loader2,
   Package,
+  Palette,
   Percent,
   ShoppingBag,
   Store,
@@ -35,6 +39,14 @@ type StoreProfile = {
   isApproved?: boolean | null;
   storeType?: string | null;
   createdAt?: string | null;
+  whatsappNumber?: string | null;
+  merchantCategory?: string | null;
+  brandingConfig?: {
+    primaryColor?: string;
+    accentColor?: string;
+    logoOverride?: string;
+    tagline?: string;
+  } | null;
 };
 
 type LinkedSeller = {
@@ -196,8 +208,17 @@ export default function StoreDetailsPage() {
   const storeId = params.id;
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatPrice } = useLanguage();
+  const { toast } = useToast();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
+
+  // Branding config state
+  const [primaryColor, setPrimaryColor] = useState("#16a34a");
+  const [accentColor, setAccentColor] = useState("#0ea5e9");
+  const [logoOverride, setLogoOverride] = useState("");
+  const [tagline, setTagline] = useState("");
+  const [whatsappNum, setWhatsappNum] = useState("");
+  const [merchantCat, setMerchantCat] = useState("");
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -209,6 +230,50 @@ export default function StoreDetailsPage() {
     queryKey: [`/api/admin/stores/${storeId}/dashboard`],
     enabled: !!storeId && isAuthenticated,
   });
+
+  // Sync store branding into local state once data loads — must be before early returns
+  useEffect(() => {
+    const store = data?.store as any;
+    if (!store) return;
+    const b = store.brandingConfig;
+    if (b?.primaryColor) setPrimaryColor(b.primaryColor);
+    if (b?.accentColor) setAccentColor(b.accentColor);
+    setLogoOverride(b?.logoOverride || "");
+    setTagline(b?.tagline || "");
+    setWhatsappNum(store.whatsappNumber || "");
+    setMerchantCat(store.merchantCategory || "");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.store?.id]);
+
+  const saveBrandingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/stores/${storeId}`, {
+        whatsappNumber: whatsappNum.trim() || null,
+        merchantCategory: merchantCat || null,
+        brandingConfig: {
+          primaryColor: primaryColor || "#16a34a",
+          accentColor: accentColor || "#0ea5e9",
+          logoOverride: logoOverride.trim() || null,
+          tagline: tagline.trim() || null,
+        },
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Branding saved", description: "Store branding config updated successfully." });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/stores/${storeId}/dashboard`] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Save failed", description: err?.message || "Could not save branding.", variant: "destructive" });
+    },
+  });
+
+  const MERCHANT_CATEGORIES = [
+    { value: "QUICK_EATS", label: "Quick Eats" },
+    { value: "HEALTH_ESSENTIALS", label: "Health Essentials" },
+    { value: "RETAIL_BOUTIQUE", label: "Retail Boutique" },
+    { value: "GENERAL_PROVISIONS", label: "General Provisions" },
+  ];
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
@@ -293,6 +358,7 @@ export default function StoreDetailsPage() {
             <TabsTrigger value="orders">Orders</TabsTrigger>
             {user?.role === "super_admin" && <TabsTrigger value="finance">Finance</TabsTrigger>}
             <TabsTrigger value="activity">Activity</TabsTrigger>
+            {user?.role === "super_admin" && <TabsTrigger value="branding"><Palette className="h-3.5 w-3.5 mr-1" />Branding</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -504,6 +570,146 @@ export default function StoreDetailsPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {user?.role === "super_admin" && (
+            <TabsContent value="branding" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Palette className="h-5 w-5" /> White-Label Branding
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Customize this store's brand identity for the social commerce page (<code>/p/:slug</code>).
+                      Colors affect the Pay Now button and price accent.
+                    </p>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Primary Color</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={primaryColor}
+                            onChange={(e) => setPrimaryColor(e.target.value)}
+                            className="h-10 w-14 cursor-pointer rounded border border-border"
+                          />
+                          <Input
+                            value={primaryColor}
+                            onChange={(e) => setPrimaryColor(e.target.value)}
+                            placeholder="#16a34a"
+                            className="flex-1 font-mono text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Accent Color</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={accentColor}
+                            onChange={(e) => setAccentColor(e.target.value)}
+                            className="h-10 w-14 cursor-pointer rounded border border-border"
+                          />
+                          <Input
+                            value={accentColor}
+                            onChange={(e) => setAccentColor(e.target.value)}
+                            placeholder="#0ea5e9"
+                            className="flex-1 font-mono text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 sm:col-span-2">
+                        <label className="text-sm font-medium">Logo Override URL</label>
+                        <Input
+                          value={logoOverride}
+                          onChange={(e) => setLogoOverride(e.target.value)}
+                          placeholder="https://cdn.example.com/custom-logo.png (optional)"
+                        />
+                        {logoOverride && (
+                          <img src={logoOverride} alt="Logo preview" className="h-12 w-12 rounded-full object-cover border" />
+                        )}
+                      </div>
+
+                      <div className="space-y-2 sm:col-span-2">
+                        <label className="text-sm font-medium">Store Tagline</label>
+                        <Input
+                          value={tagline}
+                          onChange={(e) => setTagline(e.target.value)}
+                          placeholder="e.g. Fresh meals, fast delivery"
+                          maxLength={120}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-4 space-y-4">
+                    <p className="text-sm font-medium">Social Commerce Settings</p>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">WhatsApp Number</label>
+                        <Input
+                          value={whatsappNum}
+                          onChange={(e) => setWhatsappNum(e.target.value)}
+                          placeholder="+233201234567"
+                          type="tel"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Store Persona</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {MERCHANT_CATEGORIES.map((cat) => (
+                            <button
+                              key={cat.value}
+                              type="button"
+                              onClick={() => setMerchantCat(cat.value === merchantCat ? "" : cat.value)}
+                              className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                                merchantCat === cat.value
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-border hover:bg-muted"
+                              }`}
+                            >
+                              {cat.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={() => saveBrandingMutation.mutate()}
+                      disabled={saveBrandingMutation.isPending}
+                    >
+                      {saveBrandingMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                      Save Branding
+                    </Button>
+
+                    {/* Live preview swatch */}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span
+                        className="inline-block h-6 w-6 rounded-full border"
+                        style={{ backgroundColor: primaryColor }}
+                      />
+                      <span>Primary</span>
+                      <span
+                        className="inline-block h-6 w-6 rounded-full border"
+                        style={{ backgroundColor: accentColor }}
+                      />
+                      <span>Accent</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </DashboardLayout>

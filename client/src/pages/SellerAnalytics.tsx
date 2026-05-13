@@ -41,6 +41,7 @@ type Analytics = {
   totalReceivedMoney?: number;
   sellerSettlementTotal?: number;
   pendingPayoutValue?: number;
+  availableBalance?: number;
   completedPayoutValue?: number;
   platformCommissionTotal?: number;
   processingFeesTotal?: number;
@@ -96,16 +97,16 @@ export default function SellerAnalytics() {
   const [exporting, setExporting] = useState<"none" | "csv" | "pdf">("none");
   const [, navigate] = useLocation();
 
-  const { data: stats, isLoading: statsLoading } = useQuery<Analytics>({
+  const { data: stats, isLoading: statsLoading, isFetching: statsFetching } = useQuery<Analytics>({
     queryKey: ["/api/analytics"],
     enabled: !!user && user.role === "seller",
-    refetchInterval: 60_000,
+    refetchInterval: 120_000,
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
-    staleTime: 0,
+    staleTime: 60_000,
   });
 
-  const { data: orders = [], isLoading: ordersLoading } = useQuery<OrderRow[]>({
+  const { data: orders = [], isLoading: ordersLoading, isFetching: ordersFetching } = useQuery<OrderRow[]>({
     queryKey: ["/api/orders", "seller-analytics"],
     queryFn: async () => {
       const r = await fetch("/api/orders?context=seller", { credentials: "include" });
@@ -114,10 +115,10 @@ export default function SellerAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: !!user && user.role === "seller",
-    refetchInterval: 60_000,
+    refetchInterval: 120_000,
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
-    staleTime: 0,
+    staleTime: 60_000,
   });
 
   const { data: receipts = [] } = useQuery<ReceiptSummary[]>({
@@ -129,10 +130,10 @@ export default function SellerAnalytics() {
       return Array.isArray(p) ? p : [];
     },
     enabled: !!user && user.role === "seller",
-    refetchInterval: 60_000,
+    refetchInterval: 120_000,
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
-    staleTime: 0,
+    staleTime: 60_000,
   });
 
   const startDate = useMemo(() => {
@@ -202,7 +203,19 @@ export default function SellerAnalytics() {
   }, [scoped]);
 
   const loading = statsLoading || ordersLoading;
-  const sellerSettlementTotal = num(stats?.sellerSettlementTotal ?? stats?.totalReceivedMoney);
+  const refreshing = !loading && (statsFetching || ordersFetching);
+
+  // Date-scoped financial metrics computed from orders
+  const scopedGrossSales = totals.revenue;
+  const allTimeGross = num(stats?.totalRevenue);
+  const commissionRate = allTimeGross > 0 && num(stats?.platformCommissionTotal) > 0
+    ? num(stats?.platformCommissionTotal) / allTimeGross
+    : 0.01; // default 1%
+  const scopedNetPayout = Math.max(0, scopedGrossSales * (1 - commissionRate));
+  const scopedCommission = Math.max(0, scopedGrossSales * commissionRate);
+
+  // All-time wallet/payout figures from server (not date-filterable without backend changes)
+  const availableWallet = num(stats?.availableBalance ?? stats?.sellerSettlementTotal ?? stats?.totalReceivedMoney);
   const pendingPayoutTotal = num(stats?.pendingPayoutValue);
   const sellerWalletTotal = num(stats?.completedPayoutValue);
   const reportType = "seller_performance_analytics";
@@ -573,7 +586,7 @@ export default function SellerAnalytics() {
                   </div>
                   <div class="summary-card">
                     <div class="summary-label">Settlement</div>
-                    <div class="summary-value">GHS ${escapeHtml(sellerSettlementTotal.toFixed(2))}</div>
+                    <div class="summary-value">GHS ${escapeHtml(num(stats?.sellerSettlementTotal).toFixed(2))}</div>
                   </div>
                   <div class="summary-card">
                     <div class="summary-label">Pending Payout</div>
@@ -695,6 +708,7 @@ export default function SellerAnalytics() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
                <Badge className="border-sky-200 bg-sky-50 text-sky-700 dark:border-white/30 dark:bg-white/20 dark:text-white">Live DB Data</Badge>
+               {refreshing && <Badge variant="outline" className="gap-1 text-xs"><Loader2 className="h-3 w-3 animate-spin" />Refreshing</Badge>}
                <select className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground dark:border-white/30 dark:bg-white/10 dark:text-white" value={range} onChange={(e) => setRange(e.target.value as any)}>
                 <option value="all" className="text-black">All Time</option>
                 <option value="7d" className="text-black">Last 7 days</option>
@@ -721,12 +735,55 @@ export default function SellerAnalytics() {
         ) : (
           <>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <Card><CardHeader className="pb-2"><CardDescription>Gross Sales</CardDescription><CardTitle className="text-2xl">{formatPrice(totals.revenue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Product subtotals minus coupon discounts (before service fee)</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Net Payout (Settlement)</CardDescription><CardTitle className="text-2xl">{formatPrice(sellerSettlementTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />What you receive after the platform service fee</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Pending Payout</CardDescription><CardTitle className="text-2xl">{formatPrice(pendingPayoutTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Paid order money not yet sent out</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Seller Wallet</CardDescription><CardTitle className="text-2xl">{formatPrice(sellerWalletTotal)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4" />Money already paid to your seller account</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Orders Completed</CardDescription><CardTitle className="text-2xl">{totals.completedCount}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><ShoppingCart className="h-4 w-4" />Vs {totals.cancelledCount} cancelled</CardContent></Card>
-              <Card><CardHeader className="pb-2"><CardDescription>Conversion Quality</CardDescription><CardTitle className="text-2xl">{totals.paidRate.toFixed(1)}%</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground flex items-center gap-2"><TrendingUp className="h-4 w-4" />Paid completed ratio</CardContent></Card>
+              <Card className="border-emerald-200 dark:border-emerald-500/30">
+                <CardHeader className="pb-2">
+                  <CardDescription>Gross Sales {range !== "all" && <span className="text-xs">({range})</span>}</CardDescription>
+                  <CardTitle className="text-2xl">{formatPrice(scopedGrossSales)}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />Total product revenue before platform fee
+                </CardContent>
+              </Card>
+              <Card className="border-sky-200 dark:border-sky-500/30">
+                <CardHeader className="pb-2">
+                  <CardDescription>Your Earnings (Net Payout) {range !== "all" && <span className="text-xs">({range})</span>}</CardDescription>
+                  <CardTitle className="text-2xl">{formatPrice(scopedNetPayout)}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />After platform fee (~{formatPrice(scopedCommission)} deducted)
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Wallet — Available to Cash Out</CardDescription>
+                  <CardTitle className="text-2xl">{formatPrice(availableWallet)}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />Settled earnings ready for payout request
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Pending Payout (Processing)</CardDescription>
+                  <CardTitle className="text-2xl">{formatPrice(pendingPayoutTotal)}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />Payout requested — being processed
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Total Paid Out (All Time)</CardDescription>
+                  <CardTitle className="text-2xl">{formatPrice(sellerWalletTotal)}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />Successfully transferred to your account
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Orders Completed {range !== "all" && <span className="text-xs">({range})</span>}</CardDescription><CardTitle className="text-2xl">{totals.completedCount}</CardTitle></CardHeader>
+                <CardContent className="text-sm text-muted-foreground flex items-center gap-2"><ShoppingCart className="h-4 w-4" />Vs {totals.cancelledCount} cancelled • {totals.paidRate.toFixed(1)}% paid rate</CardContent>
+              </Card>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">

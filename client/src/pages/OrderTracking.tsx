@@ -599,11 +599,18 @@ export default function OrderTracking() {
                               <>
                                 <p className="text-sm text-muted-foreground mt-2">Pickup Station</p>
                                 <p className="font-medium">{order.pickupStationInfo.locationLabel}</p>
-                                {order.pickupStationInfo.pickupAgentPhone && (
-                                  <p className="text-sm text-muted-foreground">
-                                    Contact {order.pickupStationInfo.pickupAgentName || "Pickup Agent"}: {order.pickupStationInfo.pickupAgentPhone}
-                                  </p>
-                                )}
+                                {order.pickupStationInfo.pickupAgentPhone && (() => {
+                                  const contactRevealed = ["packaged", "ready", "completed", "delivered", "external_dispatch_arranged"].includes(order.status);
+                                  return contactRevealed ? (
+                                    <p className="text-sm text-muted-foreground">
+                                      Contact {order.pickupStationInfo!.pickupAgentName || "Pickup Agent"}: {order.pickupStationInfo!.pickupAgentPhone}
+                                    </p>
+                                  ) : (
+                                    <p className="text-sm text-muted-foreground italic">
+                                      Pickup contact visible once order is packaged
+                                    </p>
+                                  );
+                                })()}
                               </>
                             )}
                           </div>
@@ -626,6 +633,25 @@ export default function OrderTracking() {
                             </div>
                           </div>
                         </div>
+
+                        {/* Searching for rider — shown in internal rider mode only */}
+                        {!isExternalRiderSystemEnabled &&
+                         normalizeStatus(order.status) === "searching_rider" && (
+                          <div className="pt-4 border-t">
+                            <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/40 border">
+                              <div className="relative shrink-0">
+                                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                  <Package className="h-5 w-5 text-primary" />
+                                </div>
+                                <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-amber-400 animate-pulse" />
+                              </div>
+                              <div className="space-y-0.5">
+                                <p className="text-sm font-semibold">Finding Your Rider</p>
+                                <p className="text-xs text-muted-foreground">We are matching your order with the nearest available logistics partner. This usually takes under 2 minutes.</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Live Delivery Map for in-transit deliveries */}
                         {!isExternalRiderSystemEnabled &&

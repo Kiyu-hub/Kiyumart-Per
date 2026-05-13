@@ -20,8 +20,14 @@ export default function PromotionalAdsGrid() {
     return () => clearInterval(id);
   }, []);
 
+  // Client-side guard: drop any ad whose endAt has already passed
+  const visiblePromos = promos.filter((p) => {
+    if (!p.endAt) return true;
+    return new Date(p.endAt).getTime() > now.getTime();
+  });
+
   if (isLoading) return null;
-  if (!promos || promos.length === 0) return null;
+  if (!visiblePromos || visiblePromos.length === 0) return null;
 
   return (
     <section className="space-y-3">
@@ -30,15 +36,15 @@ export default function PromotionalAdsGrid() {
         <h3 className="text-sm font-semibold text-foreground tracking-wide uppercase">Featured Promotions</h3>
       </div>
       <div className={`grid gap-3 ${
-        promos.length === 1
+        visiblePromos.length === 1
           ? 'grid-cols-1 max-w-[200px]'
-          : promos.length === 2
+          : visiblePromos.length === 2
           ? 'grid-cols-2 max-w-sm'
-          : promos.length === 3
+          : visiblePromos.length === 3
           ? 'grid-cols-3 max-w-lg'
           : 'grid-cols-2 sm:grid-cols-4'
       }`}>
-        {promos.map((promo, idx) => (
+        {visiblePromos.map((promo, idx) => (
           <PromoCard key={promo.id || idx} promo={promo} now={now} />
         ))}
       </div>
