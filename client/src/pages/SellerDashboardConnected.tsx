@@ -819,7 +819,10 @@ export default function SellerDashboardConnected() {
     .filter((o) => requiresSellerAction(o))
     .sort((a, b) => new Date(b.createdAt || "").getTime() - new Date(a.createdAt || "").getTime())
     .slice(0, 6);
-  const displayedRecentOrders = recentOrders.length > 0 ? recentOrders : lastGoodRecentOrders;
+  // Only fall back to cached orders while data is loading; once loaded, always show fresh filtered result
+  const displayedRecentOrders = (!ordersFetched || ordersLoading) && recentOrders.length === 0
+    ? lastGoodRecentOrders
+    : recentOrders;
   const shouldShowRecentOrdersLoading =
     activeItem === "dashboard" &&
     (!ordersFetched || (ordersLoading && displayedRecentOrders.length === 0));

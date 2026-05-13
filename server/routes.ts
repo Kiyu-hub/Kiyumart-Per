@@ -6163,36 +6163,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : 0;
       const finalTotal = serverSubtotal + processingFee;
 
-      const order = await storage.createOrder({
-        buyerId: guestUser.id,
-        sellerId: product.sellerId,
-        status: "pending" as any,
-        deliveryMethod: "rider" as any,
-        deliveryAddress: String(deliveryAddress).trim(),
-        deliveryPhone: String(customerPhone).trim(),
-        subtotal: serverSubtotal.toFixed(2),
-        processingFee: processingFee.toFixed(2),
-        total: finalTotal.toFixed(2),
-        currency: "GHS",
-        paymentStatus: "pending",
-      } as any, [{
-        productId,
-        variantId: null,
-        selectedColor: null,
-        selectedSize: null,
-        selectedImageIndex: 0,
-        quantity: Math.max(1, Number(quantity)),
-        price: unitPrice.toFixed(2),
-        total: serverSubtotal.toFixed(2),
-      }]);
+      // Idempotency: reuse an existing unpaid order for the same buyer+product within 20 min
+      const socialSessionId = `social-${guestUser.id}-${productId}`;
+      const twentyMinAgo = new Date(Date.now() - 20 * 60 * 1000);
+      const existingSocialOrder = await db
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.checkoutSessionId, socialSessionId),
+            eq(orders.paymentStatus, "pending"),
+            gte(orders.createdAt, twentyMinAgo)
+          )
+        )
+        .limit(1)
+        .catch(() => [])
+        .then((rows: any[]) => rows[0] || null);
 
       const keyPair = resolvePaystackKeyPair(platformSettings as any);
       if (!keyPair.secretKey) {
         return res.status(503).json({ error: "Payment gateway not configured" });
       }
 
-      const reference = `social-${order.id.replace(/-/g, "").slice(-10)}-${Date.now()}`;
+      let order: any;
+      if (existingSocialOrder) {
+        order = existingSocialOrder;
+      } else {
+        order = await storage.createOrder({
+          buyerId: guestUser.id,
+          sellerId: product.sellerId,
+          status: "pending" as any,
+          deliveryMethod: "rider" as any,
+          deliveryAddress: String(deliveryAddress).trim(),
+          deliveryPhone: String(customerPhone).trim(),
+          subtotal: serverSubtotal.toFixed(2),
+          processingFee: processingFee.toFixed(2),
+          total: finalTotal.toFixed(2),
+          currency: "GHS",
+          paymentStatus: "pending",
+          checkoutSessionId: socialSessionId,
+        } as any, [{
+          productId,
+          variantId: null,
+          selectedColor: null,
+          selectedSize: null,
+          selectedImageIndex: 0,
+          quantity: Math.max(1, Number(quantity)),
+          price: unitPrice.toFixed(2),
+          total: serverSubtotal.toFixed(2),
+        }]);
+      }
+
       const amountKobo = Math.round(finalTotal * 100);
+      const reference = `social-${order.id.replace(/-/g, "").slice(-10)}-${Date.now()}`;
 
       const paystackRes = await fetch("https://api.paystack.co/transaction/initialize", {
         method: "POST",
@@ -10855,11 +10878,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Admin and super_admin see all orders by default, unless context=buyer is specified
       if ((userRole === "admin" || userRole === "super_admin") && (context === "admin" || context === "super_admin")) {
-        orders = await storage.getAllOrders();
+        const allOrders = await storage.getAllOrders();
+        // Hide magic-link orders (social/cart checkout) that haven't been paid yet
+        orders = allOrders.filter((o: any) => {
+          if (o.paymentStatus !== "pending") return true;
+          const sessionId = String(o.checkoutSessionId || "");
+          return !sessionId.startsWith("social-") && !sessionId.startsWith("cart-");
+        });
       } else {
         // For all other cases, use context-based filtering
         const filterRole = context as "buyer" | "seller" | "rider";
-        orders = await storage.getOrdersByUser(req.user!.id, filterRole);
+        const rawOrders = await storage.getOrdersByUser(req.user!.id, filterRole);
+        // Sellers also don't see unpaid magic-link orders
+        if (filterRole === "seller") {
+          orders = rawOrders.filter((o: any) => {
+            if (o.paymentStatus !== "pending") return true;
+            const sessionId = String(o.checkoutSessionId || "");
+            return !sessionId.startsWith("social-") && !sessionId.startsWith("cart-");
+          });
+        } else {
+          orders = rawOrders;
+        }
       }
 
       // Enrich orders with buyer contact fields for list/detail UIs.
@@ -16686,22 +16725,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? serverSubtotal * processingFeeRate / (1 - processingFeeRate) : 0;
       const finalTotal = serverSubtotal + processingFee;
 
-      const order = await storage.createOrder({
-        buyerId: guestUser.id,
-        sellerId: cartLink.sellerId,
-        status: "pending" as any,
-        deliveryMethod: "rider" as any,
-        deliveryAddress: String(deliveryAddress).trim(),
-        deliveryPhone: String(customerPhone).trim(),
-        subtotal: serverSubtotal.toFixed(2),
-        processingFee: processingFee.toFixed(2),
-        total: finalTotal.toFixed(2),
-        currency: "GHS",
-        paymentStatus: "pending",
-      } as any, orderItems);
-
       const keyPair = resolvePaystackKeyPair(platformSettings as any);
       if (!keyPair.secretKey) return res.status(503).json({ error: "Payment gateway not configured" });
+
+      // Idempotency: reuse existing unpaid order for the same cart token (buyer + cart link)
+      const cartSessionId = `cart-${token}`;
+      const existingCartOrder = await db
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.checkoutSessionId, cartSessionId),
+            eq(orders.paymentStatus, "pending")
+          )
+        )
+        .limit(1)
+        .catch(() => [])
+        .then((rows: any[]) => rows[0] || null);
+
+      let order: any;
+      if (existingCartOrder) {
+        order = existingCartOrder;
+      } else {
+        order = await storage.createOrder({
+          buyerId: guestUser.id,
+          sellerId: cartLink.sellerId,
+          status: "pending" as any,
+          deliveryMethod: "rider" as any,
+          deliveryAddress: String(deliveryAddress).trim(),
+          deliveryPhone: String(customerPhone).trim(),
+          subtotal: serverSubtotal.toFixed(2),
+          processingFee: processingFee.toFixed(2),
+          total: finalTotal.toFixed(2),
+          currency: "GHS",
+          paymentStatus: "pending",
+          checkoutSessionId: cartSessionId,
+        } as any, orderItems);
+      }
 
       const reference = `cart-${order.id.replace(/-/g, "").slice(-10)}-${Date.now()}`;
       const amountKobo = Math.round(finalTotal * 100);
