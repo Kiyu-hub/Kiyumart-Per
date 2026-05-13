@@ -15,6 +15,7 @@ import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useToast } from "@/hooks/use-toast";
 import { Stack, CalendarCheck, Infinity as PhInfinity, Storefront, ArrowCircleUp } from "@phosphor-icons/react";
 import { SellerUpgradeModal } from "@/components/SellerUpgradeModal";
+import MediaUploadInput from "@/components/MediaUploadInput";
 
 interface TierInfo {
   isPremiumSeller: boolean;
@@ -36,6 +37,8 @@ interface TierInfo {
 interface SellerStore {
   id: string;
   name: string;
+  logo?: string | null;
+  banner?: string | null;
   payoutType?: "bank_account" | "mobile_money" | null;
   payoutDetails?: {
     provider?: string | null;
@@ -134,8 +137,8 @@ export default function SellerSettings() {
       setMerchantCat(store.merchantCategory || "");
       setBrandPrimaryColor(store.brandingConfig?.primaryColor || "");
       setBrandAccentColor(store.brandingConfig?.accentColor || "");
-      setBrandLogoOverride(store.brandingConfig?.logoOverride || "");
-      setBrandCoverImage(store.brandingConfig?.coverImage || "");
+      setBrandLogoOverride(store.brandingConfig?.logoOverride || store.logo || "");
+      setBrandCoverImage(store.brandingConfig?.coverImage || store.banner || "");
       setBrandTagline(store.brandingConfig?.tagline || "");
     }
   }, [storeLoaded]);
@@ -765,49 +768,31 @@ export default function SellerSettings() {
                 <p className="text-xs text-muted-foreground">Short phrase shown under your store name. Max 120 characters.</p>
               </div>
 
-              {/* Logo URL */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Logo Image URL</label>
-                <div className="flex items-center gap-3">
-                  <Input
-                    placeholder="https://res.cloudinary.com/…/logo.png"
-                    value={brandLogoOverride}
-                    onChange={(e) => setBrandLogoOverride(e.target.value)}
-                    className="flex-1"
-                  />
-                  {brandLogoOverride && (
-                    <img
-                      src={brandLogoOverride}
-                      alt="Logo preview"
-                      className="h-10 w-10 rounded-lg object-cover border bg-muted shrink-0"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                    />
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">Replaces the initials avatar. Use a square image, ideally from your Cloudinary library.</p>
-              </div>
+              {/* Logo upload */}
+              <MediaUploadInput
+                id="brand-logo"
+                label="Store Logo"
+                value={brandLogoOverride}
+                onChange={setBrandLogoOverride}
+                accept="image"
+                description="Square image that replaces the initials avatar on your store page and product links."
+                skip4KValidation
+                minDimensions={{ width: 100, height: 100 }}
+                mediaCategory="logo"
+              />
 
-              {/* Cover image URL */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Cover / Banner Image URL</label>
-                <div className="flex items-center gap-3">
-                  <Input
-                    placeholder="https://res.cloudinary.com/…/cover.jpg"
-                    value={brandCoverImage}
-                    onChange={(e) => setBrandCoverImage(e.target.value)}
-                    className="flex-1"
-                  />
-                  {brandCoverImage && (
-                    <img
-                      src={brandCoverImage}
-                      alt="Cover preview"
-                      className="h-10 w-16 rounded-lg object-cover border bg-muted shrink-0"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                    />
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">Wide banner at the top of your store page. Recommended 1200×400 px.</p>
-              </div>
+              {/* Cover / banner upload */}
+              <MediaUploadInput
+                id="brand-cover"
+                label="Cover / Banner Image"
+                value={brandCoverImage}
+                onChange={setBrandCoverImage}
+                accept="image"
+                description="Wide banner shown at the top of your store page. Recommended 1200×400 px."
+                skip4KValidation
+                minDimensions={{ width: 400, height: 100 }}
+                mediaCategory="banner"
+              />
 
               <div className="flex justify-end">
                 <Button onClick={() => saveBrandingMutation.mutate()} disabled={saveBrandingMutation.isPending}>
