@@ -230,14 +230,19 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
                 paymentStatus: "completed",
               },
             });
+            io.to(order.sellerId).emit("notification", {
+              title: "New Order Placed",
+              message: sellerMessage,
+              type: "default",
+            });
           })
       );
 
       const admins = await storage.getUsersByRole("admin");
       const superAdmins = await storage.getUsersByRole("super_admin");
       await Promise.all(
-        [...admins, ...superAdmins].map((admin: any) =>
-          storage.createNotification({
+        [...admins, ...superAdmins].map(async (admin: any) => {
+          await storage.createNotification({
             userId: admin.id,
             type: "order",
             title: "New Paid Order",
@@ -248,8 +253,13 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
               orderNumbers,
               link: "/admin/orders",
             },
-          })
-        )
+          });
+          io.to(admin.id).emit("notification", {
+            title: "New Paid Order",
+            message: `Payment confirmed for ${orders.length} order(s): ${orderNumbers}. Total: ${eventData.currency} ${totalPaid}.`,
+            type: "default",
+          });
+        })
       );
 
       // Notify pickup agents whose station matches any pickup order in this payment

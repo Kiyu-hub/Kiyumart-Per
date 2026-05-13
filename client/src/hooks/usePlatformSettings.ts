@@ -12,6 +12,8 @@ export interface PublicPlatformSettings {
   referralEnabledMultiVendor: boolean;
   suggestionsEnabled: boolean;
   contactEmail?: string | null;
+  contactPhone?: string | null;
+  platformName?: string | null;
   callerRingtone?: string;
   receiverRingtone?: string;
   notificationSound?: string;
@@ -78,6 +80,9 @@ export function usePlatformSettings() {
     logoDark: query.data?.logoDark || null,
     favicon: query.data?.favicon || null,
     primaryColor: query.data?.primaryColor || null,
+    contactEmail: query.data?.contactEmail || "support@kiyumart.com",
+    contactPhone: query.data?.contactPhone || null,
+    platformName: query.data?.platformName || "KiyuMart",
     hasResolvedSettings,
   };
 }

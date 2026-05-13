@@ -1,16 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { fetchApiJson } from "@/lib/queryClient";
-import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, ShoppingBag, ArrowLeft, ChevronLeft, ChevronRight, Star } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, ShoppingBag, ArrowLeft, ChevronLeft, ChevronRight, Star, Download, Share2, X, MapPin, Navigation, Phone, Mail, MessageSquare, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { loadPaystackInlineScript, PaystackInlineService } from "@/lib/paystackInline";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
-// Types
 interface ProductModifier {
   id: string;
   name: string;
@@ -39,6 +39,17 @@ interface SocialProduct {
     brandingConfig: { primaryColor?: string; accentColor?: string; logoOverride?: string; tagline?: string } | null;
   } | null;
   seller: { id: string; name: string } | null;
+}
+
+interface CompletedOrder {
+  orderId: string;
+  orderNumber: string;
+  total: number;
+  productName: string;
+  quantity: number;
+  storeName: string;
+  date: string;
+  address: string;
 }
 
 function ModifierGroup({ mod, selected, onChange }: {
@@ -90,6 +101,224 @@ function ModifierGroup({ mod, selected, onChange }: {
   );
 }
 
+function ReceiptScreen({
+  order,
+  primaryColor,
+  onClose,
+}: {
+  order: CompletedOrder;
+  primaryColor: string;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const { contactEmail, contactPhone, platformName } = usePlatformSettings();
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const receiptText = [
+    `===== ORDER RECEIPT =====`,
+    `${platformName}`,
+    ``,
+    `Order #${order.orderNumber}`,
+    `Date: ${order.date}`,
+    ``,
+    `Item: ${order.productName}`,
+    `Qty: ${order.quantity}`,
+    `Store: ${order.storeName}`,
+    `Delivery Address: ${order.address}`,
+    ``,
+    `Total Paid: GHS ${order.total.toFixed(2)}`,
+    ``,
+    `=========================`,
+    `Contact Us`,
+    contactEmail ? `Email: ${contactEmail}` : "",
+    contactPhone ? `Phone: ${contactPhone}` : "",
+    `=========================`,
+  ].filter(Boolean).join("\n");
+
+  const handleDownload = () => {
+    const blob = new Blob([receiptText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `receipt-${order.orderNumber}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Receipt downloaded" });
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `Order Receipt #${order.orderNumber}`, text: receiptText });
+      } catch { /* user cancelled */ }
+    } else {
+      await navigator.clipboard.writeText(receiptText);
+      toast({ title: "Receipt copied to clipboard" });
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!comment.trim() && rating === 5) {
+      setSubmitted(true);
+      return;
+    }
+    try {
+      await apiRequest("POST", "/api/orders/experience-feedback", {
+        orderId: order.orderId,
+        rating,
+        comment: comment.trim(),
+      }).catch(() => {});
+    } finally {
+      setSubmitted(true);
+      toast({ title: "Thank you for your feedback!" });
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-5 w-5" style={{ color: primaryColor }} />
+          <span className="font-semibold text-sm">Payment Successful</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded-full p-1.5 hover:bg-muted transition-colors"
+          aria-label="Close"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
+        {/* Success badge */}
+        <div className="flex flex-col items-center gap-3 py-4">
+          <div className="rounded-full p-4" style={{ backgroundColor: `${primaryColor}22` }}>
+            <CheckCircle2 className="h-12 w-12" style={{ color: primaryColor }} />
+          </div>
+          <p className="text-xl font-bold">Order Confirmed!</p>
+          <p className="text-sm text-muted-foreground text-center">
+            Your order has been placed. You'll receive updates via SMS or email.
+          </p>
+        </div>
+
+        {/* Receipt card */}
+        <div className="rounded-2xl border overflow-hidden">
+          <div className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground border-b bg-muted/30">
+            Receipt
+          </div>
+          <div className="p-4 space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Order #</span>
+              <span className="font-semibold">{order.orderNumber}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Date</span>
+              <span>{order.date}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Item</span>
+              <span className="font-medium text-right max-w-[60%]">{order.productName} × {order.quantity}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Store</span>
+              <span>{order.storeName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Address</span>
+              <span className="text-right max-w-[60%]">{order.address}</span>
+            </div>
+            <div className="border-t pt-3 flex justify-between font-bold">
+              <span>Total Paid</span>
+              <span style={{ color: primaryColor }}>GHS {order.total.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Download / Share */}
+        <div className="grid grid-cols-2 gap-3">
+          <Button variant="outline" className="gap-2" onClick={handleDownload}>
+            <Download className="h-4 w-4" />
+            Download
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={handleShare}>
+            <Share2 className="h-4 w-4" />
+            Share
+          </Button>
+        </div>
+
+        {/* Experience feedback */}
+        {!submitted ? (
+          <div className="rounded-2xl border p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm font-semibold">How was your experience?</p>
+            </div>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <button key={s} type="button" onClick={() => setRating(s)}>
+                  <Star className={`h-6 w-6 ${s <= rating ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`} />
+                </button>
+              ))}
+            </div>
+            <Textarea
+              placeholder="Leave a comment (optional)…"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={2}
+              className="resize-none text-sm"
+            />
+            <Button
+              className="w-full"
+              style={{ backgroundColor: primaryColor }}
+              onClick={handleSubmitReview}
+            >
+              Submit Feedback
+            </Button>
+          </div>
+        ) : (
+          <div className="rounded-2xl border p-4 flex items-center gap-3 bg-muted/30">
+            <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+            <p className="text-sm text-muted-foreground">Thank you for your feedback!</p>
+          </div>
+        )}
+
+        {/* Platform contact */}
+        <div className="rounded-2xl border p-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Need Help?</p>
+          {contactEmail && (
+            <a href={`mailto:${contactEmail}`} className="flex items-center gap-2 text-sm hover:underline">
+              <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+              {contactEmail}
+            </a>
+          )}
+          {contactPhone && (
+            <a href={`tel:${contactPhone}`} className="flex items-center gap-2 text-sm hover:underline">
+              <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+              {contactPhone}
+            </a>
+          )}
+          {!contactEmail && !contactPhone && (
+            <p className="text-sm text-muted-foreground">Contact {platformName} support for assistance.</p>
+          )}
+        </div>
+
+        <Button variant="outline" className="w-full" onClick={onClose}>
+          <X className="h-4 w-4 mr-2" />
+          Close
+        </Button>
+
+        <p className="text-center text-xs text-muted-foreground pb-4">
+          Secured by Paystack • Powered by {platformName}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function SocialProductPage() {
   const { slug } = useParams<{ slug: string }>();
   const [, navigate] = useLocation();
@@ -110,6 +339,8 @@ export default function SocialProductPage() {
   const [quantity, setQuantity] = useState(1);
   const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string[]>>({});
   const [paying, setPaying] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [completedOrder, setCompletedOrder] = useState<CompletedOrder | null>(null);
 
   useEffect(() => { void loadPaystackInlineScript().catch(() => {}); }, []);
 
@@ -129,6 +360,42 @@ export default function SocialProductPage() {
 
   const unitPrice = Math.max(0, basePrice + modifierAdjustment);
   const totalAmount = unitPrice * quantity;
+
+  const handleUseLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      toast({ title: "Location not supported", description: "Your browser doesn't support location access.", variant: "destructive" });
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=en`,
+            { headers: { "User-Agent": "KiyuMart/1.0" } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+            setAddress(addr);
+            toast({ title: "Location detected", description: "Delivery address updated." });
+          } else {
+            setAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+          }
+        } catch {
+          setAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        toast({ title: "Location access denied", description: "Please enter your address manually.", variant: "destructive" });
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  }, [toast]);
 
   const validateForm = () => {
     if (!name.trim()) { toast({ title: "Please enter your name", variant: "destructive" }); return false; }
@@ -167,7 +434,7 @@ export default function SocialProductPage() {
       if (data?.paystackConfig) {
         const cfg = data.paystackConfig;
         try {
-          const ref = await PaystackInlineService.pay({
+          await PaystackInlineService.pay({
             publicKey: cfg.key || cfg.publicKey,
             email: cfg.email,
             amount: cfg.amount,
@@ -175,7 +442,16 @@ export default function SocialProductPage() {
             currency: "GHS",
             accessCode: cfg.accessCode || cfg.access_code,
           });
-          navigate(`/payment/success?ref=${ref}`);
+          setCompletedOrder({
+            orderId: data.orderId,
+            orderNumber: data.orderNumber,
+            total: totalAmount,
+            productName: product.name,
+            quantity,
+            storeName: product.store?.name ?? "",
+            date: new Date().toLocaleDateString("en-GH", { year: "numeric", month: "short", day: "numeric" }),
+            address: address.trim(),
+          });
         } catch (payErr: any) {
           if (cfg.authorization_url) {
             window.location.href = cfg.authorization_url;
@@ -190,6 +466,16 @@ export default function SocialProductPage() {
       setPaying(false);
     }
   };
+
+  if (completedOrder) {
+    return (
+      <ReceiptScreen
+        order={completedOrder}
+        primaryColor={primaryColor}
+        onClose={() => navigate("/")}
+      />
+    );
+  }
 
   if (isLoading) {
     return (
@@ -235,32 +521,18 @@ export default function SocialProductPage() {
         <div className="relative rounded-2xl overflow-hidden aspect-square bg-muted">
           {images.length > 0 ? (
             <>
-              <img
-                src={images[imgIdx]}
-                alt={product.name}
-                className="w-full h-full object-cover"
-              />
+              <img src={images[imgIdx]} alt={product.name} className="w-full h-full object-cover" />
               {images.length > 1 && (
                 <>
-                  <button
-                    onClick={() => setImgIdx((i) => (i - 1 + images.length) % images.length)}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full p-1.5 hover:bg-black/60 transition-colors"
-                  >
+                  <button onClick={() => setImgIdx((i) => (i - 1 + images.length) % images.length)} className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full p-1.5 hover:bg-black/60 transition-colors">
                     <ChevronLeft className="h-4 w-4" />
                   </button>
-                  <button
-                    onClick={() => setImgIdx((i) => (i + 1) % images.length)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full p-1.5 hover:bg-black/60 transition-colors"
-                  >
+                  <button onClick={() => setImgIdx((i) => (i + 1) % images.length)} className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full p-1.5 hover:bg-black/60 transition-colors">
                     <ChevronRight className="h-4 w-4" />
                   </button>
                   <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
                     {images.map((_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setImgIdx(i)}
-                        className={`h-1.5 rounded-full transition-all ${i === imgIdx ? "w-4 bg-white" : "w-1.5 bg-white/60"}`}
-                      />
+                      <button key={i} onClick={() => setImgIdx(i)} className={`h-1.5 rounded-full transition-all ${i === imgIdx ? "w-4 bg-white" : "w-1.5 bg-white/60"}`} />
                     ))}
                   </div>
                 </>
@@ -277,12 +549,8 @@ export default function SocialProductPage() {
         <div className="space-y-2">
           <h1 className="text-2xl font-bold leading-tight">{product.name}</h1>
           <div className="flex items-center gap-3">
-            <span className="text-2xl font-bold" style={{ color: primaryColor }}>
-              GHS {unitPrice.toFixed(2)}
-            </span>
-            {modifierAdjustment !== 0 && (
-              <span className="text-sm text-muted-foreground">base: GHS {basePrice.toFixed(2)}</span>
-            )}
+            <span className="text-2xl font-bold" style={{ color: primaryColor }}>GHS {unitPrice.toFixed(2)}</span>
+            {modifierAdjustment !== 0 && <span className="text-sm text-muted-foreground">base: GHS {basePrice.toFixed(2)}</span>}
           </div>
           {Number(product.totalRatings) > 0 && (
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -313,53 +581,44 @@ export default function SocialProductPage() {
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium">Quantity</span>
           <div className="flex items-center gap-2 border rounded-lg overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              className="px-3 py-2 text-lg hover:bg-muted transition-colors"
-            >
-              −
-            </button>
+            <button type="button" onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="px-3 py-2 text-lg hover:bg-muted transition-colors">−</button>
             <span className="px-3 py-2 font-semibold min-w-[2rem] text-center">{quantity}</span>
-            <button
-              type="button"
-              onClick={() => setQuantity((q) => q + 1)}
-              className="px-3 py-2 text-lg hover:bg-muted transition-colors"
-            >
-              +
-            </button>
+            <button type="button" onClick={() => setQuantity((q) => q + 1)} className="px-3 py-2 text-lg hover:bg-muted transition-colors">+</button>
           </div>
-          <span className="text-sm text-muted-foreground ml-auto font-semibold">
-            Total: GHS {totalAmount.toFixed(2)}
-          </span>
+          <span className="text-sm text-muted-foreground ml-auto font-semibold">Total: GHS {totalAmount.toFixed(2)}</span>
         </div>
 
         {/* Delivery form */}
         <div className="space-y-4 border rounded-xl p-4">
           <p className="text-sm font-semibold">Your details</p>
           <div className="space-y-3">
-            <Input
-              placeholder="Full name *"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <Input
-              placeholder="Phone number *"
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-            <Input
-              placeholder="Email (optional)"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <Input
-              placeholder="Delivery address *"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
+            <Input placeholder="Full name *" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input placeholder="Phone number *" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <Input placeholder="Email (optional)" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            {/* Address with geolocation */}
+            <div className="space-y-1.5">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Delivery address *"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={handleUseLocation}
+                  disabled={locating}
+                  title="Use my current location"
+                  className="shrink-0 flex items-center justify-center h-10 w-10 rounded-lg border hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Navigation className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <MapPin className="h-3 w-3 shrink-0" />
+                Tap <Navigation className="h-3 w-3 inline mx-0.5" /> to use your GPS location for accurate delivery.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -377,15 +636,8 @@ export default function SocialProductPage() {
           )}
         </Button>
 
-        {/* Store tagline */}
-        {branding?.tagline && (
-          <p className="text-center text-xs text-muted-foreground italic">{branding.tagline}</p>
-        )}
-
-        {/* Secure payment note */}
-        <p className="text-center text-xs text-muted-foreground pb-4">
-          Secured by Paystack • Powered by KiyuMart
-        </p>
+        {branding?.tagline && <p className="text-center text-xs text-muted-foreground italic">{branding.tagline}</p>}
+        <p className="text-center text-xs text-muted-foreground pb-4">Secured by Paystack • Powered by KiyuMart</p>
       </main>
     </div>
   );

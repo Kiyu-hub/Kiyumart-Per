@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { CheckCircle, Package, MapPin, Star, MessageSquare, ShoppingBag } from "lucide-react";
+import { CheckCircle, Package, MapPin, Star, MessageSquare, ShoppingBag, Download, Share2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -525,6 +525,59 @@ export default function PaymentSuccess() {
               data-testid="button-continue-shopping"
             >
               Continue Shopping
+            </Button>
+          </div>
+
+          {/* Receipt Download / Share / Close */}
+          <div className="flex flex-wrap gap-3 justify-center pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const lines = [
+                  `===== ORDER RECEIPT =====`,
+                  `Order #${order.orderNumber}`,
+                  `Date: ${new Date(order.createdAt).toLocaleDateString()}`,
+                  `Total: ${formatPrice(parseFloat(order.total))}`,
+                  `Status: Paid`,
+                  order.deliveryAddress ? `Address: ${order.deliveryAddress}` : "",
+                  `=========================`,
+                ].filter(Boolean).join("\n");
+                const blob = new Blob([lines], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `receipt-${order.orderNumber}.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <Download className="h-4 w-4 mr-1.5" />
+              Download Receipt
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                const text = `Order #${order.orderNumber} — ${formatPrice(parseFloat(order.total))} — Paid`;
+                if (navigator.share) {
+                  try { await navigator.share({ title: "Order Receipt", text }); } catch { /* cancelled */ }
+                } else {
+                  await navigator.clipboard.writeText(text);
+                  toast({ title: "Receipt copied to clipboard" });
+                }
+              }}
+            >
+              <Share2 className="h-4 w-4 mr-1.5" />
+              Share Receipt
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate("/")}
+            >
+              <X className="h-4 w-4 mr-1.5" />
+              Close
             </Button>
           </div>
         </div>

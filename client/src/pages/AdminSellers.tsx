@@ -20,7 +20,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import MediaUploadInput from "@/components/MediaUploadInput";
-import { STORE_TYPES, STORE_TYPE_CONFIG } from "@shared/storeTypes";
+import { STORE_TYPES, STORE_TYPE_CONFIG, type StoreType } from "@shared/storeTypes";
+import { StoreTypeSelector, StoreTypeDynamicFields } from "@/components/StoreTypeSelector";
 
 interface SellerData {
   id: string;
@@ -45,6 +46,7 @@ interface SellerData {
   storeLogo?: string | null;
   productCount?: number;
   orderCount?: number;
+  storeTypeMetadata?: Record<string, any> | null;
 }
 
 const createSellerSchema = z.object({
@@ -57,6 +59,7 @@ const createSellerSchema = z.object({
   storeType: z.enum(STORE_TYPES, { required_error: "Store type is required" }),
   businessAddress: z.string().min(5, "Business address is required"),
   storeBanner: z.string().optional(),
+  storeTypeMetadata: z.record(z.any()).optional(),
 });
 
 const editSellerSchema = z.object({
@@ -73,6 +76,7 @@ const editSellerSchema = z.object({
   profileImage: z.string().optional(),
   ghanaCardFront: z.string().optional(),
   ghanaCardBack: z.string().optional(),
+  storeTypeMetadata: z.record(z.any()).optional(),
 });
 
 type CreateSellerFormData = z.infer<typeof createSellerSchema>;
@@ -101,6 +105,7 @@ const normalizeSeller = (raw: any): SellerData => ({
   storeLogo: raw?.storeLogo || null,
   productCount: Number(raw?.productCount || 0),
   orderCount: Number(raw?.orderCount || 0),
+  storeTypeMetadata: raw?.storeTypeMetadata || null,
 });
 
 function CreateSellerDialog() {
@@ -119,12 +124,17 @@ function CreateSellerDialog() {
       storeType: undefined as any,
       businessAddress: "",
       storeBanner: "",
+      storeTypeMetadata: {},
     },
   });
 
   const createSellerMutation = useMutation({
     mutationFn: async (data: CreateSellerFormData) => {
-      return apiRequest("POST", "/api/users", { ...data, role: "seller" });
+      return apiRequest("POST", "/api/users", {
+        ...data,
+        role: "seller",
+        storeTypeMetadata: data.storeTypeMetadata || {},
+      });
     },
     onSuccess: () => {
       toast({
@@ -245,28 +255,29 @@ function CreateSellerDialog() {
               name="storeType"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Store Type *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-create-store-type">
-                        <SelectValue placeholder="Select store type" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {STORE_TYPES.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {STORE_TYPE_CONFIG[type].icon} {STORE_TYPE_CONFIG[type].label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormLabel>Store Type <span className="text-destructive">*</span></FormLabel>
                   <FormDescription>
-                    {field.value && STORE_TYPE_CONFIG[field.value as keyof typeof STORE_TYPE_CONFIG]?.description}
+                    Choose the category that best fits this seller's business.
                   </FormDescription>
-                  <FormMessage />
+                  <StoreTypeSelector
+                    value={field.value}
+                    onChange={(value) => {
+                      field.onChange(value);
+                      form.setValue("storeTypeMetadata", {});
+                    }}
+                    error={form.formState.errors.storeType?.message as string | undefined}
+                  />
                 </FormItem>
               )}
             />
+
+            {form.watch("storeType") && (
+              <StoreTypeDynamicFields
+                storeType={form.watch("storeType") as StoreType}
+                metadata={form.watch("storeTypeMetadata") || {}}
+                onChange={(updated) => form.setValue("storeTypeMetadata", updated)}
+              />
+            )}
 
             <FormField
               control={form.control}
@@ -382,6 +393,7 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
       profileImage: sellerData.profileImage || "",
       ghanaCardFront: sellerData.ghanaCardFront || "",
       ghanaCardBack: sellerData.ghanaCardBack || "",
+      storeTypeMetadata: sellerData.storeTypeMetadata || {},
     },
   });
 
@@ -438,9 +450,9 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
         profileImage: data.profileImage || null,
         ghanaCardFront: data.ghanaCardFront || null,
         ghanaCardBack: data.ghanaCardBack || null,
+        storeTypeMetadata: data.storeTypeMetadata || {},
       };
-      
-      // Only include password if provided
+
       if (data.password && data.password.length > 0) {
         updateData.password = data.password;
       }
@@ -557,28 +569,29 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
               name="storeType"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Store Type *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-edit-store-type">
-                        <SelectValue placeholder="Select store type" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {STORE_TYPES.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {STORE_TYPE_CONFIG[type].icon} {STORE_TYPE_CONFIG[type].label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormLabel>Store Type <span className="text-destructive">*</span></FormLabel>
                   <FormDescription>
-                    {field.value && STORE_TYPE_CONFIG[field.value as keyof typeof STORE_TYPE_CONFIG]?.description}
+                    Choose the category that best fits this seller's business.
                   </FormDescription>
-                  <FormMessage />
+                  <StoreTypeSelector
+                    value={field.value}
+                    onChange={(value) => {
+                      field.onChange(value);
+                      form.setValue("storeTypeMetadata", {});
+                    }}
+                    error={form.formState.errors.storeType?.message as string | undefined}
+                  />
                 </FormItem>
               )}
             />
+
+            {form.watch("storeType") && (
+              <StoreTypeDynamicFields
+                storeType={form.watch("storeType") as StoreType}
+                metadata={form.watch("storeTypeMetadata") || {}}
+                onChange={(updated) => form.setValue("storeTypeMetadata", updated)}
+              />
+            )}
 
             <FormField
               control={form.control}
