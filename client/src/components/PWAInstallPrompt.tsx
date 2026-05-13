@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { X, Download, Smartphone } from "lucide-react";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -12,6 +13,7 @@ export default function PWAInstallPrompt() {
   const [isVisible, setIsVisible] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
+  const { favicon } = usePlatformSettings();
 
   useEffect(() => {
     // Detect if already installed
@@ -72,8 +74,12 @@ export default function PWAInstallPrompt() {
     >
       <div className="max-w-sm mx-auto bg-card border border-border rounded-2xl shadow-xl p-4">
         <div className="flex items-start gap-3">
-          <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center shrink-0 shadow-md">
-            <span className="text-white font-bold text-2xl">K</span>
+          <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center shrink-0 shadow-md overflow-hidden">
+            {favicon ? (
+              <img src={favicon} alt="App icon" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-white font-bold text-2xl">K</span>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-sm">Install KiyuMart</p>

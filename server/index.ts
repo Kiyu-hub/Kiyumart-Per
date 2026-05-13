@@ -692,6 +692,100 @@ app.use(cookieParser());
     await db.execute(sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS deleted_at timestamp`);
     await db.execute(sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_edited boolean DEFAULT false`);
     await db.execute(sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edited_at timestamp`);
+    // Social commerce & persona fields on stores
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS merchant_category text`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS whatsapp_number text`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS social_links jsonb`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS branding_config jsonb`);
+    // Product slug for /p/:slug social commerce pages
+    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS slug text`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS products_slug_unique_idx ON products(slug) WHERE slug IS NOT NULL`);
+    // Product modifiers (food add-ons for QUICK_EATS stores)
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'product_modifiers') THEN
+          CREATE TABLE product_modifiers (
+            id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+            product_id varchar NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            name text NOT NULL,
+            options jsonb NOT NULL DEFAULT '[]'::jsonb,
+            required boolean DEFAULT false,
+            max_selections integer DEFAULT 1,
+            created_at timestamp DEFAULT now()
+          );
+          CREATE INDEX product_modifiers_product_id_idx ON product_modifiers(product_id);
+        END IF;
+      END $$`);
+    // Fix seller_payouts.commission_ids: convert from text (plain UUID) to text[] if not already done
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'seller_payouts'
+          AND column_name = 'commission_ids'
+          AND data_type = 'text'
+        ) THEN
+          ALTER TABLE seller_payouts
+          ALTER COLUMN commission_ids TYPE text[]
+          USING CASE
+            WHEN commission_ids IS NULL THEN NULL::text[]
+            WHEN commission_ids LIKE '{%}' THEN commission_ids::text[]
+            ELSE ARRAY[REPLACE(commission_ids, '"', '')]
+          END;
+        END IF;
+      END $$`);
+    // Add platform branding logo columns if they don't exist
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'platform_settings' AND column_name = 'logo_light'
+        ) THEN
+          ALTER TABLE platform_settings ADD COLUMN logo_light TEXT;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'platform_settings' AND column_name = 'logo_dark'
+        ) THEN
+          ALTER TABLE platform_settings ADD COLUMN logo_dark TEXT;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'platform_settings' AND column_name = 'favicon'
+        ) THEN
+          ALTER TABLE platform_settings ADD COLUMN favicon TEXT;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'platform_settings' AND column_name = 'secondary_color'
+        ) THEN
+          ALTER TABLE platform_settings ADD COLUMN secondary_color TEXT DEFAULT '#2c3e50';
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'platform_settings' AND column_name = 'accent_color'
+        ) THEN
+          ALTER TABLE platform_settings ADD COLUMN accent_color TEXT DEFAULT '#e74c3c';
+        END IF;
+      END $$`);
+    // Cart links table for social commerce cart sharing
+    await db.execute(sql`
+      DO $$ BEGIN
+        CREATE TABLE IF NOT EXISTS cart_links (
+          id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+          token TEXT NOT NULL UNIQUE,
+          store_id VARCHAR NOT NULL,
+          seller_id VARCHAR NOT NULL,
+          items JSONB NOT NULL DEFAULT '[]'::jsonb,
+          note TEXT,
+          total_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+          expires_at TIMESTAMP NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        );
+      EXCEPTION WHEN OTHERS THEN NULL;
+      END $$`);
   } catch (e: any) {
     console.warn("[STARTUP] Could not run schema self-heal compatibility checks:", e?.message || String(e));
   } // end if (schemaHealEnabled)

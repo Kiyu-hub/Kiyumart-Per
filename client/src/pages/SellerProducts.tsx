@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, Package, Edit, Trash2, Plus, Eye, AlertCircle, AlertTriangle, RefreshCw, RotateCcw, X } from "lucide-react";
+import { Loader2, Search, Package, Edit, Trash2, Plus, Eye, AlertCircle, AlertTriangle, RefreshCw, RotateCcw, X, Share2, Link2, ShoppingCart, Copy, Check } from "lucide-react";
+import QRCode from "react-qr-code";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
@@ -37,6 +38,7 @@ import {
 
 interface Product {
   id: string;
+  slug?: string;
   name: string;
   description: string;
   price: string;
@@ -721,7 +723,8 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
 
       const normalizedCategoryId = String(data.categoryId || "").trim() || undefined;
 
-      const noVariantsAllowed = store?.storeType === "food_beverages";
+      const isFoodStore = store?.storeType === "food_beverages";
+      const variantsRequired = store?.storeType === "clothing";
       const directStock = Math.max(0, parseInt(data.stockQuantity || "0", 10) || 0);
 
       const productData: any = {
@@ -752,7 +755,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         ? data.tags.split(",").map(t => t.trim()).filter(Boolean)
         : [];
 
-      if (productVariants.length === 0 && !noVariantsAllowed) {
+      if (productVariants.length === 0 && variantsRequired) {
         throw new Error("Add at least one variant before saving this product");
       }
 
@@ -897,8 +900,8 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   });
 
   const onSubmit = (data: ProductFormData) => {
-    const isFoodStore = store?.storeType === "food_beverages";
-    if (productVariants.length === 0 && !isFoodStore) {
+    const variantsRequired = store?.storeType === "clothing";
+    if (productVariants.length === 0 && variantsRequired) {
       toast({
         title: "Variant required",
         description: `Add at least one ${variantConfig.groupLabel.toLowerCase()} variant before saving.`,
@@ -1483,33 +1486,47 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
               </details>
             </Card>
 
-            <FormField
-              control={form.control}
-              name="videoUrl"
-              render={({ field }) => (
-                <FormItem>
-                  <MediaUploadInput
-                    id="product-video"
-                    label="Product Video"
-                    value={field.value || ""}
-                    onChange={field.onChange}
-                    accept="video"
-                    placeholder="https://... or upload from computer"
-                    required={true}
-                    description="Upload a product video or paste a direct video link or a supported TikTok, YouTube, Instagram, Facebook, or Vimeo link. Longer videos are optimized automatically."
-                  />
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {store?.storeType !== "food_beverages" && (
+              <FormField
+                control={form.control}
+                name="videoUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <MediaUploadInput
+                      id="product-video"
+                      label={store?.storeType === "clothing" ? "Product Video" : "Product Video (Optional)"}
+                      value={field.value || ""}
+                      onChange={field.onChange}
+                      accept="video"
+                      placeholder="https://... or upload from computer"
+                      required={store?.storeType === "clothing"}
+                      description={
+                        store?.storeType === "clothing"
+                          ? "Upload a product video or paste a direct video link or a supported TikTok, YouTube, Instagram, Facebook, or Vimeo link. Longer videos are optimized automatically."
+                          : "Optional — add a product video to showcase your product. Paste a direct link or a TikTok, YouTube, Instagram, Facebook, or Vimeo link."
+                      }
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
-            {/* Product Variants Management */}
+            {/* Product Variants Management — hidden for food stores */}
+            {store?.storeType !== "food_beverages" && (<>
             <Card className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="text-lg font-semibold">Product Variants</h3>
+                  <h3 className="text-lg font-semibold">
+                    Product Variants
+                    {store?.storeType !== "clothing" && (
+                      <span className="ml-2 text-sm font-normal text-muted-foreground">(Optional)</span>
+                    )}
+                  </h3>
                   <p className="text-sm text-muted-foreground">
-                    {variantConfig.sectionDescription}
+                    {store?.storeType !== "clothing"
+                      ? `${variantConfig.sectionDescription} Skip this section if your product has a single option — just set the stock quantity above.`
+                      : variantConfig.sectionDescription}
                   </p>
                 </div>
                 <Button
@@ -1615,6 +1632,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                 onChange={setSizeGuide}
               />
             ) : null}
+            </>)}
 
             <div className="flex justify-end gap-3 pt-4">
               <Button
@@ -2537,6 +2555,310 @@ function DeleteProductDialog({ product }: { product: Product }) {
   );
 }
 
+function ProductShareDialog({ product }: { product: Product }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [localSlug, setLocalSlug] = useState<string | null | undefined>(product.slug);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const origin = window.location.origin;
+
+  const magicLink = localSlug ? `${origin}/p/${localSlug}` : null;
+
+  const generateSlugMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/products/${product.id}/generate-slug`),
+    onSuccess: async (data: any) => {
+      const slug = data?.slug as string;
+      setLocalSlug(slug);
+      queryClient.invalidateQueries({ queryKey: ["/api/products", "seller"] });
+      toast({ title: "Link generated", description: "Your product now has a shareable link." });
+    },
+    onError: () => toast({ variant: "destructive", title: "Failed to generate link" }),
+  });
+
+  const handleCopy = () => {
+    if (!magicLink) return;
+    navigator.clipboard.writeText(magicLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant="secondary"
+          size="icon"
+          className="h-7 w-7 border border-border/80 bg-background/95 shadow-sm backdrop-blur-sm hover:bg-background"
+          title="Share product link"
+          data-testid={`button-share-${product.id}`}
+        >
+          <Share2 className="h-3 w-3" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Share2 className="h-4 w-4" />
+            Share "{product.name}"
+          </DialogTitle>
+          <DialogDescription>
+            Copy this link or scan the QR code to share your product. Customers can pay directly from this page — no account needed.
+          </DialogDescription>
+        </DialogHeader>
+
+        {magicLink ? (
+          <div className="space-y-4">
+            {/* URL row */}
+            <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-2.5">
+              <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <p className="flex-1 truncate text-xs font-mono text-muted-foreground">{magicLink}</p>
+              <Button size="sm" variant="outline" className="shrink-0 h-7 gap-1 text-xs" onClick={handleCopy}>
+                {copied ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
+              </Button>
+            </div>
+
+            {/* QR code */}
+            <div className="flex flex-col items-center gap-3 rounded-xl border bg-white p-4">
+              <QRCode value={magicLink} size={160} />
+              <p className="text-xs text-muted-foreground text-center">Scan to open product page</p>
+            </div>
+
+            {/* Share buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Check out ${product.name}: ${magicLink}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 rounded-lg border py-2 text-xs font-medium hover:bg-muted transition-colors"
+              >
+                Share on WhatsApp
+              </a>
+              <a
+                href={`https://www.instagram.com/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 rounded-lg border py-2 text-xs font-medium hover:bg-muted transition-colors"
+                onClick={() => { navigator.clipboard.writeText(magicLink); toast({ title: "Link copied", description: "Paste it in your Instagram bio." }); }}
+              >
+                Copy for Instagram
+              </a>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-4 text-center">
+            <p className="text-sm text-muted-foreground">This product doesn't have a shareable link yet.</p>
+            <Button
+              size="sm"
+              onClick={() => generateSlugMutation.mutate()}
+              disabled={generateSlugMutation.isPending}
+              className="gap-1.5"
+            >
+              {generateSlugMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+              Generate Link
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CartLinkGeneratorDialog({ products }: { products: Product[] }) {
+  const [open, setOpen] = useState(false);
+  const [cart, setCart] = useState<Array<{ product: Product; quantity: number }>>([]);
+  const [note, setNote] = useState("");
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  const [copiedCart, setCopiedCart] = useState(false);
+  const { toast } = useToast();
+
+  const total = cart.reduce((sum, item) => sum + parseFloat(item.product.price || "0") * item.quantity, 0);
+
+  const addProduct = (product: Product) => {
+    setCart((prev) => {
+      const existing = prev.find((c) => c.product.id === product.id);
+      if (existing) {
+        return prev.map((c) => c.product.id === product.id ? { ...c, quantity: c.quantity + 1 } : c);
+      }
+      return [...prev, { product, quantity: 1 }];
+    });
+  };
+
+  const updateQty = (productId: string, qty: number) => {
+    if (qty <= 0) {
+      setCart((prev) => prev.filter((c) => c.product.id !== productId));
+    } else {
+      setCart((prev) => prev.map((c) => c.product.id === productId ? { ...c, quantity: qty } : c));
+    }
+  };
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/seller/cart-links", {
+        items: cart.map((c) => ({ productId: c.product.id, quantity: c.quantity })),
+        note: note || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      const url = `${window.location.origin}/cart/${data.token}`;
+      setGeneratedLink(url);
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to generate link", description: error?.message || "Please try again.", variant: "destructive" });
+    },
+  });
+
+  const handleCopyCart = () => {
+    if (!generatedLink) return;
+    navigator.clipboard.writeText(generatedLink).then(() => {
+      setCopiedCart(true);
+      setTimeout(() => setCopiedCart(false), 2000);
+    });
+  };
+
+  const handleReset = () => {
+    setCart([]);
+    setNote("");
+    setGeneratedLink(null);
+  };
+
+  const activeProducts = products.filter((p) => p.isActive);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) handleReset(); }}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5" data-testid="button-create-cart-link">
+          <ShoppingCart className="h-4 w-4" />
+          Cart Link
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShoppingCart className="h-4 w-4" />
+            Create Cart Link
+          </DialogTitle>
+          <DialogDescription>
+            Build a shareable multi-item checkout link. Send it on WhatsApp or anywhere — the customer pays in one tap. Commission applies as normal.
+          </DialogDescription>
+        </DialogHeader>
+
+        {generatedLink ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border bg-primary/5 p-4 text-center space-y-3">
+              <p className="text-sm font-semibold text-primary">Cart link ready!</p>
+              <div className="flex items-center gap-2 rounded-lg border bg-background p-2.5">
+                <p className="flex-1 truncate text-xs font-mono text-muted-foreground">{generatedLink}</p>
+                <Button size="sm" variant="outline" className="shrink-0 h-7 gap-1 text-xs" onClick={handleCopyCart}>
+                  {copiedCart ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
+                </Button>
+              </div>
+              <QRCode value={generatedLink} size={140} className="mx-auto" />
+              <p className="text-xs text-muted-foreground">Expires in 48 hours · GHS {total.toFixed(2)} total</p>
+            </div>
+            <div className="flex gap-2">
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Here's your cart: ${generatedLink}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border py-2 text-xs font-medium hover:bg-muted transition-colors"
+              >
+                Send on WhatsApp
+              </a>
+              <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={handleReset}>
+                New Cart
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Product picker */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold">Add Products</p>
+              <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg border p-2">
+                {activeProducts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2 text-center">No active products</p>
+                ) : activeProducts.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => addProduct(product)}
+                    className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted transition-colors"
+                  >
+                    <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-muted">
+                      {product.images[0] && <img src={product.images[0]} alt="" className="h-full w-full object-cover" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{product.name}</p>
+                      <p className="text-xs text-muted-foreground">GHS {product.price}</p>
+                    </div>
+                    <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Cart items */}
+            {cart.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">Cart</p>
+                <div className="space-y-1.5">
+                  {cart.map(({ product, quantity }) => (
+                    <div key={product.id} className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                      <p className="flex-1 text-xs font-medium truncate">{product.name}</p>
+                      <div className="flex items-center gap-1">
+                        <Button type="button" variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(product.id, quantity - 1)}>
+                          <span className="text-sm font-bold">−</span>
+                        </Button>
+                        <span className="w-6 text-center text-xs font-semibold">{quantity}</span>
+                        <Button type="button" variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(product.id, quantity + 1)}>
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      <p className="w-20 text-right text-xs font-semibold text-primary">
+                        GHS {(parseFloat(product.price || "0") * quantity).toFixed(2)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                  <p className="text-sm font-semibold">Total</p>
+                  <p className="text-sm font-bold text-primary">GHS {total.toFixed(2)}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Optional note */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Note for customer (optional)</label>
+              <Input
+                placeholder="E.g. Ready in 30 mins, delivery included"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+
+            <Button
+              className="w-full"
+              disabled={cart.length === 0 || generateMutation.isPending}
+              onClick={() => generateMutation.mutate()}
+            >
+              {generateMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating…</>
+              ) : (
+                <><ShoppingCart className="h-4 w-4 mr-2" /> Generate Cart Link</>
+              )}
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function SellerProducts() {
   const [searchQuery, setSearchQuery] = useState("");
   const [location, navigate] = useLocation();
@@ -2643,17 +2965,20 @@ export default function SellerProducts() {
             <h1 className="text-3xl font-bold text-foreground" data-testid="heading-products">My Products</h1>
             <p className="text-muted-foreground mt-1">Manage your product catalog</p>
           </div>
-          {atProductLimit ? (
-            <Button
-              onClick={() => setUpgradeModalOpen(true)}
-              className={`gap-2 text-white ${isRenewal ? "bg-red-500 hover:bg-red-600" : "bg-amber-500 hover:bg-amber-600"}`}
-            >
-              <RefreshCw className="h-4 w-4" />
-              {isRenewal ? "Renew Plan to Add Products" : "Add Product (Upgrade Required)"}
-            </Button>
-          ) : (
-            <ProductFormDialog mode="create" />
-          )}
+          <div className="flex items-center gap-2">
+            <CartLinkGeneratorDialog products={products} />
+            {atProductLimit ? (
+              <Button
+                onClick={() => setUpgradeModalOpen(true)}
+                className={`gap-2 text-white ${isRenewal ? "bg-red-500 hover:bg-red-600" : "bg-amber-500 hover:bg-amber-600"}`}
+              >
+                <RefreshCw className="h-4 w-4" />
+                {isRenewal ? "Renew Plan to Add Products" : "Add Product (Upgrade Required)"}
+              </Button>
+            ) : (
+              <ProductFormDialog mode="create" />
+            )}
+          </div>
         </div>
 
         {/* Plan expiry banners */}
@@ -2789,7 +3114,7 @@ export default function SellerProducts() {
                   <div className="absolute right-1.5 top-1.5 flex gap-1">
                     <ProductFormDialog mode="edit" product={product} />
                     <DeleteProductDialog product={product} />
-                     <Button 
+                     <Button
                        variant="secondary"
                        size="icon"
                         className="h-7 w-7 border border-border/80 bg-background/95 shadow-sm backdrop-blur-sm hover:bg-background"
@@ -2798,6 +3123,7 @@ export default function SellerProducts() {
                       >
                        <Eye className="h-3 w-3" />
                      </Button>
+                    <ProductShareDialog product={product} />
                   </div>
                 </div>
 

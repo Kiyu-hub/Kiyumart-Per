@@ -19,6 +19,8 @@ import MaintenancePage from "@/pages/MaintenancePage";
 import NotFound from "@/pages/not-found";
 
 // Lazy-loaded — split into separate chunks, loaded on demand
+const SocialProductPage = React.lazy(() => import("@/pages/SocialProductPage"));
+const CartLinkCheckout = React.lazy(() => import("@/pages/CartLinkCheckout"));
 const ProductDetails = React.lazy(() => import("@/pages/ProductDetails"));
 const Cart = React.lazy(() => import("@/pages/Cart"));
 const ResetPassword = React.lazy(() => import("@/pages/ResetPassword"));
@@ -176,6 +178,26 @@ function AnalyticsInjector() {
       document.head.appendChild(s);
     }
   }, [data?.microsoftClarityId]);
+
+  return null;
+}
+
+function FaviconInjector() {
+  const { favicon } = usePlatformSettings();
+
+  React.useEffect(() => {
+    if (!favicon) return;
+
+    // Browser tab icon
+    document.querySelectorAll<HTMLLinkElement>("link[rel~='icon'], link[rel='shortcut icon']").forEach((el) => {
+      el.href = favicon;
+    });
+
+    // iOS / Android home screen icon (apple-touch-icon)
+    document.querySelectorAll<HTMLLinkElement>("link[rel~='apple-touch-icon']").forEach((el) => {
+      el.href = favicon;
+    });
+  }, [favicon]);
 
   return null;
 }
@@ -369,6 +391,8 @@ function Router() {
       <Route path="/stores" component={BrowseStores} />
       <Route path="/sellers/:id" component={SellerStorePage} />
       <Route path="/product/:id" component={ProductDetails} />
+      <Route path="/p/:slug" component={SocialProductPage} />
+      <Route path="/cart/:token" component={CartLinkCheckout} />
       <Route path="/category/:id" component={CategoryPage} />
       <Route path="/cart" component={Cart} />
       <Route path="/auth" component={AuthPage} />
@@ -610,6 +634,7 @@ function App() {
                 <Router />
               </MaintenanceGuard>
               <AnalyticsInjector />
+              <FaviconInjector />
               <MobileStorefrontNav />
               <PWAInstallPrompt />
             </TooltipProvider>

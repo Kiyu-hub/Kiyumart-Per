@@ -208,6 +208,9 @@ export const platformSettings = pgTable("platform_settings", {
   isMultiVendor: boolean("is_multi_vendor").default(false),
   platformName: text("platform_name").default("ModestGlow"),
   logo: text("logo"),
+  logoLight: text("logo_light"),
+  logoDark: text("logo_dark"),
+  favicon: text("favicon"),
   primaryColor: text("primary_color").default("#1e7b5f"),
   secondaryColor: text("secondary_color").default("#2c3e50"),
   accentColor: text("accent_color").default("#e74c3c"),
@@ -373,7 +376,13 @@ export const stores = pgTable("stores", {
     provider?: string; // MTN, Vodafone, AirtelTigo
   }>(),
   isPayoutVerified: boolean("is_payout_verified").default(false),
-  
+
+  // Social Commerce & Persona fields
+  merchantCategory: text("merchant_category"), // QUICK_EATS | HEALTH_ESSENTIALS | RETAIL_BOUTIQUE | GENERAL_PROVISIONS
+  whatsappNumber: text("whatsapp_number"),
+  socialLinks: jsonb("social_links").$type<{ instagram?: string; facebook?: string; tiktok?: string; twitter?: string; website?: string }>(),
+  brandingConfig: jsonb("branding_config").$type<{ primaryColor?: string; accentColor?: string; logoOverride?: string; coverImage?: string; tagline?: string }>(),
+
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -423,6 +432,7 @@ export const products = pgTable("products", {
   tags: text("tags").array(),
   dynamicFields: jsonb("dynamic_fields").$type<Record<string, any>>(), // Category-specific dynamic fields
   deliveryDuration: varchar("delivery_duration"), // Delivery time estimate (e.g., "1-2 days", "3-5 business days")
+  slug: text("slug"), // SEO/social slug e.g. "jollof-rice-abc123" for /p/:slug direct pay pages
   isActive: boolean("is_active").default(true),
   ratings: decimal("ratings", { precision: 3, scale: 2 }).default("0"),
   totalRatings: integer("total_ratings").default(0),
@@ -433,6 +443,19 @@ export const products = pgTable("products", {
   storeIdx: index("products_store_id_idx").on(table.storeId),
   categoryIdIdx: index("products_category_id_idx").on(table.categoryId),
   isActiveIdx: index("products_is_active_idx").on(table.isActive),
+}));
+
+// Product modifiers — food add-ons (e.g. "Extra Jollof", "Protein Choice") for QUICK_EATS stores
+export const productModifiers = pgTable("product_modifiers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  productId: varchar("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), // e.g. "Protein Choice"
+  options: jsonb("options").$type<{ label: string; priceAdj: number }[]>().notNull().default([]),
+  required: boolean("required").default(false),
+  maxSelections: integer("max_selections").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  productIdx: index("product_modifiers_product_id_idx").on(t.productId),
 }));
 
 export const deliveryZones = pgTable("delivery_zones", {
@@ -1598,3 +1621,18 @@ export type PromotionPricing = typeof promotionPricing.$inferSelect;
 export const insertPromotionApplicationSchema = createInsertSchema(promotionApplications).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPromotionApplication = z.infer<typeof insertPromotionApplicationSchema>;
 export type PromotionApplication = typeof promotionApplications.$inferSelect;
+
+export const cartLinks = pgTable("cart_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  token: text("token").notNull().unique(),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  sellerId: varchar("seller_id").notNull().references(() => users.id),
+  items: jsonb("items").$type<Array<{productId: string; name: string; price: number; image: string | null; quantity: number}>>().notNull(),
+  note: text("note"),
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type CartLink = typeof cartLinks.$inferSelect;
+export type InsertCartLink = typeof cartLinks.$inferInsert;

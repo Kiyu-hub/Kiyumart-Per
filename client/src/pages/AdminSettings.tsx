@@ -19,6 +19,7 @@ import { Loader2, Save, Settings2, CreditCard, Mail, Palette, DollarSign, Image 
   Truck, ShieldCheck, Clock, Heart, Star, Award, Gift, Shield, Lock, Headphones, Phone, MapPin, Package, Percent, ThumbsUp, CheckCircle, Users, Flame, Gem, Crown, BadgeCheck, Wallet, RefreshCcw, LifeBuoy, Rocket, Timer, Tag, ShoppingBag, ShoppingCart, Home, Search, Bell, MessageCircle, Wifi, Sun, Moon, BarChart, Key, Fingerprint, Globe2, Umbrella, Coffee, Music, Camera, Target, Compass, Anchor, Feather, Leaf, Droplets, Wind, Box, Database, HardDrive, BarChart2, Server, Zap, BookOpen, ExternalLink, Copy, ListChecks, Upload, FileAudio
 } from "lucide-react";
 import { insertFooterPageSchema, type FooterPage } from "@shared/schema";
+import MediaUploadInput from "@/components/MediaUploadInput";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -79,6 +80,12 @@ const settingsSchema = z.object({
   showShopBySection: z.boolean().optional(),
   primaryStoreId: z.string().optional().nullable(),
   primaryColor: z.string().regex(/^#([A-Fa-f0-9]{6})$/, "Must be a valid hex color"),
+  logo: z.string().optional().or(z.literal("")),
+  logoLight: z.string().optional().or(z.literal("")),
+  logoDark: z.string().optional().or(z.literal("")),
+  favicon: z.string().optional().or(z.literal("")),
+  secondaryColor: z.string().optional().or(z.literal("")),
+  accentColor: z.string().optional().or(z.literal("")),
   defaultCurrency: z.string(),
   frontendUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")).default(""),
   paystackPublicKey: z.string().optional(),
@@ -214,6 +221,9 @@ function CollapsibleDashboardSection({
 interface PlatformSettings extends SettingsFormData {
   id: string;
   logo?: string;
+  logoLight?: string;
+  logoDark?: string;
+  favicon?: string;
   onboardingImages?: string[];
   updatedAt: string;
   paystackPublicKeySource?: string;
@@ -1317,9 +1327,9 @@ export default function AdminSettings() {
     }
   }, [isAuthenticated, authLoading, user, navigate]);
 
-  // Ensure super admins don't see branding/currency tabs and reset active tab if needed
+  // Ensure super admins don't see currency tab and reset active tab if needed
   useEffect(() => {
-    if (user?.role === "super_admin" && (activeTab === "branding" || activeTab === "currency")) {
+    if (user?.role === "super_admin" && activeTab === "currency") {
       setActiveTab("general");
     }
   }, [user?.role, activeTab]);
@@ -1343,6 +1353,12 @@ export default function AdminSettings() {
       showShopBySection: true,
       primaryStoreId: null,
       primaryColor: "#1e7b5f",
+      logo: "",
+      logoLight: "",
+      logoDark: "",
+      favicon: "",
+      secondaryColor: "#2c3e50",
+      accentColor: "#e74c3c",
       defaultCurrency: "GHS",
       frontendUrl: "",
       paystackPublicKey: "",
@@ -1473,6 +1489,12 @@ export default function AdminSettings() {
         showShopBySection: mergedData.showShopBySection ?? true,
         primaryStoreId: mergedData.primaryStoreId || null,
         primaryColor: mergedData.primaryColor,
+        logo: (mergedData as any).logo || "",
+        logoLight: (mergedData as any).logoLight || "",
+        logoDark: (mergedData as any).logoDark || "",
+        favicon: (mergedData as any).favicon || "",
+        secondaryColor: (mergedData as any).secondaryColor || "#2c3e50",
+        accentColor: (mergedData as any).accentColor || "#e74c3c",
         defaultCurrency: mergedData.defaultCurrency,
         frontendUrl: mergedData.frontendUrl || "",
         paystackPublicKey: mergedData.paystackPublicKey || "",
@@ -1652,6 +1674,12 @@ export default function AdminSettings() {
         showShopBySection: (settings as any).showShopBySection ?? true,
         primaryStoreId: (settings as any).primaryStoreId || null,
         primaryColor: settings.primaryColor,
+        logo: (settings as any).logo || "",
+        logoLight: (settings as any).logoLight || "",
+        logoDark: (settings as any).logoDark || "",
+        favicon: (settings as any).favicon || "",
+        secondaryColor: (settings as any).secondaryColor || "#2c3e50",
+        accentColor: (settings as any).accentColor || "#e74c3c",
         defaultCurrency: settings.defaultCurrency,
         frontendUrl: (settings as any).frontendUrl || "",
         paystackPublicKey: settings.paystackPublicKey || "",
@@ -1841,7 +1869,7 @@ export default function AdminSettings() {
             className="space-y-6"
           >
           <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-            <div className="overflow-hidden rounded-[26px] border border-border/70 bg-card/60 shadow-sm">
+            <div className="rounded-[26px] border border-border/70 bg-card/60 shadow-sm">
             <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-none bg-transparent p-3 sm:grid-cols-3 lg:grid-cols-5">
               <TabsTrigger value="general" data-testid="tab-general" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <Settings2 className="h-4 w-4 mr-2" />
@@ -1875,17 +1903,15 @@ export default function AdminSettings() {
                   Security Keys
                 </TabsTrigger>
               )}
+              <TabsTrigger value="branding" data-testid="tab-branding" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                <Palette className="h-4 w-4 mr-2" />
+                Branding
+              </TabsTrigger>
               {user?.role !== "super_admin" && (
-                <>
-                  <TabsTrigger value="branding" data-testid="tab-branding" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
-                    <Palette className="h-4 w-4 mr-2" />
-                    Branding
-                  </TabsTrigger>
-                  <TabsTrigger value="currency" data-testid="tab-currency" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
-                    <DollarSign className="h-4 w-4 mr-2" />
-                    Currency
-                  </TabsTrigger>
-                </>
+                <TabsTrigger value="currency" data-testid="tab-currency" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                  <DollarSign className="h-4 w-4 mr-2" />
+                  Currency
+                </TabsTrigger>
               )}
               <TabsTrigger value="ads" data-testid="tab-ads" className="min-h-[48px] w-full justify-center rounded-xl border border-transparent px-4 py-2.5 text-center text-sm data-[state=active]:border-primary/25 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
                 <ImageIcon className="h-4 w-4 mr-2" />
@@ -3623,72 +3649,198 @@ export default function AdminSettings() {
               </Card>
             </TabsContent>
 
-            {user?.role !== "super_admin" && (
-              <>
-                <TabsContent value="branding" className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Branding & Appearance</CardTitle>
-                      <CardDescription>
-                        Customize your platform's visual identity
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="primaryColor">Primary Color</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            id="primaryColor"
-                            {...form.register("primaryColor")}
-                            placeholder="#1e7b5f"
-                            data-testid="input-primary-color"
-                            className="flex-1"
-                          />
-                          <div 
-                            className="w-12 h-10 rounded border"
-                            style={{ backgroundColor: form.watch("primaryColor") }}
-                          />
-                        </div>
-                        {form.formState.errors.primaryColor && (
-                          <p className="text-sm text-destructive">
-                            {form.formState.errors.primaryColor.message}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          Hex color code for your brand's primary color
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
+            <TabsContent value="branding" className="space-y-4">
+              {/* Logo Assets */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Platform Logos</CardTitle>
+                  <CardDescription>
+                    Upload your platform's text logo for light and dark backgrounds, plus a favicon for browser tabs and bookmarks.
+                    These override the default bundled assets across the entire platform.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-8">
+                  {/* Side-by-side light/dark logo previews — always visible */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="rounded-xl border bg-white p-4 flex flex-col items-center gap-2 min-h-[80px] justify-center">
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Light Background Preview</p>
+                      {form.watch("logoDark") ? (
+                        <img src={form.watch("logoDark")!} alt="Dark logo on light background" className="h-10 max-w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">Upload a dark-mode logo above</p>
+                      )}
+                    </div>
+                    <div className="rounded-xl border bg-slate-900 p-4 flex flex-col items-center gap-2 min-h-[80px] justify-center">
+                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Dark Background Preview</p>
+                      {form.watch("logoLight") ? (
+                        <img src={form.watch("logoLight")!} alt="Light logo on dark background" className="h-10 max-w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                      ) : (
+                        <p className="text-xs text-slate-500 italic">Upload a light-mode logo above</p>
+                      )}
+                    </div>
+                  </div>
 
-                <TabsContent value="currency" className="space-y-4">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Currency Settings</CardTitle>
-                        <CardDescription>
-                          Configure your platform's default currency
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="defaultCurrency">Default Currency</Label>
-                          <Select
-                            value={form.watch("defaultCurrency")}
-                            onValueChange={(value) => form.setValue("defaultCurrency", value)}
-                          >
-                            <SelectTrigger data-testid="select-default-currency">
-                              <SelectValue placeholder="Select currency" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="GHS">GHS - Ghanaian Cedi</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-              </>
+                  {/* Light mode logo (for dark backgrounds) */}
+                  <MediaUploadInput
+                    id="logoLight"
+                    label="Logo — Light Version (for dark/colored backgrounds)"
+                    value={form.watch("logoLight") || ""}
+                    onChange={(v) => form.setValue("logoLight", v, { shouldDirty: true })}
+                    accept="image"
+                    mediaCategory="logo"
+                    skip4KValidation
+                    description="Used in the header and footer when on a dark background or in dark mode. Typically white or light-colored text."
+                    placeholder="https://res.cloudinary.com/…/logo-light.png"
+                  />
+
+                  {/* Dark mode logo (for light backgrounds) */}
+                  <MediaUploadInput
+                    id="logoDark"
+                    label="Logo — Dark Version (for light/white backgrounds)"
+                    value={form.watch("logoDark") || ""}
+                    onChange={(v) => form.setValue("logoDark", v, { shouldDirty: true })}
+                    accept="image"
+                    mediaCategory="logo"
+                    skip4KValidation
+                    description="Used in the header and footer when on a light background or in light mode. Typically dark teal or dark-colored text."
+                    placeholder="https://res.cloudinary.com/…/logo-dark.png"
+                  />
+
+                  {/* App Icon / Favicon */}
+                  <MediaUploadInput
+                    id="favicon"
+                    label="App Icon (Favicon & Install Icon)"
+                    value={form.watch("favicon") || ""}
+                    onChange={(v) => form.setValue("favicon", v, { shouldDirty: true })}
+                    accept="image"
+                    mediaCategory="logo"
+                    skip4KValidation
+                    description="The main platform icon — shown in browser tabs, bookmarks, the PWA install prompt, Android/iOS home screen, and the app launcher. Use a square PNG at least 512×512 for best quality across all surfaces."
+                    placeholder="https://res.cloudinary.com/…/app-icon.png"
+                  />
+                  {form.watch("favicon") && (
+                    <div className="flex items-center gap-4 rounded-xl border bg-muted/40 p-3">
+                      <div className="flex items-center gap-2">
+                        <img src={form.watch("favicon")!} alt="App icon preview" className="h-8 w-8 rounded object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        <span className="text-xs text-muted-foreground">Browser tab (16×16 equivalent)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <img src={form.watch("favicon")!} alt="App icon preview" className="h-12 w-12 rounded-xl object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        <span className="text-xs text-muted-foreground">Home screen icon (48×48)</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fallback / generic logo */}
+                  <MediaUploadInput
+                    id="logo"
+                    label="Generic / Fallback Logo"
+                    value={form.watch("logo") || ""}
+                    onChange={(v) => form.setValue("logo", v, { shouldDirty: true })}
+                    accept="image"
+                    mediaCategory="logo"
+                    skip4KValidation
+                    description="Optional fallback used where a single logo is needed without dark/light distinction (e.g. email templates, OG images)."
+                    placeholder="https://res.cloudinary.com/…/logo.png"
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Colors */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Brand Colors</CardTitle>
+                  <CardDescription>
+                    Define the platform's color palette — applied to buttons, highlights, headers, and accents.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="primaryColor">Primary Color</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="primaryColor"
+                          {...form.register("primaryColor")}
+                          placeholder="#1e7b5f"
+                          data-testid="input-primary-color"
+                          className="flex-1"
+                        />
+                        {/^#([A-Fa-f0-9]{6})$/.test(form.watch("primaryColor") || "") && (
+                          <div className="h-10 w-10 shrink-0 rounded border" style={{ backgroundColor: form.watch("primaryColor") }} />
+                        )}
+                      </div>
+                      {form.formState.errors.primaryColor && (
+                        <p className="text-sm text-destructive">{form.formState.errors.primaryColor.message}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">Main brand color — buttons, links, highlights.</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="secondaryColor">Secondary Color</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="secondaryColor"
+                          {...form.register("secondaryColor")}
+                          placeholder="#2c3e50"
+                          data-testid="input-secondary-color"
+                          className="flex-1"
+                        />
+                        {/^#([A-Fa-f0-9]{6})$/.test(form.watch("secondaryColor") || "") && (
+                          <div className="h-10 w-10 shrink-0 rounded border" style={{ backgroundColor: form.watch("secondaryColor") }} />
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Complementary color for headers and footers.</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="accentColor">Accent Color</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="accentColor"
+                          {...form.register("accentColor")}
+                          placeholder="#e74c3c"
+                          data-testid="input-accent-color"
+                          className="flex-1"
+                        />
+                        {/^#([A-Fa-f0-9]{6})$/.test(form.watch("accentColor") || "") && (
+                          <div className="h-10 w-10 shrink-0 rounded border" style={{ backgroundColor: form.watch("accentColor") }} />
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Used for badges, alerts, and call-to-action accents.</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {user?.role !== "super_admin" && (
+              <TabsContent value="currency" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Currency Settings</CardTitle>
+                    <CardDescription>
+                      Configure your platform's default currency
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="defaultCurrency">Default Currency</Label>
+                      <Select
+                        value={form.watch("defaultCurrency")}
+                        onValueChange={(value) => form.setValue("defaultCurrency", value)}
+                      >
+                        <SelectTrigger data-testid="select-default-currency">
+                          <SelectValue placeholder="Select currency" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="GHS">GHS - Ghanaian Cedi</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
             )}
 
             <TabsContent value="ads" className="space-y-4">

@@ -1,15 +1,18 @@
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/lib/auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { PageLoadingState } from "@/components/ui/loading-state";
-import { Bell, Store, Settings as SettingsIcon, Wallet, MessageSquare, Package, FolderTree, Image as ImageIcon, ShieldCheck } from "lucide-react";
+import { Bell, Store, Settings as SettingsIcon, Wallet, MessageSquare, Package, FolderTree, Image as ImageIcon, ShieldCheck, Globe, Loader2, Copy, Check, Palette, Share2 } from "lucide-react";
+import { FaInstagram, FaFacebook, FaTiktok } from "react-icons/fa";
 import { useLocation } from "wouter";
-import { fetchApiJson } from "@/lib/queryClient";
+import { fetchApiJson, apiRequest, queryClient } from "@/lib/queryClient";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { useToast } from "@/hooks/use-toast";
 import { Stack, CalendarCheck, Infinity as PhInfinity, Storefront, ArrowCircleUp } from "@phosphor-icons/react";
 import { SellerUpgradeModal } from "@/components/SellerUpgradeModal";
 
@@ -43,7 +46,24 @@ interface SellerStore {
     bankCode?: string | null;
   } | null;
   isPayoutVerified?: boolean | null;
+  whatsappNumber?: string | null;
+  socialLinks?: { instagram?: string; facebook?: string; tiktok?: string; website?: string } | null;
+  merchantCategory?: string | null;
+  brandingConfig?: {
+    primaryColor?: string | null;
+    accentColor?: string | null;
+    logoOverride?: string | null;
+    coverImage?: string | null;
+    tagline?: string | null;
+  } | null;
 }
+
+const MERCHANT_CATEGORIES = [
+  { value: "QUICK_EATS", label: "Quick Eats / Food & Cafe", icon: "🍔" },
+  { value: "HEALTH_ESSENTIALS", label: "Health & Pharmacy", icon: "💊" },
+  { value: "RETAIL_BOUTIQUE", label: "Retail / Fashion Boutique", icon: "👗" },
+  { value: "GENERAL_PROVISIONS", label: "General Provisions / Mixed", icon: "🏪" },
+];
 
 const hasSellerPayoutSetup = (store?: SellerStore | null) => {
   if (!store?.payoutType || !store?.payoutDetails) return false;
@@ -67,6 +87,7 @@ export default function SellerSettings() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const { allowSellerBankPayouts, allowSellerDirectSupportMessages } = usePlatformSettings();
+  const { toast } = useToast();
 
   const { data: store, isLoading: storeLoading } = useQuery<SellerStore>({
     queryKey: ["/api/stores/my-store", "seller-settings"],
@@ -86,6 +107,105 @@ export default function SellerSettings() {
   });
 
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [instagram, setInstagram] = useState("");
+  const [facebook, setFacebook] = useState("");
+  const [tiktok, setTiktok] = useState("");
+  const [website, setWebsite] = useState("");
+  const [merchantCat, setMerchantCat] = useState("");
+  const [socialSaved, setSocialSaved] = useState(false);
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+
+  // Branding state
+  const [brandPrimaryColor, setBrandPrimaryColor] = useState("");
+  const [brandAccentColor, setBrandAccentColor] = useState("");
+  const [brandLogoOverride, setBrandLogoOverride] = useState("");
+  const [brandCoverImage, setBrandCoverImage] = useState("");
+  const [brandTagline, setBrandTagline] = useState("");
+  const [brandingSaved, setBrandingSaved] = useState(false);
+
+  // Sync store data into social + branding fields when store loads
+  const storeLoaded = store?.id;
+  useMemo(() => {
+    if (store) {
+      setInstagram(store.socialLinks?.instagram || "");
+      setFacebook(store.socialLinks?.facebook || "");
+      setTiktok(store.socialLinks?.tiktok || "");
+      setWebsite(store.socialLinks?.website || "");
+      setMerchantCat(store.merchantCategory || "");
+      setBrandPrimaryColor(store.brandingConfig?.primaryColor || "");
+      setBrandAccentColor(store.brandingConfig?.accentColor || "");
+      setBrandLogoOverride(store.brandingConfig?.logoOverride || "");
+      setBrandCoverImage(store.brandingConfig?.coverImage || "");
+      setBrandTagline(store.brandingConfig?.tagline || "");
+    }
+  }, [storeLoaded]);
+
+  const saveSocialMutation = useMutation({
+    mutationFn: async () => {
+      if (!store?.id) throw new Error("Store not found");
+      const res = await apiRequest("PATCH", `/api/stores/${store.id}`, {
+        socialLinks: {
+          instagram: instagram.trim() || undefined,
+          facebook: facebook.trim() || undefined,
+          tiktok: tiktok.trim() || undefined,
+          website: website.trim() || undefined,
+        },
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Social commerce settings saved!" });
+      setSocialSaved(true);
+      setTimeout(() => setSocialSaved(false), 2000);
+      queryClient.invalidateQueries({ queryKey: ["/api/stores/my-store"] });
+    },
+    onError: (e: any) => {
+      toast({ title: e?.message || "Failed to save", variant: "destructive" });
+    },
+  });
+
+  const saveBrandingMutation = useMutation({
+    mutationFn: async () => {
+      if (!store?.id) throw new Error("Store not found");
+      const res = await apiRequest("PATCH", `/api/stores/${store.id}`, {
+        brandingConfig: {
+          primaryColor: brandPrimaryColor.trim() || null,
+          accentColor: brandAccentColor.trim() || null,
+          logoOverride: brandLogoOverride.trim() || null,
+          coverImage: brandCoverImage.trim() || null,
+          tagline: brandTagline.trim() || null,
+        },
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Store branding saved!" });
+      setBrandingSaved(true);
+      setTimeout(() => setBrandingSaved(false), 2000);
+      queryClient.invalidateQueries({ queryKey: ["/api/stores/my-store"] });
+    },
+    onError: (e: any) => {
+      toast({ title: e?.message || "Failed to save branding", variant: "destructive" });
+    },
+  });
+
+  const [personaSaved, setPersonaSaved] = useState(false);
+  const savePersonaMutation = useMutation({
+    mutationFn: async () => {
+      if (!store?.id) throw new Error("Store not found");
+      const res = await apiRequest("PATCH", `/api/stores/${store.id}`, { merchantCategory: merchantCat || null });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Store persona updated!" });
+      setPersonaSaved(true);
+      setTimeout(() => setPersonaSaved(false), 2000);
+      queryClient.invalidateQueries({ queryKey: ["/api/stores/my-store"] });
+    },
+    onError: (e: any) => {
+      toast({ title: e?.message || "Failed to save", variant: "destructive" });
+    },
+  });
 
   const storePayoutReady = hasSellerPayoutSetup(store);
   const storeApprovalLabel = useMemo(() => {
@@ -394,6 +514,314 @@ export default function SellerSettings() {
               </Card>
             );
           })()}
+
+          {/* Store Persona */}
+          <Card data-testid="card-store-persona" className="lg:col-span-3">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Store className="h-5 w-5 text-primary" />
+                Store Persona
+              </CardTitle>
+              <CardDescription>
+                Choose the category that best describes what you sell. This controls which product fields appear when you list items — you can update it any time your focus changes.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {MERCHANT_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.value}
+                    type="button"
+                    onClick={() => setMerchantCat(cat.value)}
+                    className={`rounded-xl border p-3 text-left transition-colors ${
+                      merchantCat === cat.value
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border hover:bg-muted"
+                    }`}
+                  >
+                    <span className="text-2xl">{cat.icon}</span>
+                    <p className="mt-1.5 text-xs font-medium leading-tight">{cat.label}</p>
+                  </button>
+                ))}
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={() => savePersonaMutation.mutate()} disabled={savePersonaMutation.isPending}>
+                  {savePersonaMutation.isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
+                  ) : personaSaved ? (
+                    <><Check className="h-4 w-4 mr-2" /> Saved!</>
+                  ) : (
+                    "Save Persona"
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Social Commerce — social links, merchant category */}
+          <Card data-testid="card-social-commerce" className="lg:col-span-3">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Share2 className="h-5 w-5 text-primary" />
+                Social Commerce Settings
+              </CardTitle>
+              <CardDescription>
+                Share your store and products on Instagram, TikTok, Facebook, and beyond.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {/* My Store Link */}
+              {store && (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">Your Store Link</p>
+                  <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-3">
+                    <p className="flex-1 truncate text-xs font-mono text-muted-foreground">
+                      {window.location.origin}/sellers/{store.id}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0 h-7 gap-1.5 text-xs"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/sellers/${store.id}`);
+                        toast({ title: "Copied!", description: "Store link copied to clipboard." });
+                      }}
+                    >
+                      <Copy className="h-3 w-3" /> Copy
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Share this link on your Instagram bio, WhatsApp status, or anywhere online. Customers will see all your products.
+                  </p>
+                </div>
+              )}
+
+              {/* Social links */}
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">Social Links</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground flex items-center gap-1.5"><FaInstagram className="h-3 w-3" /> Instagram</label>
+                    <Input placeholder="https://instagram.com/yourstore" value={instagram} onChange={(e) => setInstagram(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground flex items-center gap-1.5"><FaFacebook className="h-3 w-3" /> Facebook</label>
+                    <Input placeholder="https://facebook.com/yourpage" value={facebook} onChange={(e) => setFacebook(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground flex items-center gap-1.5"><FaTiktok className="h-3 w-3" /> TikTok</label>
+                    <Input placeholder="https://tiktok.com/@yourstore" value={tiktok} onChange={(e) => setTiktok(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground flex items-center gap-1.5"><Globe className="h-3 w-3" /> Website</label>
+                    <Input placeholder="https://yourwebsite.com" value={website} onChange={(e) => setWebsite(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Save button */}
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => saveSocialMutation.mutate()}
+                  disabled={saveSocialMutation.isPending}
+                >
+                  {saveSocialMutation.isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
+                  ) : socialSaved ? (
+                    <><Check className="h-4 w-4 mr-2" /> Saved!</>
+                  ) : (
+                    "Save Social Settings"
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Logo & Branding */}
+          <Card data-testid="card-store-branding" className="lg:col-span-3">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Palette className="h-5 w-5 text-primary" />
+                Logo &amp; Branding
+              </CardTitle>
+              <CardDescription>
+                Customise your store's visual identity. Changes are reflected on your public store page and social product links.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Live preview */}
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Live Preview</p>
+                <div className="overflow-hidden rounded-2xl border shadow-sm">
+                  {/* Cover */}
+                  <div
+                    className="h-24 w-full"
+                    style={{
+                      background: brandCoverImage
+                        ? `url(${brandCoverImage}) center/cover no-repeat`
+                        : `linear-gradient(135deg, ${/^#([A-Fa-f0-9]{6})$/.test(brandPrimaryColor) ? brandPrimaryColor : "#16a34a"}22 0%, ${/^#([A-Fa-f0-9]{6})$/.test(brandPrimaryColor) ? brandPrimaryColor : "#16a34a"}55 100%)`,
+                    }}
+                  />
+                  {/* Store header */}
+                  <div className="bg-background px-4 pb-4">
+                    <div className="flex items-end gap-3 -mt-7">
+                      <div
+                        className="h-14 w-14 rounded-xl border-2 border-background shadow flex items-center justify-center text-white font-bold text-xl overflow-hidden shrink-0"
+                        style={{ backgroundColor: /^#([A-Fa-f0-9]{6})$/.test(brandPrimaryColor) ? brandPrimaryColor : "#16a34a" }}
+                      >
+                        {brandLogoOverride ? (
+                          <img src={brandLogoOverride} alt="Logo" className="h-full w-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        ) : (
+                          (store?.name?.[0] || "S").toUpperCase()
+                        )}
+                      </div>
+                      <div className="pb-1 min-w-0">
+                        <p className="font-bold text-sm leading-tight truncate">{store?.name || "Your Store Name"}</p>
+                        {(brandTagline || "Your tagline here") && (
+                          <p className="text-xs text-muted-foreground truncate">{brandTagline || "Your tagline here"}</p>
+                        )}
+                      </div>
+                    </div>
+                    {/* Sample product card */}
+                    <div className="mt-3 rounded-xl border p-3 flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-muted shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">Sample Product</p>
+                        <p className="text-xs font-bold" style={{ color: /^#([A-Fa-f0-9]{6})$/.test(brandPrimaryColor) ? brandPrimaryColor : "#16a34a" }}>
+                          GHS 150.00
+                        </p>
+                      </div>
+                      <button
+                        className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+                        style={{ backgroundColor: /^#([A-Fa-f0-9]{6})$/.test(brandPrimaryColor) ? brandPrimaryColor : "#16a34a" }}
+                      >
+                        Buy
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Colors */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Primary color */}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Primary Brand Color</label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative shrink-0">
+                      <input
+                        type="color"
+                        value={/^#([A-Fa-f0-9]{6})$/.test(brandPrimaryColor) ? brandPrimaryColor : "#16a34a"}
+                        onChange={(e) => setBrandPrimaryColor(e.target.value)}
+                        className="h-9 w-9 cursor-pointer rounded border p-0.5 bg-transparent"
+                        title="Pick primary color"
+                      />
+                    </div>
+                    <Input
+                      placeholder="#16a34a"
+                      value={brandPrimaryColor}
+                      onChange={(e) => setBrandPrimaryColor(e.target.value)}
+                      className="flex-1 font-mono text-sm"
+                      maxLength={7}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Buttons, price highlights, store avatar background.</p>
+                </div>
+                {/* Accent color */}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Accent Color</label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative shrink-0">
+                      <input
+                        type="color"
+                        value={/^#([A-Fa-f0-9]{6})$/.test(brandAccentColor) ? brandAccentColor : "#f59e0b"}
+                        onChange={(e) => setBrandAccentColor(e.target.value)}
+                        className="h-9 w-9 cursor-pointer rounded border p-0.5 bg-transparent"
+                        title="Pick accent color"
+                      />
+                    </div>
+                    <Input
+                      placeholder="#f59e0b"
+                      value={brandAccentColor}
+                      onChange={(e) => setBrandAccentColor(e.target.value)}
+                      className="flex-1 font-mono text-sm"
+                      maxLength={7}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Badges, tags, and secondary accents.</p>
+                </div>
+              </div>
+
+              {/* Tagline */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Store Tagline</label>
+                <Input
+                  placeholder="Fresh bakes delivered daily ✨"
+                  value={brandTagline}
+                  onChange={(e) => setBrandTagline(e.target.value)}
+                  maxLength={120}
+                />
+                <p className="text-xs text-muted-foreground">Short phrase shown under your store name. Max 120 characters.</p>
+              </div>
+
+              {/* Logo URL */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Logo Image URL</label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    placeholder="https://res.cloudinary.com/…/logo.png"
+                    value={brandLogoOverride}
+                    onChange={(e) => setBrandLogoOverride(e.target.value)}
+                    className="flex-1"
+                  />
+                  {brandLogoOverride && (
+                    <img
+                      src={brandLogoOverride}
+                      alt="Logo preview"
+                      className="h-10 w-10 rounded-lg object-cover border bg-muted shrink-0"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">Replaces the initials avatar. Use a square image, ideally from your Cloudinary library.</p>
+              </div>
+
+              {/* Cover image URL */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Cover / Banner Image URL</label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    placeholder="https://res.cloudinary.com/…/cover.jpg"
+                    value={brandCoverImage}
+                    onChange={(e) => setBrandCoverImage(e.target.value)}
+                    className="flex-1"
+                  />
+                  {brandCoverImage && (
+                    <img
+                      src={brandCoverImage}
+                      alt="Cover preview"
+                      className="h-10 w-16 rounded-lg object-cover border bg-muted shrink-0"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">Wide banner at the top of your store page. Recommended 1200×400 px.</p>
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={() => saveBrandingMutation.mutate()} disabled={saveBrandingMutation.isPending}>
+                  {saveBrandingMutation.isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
+                  ) : brandingSaved ? (
+                    <><Check className="h-4 w-4 mr-2" /> Saved!</>
+                  ) : (
+                    "Save Branding"
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card data-testid="card-workspace-shortcuts" className="lg:col-span-3">
             <CardHeader>

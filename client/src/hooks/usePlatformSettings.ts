@@ -16,6 +16,11 @@ export interface PublicPlatformSettings {
   receiverRingtone?: string;
   notificationSound?: string;
   showRefundButton?: boolean;
+  logo?: string | null;
+  logoLight?: string | null;
+  logoDark?: string | null;
+  favicon?: string | null;
+  primaryColor?: string | null;
 }
 
 export const publicPlatformSettingsQueryKey = ["/api/public/platform-settings"] as const;
@@ -68,6 +73,11 @@ export function usePlatformSettings() {
     receiverRingtone: query.data?.receiverRingtone || "default",
     notificationSound: query.data?.notificationSound || "default",
     showRefundButton: query.data?.showRefundButton !== false,
+    logo: query.data?.logo || null,
+    logoLight: query.data?.logoLight || null,
+    logoDark: query.data?.logoDark || null,
+    favicon: query.data?.favicon || null,
+    primaryColor: query.data?.primaryColor || null,
     hasResolvedSettings,
   };
 }

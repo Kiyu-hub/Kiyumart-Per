@@ -32,10 +32,11 @@ export function MessageStatusTicks({
 
   const derivedStatus = getStatus();
   
-  // Variant-aware colors (primary for light text on colored backgrounds)
-  const getSentColor = () => variant === "primary" ? "text-primary-foreground/70" : "text-muted-foreground";
-  const getDeliveredColor = () => variant === "primary" ? "text-primary-foreground/70" : "text-muted-foreground";
-  const getReadColor = () => variant === "primary" ? "text-[#34B7F1]" : "text-[#34B7F1]";
+  // primary = inside a colored sender bubble (green bg); default = on a neutral bg
+  const getSentColor = () => variant === "primary" ? "text-white/60" : "text-muted-foreground";
+  const getDeliveredColor = () => variant === "primary" ? "text-white/60" : "text-muted-foreground";
+  // Blue is invisible on green — use light cyan/sky for primary, WhatsApp blue for default
+  const getReadColor = () => variant === "primary" ? "text-sky-200" : "text-[#34B7F1]";
 
   // Sent: single gray check
   if (derivedStatus === "sent") {

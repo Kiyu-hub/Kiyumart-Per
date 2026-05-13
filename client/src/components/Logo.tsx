@@ -1,52 +1,35 @@
-/**
- * KiyuMart Logo Component
- * 
- * Renders the KiyuMart text logo image.
- * Automatically detects dark/light mode and switches logos accordingly.
- * - Dark logo (dark teal text) → displayed on light mode backgrounds
- * - Light logo (light cyan text) → displayed on dark mode backgrounds
- */
-
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import logoDark from "@assets/kiyumart_logo_dark.png";
 import logoLight from "@assets/kiyumart_logo_light.png";
 
 interface LogoProps {
-  /** Size variant */
   size?: "sm" | "md" | "lg" | "xl";
-  /** Override auto-detection: dark for light backgrounds, light for dark backgrounds */
+  /** dark = for light backgrounds, light = for dark backgrounds, auto = detect from theme */
   variant?: "dark" | "light" | "auto";
-  /** Additional CSS classes */
   className?: string;
 }
 
-export default function Logo({ 
-  size = "md", 
+export default function Logo({
+  size = "md",
   variant = "auto",
   className,
 }: LogoProps) {
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const { logoLight: platformLogoLight, logoDark: platformLogoDark } = usePlatformSettings();
 
   useEffect(() => {
-    // Check initial dark mode state
     const checkDarkMode = () => {
       setIsDarkMode(document.documentElement.classList.contains("dark"));
     };
-    
     checkDarkMode();
-
-    // Listen for class changes on documentElement to detect theme changes
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
-        if (mutation.attributeName === "class") {
-          checkDarkMode();
-        }
+        if (mutation.attributeName === "class") checkDarkMode();
       });
     });
-
     observer.observe(document.documentElement, { attributes: true });
-
     return () => observer.disconnect();
   }, []);
 
@@ -57,17 +40,21 @@ export default function Logo({
     xl: "h-14",
   };
 
-  // Determine which logo to show based on variant or auto-detect from theme
   let logoSrc: string;
   if (variant === "auto") {
-    // Auto-detect: use light logo for dark theme, dark logo for light theme
-    logoSrc = isDarkMode ? logoLight : logoDark;
+    if (isDarkMode) {
+      logoSrc = platformLogoLight || logoLight;
+    } else {
+      logoSrc = platformLogoDark || logoDark;
+    }
+  } else if (variant === "dark") {
+    logoSrc = platformLogoDark || logoDark;
   } else {
-    logoSrc = variant === "dark" ? logoDark : logoLight;
+    logoSrc = platformLogoLight || logoLight;
   }
 
   return (
-    <img 
+    <img
       src={logoSrc}
       alt="KiyuMart"
       className={cn(

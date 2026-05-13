@@ -536,7 +536,7 @@ export default function SellerMessages() {
                               <div className="flex items-center gap-1 mt-1">
                                 {msg.isEdited && !msg.isDeleted && <span className="text-[9px] opacity-50 italic">edited</span>}
                                 <span className="text-[10px] opacity-70">{formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}</span>
-                                {isSender && <MessageStatusTicks status={msg.status || "sent"} deliveredAt={msg.deliveredAt} readAt={msg.readAt} isRead={msg.isRead} />}
+                                {isSender && <MessageStatusTicks status={msg.status || "sent"} deliveredAt={msg.deliveredAt} readAt={msg.readAt} isRead={msg.isRead} variant="primary" />}
                               </div>
                             </div>
                           </div>
@@ -673,7 +673,7 @@ export default function SellerMessages() {
                                   <div className="flex items-center gap-1 mt-1">
                                     {msg.isEdited && !msg.isDeleted && <span className="text-[9px] opacity-50 italic">edited</span>}
                                     <span className={`text-[10px] ${isSender ? 'opacity-70' : 'text-muted-foreground'}`}>{formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}</span>
-                                    {isSender && <MessageStatusTicks status={msg.status || "sent"} deliveredAt={msg.deliveredAt} readAt={msg.readAt} isRead={msg.isRead} />}
+                                    {isSender && <MessageStatusTicks status={msg.status || "sent"} deliveredAt={msg.deliveredAt} readAt={msg.readAt} isRead={msg.isRead} variant="primary" />}
                                   </div>
                                 </div>
                               </div>

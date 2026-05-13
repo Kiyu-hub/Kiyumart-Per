@@ -107,8 +107,12 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Payout setup (bank account or mobile money)
 - Automatic payouts when orders are fulfilled (no manual request needed)
 - Sales analytics (charts, date filters, export CSV/PDF)
-- Store profile and branding
-- Chat with buyers (if enabled by admin) — includes message delete and edit with real-time sync
+- Store profile and branding (primary color, accent color, logo, cover image, tagline — all with live preview)
+- **Social Commerce / Magic Links:** each product gets a `/p/:slug` shareable URL — minimal storefront page with Paystack inline payment, no buyer account needed. Share via QR code, WhatsApp, or Instagram. Commissions and processing fees apply as on normal orders.
+- **Cart Links:** sellers generate a multi-item pre-filled cart URL (`/cart/:token`). Customers open the link, fill in delivery details, and pay via Paystack — no account needed. Cart links expire after 48 hours.
+- **My Store Link** in seller settings — copyable store URL with one click
+- **Store Persona (Merchant Category):** sellers set their store type (Quick Eats / Health Essentials / Retail Boutique / General Provisions) which controls adaptive product creation fields
+- Chat with KiyuMart support team — direct messages with WhatsApp-style delivery ticks (visible on green bubbles)
 - Seller group chat (real-time channel shared between all sellers and super admin)
 - Seller ratings and reviews received
 - Free tier product limit with optional premium upgrade (instant verification — no webhook wait)
@@ -145,6 +149,9 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Group chat channels: Staff Chat (admins/agents), Seller Chat, Rider Chat
 - Pickup order verification by OTP or order number
 - Notification visibility control (operational events hidden from non-super-admin)
+- **Dynamic platform branding:** upload Logo Light, Logo Dark, and App Icon (Favicon) via media library — propagates to browser tabs, PWA install prompt, iOS Add-to-Home-Screen, and Android launcher icon. Logo used across header/footer without rebuild.
+- **Dynamic PWA manifest:** `/api/public/app-manifest` endpoint serves a live-updated `manifest.json` reading icons and primary color from DB — no static file needed
+- **Product slug management:** auto-generate shareable `/p/:slug` links for existing products from the share dialog with one click
 
 ### Rider Features (Internal Rider Mode Only)
 - View and accept assigned deliveries
@@ -510,6 +517,7 @@ Access control has three layers:
 | `referrals` | Referral links between referrer and referred user |
 | `referralRewards` | Reward records (discount, free tier, etc.) per completed referral |
 | `group_chat_messages` | Group channel messages (staff/sellers/riders) with sender, type, optional file URL |
+| `cart_links` | Seller-generated multi-item cart URLs — token, storeId, items (JSONB), note, totalAmount, expiresAt (48h) |
 
 ---
 
@@ -531,15 +539,16 @@ POST /api/auth/change-password Change password (authenticated)
 
 ### Products
 ```
-GET    /api/products                    List (filters: search, category, seller, sort)
-GET    /api/products/:id                Product detail with variants
-POST   /api/products                    Create (seller/admin)
-PATCH  /api/products/:id               Update
-DELETE /api/products/:id               Delete
-POST   /api/products/:id/images        Upload images to Cloudinary
-POST   /api/products/:id/variants      Add variant
-PATCH  /api/products/:id/variants/:vid Update variant
-DELETE /api/products/:id/variants/:vid Delete variant
+GET    /api/products                       List (filters: search, category, seller, sort)
+GET    /api/products/:id                   Product detail with variants
+POST   /api/products                       Create (seller/admin)
+PATCH  /api/products/:id                   Update
+DELETE /api/products/:id                   Delete
+POST   /api/products/:id/images            Upload images to Cloudinary
+POST   /api/products/:id/variants          Add variant
+PATCH  /api/products/:id/variants/:vid     Update variant
+DELETE /api/products/:id/variants/:vid     Delete variant
+POST   /api/products/:id/generate-slug     Generate /p/:slug link for existing product (seller/admin)
 ```
 
 ### Orders
@@ -635,6 +644,17 @@ GET    /api/coupons                                      List seller's coupons
 POST   /api/coupons                                      Create coupon
 POST   /api/seller/promotions/:appId/verify-payment      Re-verify promo payment reference
 DELETE /api/seller/promotions/:appId                     Remove expired or rejected promo application
+POST   /api/seller/cart-links                            Create a cart link (multi-item WhatsApp cart)
+```
+
+### Social Commerce (Magic Links & Cart Links)
+```
+GET  /api/p/:slug                   Public product page data (no auth — used by /p/:slug route)
+POST /api/orders/social-checkout    Guest checkout from a magic link product page
+GET  /api/cart-links/:token         Load a cart link (public — used by /cart/:token route)
+POST /api/orders/cart-checkout      Guest checkout from a cart link
+GET  /api/public/app-manifest       Dynamic PWA manifest JSON (icon & color from DB)
+GET  /api/public/platform-settings  Public platform branding (logo, favicon, colors)
 ```
 
 ### Promotions & Banners (Admin)
@@ -675,6 +695,8 @@ All routes are defined in `client/src/App.tsx`.
 /page/:slug          Dynamic CMS footer pages
 /track/:id           Public order tracking (no login required)
 /track               Track by order number
+/p/:slug             Social Commerce magic link — minimalist product page, Paystack inline pay, no account needed
+/cart/:token         Cart link checkout — pre-filled multi-item cart, Paystack inline pay, no account needed
 ```
 
 ### Buyer
@@ -892,7 +914,9 @@ Socket.IO runs on the same Express server. Clients authenticate via JWT on conne
 All settings live in a single row in the `platformSettings` table. Configurable by admin/super_admin through `/admin/settings`. The following fields exist:
 
 ### Branding
-`platformName`, `logo`, `primaryColor`, `secondaryColor`, `accentColor`, `lightBgColor`, `lightTextColor`, `darkBgColor`, `darkTextColor`, `lightCardColor`, `darkCardColor`
+`platformName`, `logo`, `logoLight` (for dark backgrounds), `logoDark` (for light backgrounds), `favicon` (browser tab + PWA install icon), `primaryColor`, `secondaryColor`, `accentColor`, `lightBgColor`, `lightTextColor`, `darkBgColor`, `darkTextColor`, `lightCardColor`, `darkCardColor`
+
+`logoLight` and `logoDark` override the bundled static assets across the entire platform — header, footer, email templates. `favicon` is served via the dynamic PWA manifest and injected into `<link rel="icon">` and `<link rel="apple-touch-icon">` at runtime via `FaviconInjector` in App.tsx.
 
 ### Store & Mode
 `isMultiVendor`, `primaryStoreId`, `shopDisplayMode` (`by-store` | `by-category`), `categoryDisplayStyle`, `showShopBySection`, `showHomepageFeaturedSection`, `showHomepageNewArrivalSection`
@@ -1479,7 +1503,7 @@ npm run audit:platform # Generate platform audit report (docs/)
 
 ---
 
-*Last updated: 2026-04-26. Update this file whenever a feature is added, removed, or changed.*
+*Last updated: 2026-05-13. Update this file whenever a feature is added, removed, or changed.*
 
 <!-- PLATFORM_AUDIT:START -->
 

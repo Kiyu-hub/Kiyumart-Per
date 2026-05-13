@@ -77,6 +77,8 @@ interface Product {
   costPrice?: string;
   discount?: number;
   sellerId: string;
+  storeId?: string | null;
+  slug?: string | null;
   category?: string | null;
   categoryName?: string | null;
   categoryId?: string | null;
@@ -735,6 +737,25 @@ export default function ProductDetails() {
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
     staleTime: 60 * 60 * 1000,
+  });
+
+  // Fetch seller's store for WhatsApp "Chat to Buy" info
+  const { data: sellerStore } = useQuery<{ id: string; whatsappNumber?: string | null; socialLinks?: any; name?: string } | null>({
+    queryKey: ["/api/stores", "by-seller", product?.sellerId],
+    queryFn: async () => {
+      if (!product?.storeId && !product?.sellerId) return null;
+      const url = product?.storeId
+        ? `/api/stores/${product.storeId}`
+        : `/api/stores?sellerId=${product!.sellerId}`;
+      try {
+        const res = await fetch(url, { credentials: "include" });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return Array.isArray(data) ? data[0] ?? null : data;
+      } catch { return null; }
+    },
+    enabled: !!product?.sellerId,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: relatedProducts = [] } = useQuery<Product[]>({

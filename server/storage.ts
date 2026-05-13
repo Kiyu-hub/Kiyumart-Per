@@ -5,7 +5,7 @@ import {
   productVariants, heroBanners, promotionalAds, promotionPricing, promotionApplications, coupons, bannerCollections, marketplaceBanners,
   stores, categoryFields, categories, notifications, mediaLibrary, footerPages,
   idempotencyKeys,
-  commissions, platformEarnings, sellerPayouts, riderPayouts, roleFeatures,
+  commissions, platformEarnings, sellerPayouts, riderPayouts, roleFeatures, cartLinks,
   type User, type InsertUser, type Product, type InsertProduct,
   type Order, type InsertOrder, type DeliveryZone, type InsertDeliveryZone,
   type ChatMessage, type InsertChatMessage, type Transaction, type PlatformSettings,
@@ -2280,7 +2280,8 @@ export class DbStorage implements IStorage {
         throw error;
       }
 
-      if (order.paymentStatus !== 'completed') {
+      const normalizedPayStatus = String(order.paymentStatus || "").toLowerCase().trim();
+      if (!["completed", "paid", "success"].includes(normalizedPayStatus)) {
         const error = new Error(`Order ${orderId} payment not completed (status: ${order.paymentStatus})`);
         (error as any).code = 'PAYMENT_NOT_COMPLETED';
         throw error;
@@ -2507,13 +2508,7 @@ export class DbStorage implements IStorage {
 
     const [existingPayout] = await db.select()
       .from(sellerPayouts)
-      .where(or(
-        eq(sellerPayouts.reference, settlementReference),
-        and(
-          eq(sellerPayouts.sellerId, commission.sellerId),
-          sql`${commission.id} = ANY(${sellerPayouts.commissionIds})`
-        ),
-      ))
+      .where(eq(sellerPayouts.reference, settlementReference))
       .limit(1);
 
     if (existingPayout) {
@@ -2599,13 +2594,7 @@ export class DbStorage implements IStorage {
       if (error?.code === "23505") {
         const [retryPayout] = await db.select()
           .from(sellerPayouts)
-          .where(or(
-            eq(sellerPayouts.reference, settlementReference),
-            and(
-              eq(sellerPayouts.sellerId, commission.sellerId),
-              sql`${commission.id} = ANY(${sellerPayouts.commissionIds})`
-            ),
-          ))
+          .where(eq(sellerPayouts.reference, settlementReference))
           .limit(1);
 
         if (retryPayout) {
@@ -2656,8 +2645,12 @@ export class DbStorage implements IStorage {
             .where(eq(commissions.orderId, orderId))
             .limit(1);
           commission = retryRows[0];
+        } else if (error?.code === "PAYMENT_NOT_COMPLETED") {
+          console.warn(`[FINANCE] Order ${orderId} skipped — payment status not settled: ${error.message}`);
+          return repairedCount;
         } else {
-          throw error;
+          console.error(`[FINANCE] Commission creation failed for order ${orderId}:`, error?.message || error);
+          return repairedCount;
         }
       }
     }
@@ -3443,14 +3436,20 @@ export class DbStorage implements IStorage {
         .returning();
 
       // Update commission status based on payout outcome
-      if (payout.commissionIds && payout.commissionIds.length > 0) {
-        const commissionStatus = status === 'completed' ? 'processed' : 
-                               status === 'failed' ? 'pending' : 
+      const safeCommissionIds: string[] = Array.isArray(payout.commissionIds)
+        ? payout.commissionIds.filter(Boolean)
+        : (typeof payout.commissionIds === 'string' && payout.commissionIds)
+          ? [String(payout.commissionIds).replace(/[{}"]/g, '').trim()].filter(Boolean)
+          : [];
+      if (safeCommissionIds.length > 0) {
+        const commissionStatus = status === 'completed' ? 'processed' :
+                               status === 'failed' ? 'pending' :
                                'processing';
-
-        await tx.update(commissions)
-          .set({ status: commissionStatus })
-          .where(sql`${commissions.id} = ANY(${payout.commissionIds})`);
+        for (const cid of safeCommissionIds) {
+          await tx.update(commissions)
+            .set({ status: commissionStatus })
+            .where(eq(commissions.id, cid));
+        }
       }
 
       return updated;
@@ -3967,7 +3966,13 @@ export class DbStorage implements IStorage {
       const rows = await db
         .select()
         .from(promotionalAds)
-        .where(and(eq(promotionalAds.isActive, true), or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now))))
+        .where(and(
+          eq(promotionalAds.isActive, true),
+          // Must have started (or have no scheduled start)
+          or(isNull(promotionalAds.startAt), lte(promotionalAds.startAt, now)),
+          // Must not have ended (or have no scheduled end)
+          or(isNull(promotionalAds.endAt), gte(promotionalAds.endAt, now)),
+        ))
         .orderBy(desc(promotionalAds.createdAt));
 
       const uniqueRows = new Map<string, any>();
@@ -4007,7 +4012,30 @@ export class DbStorage implements IStorage {
   async expirePromotionalAds() {
     const now = new Date();
     try {
-      await db.update(promotionalAds).set({ isActive: false, updatedAt: new Date() }).where(and(eq(promotionalAds.isActive, true), isNotNull(promotionalAds.endAt), lte(promotionalAds.endAt, now)));
+      // Step 1: find IDs of ads that are now past their endAt
+      const expiredRows = await db
+        .select({ id: promotionalAds.id })
+        .from(promotionalAds)
+        .where(and(eq(promotionalAds.isActive, true), isNotNull(promotionalAds.endAt), lte(promotionalAds.endAt, now)));
+
+      if (expiredRows.length === 0) return;
+
+      const expiredIds = expiredRows.map((r) => r.id);
+
+      // Step 2: mark the ads inactive
+      await db
+        .update(promotionalAds)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(inArray(promotionalAds.id, expiredIds));
+
+      // Step 3: sync linked promotion_applications to "expired"
+      await db
+        .update(promotionApplications)
+        .set({ status: "expired", updatedAt: new Date() } as any)
+        .where(and(
+          inArray(promotionApplications.createdPromotionId, expiredIds),
+          inArray(promotionApplications.status as any, ["approved", "active", "payment_confirmed"]),
+        ));
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('relation "promotional_ads"') || msg.includes('does not exist')) {
@@ -4892,8 +4920,8 @@ export class DbStorage implements IStorage {
           paidStatusFilter
         ));
       
-      // Gross product revenue = subtotal minus any coupon discount.
-      // This excludes delivery fees and processing fees, which do not belong to the seller.
+      // Gross product revenue = subtotal minus coupon discount for completed+paid orders.
+      // Using status=completed filter to match frontend analytics for consistency.
       const sellerRevenue = await db.select({
         sum: sql<number>`coalesce(sum(cast(${orders.subtotal} as numeric) - coalesce(cast(${orders.couponDiscount} as numeric), 0)), 0)`,
       })
@@ -4904,12 +4932,14 @@ export class DbStorage implements IStorage {
           paidStatusFilter
         ));
 
+      // totalRevenue also uses completed+paid so dashboard and analytics match
       const sellerPaidRevenue = await db.select({
         sum: sql<number>`coalesce(sum(cast(${orders.subtotal} as numeric) - coalesce(cast(${orders.couponDiscount} as numeric), 0)), 0)`,
       })
         .from(orders)
         .where(and(
           eq(orders.sellerId, userId),
+          eq(orders.status, "completed"),
           paidStatusFilter
         ));
 
@@ -4963,15 +4993,29 @@ export class DbStorage implements IStorage {
       const totalDeliveries = deliveryMethodCounts
         .filter((entry: any) => String(entry.deliveryMethod || "").toLowerCase().trim() !== "pickup")
         .reduce((sum: number, entry: any) => sum + Number(entry.count || 0), 0);
-      
+
+      const grossRevenue = Number(sellerRevenue[0]?.sum ?? 0);
+      const commissionSettlement = Number(sellerCommissionTotals[0]?.settlement ?? 0);
+      const commissionAmount = Number(sellerCommissionTotals[0]?.commission ?? 0);
+
+      // If commissions haven't been recorded yet, estimate from platform rate
+      let netPayout = commissionSettlement;
+      let platformCommission = commissionAmount;
+      if (commissionSettlement === 0 && grossRevenue > 0) {
+        const settings = await this.getPlatformSettings().catch(() => null);
+        const rate = parseFloat((settings as any)?.defaultCommissionRate ?? "1.00") / 100;
+        platformCommission = Math.round(grossRevenue * rate * 100) / 100;
+        netPayout = Math.max(0, grossRevenue - platformCommission);
+      }
+
       result.totalOrders = Number(totalSellerOrders[0]?.count ?? 0);
       result.paidOrders = Number(completedSellerOrders[0]?.count ?? 0);
       result.completedOrders = Number(completedSellerOrders[0]?.count ?? 0);
-      result.totalRevenue = Number(sellerPaidRevenue[0]?.sum ?? 0);
-      result.completedRevenue = Number(sellerRevenue[0]?.sum ?? 0);
-      result.totalReceivedMoney = Number(sellerCommissionTotals[0]?.settlement ?? 0);
-      result.sellerSettlementTotal = Number(sellerCommissionTotals[0]?.settlement ?? 0);
-      result.platformCommissionTotal = Number(sellerCommissionTotals[0]?.commission ?? 0);
+      result.totalRevenue = grossRevenue;
+      result.completedRevenue = grossRevenue;
+      result.totalReceivedMoney = netPayout;
+      result.sellerSettlementTotal = netPayout;
+      result.platformCommissionTotal = platformCommission;
       result.processingFeesTotal = Number(sellerProcessingFees[0]?.sum ?? 0);
       result.pendingPayoutValue = Number(pendingSellerPayouts[0]?.sum ?? 0);
       result.availableBalance = Number(availableBalance ?? 0);
@@ -5439,6 +5483,32 @@ export class DbStorage implements IStorage {
         .returning();
       return created;
     }
+  }
+
+  async createCartLink(data: {
+    token: string;
+    storeId: string;
+    sellerId: string;
+    items: Array<{productId: string; name: string; price: number; image: string | null; quantity: number}>;
+    note?: string;
+    totalAmount: string;
+    expiresAt: Date;
+  }) {
+    const [row] = await db.insert(cartLinks).values({
+      token: data.token,
+      storeId: data.storeId,
+      sellerId: data.sellerId,
+      items: data.items,
+      note: data.note || null,
+      totalAmount: data.totalAmount,
+      expiresAt: data.expiresAt,
+    }).returning();
+    return row;
+  }
+
+  async getCartLinkByToken(token: string) {
+    const [row] = await db.select().from(cartLinks).where(eq(cartLinks.token, token)).limit(1);
+    return row || null;
   }
 }
 
