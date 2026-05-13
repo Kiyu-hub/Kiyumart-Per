@@ -183,7 +183,7 @@ function AnalyticsInjector() {
 }
 
 function FaviconInjector() {
-  const { favicon } = usePlatformSettings();
+  const { favicon, primaryColor } = usePlatformSettings();
 
   React.useEffect(() => {
     if (!favicon) return;
@@ -198,6 +198,17 @@ function FaviconInjector() {
       el.href = favicon;
     });
   }, [favicon]);
+
+  // Keep PWA status-bar color in sync with admin brand color
+  React.useEffect(() => {
+    const color = primaryColor || "#ffffff";
+    document.querySelectorAll<HTMLMetaElement>("meta[name='theme-color']").forEach((el) => {
+      el.content = color;
+    });
+    document.querySelectorAll<HTMLMetaElement>("meta[name='msapplication-TileColor']").forEach((el) => {
+      el.content = color;
+    });
+  }, [primaryColor]);
 
   return null;
 }

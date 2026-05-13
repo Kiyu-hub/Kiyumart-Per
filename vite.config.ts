@@ -14,7 +14,7 @@ export default defineConfig({
       // them without a redeploy). index.html already has:
       //   <link rel="manifest" href="/api/public/app-manifest" />
       manifest: false,
-      injectRegister: null,
+      injectRegister: "auto",
       workbox: {
         skipWaiting: true,
         clientsClaim: true,

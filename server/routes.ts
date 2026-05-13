@@ -16481,12 +16481,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/public/app-manifest", async (_req, res) => {
     let iconUrl: string | null = null;
     let platformName = "KiyuMart";
-    let primaryColor = "#16a34a";
+    let primaryColor = "#ffffff";
     try {
       const settings = await storage.getPlatformSettings();
       iconUrl = settings.favicon || null;
       platformName = settings.platformName || "KiyuMart";
-      primaryColor = settings.primaryColor || "#16a34a";
+      primaryColor = settings.primaryColor || "#ffffff";
     } catch {
       // fall through to defaults
     }
