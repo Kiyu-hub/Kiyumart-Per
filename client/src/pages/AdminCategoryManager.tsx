@@ -651,40 +651,62 @@ export default function AdminCategoryManager() {
                   <FormField
                     control={form.control}
                     name="storeTypes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Available for Store Types (Optional)</FormLabel>
-                        <FormDescription>
-                          Leave empty to show this category to all store types. Select specific types to restrict visibility.
-                        </FormDescription>
-                        <div className="grid grid-cols-2 gap-4 mt-3">
-                          {STORE_TYPES.map((storeType) => (
-                            <div key={storeType} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`store-type-${storeType}`}
-                                checked={field.value?.includes(storeType)}
-                                onCheckedChange={(checked) => {
-                                  const current = field.value || [];
-                                  if (checked) {
-                                    field.onChange([...current, storeType]);
-                                  } else {
-                                    field.onChange(current.filter((t) => t !== storeType));
-                                  }
-                                }}
-                                data-testid={`checkbox-store-type-${storeType}`}
-                              />
-                              <label
-                                htmlFor={`store-type-${storeType}`}
-                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                              >
-                                {storeType.replace(/_/g, ' ')}
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                    render={({ field }) => {
+                      // Scope the available store-type checkboxes by the active tab.
+                      // Food tab → only food_beverages + restaurant. Stores tab →
+                      // everything else. Pending tab keeps the full list (since
+                      // categories under review may belong to either scope).
+                      const isFoodTab = activeTab === "food";
+                      const isStoresTab = activeTab === "stores";
+                      const visibleStoreTypes = isFoodTab
+                        ? STORE_TYPES.filter((t) => t === "food_beverages" || t === "restaurant")
+                        : isStoresTab
+                          ? STORE_TYPES.filter((t) => t !== "food_beverages" && t !== "restaurant")
+                          : STORE_TYPES;
+                      const scopeLabel = isFoodTab
+                        ? "Restaurants & Local Vendors"
+                        : isStoresTab
+                          ? "general store types"
+                          : "store types";
+                      return (
+                        <FormItem>
+                          <FormLabel>Available for {scopeLabel} (Optional)</FormLabel>
+                          <FormDescription>
+                            {isFoodTab
+                              ? "Pick which food businesses can use this category. Leave empty to apply to all restaurants and local vendors."
+                              : isStoresTab
+                                ? "Pick which general store types can use this category. Food-only options are managed separately under the Restaurants & Local Vendors tab."
+                                : "Leave empty to show this category to all store types. Select specific types to restrict visibility."}
+                          </FormDescription>
+                          <div className="grid grid-cols-2 gap-4 mt-3">
+                            {visibleStoreTypes.map((storeType) => (
+                              <div key={storeType} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`store-type-${storeType}`}
+                                  checked={field.value?.includes(storeType)}
+                                  onCheckedChange={(checked) => {
+                                    const current = field.value || [];
+                                    if (checked) {
+                                      field.onChange([...current, storeType]);
+                                    } else {
+                                      field.onChange(current.filter((t) => t !== storeType));
+                                    }
+                                  }}
+                                  data-testid={`checkbox-store-type-${storeType}`}
+                                />
+                                <label
+                                  htmlFor={`store-type-${storeType}`}
+                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                >
+                                  {storeType.replace(/_/g, ' ')}
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
                   />
 
                   {/* Cuisine field builder — visible only when this category is
