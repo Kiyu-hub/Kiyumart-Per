@@ -20,6 +20,13 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { fetchApiJson } from "@/lib/queryClient";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { isFoodVendorStore } from "@/lib/foodVendors";
+import React from "react";
+
+// Bolt-style mobile tracker for food orders. Lazy-loaded so non-food / desktop
+// orders don't pay for it.
+const MobileFoodOrderTracking = React.lazy(() => import("@/pages/mobile/MobileFoodOrderTracking"));
 
 interface Order {
   id: string;
@@ -91,6 +98,42 @@ export default function OrderTracking() {
   const isExplicitTrackingRoute = Boolean(trackPathMatch?.[1]);
   const isSingleOrderMode = Boolean(requestedOrderId);
   const isOrderDetailsMode = isSingleOrderMode;
+
+  // Bolt-style mobile tracker: when this is a single-order view, the device is
+  // mobile, and the order came from a food vendor / restaurant, defer to the
+  // dedicated Bolt-style tracker instead of the generic timeline.
+  const { isMobile: isMobileDevice } = useMobileDevice();
+  const { data: foodCheckOrder } = useQuery<{ storeId?: string | null; sellerId?: string | null } & Record<string, any>>({
+    queryKey: ["/api/orders", requestedOrderId, "food-check"],
+    queryFn: async () => {
+      if (!requestedOrderId) return {} as any;
+      const r = await fetch(`/api/orders/${requestedOrderId}`, { credentials: "include" });
+      if (!r.ok) return {} as any;
+      return r.json();
+    },
+    enabled: !!requestedOrderId && isMobileDevice && isSingleOrderMode,
+    staleTime: 30_000,
+  });
+  const foodCheckStoreId = foodCheckOrder?.storeId;
+  const { data: foodCheckStore } = useQuery<any | null>({
+    queryKey: ["/api/stores", foodCheckStoreId, "food-check"],
+    queryFn: async () => {
+      if (!foodCheckStoreId) return null;
+      const r = await fetch(`/api/stores/${foodCheckStoreId}`);
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: !!foodCheckStoreId,
+    staleTime: 5 * 60_000,
+  });
+  const orderIsFood = !!foodCheckStore && isFoodVendorStore(foodCheckStore);
+  if (isMobileDevice && isSingleOrderMode && orderIsFood) {
+    return (
+      <React.Suspense fallback={null}>
+        <MobileFoodOrderTracking />
+      </React.Suspense>
+    );
+  }
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [riderLocations, setRiderLocations] = useState<Map<string, RiderLocation>>(new Map());

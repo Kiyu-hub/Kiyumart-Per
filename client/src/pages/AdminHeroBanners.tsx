@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -56,6 +57,8 @@ interface HeroBanner {
   ctaText: string | null;
   ctaLink: string | null;
   storeMode: "single" | "multivendor" | "both";
+  placement: "home" | "food_vendors" | null;
+  themeColor: string | null;
   isActive: boolean;
   displayOrder: number;
   createdAt: string;
@@ -84,6 +87,8 @@ interface BannerFormData {
   ctaText: string;
   ctaLink: string;
   storeMode: "single" | "multivendor" | "both";
+  placement: "home" | "food_vendors";
+  themeColor: string;
   isActive: boolean;
   displayOrder: number;
 }
@@ -95,6 +100,8 @@ const defaultFormData: BannerFormData = {
   ctaText: "",
   ctaLink: "",
   storeMode: "both",
+  placement: "home",
+  themeColor: "",
   isActive: true,
   displayOrder: 0,
 };
@@ -109,6 +116,7 @@ export default function AdminHeroBanners() {
   const [editingBanner, setEditingBanner] = useState<HeroBanner | null>(null);
   const [formData, setFormData] = useState<BannerFormData>(defaultFormData);
   const [bannerToDelete, setBannerToDelete] = useState<HeroBanner | null>(null);
+  const [placementTab, setPlacementTab] = useState<"home" | "food_vendors">("home");
   
   // Product selector state
   const [selectedStoreId, setSelectedStoreId] = useState<string>("");
@@ -234,12 +242,16 @@ export default function AdminHeroBanners() {
         ctaText: banner.ctaText || "",
         ctaLink: banner.ctaLink || "",
         storeMode: banner.storeMode || "both",
+        placement: (banner.placement as any) || "home",
+        themeColor: banner.themeColor || "",
         isActive: banner.isActive,
         displayOrder: banner.displayOrder,
       });
     } else {
       setEditingBanner(null);
-      setFormData(defaultFormData);
+      // New banners inherit the current tab's placement so the admin doesn't
+      // have to remember to set it manually.
+      setFormData({ ...defaultFormData, placement: placementTab });
     }
     // Reset product selector state
     setSelectedStoreId("");
@@ -326,27 +338,56 @@ export default function AdminHeroBanners() {
         {/* Info Card */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Store Mode Settings</CardTitle>
+            <CardTitle className="text-lg">Where banners live</CardTitle>
             <CardDescription>
-              Choose which store mode each banner should appear in:
+              Each banner is scoped to a single placement. Switch the tab below to manage that
+              surface independently.
               <ul className="mt-2 space-y-1 list-disc list-inside text-sm">
-                <li><strong>Single Store:</strong> Banners appear only when platform is in single-store mode</li>
-                <li><strong>Multi-Vendor:</strong> Banners appear only when platform is in multi-vendor mode</li>
-                <li><strong>Both Modes:</strong> Banners appear in both store modes</li>
+                <li><strong>Homepage:</strong> shows on the main homepage hero rail (existing behaviour).</li>
+                <li><strong>Restaurants &amp; Local Vendors:</strong> shows on the dedicated food page only.</li>
               </ul>
             </CardDescription>
           </CardHeader>
         </Card>
 
-        {/* Banners Table */}
+        {/* Placement tabs */}
+        <Tabs
+          value={placementTab}
+          onValueChange={(v) => setPlacementTab(v === "food_vendors" ? "food_vendors" : "home")}
+        >
+          <TabsList>
+            <TabsTrigger value="home" data-testid="tab-banners-home">
+              Homepage ({banners.filter((b) => (b.placement || "home") === "home").length})
+            </TabsTrigger>
+            <TabsTrigger value="food_vendors" data-testid="tab-banners-food">
+              Restaurants &amp; Local Vendors ({banners.filter((b) => b.placement === "food_vendors").length})
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value={placementTab} className="mt-0" />
+        </Tabs>
+
+        {/* Banners Table — filtered by active placement tab */}
+        {(() => {
+          const tabBanners = banners.filter((b) =>
+            placementTab === "food_vendors"
+              ? b.placement === "food_vendors"
+              : (b.placement || "home") === "home",
+          );
+          return (
         <Card>
           <CardContent className="p-0">
-            {banners.length === 0 ? (
+            {tabBanners.length === 0 ? (
               <div className="text-center py-12">
                 <Layers className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg font-medium mb-2">No banners yet</h3>
+                <h3 className="text-lg font-medium mb-2">
+                  {placementTab === "food_vendors"
+                    ? "No food vendor banners yet"
+                    : "No homepage banners yet"}
+                </h3>
                 <p className="text-muted-foreground mb-4">
-                  Create your first hero banner to display on the homepage.
+                  {placementTab === "food_vendors"
+                    ? "Create a banner shown on the Restaurants & Local Vendors page."
+                    : "Create a banner shown on the main homepage hero rail."}
                 </p>
                 <Button onClick={() => handleOpenDialog()}>
                   <Plus className="h-4 w-4 mr-2" />
@@ -366,7 +407,7 @@ export default function AdminHeroBanners() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {banners.map((banner) => (
+                  {tabBanners.map((banner) => (
                     <TableRow key={banner.id}>
                       <TableCell>
                         <div className="w-20 h-12 rounded overflow-hidden bg-muted">
@@ -437,6 +478,8 @@ export default function AdminHeroBanners() {
             )}
           </CardContent>
         </Card>
+          );
+        })()}
       </div>
 
       {/* Create/Edit Dialog */}
@@ -500,6 +543,51 @@ export default function AdminHeroBanners() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="placement">Placement *</Label>
+                <Select
+                  value={formData.placement}
+                  onValueChange={(value: "home" | "food_vendors") =>
+                    setFormData({ ...formData, placement: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Where this banner shows" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="home">Homepage</SelectItem>
+                    <SelectItem value="food_vendors">Restaurants &amp; Local Vendors</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Restaurants &amp; Local Vendors banners appear on the dedicated food page only.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="themeColor">Accent color (optional)</Label>
+                <div className="flex gap-2 items-center">
+                  <Input
+                    id="themeColor"
+                    type="color"
+                    value={formData.themeColor || "#009688"}
+                    onChange={(e) => setFormData({ ...formData, themeColor: e.target.value })}
+                    className="w-14 h-10 p-1 cursor-pointer"
+                  />
+                  <Input
+                    value={formData.themeColor}
+                    onChange={(e) => setFormData({ ...formData, themeColor: e.target.value })}
+                    placeholder="#009688"
+                    className="font-mono"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Used as the gradient background when no image is present.
+                </p>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="subtitle">Subtitle</Label>
               <Input
@@ -508,6 +596,42 @@ export default function AdminHeroBanners() {
                 onChange={(e) => setFormData({ ...formData, subtitle: e.target.value })}
                 placeholder="Up to 50% off on selected items"
               />
+              {formData.placement === "food_vendors" && (
+                <div className="rounded-lg border border-border bg-muted/40 p-2.5">
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                    Quick food emojis — tap to append to the title
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { e: "🛵", label: "Moto" },
+                      { e: "🍕", label: "Pizza" },
+                      { e: "🍔", label: "Burger" },
+                      { e: "🍱", label: "Bento" },
+                      { e: "🍜", label: "Noodles" },
+                      { e: "🥘", label: "Local" },
+                      { e: "🍗", label: "Grill" },
+                      { e: "🥤", label: "Drink" },
+                      { e: "🥗", label: "Salad" },
+                      { e: "🍩", label: "Pastry" },
+                    ].map((it) => (
+                      <button
+                        key={it.label}
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            title: `${prev.title}${prev.title.trim() ? " " : ""}${it.e}`.slice(0, 80),
+                          }))
+                        }
+                        className="rounded-md border border-border bg-background px-2 py-1 text-base hover:bg-accent"
+                        title={it.label}
+                      >
+                        {it.e}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <MediaUploadInput

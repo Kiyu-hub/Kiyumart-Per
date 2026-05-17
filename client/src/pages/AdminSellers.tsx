@@ -19,6 +19,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatGhanaCardInput, GHANA_CARD_MAX_LENGTH } from "@/lib/ghanaCard";
 import MediaUploadInput from "@/components/MediaUploadInput";
 import { STORE_TYPES, STORE_TYPE_CONFIG, type StoreType } from "@shared/storeTypes";
 import { StoreTypeSelector, StoreTypeDynamicFields } from "@/components/StoreTypeSelector";
@@ -647,7 +648,17 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
                 <FormItem>
                   <FormLabel>Ghana Card Number</FormLabel>
                   <FormControl>
-                    <Input placeholder="GHA-123456789-0" {...field} data-testid="input-edit-national-id-card" />
+                    <Input
+                      placeholder="GHA-XXXXXXXXX-X"
+                      inputMode="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      maxLength={GHANA_CARD_MAX_LENGTH}
+                      {...field}
+                      value={field.value || ""}
+                      onChange={(e) => field.onChange(formatGhanaCardInput(e.target.value))}
+                      data-testid="input-edit-national-id-card"
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

@@ -1,5 +1,62 @@
 # Changelog
 
+## 2026-05-17 (v1.3.0) — Bolt Food experience
+
+A dedicated food ordering experience now lives alongside the existing
+e-commerce flows. Restaurants and local vendors get their own discovery,
+detail, cart, and tracking screens modelled on Bolt Food while staying on
+KiyuMart's existing stack (Paystack, delivery zones, internal/external rider
+modes). KiyuMart brand TEAL (#009688) replaces Bolt's green throughout.
+
+### Database schema changes
+- `stores.prep_time_mins` — integer (default 15). Drives Bolt-style live ETA on the food vendors page.
+- `stores.min_order_amount` — decimal(10,2) (default 0). Surfaces as the per-store minimum order warning.
+- `hero_banners.placement` — text (default `home`). Splits banners between the homepage hero and the dedicated Restaurants & Local Vendors page. Legacy NULL rows count as `home`; food page never shows them.
+- `hero_banners.theme_color` — text. Optional brand accent gradient when no banner image is uploaded.
+- `categories.product_fields_config` — JSONB. Array of `DynamicField` entries (name, label, type, options, required) so super admin can define per-cuisine fields (Pizza → crust/sauce/toppings, Sushi → rice/fish).
+- `platform_settings.enable_3d_ar` — boolean (default true). Global kill-switch for 3D/AR product features. Food vendors are always treated as off regardless.
+
+All columns are self-healed on boot via `ALTER TABLE … ADD COLUMN IF NOT EXISTS`.
+
+### New API endpoints
+- `GET /api/stores/quotes?ids=&lat=&lon=&city=&region=` — batched live quote per store. Returns prep / travel minutes, ETA low/high, delivery fee (from `delivery_zones`), minimum order, distance in km, and total units sold (aggregated from completed/delivered `order_items`).
+- `POST /api/categories/seed-cuisines` (super_admin only) — idempotent one-click seed for the default cuisines Rice, Local, Pizza, Burger, Grill, Drinks, Pastry, Salad, Fast Food, Noodles. Skips slugs that already exist.
+- `GET /api/hero-banners?placement=home|food_vendors` — placement filter on the existing banners endpoint. `placement=home` includes legacy NULL rows; `placement=food_vendors` is exact match.
+- `POST/PATCH /api/admin/hero-banners` — now accept `placement` and `themeColor`.
+- `GET /api/public/platform-settings` — now exposes `allowSellerRegistration`, `allowRiderRegistration`, and `enable3DAR`.
+
+### Backend
+- `server/storage.ts:ensureStoreForSeller` — new `allowPendingPromotion` option lets the seller approval flow create a store before the role gets promoted from `buyer` to `seller` (fixes the "User is not a seller" approval error).
+- `server/storage.ts:getHeroBanners(storeMode?, placement?)` — extended with a placement filter.
+- `server/routes.ts:/api/upload/public` — `purpose=ghana_card` body flag now controls whether portrait uploads get rotated to landscape. Profile photos, store banners, and product images keep their natural orientation.
+
+### Frontend — buyer / discovery
+- **Restaurants & Local Vendors page** (`client/src/pages/mobile/MobileAllVendors.tsx`) — Bolt-style layout: sticky DELIVER TO header that requests geolocation and reverse-geocodes via `/api/public/geocode/reverse`, debounced search, sub-tab pill control (All / Restaurants / Local Vendors), cuisine chip row sourced from food-scoped categories, super-admin-managed banner, "Top picks for you" rail, vertical store cards with rating + ETA + distance + delivery fee + minimum order + total sold. Stores sorted by distance ASC when location is set.
+- **Bolt-style restaurant detail** (`client/src/pages/mobile/MobileFoodStorePage.tsx`) — hero image with floating back/share pills, overlapping info card with 4-stat strip (Rating / ETA / Away / Sold), sticky horizontal category tabs (scroll-spy), Bolt-style menu rows (text left + 96×96 thumb with `+` button right). `SellerStorePage.tsx` lazy-renders this for mobile food vendors.
+- **Bolt-style food product detail** (`client/src/pages/mobile/MobileFoodDetail.tsx`) — hero, title, description, modifier groups from `product_modifiers` (radio for required single-select, checkboxes for `maxSelections > 1`), special-instructions textarea (240 char limit), pill quantity stepper, sticky `Add to cart · GH₵xx.xx` CTA with live-priced total. Required-group validation toasts the missing groups by name. Sends `modifierSelections` + `notes` + `unitPriceWithModifiers` to `/api/cart`. `App.tsx` routes mobile food-vendor products here automatically.
+- **Bolt-style food order tracking** (`client/src/pages/mobile/MobileFoodOrderTracking.tsx`) — top-glow hero with status emoji (🧾 → 🍳 → 🍱 → 🛵 → 🎉), live `Arrives in ~N min` chip, 5-step vertical timeline mapping KiyuMart statuses to Bolt vocabulary, rider card with avatar/vehicle/rating/call/chat, items list with modifier summary lines, delivery-to and payment-summary cards. Subscribes to `order_status_changed` / `order_updated` / `rider_assigned` socket events. `OrderTracking.tsx` branches to this for mobile + food orders only.
+
+### Frontend — super admin
+- **AdminHeroBanners** split into two tabs: **Homepage** and **Restaurants & Local Vendors**. Each shows its own count and filtered list; new banners inherit the active tab's placement. A 10-icon food emoji library (🛵 🍕 🍔 🍱 🍜 🥘 🍗 🥤 🥗 🍩) is exposed in the dialog when placement is `food_vendors` — tap to append to the title.
+- **AdminCategoryManager** — three tabs for super admin: **Stores** / **Restaurants & Local Vendors** / **Pending**. Categories created from each tab pre-scope `storeTypes` automatically. "Seed default cuisines" button on the food tab calls `POST /api/categories/seed-cuisines`. New **Cuisine-specific fields** builder in the dialog (shown only for food-scoped categories) lets super admin define per-cuisine dynamic fields with a per-row editor (internal key + label + type select + required toggle + options for select/multiselect + placeholder for text).
+- **Admin All Products** (`AdminProducts.tsx`) — food/restaurant items filtered out. New "Food products" button in the header with a live badge count links to the dedicated page.
+- **New page Admin Food Products** (`client/src/pages/AdminFoodProducts.tsx`, route `/admin/food-products`) — mirrors All Products but lists food/restaurant items only. Search, hide/unhide, edit, three stat cards (Total / Visible / Hidden).
+- **AdminSettings** — new "Enable 3D & AR Product Features" toggle. Copy notes food vendors are always excluded regardless. When off, all 3D/AR references hide across every dashboard.
+- **StoreDetailsPage** — new "Average prep time (minutes)" and "Minimum order (GH₵)" inputs alongside the Store Persona section.
+
+### Frontend — seller
+- **SellerProducts.tsx** — variant section now hidden for both `food_beverages` and `restaurant` store types (was only `food_beverages`). FoodImageGallery preset picker available for restaurants too. When a seller picks a food category for a product, that category's `productFieldsConfig` is fetched and merged with the existing storeType-based dynamic fields (deduped by name). The "Get free 3D rotation & AR" guidance card hides when the global toggle is off OR the store is food/restaurant.
+
+### Cross-cutting hardening
+- `MobileProductDetails.tsx` — 3D/AR viewer now cross-references the store record (`isFoodVendorStore`) so legacy products without a `storeType` field on the product row are still correctly identified as food and locked out.
+- `HeroCarousel.tsx`, `MobileHome.tsx`, `MultiVendorHome.tsx`, `MobileAllCategories.tsx` — all homepage banner / category consumers now request `placement=home` strictly. Food page never shows homepage banners; homepage never shows food banners.
+- `MobileAllCategories.tsx`, `MobileHome.tsx`, `MultiVendorHome.tsx` — food-scoped categories are filtered out of the generic "Shop by Category" surface.
+- `AdminUsers.tsx` — super-admin "Delete user" confirmation now requires typing `DELETE` before the action button enables. Warns extra-hard for sellers (whose stores get cascade-deleted in the same transaction).
+- `MobileAllVendors.tsx` — natural-language copy throughout ("Tap to share your address", "Share your address to see delivery time"). No technical jargon, no hardcoded fees / ETAs / distances / promo text anywhere on the food surfaces.
+
+### Profile & onboarding
+- **MobileProfile.tsx** — "Become a Seller" and "Become a Rider" rows now hide when the platform has registration disabled or when external rider mode is on (matches desktop Header gating). Avatar inside the 60×60 wrapper now fills with `object-fit: cover` instead of leaving a 48px gap.
+
 ## 2026-05-08 (v1.2.0)
 
 ### Banner Promotion Designer

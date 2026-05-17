@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { formatGhanaCardInput, GHANA_CARD_MAX_LENGTH } from "@/lib/ghanaCard";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,63 +16,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Bike, ArrowLeft, AlertCircle } from "lucide-react";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
 import { resolveSavedLocationToAddress } from "@/lib/locationPrefill";
 
-const becomeRiderSchema = z.discriminatedUnion("vehicleType", [
-  z.object({
-    name: z.string().min(2, "Name must be at least 2 characters"),
-    email: z.string().email("Invalid email address"),
-    phone: z.string().min(10, "Phone number must be at least 10 characters"),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    profileImage: z.string().min(1, "Profile image is required"),
-    ghanaCardFront: z.string().min(1, "Ghana Card front image is required"),
-    ghanaCardBack: z.string().min(1, "Ghana Card back image is required"),
-    nationalIdCard: z.string().min(10, "Ghana Card number is required"),
-    businessAddress: z.string().min(5, "Address/Location is required"),
-    riderCity: z.string().min(2, "City is required"),
-    riderRegion: z.string().min(2, "Region is required"),
-    vehicleType: z.literal("car"),
-    vehicleNumber: z.string().min(1, "Plate number is required for cars"),
-    licenseNumber: z.string().min(1, "Driver's license is required for cars"),
-    vehicleColor: z.string().min(1, "Vehicle color is required for cars"),
-  }),
-  z.object({
-    name: z.string().min(2, "Name must be at least 2 characters"),
-    email: z.string().email("Invalid email address"),
-    phone: z.string().min(10, "Phone number must be at least 10 characters"),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    profileImage: z.string().min(1, "Profile image is required"),
-    ghanaCardFront: z.string().min(1, "Ghana Card front image is required"),
-    ghanaCardBack: z.string().min(1, "Ghana Card back image is required"),
-    nationalIdCard: z.string().min(10, "Ghana Card number is required"),
-    businessAddress: z.string().min(5, "Address/Location is required"),
-    riderCity: z.string().min(2, "City is required"),
-    riderRegion: z.string().min(2, "Region is required"),
-    vehicleType: z.literal("motorcycle"),
-    vehicleNumber: z.string().min(1, "Plate number is required for motorcycles"),
-    licenseNumber: z.string().min(1, "Driver's license is required for motorcycles"),
-    vehicleColor: z.string().optional(),
-  }),
-  z.object({
-    name: z.string().min(2, "Name must be at least 2 characters"),
-    email: z.string().email("Invalid email address"),
-    phone: z.string().min(10, "Phone number must be at least 10 characters"),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    profileImage: z.string().min(1, "Profile image is required"),
-    ghanaCardFront: z.string().min(1, "Ghana Card front image is required"),
-    ghanaCardBack: z.string().min(1, "Ghana Card back image is required"),
-    nationalIdCard: z.string().min(10, "Ghana Card number is required"),
-    businessAddress: z.string().min(5, "Address/Location is required"),
-    riderCity: z.string().min(2, "City is required"),
-    riderRegion: z.string().min(2, "Region is required"),
-    vehicleType: z.literal("bicycle"),
-    vehicleNumber: z.string().optional(),
-    licenseNumber: z.string().optional(),
-    vehicleColor: z.string().optional(),
-  }),
-]);
+const becomeRiderSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Invalid email address"),
+  phone: z.string().min(10, "Phone number must be at least 10 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  profileImage: z.string().min(1, "Profile image is required"),
+  ghanaCardFront: z.string().min(1, "Ghana Card front image is required"),
+  ghanaCardBack: z.string().min(1, "Ghana Card back image is required"),
+  nationalIdCard: z.string().min(10, "Ghana Card number is required"),
+  businessAddress: z.string().min(5, "Address/Location is required"),
+  riderCity: z.string().min(2, "City is required"),
+  riderRegion: z.string().min(2, "Region is required"),
+  vehicleType: z.enum(["car", "motorcycle", "bicycle"], { required_error: "Please select a vehicle type" }),
+  vehicleNumber: z.string().optional(),
+  licenseNumber: z.string().optional(),
+  vehicleColor: z.string().optional(),
+});
 
 type BecomeRiderFormData = z.infer<typeof becomeRiderSchema>;
 
@@ -129,7 +92,7 @@ export default function BecomeRiderPage() {
       businessAddress: "",
       riderCity: "",
       riderRegion: "",
-      vehicleType: undefined,
+      vehicleType: undefined as any,
       vehicleNumber: "",
       licenseNumber: "",
       vehicleColor: "",
@@ -218,6 +181,9 @@ export default function BecomeRiderPage() {
     setUploading(fieldName);
     const formData = new FormData();
     formData.append("file", file);
+    if (fieldName === "ghanaCardFront" || fieldName === "ghanaCardBack") {
+      formData.append("purpose", "ghana_card");
+    }
 
     try {
       const response = await fetch("/api/upload/public", {
@@ -332,6 +298,14 @@ export default function BecomeRiderPage() {
       });
       return;
     }
+    if (!data.vehicleType) {
+      toast({
+        title: "Vehicle type required",
+        description: "Please select your vehicle type",
+        variant: "destructive",
+      });
+      return;
+    }
     if (data.vehicleType === "car" && (!data.vehicleNumber || !data.licenseNumber || !data.vehicleColor)) {
       toast({
         title: "Missing Information",
@@ -354,20 +328,21 @@ export default function BecomeRiderPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <Header />
-      
-      <main className="flex-1 py-6 px-4 overflow-y-auto">
-        <div className="max-w-2xl mx-auto">
-          <Button
-            variant="ghost"
-            onClick={() => navigate("/")}
-            className="mb-6"
-            data-testid="button-back"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Home
-          </Button>
+    <div className="bg-background" style={{ paddingBottom: 'max(40px, env(safe-area-inset-bottom))', overflowX: 'hidden' }}>
+      {/* Mobile sticky header */}
+      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b px-4 flex items-center gap-3" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))', paddingBottom: '12px' }}>
+        <button
+          onClick={() => navigate("/")}
+          className="p-2 -ml-1 rounded-full hover:bg-muted transition-colors"
+          data-testid="button-back"
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <span className="font-semibold text-base">Become a Rider</span>
+      </div>
+
+      <div className="px-4 py-5 max-w-2xl mx-auto">
 
           {applicationGate && (
             <Dialog open>
@@ -389,21 +364,21 @@ export default function BecomeRiderPage() {
           )}
 
           {!authLoading && isLoggedIn && !applicationGate && (
-          <Card>
-            <CardHeader>
+          <Card className="border-0 shadow-none sm:border sm:shadow-sm">
+            <CardHeader className="px-0 pt-2 pb-4 sm:px-6 sm:pt-6">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-primary/10 rounded-lg">
-                  <Bike className="h-6 w-6 text-primary" />
+                <div className="p-2.5 bg-primary/10 rounded-xl">
+                  <Bike className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <CardTitle className="text-2xl">Become a Delivery Partner</CardTitle>
-                  <CardDescription>
+                  <CardTitle className="text-lg leading-tight">Become a Delivery Partner</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
                     Join our delivery team and start earning today
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-0 sm:px-6">
               <Alert className="mb-6 border-primary/20 bg-primary/5">
                 <AlertCircle className="h-4 w-4 text-primary" />
                 <AlertDescription className="text-sm">
@@ -415,7 +390,7 @@ export default function BecomeRiderPage() {
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Personal Information</h3>
+                    <h3 className="text-base font-semibold border-b pb-2">Personal Information</h3>
                     
                     <FormField
                       control={form.control}
@@ -523,7 +498,7 @@ export default function BecomeRiderPage() {
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Verification Documents</h3>
+                    <h3 className="text-base font-semibold border-b pb-2">Verification Documents</h3>
                     
                     <FormField
                       control={form.control}
@@ -544,7 +519,7 @@ export default function BecomeRiderPage() {
                                 data-testid="input-profile-image"
                               />
                               {profilePreview && (
-                                <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
+                                <div className="relative w-20 h-20 border rounded-xl overflow-hidden">
                                   <img src={profilePreview} alt="Profile" className="w-full h-full object-cover" />
                                 </div>
                               )}
@@ -563,7 +538,17 @@ export default function BecomeRiderPage() {
                         <FormItem>
                           <FormLabel>Ghana Card Number</FormLabel>
                           <FormControl>
-                            <Input placeholder="GHA-XXXXXXXXX-X" {...field} data-testid="input-national-id" />
+                            <Input
+                              placeholder="GHA-XXXXXXXXX-X"
+                              inputMode="text"
+                              autoComplete="off"
+                              spellCheck={false}
+                              maxLength={GHANA_CARD_MAX_LENGTH}
+                              {...field}
+                              value={field.value || ""}
+                              onChange={(e) => field.onChange(formatGhanaCardInput(e.target.value))}
+                              data-testid="input-national-id"
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -589,7 +574,7 @@ export default function BecomeRiderPage() {
                                 data-testid="input-card-front"
                               />
                               {cardFrontPreview && (
-                                <div className="relative w-64 h-40 border rounded-lg overflow-hidden">
+                                <div className="relative w-full max-w-xs h-36 border rounded-xl overflow-hidden">
                                   <img src={cardFrontPreview} alt="Ghana Card Front" className="w-full h-full object-cover" />
                                 </div>
                               )}
@@ -620,7 +605,7 @@ export default function BecomeRiderPage() {
                                 data-testid="input-card-back"
                               />
                               {cardBackPreview && (
-                                <div className="relative w-64 h-40 border rounded-lg overflow-hidden">
+                                <div className="relative w-full max-w-xs h-36 border rounded-xl overflow-hidden">
                                   <img src={cardBackPreview} alt="Ghana Card Back" className="w-full h-full object-cover" />
                                 </div>
                               )}
@@ -634,7 +619,7 @@ export default function BecomeRiderPage() {
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Vehicle Information</h3>
+                    <h3 className="text-base font-semibold border-b pb-2">Vehicle Information</h3>
                     
                     <FormField
                       control={form.control}
@@ -771,10 +756,7 @@ export default function BecomeRiderPage() {
             </CardContent>
           </Card>
           )}
-        </div>
-      </main>
-
-      <Footer />
+      </div>
     </div>
   );
 }

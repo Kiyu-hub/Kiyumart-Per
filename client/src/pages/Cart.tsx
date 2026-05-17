@@ -186,6 +186,7 @@ export default function Cart() {
           productName: item.name,
           productImage: item.image,
           price: String(item.price),
+          originalPrice: item.originalPrice ? String(item.originalPrice) : null,
           quantity: item.quantity,
           selectedColor: item.selectedColor,
           selectedSize: item.selectedSize,

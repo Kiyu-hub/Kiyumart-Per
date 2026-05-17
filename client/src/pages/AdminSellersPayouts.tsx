@@ -123,6 +123,8 @@ export default function AdminSellersPayouts() {
   const [historyTab, setHistoryTab] = useState<HistoryTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isReconciling, setIsReconciling] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<string | null>(null);
   const [lastGoodSellers, setLastGoodSellers] = useState<Seller[]>([]);
   const [lastGoodPendingPayouts, setLastGoodPendingPayouts] = useState<Payout[]>([]);
   const [lastGoodSellerPayouts, setLastGoodSellerPayouts] = useState<Payout[]>([]);
@@ -492,6 +494,21 @@ export default function AdminSellersPayouts() {
     }
   };
 
+  const reconcileCommissions = async () => {
+    setIsReconciling(true);
+    setReconcileResult(null);
+    try {
+      const res = await apiRequest("POST", "/api/admin/finance/reconcile-commissions");
+      const data = await res.json();
+      setReconcileResult(data.message || `Reconciled ${data.repairedCount} record(s).`);
+      await refreshAll();
+    } catch (err: any) {
+      setReconcileResult("Reconciliation failed: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsReconciling(false);
+    }
+  };
+
   if (selectedSeller) {
     return (
       <DashboardLayout role={user?.role as any} showBackButton>
@@ -700,11 +717,20 @@ export default function AdminSellersPayouts() {
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" className="border-border/70 text-foreground hover:bg-muted dark:border-white/30 dark:text-white dark:hover:bg-white/10" onClick={refreshAll} disabled={isRefreshing}>
-                  <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-                  {isRefreshing ? "Refreshing..." : "Refresh"}
-                </Button>
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="border-border/70 text-foreground hover:bg-muted dark:border-white/30 dark:text-white dark:hover:bg-white/10" onClick={reconcileCommissions} disabled={isReconciling || isRefreshing}>
+                    <Sparkles className={`mr-2 h-4 w-4 ${isReconciling ? "animate-spin" : ""}`} />
+                    {isReconciling ? "Reconciling..." : "Reconcile Commissions"}
+                  </Button>
+                  <Button variant="outline" size="sm" className="border-border/70 text-foreground hover:bg-muted dark:border-white/30 dark:text-white dark:hover:bg-white/10" onClick={refreshAll} disabled={isRefreshing}>
+                    <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                    {isRefreshing ? "Refreshing..." : "Refresh"}
+                  </Button>
+                </div>
+                {reconcileResult && (
+                  <p className="text-xs text-muted-foreground dark:text-white/70">{reconcileResult}</p>
+                )}
               </div>
             </div>
 

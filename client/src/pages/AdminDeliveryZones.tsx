@@ -34,7 +34,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2, Plus, Edit, Trash2, MapPin, Users, Mail, Phone } from "lucide-react";
+import { Loader2, Plus, Edit, Trash2, MapPin, Users, Mail, Phone, Lightbulb } from "lucide-react";
+
+// Suggested delivery fees per merchant category (GHS)
+const MERCHANT_TYPE_FEE_PRESETS = [
+  { label: "Quick Eats", category: "QUICK_EATS", note: "Short-radius hot food", presets: [{ name: "Local (2–3 km)", fee: "5.00" }, { name: "Nearby (3–5 km)", fee: "8.00" }, { name: "City-wide", fee: "12.00" }] },
+  { label: "Health Essentials", category: "HEALTH_ESSENTIALS", note: "Pharmacy / medical supply", presets: [{ name: "Local", fee: "8.00" }, { name: "City-wide", fee: "15.00" }, { name: "Region-wide", fee: "25.00" }] },
+  { label: "Retail Boutique", category: "RETAIL_BOUTIQUE", note: "Fashion / general retail", presets: [{ name: "City-wide", fee: "12.00" }, { name: "Region-wide", fee: "20.00" }, { name: "National", fee: "35.00" }] },
+  { label: "General Provisions", category: "GENERAL_PROVISIONS", note: "Groceries / provisions", presets: [{ name: "Local", fee: "6.00" }, { name: "City-wide", fee: "15.00" }, { name: "Region-wide", fee: "25.00" }] },
+] as const;
 
 const GHANA_REGIONS = [
   "Greater Accra",
@@ -547,21 +555,50 @@ export function AdminDeliveryZonesPage({
                   </div>
 
                   {!isPickupStationPage ? (
-                    <div className="space-y-2">
-                      <Label htmlFor="fee">Delivery Fee ({currency})</Label>
-                      <Input
-                        id="fee"
-                        type="number"
-                        step="0.01"
-                        {...form.register("fee")}
-                        placeholder="0.00"
-                        data-testid="input-zone-fee"
-                      />
-                      {form.formState.errors.fee && (
-                        <p className="text-sm text-destructive">
-                          {form.formState.errors.fee.message}
-                        </p>
-                      )}
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="fee">Delivery Fee ({currency})</Label>
+                        <Input
+                          id="fee"
+                          type="number"
+                          step="0.01"
+                          {...form.register("fee")}
+                          placeholder="0.00"
+                          data-testid="input-zone-fee"
+                        />
+                        {form.formState.errors.fee && (
+                          <p className="text-sm text-destructive">
+                            {form.formState.errors.fee.message}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Merchant-type fee quick-fill suggestions */}
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800/40 dark:bg-amber-950/20 p-3 space-y-2">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
+                          <Lightbulb className="h-3.5 w-3.5" />
+                          Suggested fees by store type — click to auto-fill
+                        </div>
+                        <div className="space-y-2">
+                          {MERCHANT_TYPE_FEE_PRESETS.map((group) => (
+                            <div key={group.category} className="space-y-1">
+                              <p className="text-xs font-medium text-muted-foreground">{group.label} <span className="font-normal opacity-70">({group.note})</span></p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {group.presets.map((preset) => (
+                                  <button
+                                    key={preset.name}
+                                    type="button"
+                                    onClick={() => form.setValue("fee", preset.fee, { shouldDirty: true })}
+                                    className="rounded-full border border-border bg-background px-2.5 py-1 text-xs hover:border-primary hover:bg-primary/5 transition-colors"
+                                  >
+                                    {preset.name} — GHS {preset.fee}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-4">

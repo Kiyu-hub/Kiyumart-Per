@@ -53,9 +53,10 @@ export default function HeroCarousel() {
   const storeMode = platformSettings?.isMultiVendor ? "multivendor" : "single";
 
   const { data: bannerResponse = [], isLoading } = useQuery<HeroBanner[]>({
-    queryKey: ["/api/hero-banners", storeMode],
+    // Strict placement scope — homepage hero never shows food vendor banners.
+    queryKey: ["/api/hero-banners", storeMode, "home"],
     queryFn: async () => {
-      const res = await fetch(`/api/hero-banners?storeMode=${storeMode}`);
+      const res = await fetch(`/api/hero-banners?storeMode=${storeMode}&placement=home`);
       if (!res.ok) return [];
       const data = await res.json();
       return Array.isArray(data) ? data : [];

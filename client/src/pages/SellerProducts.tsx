@@ -28,6 +28,7 @@ import ProductGallery from "@/components/ProductGallery";
 import { CategorySelect } from "@/components/CategorySelect";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { DynamicFieldRenderer } from "@/components/DynamicFieldRenderer";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import {
   StoreType,
   getStoreTypeLabel,
@@ -475,10 +476,49 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
     enabled: !!user?.id,
   });
 
-  const storeTypeProductFields = useMemo(
+  const baseStoreTypeFields = useMemo(
     () => (store?.storeType ? getStoreTypeProductFields(store.storeType) : []),
     [store?.storeType],
   );
+
+  // 3D / AR guidance card visibility: requires the global toggle to be on AND
+  // the store to be something other than food (food vendors / restaurants never
+  // surface 3D or AR anywhere).
+  const platform = usePlatformSettings();
+  const isFoodStoreType = store?.storeType === "food_beverages" || store?.storeType === "restaurant";
+  const show3DAR = platform.enable3DAR && !isFoodStoreType;
+
+  // Fetch the currently selected category so we can merge its `productFieldsConfig`
+  // (Bolt-style per-cuisine fields like crust / sauce / toppings) into the form.
+  // Only meaningful for food vendors — non-food stores don't define category fields.
+  const selectedCategoryId = form.watch("categoryId");
+  const { data: selectedCategoryData } = useQuery<any | null>({
+    queryKey: ["/api/categories", selectedCategoryId, "fields"],
+    queryFn: async () => {
+      if (!selectedCategoryId) return null;
+      const r = await fetch(`/api/categories`);
+      if (!r.ok) return null;
+      const all = await r.json();
+      return Array.isArray(all) ? all.find((c: any) => c.id === selectedCategoryId) : null;
+    },
+    enabled: !!selectedCategoryId && isFoodStoreType,
+    staleTime: 5 * 60_000,
+  });
+  const cuisineFields: any[] = Array.isArray(selectedCategoryData?.productFieldsConfig)
+    ? selectedCategoryData.productFieldsConfig
+    : [];
+  // Merge — cuisine fields come AFTER the storeType defaults; dedupe by name so
+  // a cuisine field can override a default one if needed.
+  const storeTypeProductFields = useMemo(() => {
+    const merged = [...baseStoreTypeFields];
+    const seen = new Set(merged.map((f) => f.name));
+    for (const cf of cuisineFields) {
+      if (!cf?.name || seen.has(cf.name)) continue;
+      merged.push(cf as any);
+      seen.add(cf.name);
+    }
+    return merged;
+  }, [baseStoreTypeFields, cuisineFields]);
   const variantConfig = useMemo(
     () => getStoreTypeVariantConfig(store?.storeType || null),
     [store?.storeType],
@@ -723,7 +763,7 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
 
       const normalizedCategoryId = String(data.categoryId || "").trim() || undefined;
 
-      const isFoodStore = store?.storeType === "food_beverages";
+      const isFoodStore = store?.storeType === "food_beverages" || store?.storeType === "restaurant";
       const variantsRequired = store?.storeType === "clothing";
       const directStock = Math.max(0, parseInt(data.stockQuantity || "0", 10) || 0);
 
@@ -1414,13 +1454,43 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
               </Card>
             )}
 
-            {/* Food store: product image gallery + Ghanaian food preset picker */}
-            {store?.storeType === "food_beverages" && (
+            {/* Food/restaurant: product image gallery + Ghanaian food preset picker */}
+            {(store?.storeType === "food_beverages" || store?.storeType === "restaurant") && (
               <FoodImageGallery
                 images={form.watch("images") || []}
                 onChange={(imgs) => form.setValue("images", imgs, { shouldValidate: true })}
               />
             )}
+
+            {/* 360° Photo Guidance — multi-angle uploads unlock free 3D rotation.
+                Hidden when the platform 3D/AR toggle is off OR the store is a food vendor. */}
+            {show3DAR && (
+              <Card className="p-4 border-primary/30 bg-primary/5">
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-primary/15 text-primary flex items-center justify-center flex-shrink-0">
+                    <span className="text-xl">📸</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <h3 className="font-semibold text-foreground">
+                      Get free 3D rotation &amp; AR — shoot all angles
+                    </h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Upload <strong>4&nbsp;or&nbsp;more photos</strong> of the same product from different angles
+                      (front, sides, back, top, in-use). Buyers will be able to <strong>drag to rotate</strong> a true
+                      360° view and place the product in their room with <strong>AR</strong>. Each photo is auto-enhanced
+                      (denoised &amp; sharpened) for an ultra-realistic look — at no cost to you.
+                    </p>
+                    <ul className="text-xs text-muted-foreground/90 list-disc pl-4 mt-1 space-y-0.5">
+                      <li>Keep the camera at the same distance for every shot.</li>
+                      <li>Use a plain background and even lighting (sunlight near a window works).</li>
+                      <li>Rotate the product, not the camera — that gives the smoothest 360° feel.</li>
+                      <li>Tip: 8 photos taken every 45° around the product is the sweet spot.</li>
+                    </ul>
+                  </div>
+                </div>
+              </Card>
+            )}
+
 
             <FormField
               control={form.control}
@@ -1512,8 +1582,10 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
               />
             )}
 
-            {/* Product Variants Management — hidden for food stores */}
-            {store?.storeType !== "food_beverages" && (<>
+            {/* Product Variants Management — hidden for food/restaurant stores.
+                Food sellers use product_modifiers (add-ons) and pricing per portion
+                via the dedicated food detail page instead of inventory variants. */}
+            {store?.storeType !== "food_beverages" && store?.storeType !== "restaurant" && (<>
             <Card className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -2600,7 +2672,7 @@ function ProductShareDialog({ product }: { product: Product }) {
           <Share2 className="h-3 w-3" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Share2 className="h-4 w-4" />

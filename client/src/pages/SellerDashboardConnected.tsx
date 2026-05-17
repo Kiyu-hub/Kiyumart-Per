@@ -913,7 +913,7 @@ export default function SellerDashboardConnected() {
         user={{ name: user.name, profileImage: user.profileImage }}
         stats={{
           todayRevenue: 0,
-          totalRevenue: sellerEarnings,
+          totalRevenue: sellerEarnings ?? undefined,
           pendingOrders,
           totalOrders: sellerOrdersCount,
           activeProducts: safeProducts.filter((p: any) => p.isActive).length,

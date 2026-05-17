@@ -11,7 +11,11 @@ export const STORE_TYPES = [
   "toys_games",
   "automotive",
   "health_wellness",
+  "restaurant",
 ] as const;
+
+// Store types that belong to food businesses — hidden from general "store" registration
+export const FOOD_STORE_TYPES = new Set(["food_beverages", "restaurant"] as const);
 
 export type StoreType = typeof STORE_TYPES[number];
 
@@ -320,6 +324,61 @@ export const STORE_TYPE_CONFIG: Record<StoreType, {
       },
     ],
   },
+  restaurant: {
+    label: "Restaurant",
+    description: "Restaurant menu items, dishes & drinks",
+    icon: "🍽️",
+    productFields: [
+      {
+        name: "cuisineType",
+        label: "Cuisine Type",
+        type: "select",
+        options: ["Ghanaian", "West African", "Continental", "Chinese", "Fast Food", "Grills & BBQ", "Seafood", "Italian", "Indian", "Café & Pastry", "Mixed / Other"],
+        description: "The primary cuisine your restaurant serves",
+        required: true,
+      },
+      {
+        name: "mealCategory",
+        label: "Meal Category",
+        type: "select",
+        options: ["Starter", "Main Course", "Side Dish", "Dessert", "Drink / Beverage", "Combo / Set Meal"],
+        description: "Where this item falls on the menu",
+        required: true,
+      },
+      {
+        name: "prepTime",
+        label: "Preparation Time",
+        type: "text",
+        placeholder: "e.g. 15 mins, 30 mins",
+        description: "Average time to prepare this dish",
+        required: true,
+      },
+      {
+        name: "portionSize",
+        label: "Portion Size",
+        type: "select",
+        options: ["Small", "Regular", "Large", "Family Size"],
+        description: "Serving size for this item",
+        required: false,
+      },
+      {
+        name: "dietaryTags",
+        label: "Dietary Tags",
+        type: "multiselect",
+        options: ["Vegetarian", "Vegan", "Halal", "Gluten-Free", "Dairy-Free", "Spicy", "Nut-Free"],
+        description: "Applicable dietary labels",
+        required: false,
+      },
+      {
+        name: "spiceLevel",
+        label: "Spice Level",
+        type: "select",
+        options: ["Not Spicy", "Mild", "Medium", "Hot", "Extra Hot"],
+        description: "Heat level of this dish",
+        required: false,
+      },
+    ],
+  },
 };
 
 export function getStoreTypeSchema(storeType: StoreType) {
@@ -370,6 +429,7 @@ export const STORE_TYPE_PRODUCT_CONFIG: Record<StoreType, DynamicField[]> = {
   ],
   food_beverages: [
     { name: "foodType", label: "Food Type", type: "select", options: ["Cooked meal / Local dish", "Street food", "Packaged food", "Beverage", "Snack", "Fresh produce", "Frozen item", "Bakery", "Pastry / Dessert", "Other"], required: true, description: "Choose the product type." },
+    { name: "prepTime", label: "Preparation Time", type: "select", options: ["Ready immediately", "5–10 minutes", "10–20 minutes", "20–30 minutes", "30–45 minutes", "45–60 minutes", "Pre-order only"], required: false, description: "How long does it take to prepare this item after an order is placed?" },
     { name: "portionOrWeight", label: "Portion / Pack Size", type: "text", placeholder: "e.g. One plate, 500g, 1L, Pack of 2", required: false, description: "Describe the serving size or pack quantity." },
     { name: "ingredients", label: "Ingredients / Contents", type: "textarea", placeholder: "List the main ingredients or food contents (optional for local dishes)", required: false, description: "Helps buyers know what is in the food." },
     { name: "storageGuide", label: "Storage / Serving Guide", type: "select", options: ["Serve fresh / hot", "Room temperature", "Keep refrigerated", "Keep frozen"], required: false, description: "How should buyers store or serve this item." },
@@ -419,10 +479,20 @@ export const STORE_TYPE_PRODUCT_CONFIG: Record<StoreType, DynamicField[]> = {
   ],
   health_wellness: [
     { name: "productCategory", label: "Product Category", type: "select", options: ["Supplement", "Medical supply", "Wellness device", "Personal care", "Fitness nutrition"], required: true, description: "Choose the product category." },
+    { name: "barcode", label: "Barcode / UPC", type: "text", placeholder: "e.g. 012345678905", required: false, description: "Barcode or UPC number printed on the product packaging." },
+    { name: "prescriptionRequired", label: "Prescription Required", type: "select", options: ["No", "Yes – prescription required", "Yes – pharmacist consultation required"], required: true, description: "Let buyers know whether a prescription or consultation is needed before purchase." },
     { name: "usageDirections", label: "How To Use", type: "textarea", placeholder: "Add simple usage directions", required: true, description: "Explain how the buyer should use this product." },
     { name: "keyIngredients", label: "Key Ingredients / Components", type: "textarea", placeholder: "List the main active ingredients or components", required: true, description: "Important for product clarity and trust." },
     { name: "warnings", label: "Important Warnings", type: "textarea", placeholder: "e.g. Keep out of reach of children", required: false, description: "Optional safety information." },
     { name: "certification", label: "Certification", type: "multiselect", options: ["FDA approved", "Organic", "GMP certified", "Halal", "Vegan"], required: false, description: "Add any relevant certification." },
+  ],
+  restaurant: [
+    { name: "cuisineType", label: "Cuisine Type", type: "select", options: ["Ghanaian", "West African", "Continental", "Chinese", "Fast Food", "Grills & BBQ", "Seafood", "Italian", "Indian", "Café & Pastry", "Mixed / Other"], required: true, description: "Choose the cuisine style." },
+    { name: "mealCategory", label: "Meal Category", type: "select", options: ["Main course", "Appetizer / Starter", "Side dish", "Dessert", "Drink / Beverage", "Combo / Meal deal"], required: true, description: "Categorize this menu item." },
+    { name: "prepTime", label: "Preparation Time", type: "select", options: ["Ready immediately", "5–10 minutes", "10–20 minutes", "20–30 minutes", "30–45 minutes", "45–60 minutes", "Pre-order only"], required: false, description: "Estimated preparation time after order is placed." },
+    { name: "portionSize", label: "Portion Size", type: "select", options: ["Small", "Regular", "Large", "Family size", "Per piece", "Per pack"], required: false, description: "Serving size for this item." },
+    { name: "dietaryTags", label: "Dietary Info", type: "multiselect", options: ["Halal", "Vegan", "Vegetarian", "Gluten-free", "Dairy-free", "Spicy", "Nut-free"], required: false, description: "Add relevant dietary labels." },
+    { name: "spiceLevel", label: "Spice Level", type: "select", options: ["Mild", "Medium", "Hot", "Extra hot", "Not applicable"], required: false, description: "Optional heat level for this dish." },
   ],
 };
 

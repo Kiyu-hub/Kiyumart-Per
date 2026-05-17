@@ -1,7 +1,7 @@
 {
   "allowSellerBankPayouts": false,
   "allowSharedVariantColorStock": false,
-  "isExternalRiderSystemEnabled": true,
+  "isExternalRiderSystemEnabled": false,
   "showCheckoutDeliveryMap": true,
   "allowPickupAgentAdminChat": true,
   "allowSellerDirectSupportMessages": true,

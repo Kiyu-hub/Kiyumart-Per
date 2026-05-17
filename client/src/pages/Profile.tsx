@@ -250,6 +250,11 @@ export default function Profile() {
       .slice(0, 2);
   };
 
+  const { isMobile } = useMobileDevice();
+  if (isMobile) {
+    return <MobileProfile />;
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
@@ -265,17 +270,6 @@ export default function Profile() {
           </div>
         </main>
       </div>
-    );
-  }
-
-  const { isMobile } = useMobileDevice();
-  if (isMobile) {
-    return (
-      <MobileProfile
-        profile={profile ?? null}
-        stats={{ orders: (orders as any[]).length }}
-        onLogout={logout}
-      />
     );
   }
 

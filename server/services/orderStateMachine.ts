@@ -127,12 +127,14 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
           error: "Payment must be completed before packaging is marked complete",
         }),
         (ctx) => ({
-          valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() === "pickup",
-          error: "Packaged status is only available for pickup orders",
+          valid:
+            String(ctx.order.deliveryMethod || "").toLowerCase().trim() === "pickup" ||
+            isExternallyDispatchedDelivery(ctx),
+          error: "Packaged status is only available for pickup or external delivery orders",
         }),
         (ctx) => ({
           valid: ctx.actorRole === "seller",
-          error: "Only the seller can mark a pickup order as packaged",
+          error: "Only the seller can mark an order as packaged",
         }),
       ],
       sideEffects: [],
@@ -161,20 +163,40 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
 
   packaged: {
     ready: {
-      allowedRoles: ["admin", "super_admin"],
+      allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [
         (ctx) => ({
-          valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() === "pickup",
-          error: "Only pickup orders can move from packaged to ready for pickup",
-        }),
-        (ctx) => ({
-          valid: Boolean(String(ctx.order.deliveryZoneId || "").trim()),
-          error: "A pickup station must be assigned before the order can be marked ready for pickup",
-        }),
-        (ctx) => ({
           valid: ctx.order.paymentStatus === "completed",
-          error: "Payment must be completed before pickup can be marked ready",
+          error: "Payment must be completed before marking order ready",
         }),
+        (ctx) => {
+          const method = String(ctx.order.deliveryMethod || "").toLowerCase().trim();
+          const isPickup = method === "pickup";
+          const isExternal = isExternallyDispatchedDelivery(ctx);
+          return {
+            valid: isPickup || isExternal,
+            error: "Only pickup or external delivery orders can move from packaged to ready",
+          };
+        },
+        (ctx) => {
+          // Pickup needs a zone assigned; external delivery does not
+          const method = String(ctx.order.deliveryMethod || "").toLowerCase().trim();
+          if (method === "pickup") {
+            return {
+              valid: Boolean(String(ctx.order.deliveryZoneId || "").trim()),
+              error: "A pickup station must be assigned before the order can be marked ready for pickup",
+            };
+          }
+          return { valid: true };
+        },
+        (ctx) => {
+          // Sellers cannot advance pickup orders past packaged — only admin/super_admin can
+          const method = String(ctx.order.deliveryMethod || "").toLowerCase().trim();
+          if (method === "pickup" && ctx.actorRole === "seller") {
+            return { valid: false, error: "Only admin can mark a pickup order ready after packaging" };
+          }
+          return { valid: true };
+        },
       ],
       sideEffects: [],
     },
@@ -316,12 +338,14 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
           error: "Payment must be completed before packaging is marked complete",
         }),
         (ctx) => ({
-          valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() === "pickup",
-          error: "Packaged status is only available for pickup orders",
+          valid:
+            String(ctx.order.deliveryMethod || "").toLowerCase().trim() === "pickup" ||
+            isExternallyDispatchedDelivery(ctx),
+          error: "Packaged status is only available for pickup or external delivery orders",
         }),
         (ctx) => ({
           valid: ctx.actorRole === "seller",
-          error: "Only the seller can mark a pickup order as packaged",
+          error: "Only the seller can mark an order as packaged",
         }),
       ],
       sideEffects: [],

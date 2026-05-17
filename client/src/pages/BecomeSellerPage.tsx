@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { formatGhanaCardInput, GHANA_CARD_MAX_LENGTH } from "@/lib/ghanaCard";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,12 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Store, ArrowLeft, Upload, Image as ImageIcon, AlertCircle, Package } from "lucide-react";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import { STORE_TYPES, STORE_TYPE_CONFIG, type StoreType, getStoreTypeFields, getStoreTypeSchema } from "@shared/storeTypes";
+import { Loader2, Store, ArrowLeft, AlertCircle, MapPin, Navigation } from "lucide-react";
+import { STORE_TYPES, type StoreType, getStoreTypeSchema } from "@shared/storeTypes";
+import { StoreTypeSelector, StoreTypeDynamicFields } from "@/components/StoreTypeSelector";
 import { resolveSavedLocationToAddress } from "@/lib/locationPrefill";
 
 const baseSellerSchema = z.object({
@@ -34,18 +32,12 @@ const baseSellerSchema = z.object({
   ghanaCardFront: z.string().min(1, "Ghana Card front image is required"),
   ghanaCardBack: z.string().min(1, "Ghana Card back image is required"),
   nationalIdCard: z.string().min(10, "Ghana Card number is required"),
-  storeType: z.enum(STORE_TYPES, { required_error: "Please select a store type" }),
+  storeType: z.enum(STORE_TYPES).optional(),
 });
 
-function getSellerSchema(storeType: StoreType | null) {
-  if (!storeType) {
-    return baseSellerSchema.extend({
-      storeTypeMetadata: z.record(z.any()).optional(),
-    });
-  }
-  
+function getSellerSchema(_storeType: StoreType | null) {
   return baseSellerSchema.extend({
-    storeTypeMetadata: getStoreTypeSchema(storeType),
+    storeTypeMetadata: z.record(z.any()).optional(),
   });
 }
 
@@ -86,6 +78,34 @@ export default function BecomeSellerPage() {
   const [cardBackPreview, setCardBackPreview] = useState<string>("");
   const [selectedStoreType, setSelectedStoreType] = useState<StoreType | null>(null);
   const [metadataErrors, setMetadataErrors] = useState<Record<string, string>>({});
+  // Business type step — must be chosen before the main form appears
+  const [businessType, setBusinessType] = useState<"store" | "restaurant" | "local_vendor" | null>(null);
+  // GPS coordinates captured at registration (for distance calculation on home screen)
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  // Restaurant-specific extra fields (not in the main Zod schema)
+  const [cuisineType, setCuisineType] = useState("");
+  const [seatingType, setSeatingType] = useState("");
+  const [operatingHours, setOperatingHours] = useState("");
+  // Local vendor extra fields
+  const [vendorFoodTypes, setVendorFoodTypes] = useState<string[]>([]);
+
+  const captureGPS = () => {
+    if (!navigator.geolocation) return;
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGpsCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        setGpsLoading(false);
+        toast({ title: "Location captured!", description: "Your GPS coordinates have been saved." });
+      },
+      () => {
+        setGpsLoading(false);
+        toast({ title: "Location denied", description: "Please enter your address manually.", variant: "destructive" });
+      },
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  };
 
   useEffect(() => {
     if (!authLoading && !isLoggedIn) {
@@ -194,6 +214,11 @@ export default function BecomeSellerPage() {
     setUploading(fieldName);
     const formData = new FormData();
     formData.append("file", file);
+    // Ghana ID card uploads must be normalised to landscape for the admin review UI.
+    // Profile photos keep their natural orientation.
+    if (fieldName === "ghanaCardFront" || fieldName === "ghanaCardBack") {
+      formData.append("purpose", "ghana_card");
+    }
 
     try {
       const response = await fetch("/api/upload/public", {
@@ -229,9 +254,23 @@ export default function BecomeSellerPage() {
 
   const applyMutation = useMutation({
     mutationFn: async (data: BecomeSellerFormData) => {
+      const autoStoreType = businessType === "restaurant" ? "restaurant"
+        : businessType === "local_vendor" ? "food_beverages"
+        : data.storeType;
       const payload = {
         ...data,
         role: "seller",
+        businessType: businessType ?? "store",
+        storeType: autoStoreType,
+        ...(gpsCoords ? { storeLatitude: gpsCoords.lat, storeLongitude: gpsCoords.lon } : {}),
+        // Extra metadata for restaurant / local vendor
+        storeTypeMetadata: {
+          ...data.storeTypeMetadata,
+          ...(cuisineType ? { cuisineType } : {}),
+          ...(seatingType ? { seatingType } : {}),
+          ...(operatingHours ? { operatingHours } : {}),
+          ...(vendorFoodTypes.length ? { foodType: vendorFoodTypes } : {}),
+        },
       };
       if (isLoggedIn) {
         const res = await apiRequest("POST", "/api/users/apply", payload);
@@ -285,7 +324,8 @@ export default function BecomeSellerPage() {
       });
       return;
     }
-    if (!selectedStoreType) {
+    // Restaurant and local vendor auto-set their storeType — no picker needed
+    if (businessType === "store" && !selectedStoreType) {
       toast({
         title: "Store Type Required",
         description: "Please select a store type before submitting",
@@ -293,10 +333,21 @@ export default function BecomeSellerPage() {
       });
       return;
     }
+    if (businessType === "local_vendor" && vendorFoodTypes.length === 0) {
+      toast({ title: "Please select what you sell", variant: "destructive" });
+      return;
+    }
+    if (businessType === "restaurant" && !cuisineType) {
+      toast({ title: "Please select a cuisine type", variant: "destructive" });
+      return;
+    }
 
     try {
-      const storeTypeSchema = getStoreTypeSchema(selectedStoreType);
-      storeTypeSchema.parse(data.storeTypeMetadata);
+      // Only validate storeTypeMetadata schema for regular stores
+      if (businessType === "store" && selectedStoreType) {
+        const storeTypeSchema = getStoreTypeSchema(selectedStoreType);
+        storeTypeSchema.parse(data.storeTypeMetadata);
+      }
       setMetadataErrors({});
       applyMutation.mutate(data);
     } catch (error: any) {
@@ -324,20 +375,21 @@ export default function BecomeSellerPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <Header />
-      
-      <main className="flex-1 py-6 px-4 overflow-y-auto">
-        <div className="max-w-2xl mx-auto">
-          <Button
-            variant="ghost"
-            onClick={() => navigate("/")}
-            className="mb-6"
-            data-testid="button-back"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Home
-          </Button>
+    <div className="bg-background" style={{ paddingBottom: 'max(40px, env(safe-area-inset-bottom))', overflowX: 'hidden' }}>
+      {/* Sticky top bar — works with window scroll, not overflow container */}
+      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b px-4 flex items-center gap-3" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))', paddingBottom: '12px' }}>
+        <button
+          onClick={() => navigate("/")}
+          className="p-2 -ml-1 rounded-full hover:bg-muted transition-colors"
+          data-testid="button-back"
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <span className="font-semibold text-base">Become a Seller</span>
+      </div>
+
+      <div className="px-4 py-5 max-w-2xl mx-auto">
 
           {applicationGate && (
             <Dialog open>
@@ -358,22 +410,60 @@ export default function BecomeSellerPage() {
             </Dialog>
           )}
 
-          {!authLoading && isLoggedIn && !applicationGate && (
-          <Card>
-            <CardHeader>
+          {/* ── Step 0: Choose business type ── */}
+          {!authLoading && isLoggedIn && !applicationGate && !businessType && (
+            <div className="py-2">
+              <div className="mb-5">
+                <h2 className="text-xl font-bold">What kind of business are you?</h2>
+                <p className="text-sm text-muted-foreground mt-1">Choose the type that best describes your business.</p>
+              </div>
+              <div className="flex flex-col gap-3">
+                {([
+                  { type: "store" as const,        icon: "🏪", label: "Store",        desc: "General merchandise, clothing, electronics & more" },
+                  { type: "restaurant" as const,   icon: "🍽️", label: "Restaurant",   desc: "Dine-in or takeout food & drinks" },
+                  { type: "local_vendor" as const, icon: "🥘", label: "Local Vendor",  desc: "Home-cooked food, local produce & street goods" },
+                ] as const).map(({ type, icon, label, desc }) => (
+                  <button
+                    key={type}
+                    onClick={() => {
+                      setBusinessType(type);
+                      if (type === "restaurant" || type === "local_vendor") {
+                        form.setValue("storeType", "food_beverages" as any);
+                        setSelectedStoreType("food_beverages");
+                      }
+                    }}
+                    className="flex items-center gap-4 rounded-2xl border-2 border-border bg-card px-5 py-4 text-left hover:border-primary hover:bg-primary/5 active:scale-[0.98] transition-all cursor-pointer w-full"
+                  >
+                    <span className="text-3xl shrink-0">{icon}</span>
+                    <div className="min-w-0">
+                      <div className="font-semibold text-base">{label}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5 leading-snug">{desc}</div>
+                    </div>
+                    <svg className="ml-auto shrink-0 text-muted-foreground" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!authLoading && isLoggedIn && !applicationGate && businessType && (
+          <Card className="border-0 shadow-none sm:border sm:shadow-sm">
+            <CardHeader className="px-0 pt-2 pb-4 sm:px-6 sm:pt-6">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-primary/10 rounded-lg">
-                  <Store className="h-6 w-6 text-primary" />
+                <div className="p-2.5 bg-primary/10 rounded-xl">
+                  <Store className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <CardTitle className="text-2xl">Become a Seller</CardTitle>
-                  <CardDescription>
-                    Start selling your products on KiyuMart
+                  <CardTitle className="text-lg leading-tight">
+                    {businessType === "restaurant" ? "Open a Restaurant" : businessType === "local_vendor" ? "Register as Local Vendor" : "Open a Store"}
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    {businessType === "restaurant" ? "Set up your restaurant on KiyuMart" : businessType === "local_vendor" ? "Sell local food & goods near you" : "Start selling your products on KiyuMart"}
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-0 sm:px-6">
               <Alert className="mb-6 border-primary/20 bg-primary/5">
                 <AlertCircle className="h-4 w-4 text-primary" />
                 <AlertDescription className="text-sm">
@@ -385,7 +475,7 @@ export default function BecomeSellerPage() {
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Personal Information</h3>
+                    <h3 className="text-base font-semibold border-b pb-2">Personal Information</h3>
                     
                     <FormField
                       control={form.control}
@@ -449,7 +539,7 @@ export default function BecomeSellerPage() {
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Verification Documents</h3>
+                    <h3 className="text-base font-semibold border-b pb-2">Verification Documents</h3>
                     
                     <FormField
                       control={form.control}
@@ -470,7 +560,7 @@ export default function BecomeSellerPage() {
                                 data-testid="input-profile-image"
                               />
                               {profilePreview && (
-                                <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
+                                <div className="relative w-20 h-20 border rounded-xl overflow-hidden">
                                   <img src={profilePreview} alt="Profile" className="w-full h-full object-cover" />
                                 </div>
                               )}
@@ -489,7 +579,17 @@ export default function BecomeSellerPage() {
                         <FormItem>
                           <FormLabel>Ghana Card Number</FormLabel>
                           <FormControl>
-                            <Input placeholder="GHA-XXXXXXXXX-X" {...field} data-testid="input-national-id" />
+                            <Input
+                              placeholder="GHA-XXXXXXXXX-X"
+                              inputMode="text"
+                              autoComplete="off"
+                              spellCheck={false}
+                              maxLength={GHANA_CARD_MAX_LENGTH}
+                              {...field}
+                              value={field.value || ""}
+                              onChange={(e) => field.onChange(formatGhanaCardInput(e.target.value))}
+                              data-testid="input-national-id"
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -515,7 +615,7 @@ export default function BecomeSellerPage() {
                                 data-testid="input-card-front"
                               />
                               {cardFrontPreview && (
-                                <div className="relative w-64 h-40 border rounded-lg overflow-hidden">
+                                <div className="relative w-full max-w-xs h-36 border rounded-xl overflow-hidden">
                                   <img src={cardFrontPreview} alt="Ghana Card Front" className="w-full h-full object-cover" />
                                 </div>
                               )}
@@ -546,7 +646,7 @@ export default function BecomeSellerPage() {
                                 data-testid="input-card-back"
                               />
                               {cardBackPreview && (
-                                <div className="relative w-64 h-40 border rounded-lg overflow-hidden">
+                                <div className="relative w-full max-w-xs h-36 border rounded-xl overflow-hidden">
                                   <img src={cardBackPreview} alt="Ghana Card Back" className="w-full h-full object-cover" />
                                 </div>
                               )}
@@ -559,244 +659,189 @@ export default function BecomeSellerPage() {
                     />
                   </div>
 
+                  {/* ── Store Information — tailored per businessType ── */}
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Store Information</h3>
-                    
-                    <FormField
-                      control={form.control}
-                      name="storeType"
-                      render={({ field }) => (
+                    <h3 className="text-base font-semibold border-b pb-2">
+                      {businessType === "restaurant" ? "Restaurant Details"
+                        : businessType === "local_vendor" ? "Vendor Details"
+                        : "Store Information"}
+                    </h3>
+
+                    {/* NAME */}
+                    <FormField control={form.control} name="storeName" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {businessType === "restaurant" ? "Restaurant Name" : businessType === "local_vendor" ? "Vendor / Shop Name" : "Store Name"}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={businessType === "restaurant" ? "e.g. Ama's Kitchen" : businessType === "local_vendor" ? "e.g. Afia's Chop Bar" : "My Awesome Store"}
+                            {...field} data-testid="input-store-name"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+
+                    {/* RESTAURANT — cuisine type */}
+                    {businessType === "restaurant" && (
+                      <FormItem>
+                        <FormLabel>Cuisine Type <span className="text-destructive">*</span></FormLabel>
+                        <select
+                          value={cuisineType}
+                          onChange={(e) => setCuisineType(e.target.value)}
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          <option value="">Select cuisine…</option>
+                          {["Ghanaian", "West African", "Continental", "Chinese", "Fast Food", "Grills & BBQ", "Seafood", "Italian", "Indian", "Café & Pastry", "Mixed / Other"]
+                            .map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </FormItem>
+                    )}
+
+                    {/* RESTAURANT — seating type */}
+                    {businessType === "restaurant" && (
+                      <FormItem>
+                        <FormLabel>Service Type</FormLabel>
+                        <select
+                          value={seatingType}
+                          onChange={(e) => setSeatingType(e.target.value)}
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          <option value="">Select service type…</option>
+                          {["Dine-in only", "Takeout only", "Dine-in & Takeout", "Delivery only", "All (Dine-in, Takeout & Delivery)"]
+                            .map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </FormItem>
+                    )}
+
+                    {/* LOCAL VENDOR — food types */}
+                    {businessType === "local_vendor" && (
+                      <FormItem>
+                        <FormLabel>What do you sell? <span className="text-destructive">*</span></FormLabel>
+                        <FormDescription>Select all that apply</FormDescription>
+                        <div className="grid grid-cols-2 gap-2 mt-1">
+                          {["Local Dishes / Cooked Meals", "Street Food", "Fresh Produce", "Beverages & Drinks", "Snacks", "Pastry & Bakery", "Frozen Foods", "Packaged Foods"].map((ft) => (
+                            <label key={ft} className="flex items-center gap-2 cursor-pointer text-sm">
+                              <input
+                                type="checkbox"
+                                checked={vendorFoodTypes.includes(ft)}
+                                onChange={(e) => setVendorFoodTypes(prev => e.target.checked ? [...prev, ft] : prev.filter(x => x !== ft))}
+                                className="rounded"
+                              />
+                              {ft}
+                            </label>
+                          ))}
+                        </div>
+                      </FormItem>
+                    )}
+
+                    {/* STORE — store type picker (excludes food types) */}
+                    {businessType === "store" && (
+                      <FormField control={form.control} name="storeType" render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Store Type</FormLabel>
-                          <Select
-                            onValueChange={(value) => {
-                              field.onChange(value);
-                              setSelectedStoreType(value as StoreType);
-                              form.setValue("storeTypeMetadata", {});
-                            }}
+                          <FormLabel>Store Type <span className="text-destructive">*</span></FormLabel>
+                          <FormDescription>Choose the category that best describes your store.</FormDescription>
+                          <StoreTypeSelector
                             value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-store-type">
-                                <SelectValue placeholder="Select your store type" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {STORE_TYPES.map((type) => (
-                                <SelectItem key={type} value={type} data-testid={`option-store-type-${type}`}>
-                                  {STORE_TYPE_CONFIG[type].icon} {STORE_TYPE_CONFIG[type].label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormDescription>
-                            {selectedStoreType && STORE_TYPE_CONFIG[selectedStoreType].description}
-                          </FormDescription>
-                          <FormMessage />
+                            onChange={(value) => { field.onChange(value); setSelectedStoreType(value as StoreType); form.setValue("storeTypeMetadata", {}); }}
+                            exclude={["food_beverages", "restaurant"]}
+                            error={form.formState.errors.storeType?.message as string | undefined}
+                          />
                         </FormItem>
-                      )}
-                    />
+                      )} />
+                    )}
 
-                    <FormField
-                      control={form.control}
-                      name="storeName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Store Name</FormLabel>
-                          <FormControl>
-                            <Input placeholder="My Awesome Store" {...field} data-testid="input-store-name" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    {/* DESCRIPTION */}
+                    <FormField control={form.control} name="storeDescription" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {businessType === "restaurant" ? "About Your Restaurant" : businessType === "local_vendor" ? "About Your Vendor" : "Store Description"}
+                        </FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder={
+                              businessType === "restaurant"
+                                ? "Tell customers about your restaurant, specialties, atmosphere…"
+                                : businessType === "local_vendor"
+                                  ? "Tell customers what makes your food special, your story…"
+                                  : "Tell us about your store and products…"
+                            }
+                            className="min-h-[100px]" {...field} data-testid="input-store-description"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
 
-                    <FormField
-                      control={form.control}
-                      name="storeDescription"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Store Description</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Tell us about your store and products..."
-                              className="min-h-[100px]"
-                              {...field}
-                              data-testid="input-store-description"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    {/* ADDRESS + GPS (required for local_vendor & restaurant) */}
+                    <FormField control={form.control} name="businessAddress" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {businessType === "restaurant" ? "Restaurant Address" : businessType === "local_vendor" ? "Vendor Location / Address" : "Business Address"}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={businessType === "local_vendor" ? "e.g. Osu, near Total filling station" : "123 Main St, Accra, Ghana"}
+                            {...field} data-testid="input-business-address"
+                          />
+                        </FormControl>
+                        {(businessType === "restaurant" || businessType === "local_vendor") && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <Button type="button" variant="outline" size="sm" onClick={captureGPS} disabled={gpsLoading} className="gap-2">
+                              {gpsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Navigation className="h-3.5 w-3.5" />}
+                              {gpsCoords ? "GPS Saved ✓" : "Pin My Location"}
+                            </Button>
+                            {gpsCoords && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <MapPin className="h-3 w-3" />
+                                {gpsCoords.lat.toFixed(4)}, {gpsCoords.lon.toFixed(4)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <FormDescription>
+                          {(businessType === "restaurant" || businessType === "local_vendor")
+                            ? "Pin your location so customers can see how far you are."
+                            : "Your business location must match Ghana Card address"}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
 
-                    <FormField
-                      control={form.control}
-                      name="businessAddress"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Business Address / Location</FormLabel>
-                          <FormControl>
-                            <Input placeholder="123 Main St, Accra, Ghana" {...field} data-testid="input-business-address" />
-                          </FormControl>
-                          <FormDescription>Your business location must match Ghana Card address</FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    {/* OPERATING HOURS (restaurant & local vendor) */}
+                    {(businessType === "restaurant" || businessType === "local_vendor") && (
+                      <FormItem>
+                        <FormLabel>Operating Hours</FormLabel>
+                        <input
+                          value={operatingHours}
+                          onChange={(e) => setOperatingHours(e.target.value)}
+                          placeholder="e.g. Mon–Sat 8am–8pm, Sun 10am–6pm"
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">When do you operate? This is shown to customers.</p>
+                      </FormItem>
+                    )}
                   </div>
 
-                  {selectedStoreType && (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2">
-                        <Package className="h-5 w-5 text-primary" />
-                        <h3 className="text-lg font-semibold">Product Information</h3>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Tell us about the products you'll be selling. This helps us better understand your business.
-                      </p>
-                      
-                      {getStoreTypeFields(selectedStoreType).map((field) => (
-                        <div key={field.name}>
-                          {field.type === "multiselect" ? (
-                            <div className="space-y-3">
-                              <FormLabel>
-                                {field.label}
-                                {field.required && <span className="text-destructive ml-1">*</span>}
-                              </FormLabel>
-                              <div className="grid grid-cols-2 gap-2">
-                                {field.options?.map((option) => (
-                                  <div key={option} className="flex items-center space-x-2">
-                                    <Checkbox
-                                      id={`${field.name}-${option}`}
-                                      checked={
-                                        (form.watch("storeTypeMetadata")?.[field.name] as string[])?.includes(option) || false
-                                      }
-                                      onCheckedChange={(checked) => {
-                                        const current = (form.watch("storeTypeMetadata")?.[field.name] as string[]) || [];
-                                        const updated = checked
-                                          ? [...current, option]
-                                          : current.filter((v: string) => v !== option);
-                                        form.setValue("storeTypeMetadata", {
-                                          ...form.watch("storeTypeMetadata"),
-                                          [field.name]: updated,
-                                        });
-                                      }}
-                                      data-testid={`checkbox-${field.name}-${option}`}
-                                    />
-                                    <label
-                                      htmlFor={`${field.name}-${option}`}
-                                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                    >
-                                      {option}
-                                    </label>
-                                  </div>
-                                ))}
-                              </div>
-                              {field.description && (
-                                <p className="text-sm text-muted-foreground">{field.description}</p>
-                              )}
-                              {metadataErrors[field.name] && (
-                                <p className="text-sm text-destructive">{metadataErrors[field.name]}</p>
-                              )}
-                            </div>
-                          ) : field.type === "select" ? (
-                            <div className="space-y-2">
-                              <FormLabel>
-                                {field.label}
-                                {field.required && <span className="text-destructive ml-1">*</span>}
-                              </FormLabel>
-                              <Select
-                                onValueChange={(value) => {
-                                  form.setValue("storeTypeMetadata", {
-                                    ...form.watch("storeTypeMetadata"),
-                                    [field.name]: value,
-                                  });
-                                }}
-                                value={(form.watch("storeTypeMetadata")?.[field.name] as string) || ""}
-                              >
-                                <SelectTrigger data-testid={`select-${field.name}`}>
-                                  <SelectValue placeholder={field.placeholder || `Select ${field.label}`} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {field.options?.map((option) => (
-                                    <SelectItem key={option} value={option} data-testid={`option-${field.name}-${option}`}>
-                                      {option}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              {field.description && (
-                                <p className="text-sm text-muted-foreground">{field.description}</p>
-                              )}
-                              {metadataErrors[field.name] && (
-                                <p className="text-sm text-destructive">{metadataErrors[field.name]}</p>
-                              )}
-                            </div>
-                          ) : field.type === "textarea" ? (
-                            <div className="space-y-2">
-                              <FormLabel>
-                                {field.label}
-                                {field.required && <span className="text-destructive ml-1">*</span>}
-                              </FormLabel>
-                              <Textarea
-                                placeholder={field.placeholder}
-                                value={(form.watch("storeTypeMetadata")?.[field.name] as string) || ""}
-                                onChange={(e) => {
-                                  form.setValue("storeTypeMetadata", {
-                                    ...form.watch("storeTypeMetadata"),
-                                    [field.name]: e.target.value,
-                                  });
-                                }}
-                                data-testid={`textarea-${field.name}`}
-                              />
-                              {field.description && (
-                                <p className="text-sm text-muted-foreground">{field.description}</p>
-                              )}
-                              {metadataErrors[field.name] && (
-                                <p className="text-sm text-destructive">{metadataErrors[field.name]}</p>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              <FormLabel>
-                                {field.label}
-                                {field.required && <span className="text-destructive ml-1">*</span>}
-                              </FormLabel>
-                              <Input
-                                type={field.type === "number" ? "number" : "text"}
-                                placeholder={field.placeholder}
-                                value={(form.watch("storeTypeMetadata")?.[field.name] as string | number) || ""}
-                                onChange={(e) => {
-                                  const value = field.type === "number" ? Number(e.target.value) : e.target.value;
-                                  form.setValue("storeTypeMetadata", {
-                                    ...form.watch("storeTypeMetadata"),
-                                    [field.name]: value,
-                                  });
-                                }}
-                                data-testid={`input-${field.name}`}
-                              />
-                              {field.description && (
-                                <p className="text-sm text-muted-foreground">{field.description}</p>
-                              )}
-                              {metadataErrors[field.name] && (
-                                <p className="text-sm text-destructive">{metadataErrors[field.name]}</p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                  {/* Store dynamic fields (only for regular stores with a selected type) */}
+                  {businessType === "store" && selectedStoreType && (
+                    <StoreTypeDynamicFields
+                      storeType={selectedStoreType}
+                      metadata={form.watch("storeTypeMetadata") || {}}
+                      onChange={(updated) => form.setValue("storeTypeMetadata", updated)}
+                      errors={metadataErrors}
+                    />
                   )}
 
                   <div className="flex justify-end gap-3 pt-4">
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => navigate("/")}
+                      onClick={() => setBusinessType(null)}
                       data-testid="button-cancel"
                     >
-                      Cancel
+                      ← Change type
                     </Button>
                     <Button
                       type="submit"
@@ -814,10 +859,7 @@ export default function BecomeSellerPage() {
             </CardContent>
           </Card>
           )}
-        </div>
-      </main>
-
-      <Footer />
+      </div>
     </div>
   );
 }

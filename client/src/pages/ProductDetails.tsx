@@ -18,6 +18,9 @@ import Footer from "@/components/Footer";
 import ThemeToggle from "@/components/ThemeToggle";
 import ProductCard from "@/components/ProductCard";
 import UserAvatar from "@/components/UserAvatar";
+import Product3DViewer, { canShow3DViewer } from "@/components/Product3DViewer";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { isFoodVendorStore } from "@/lib/foodVendors";
 import { PriceDisplay } from "@/components/PriceDisplay";
 import AdBanner from "@/components/AdBanner";
 import ProductPageAd from "@/pages/ProductPageAd";
@@ -757,6 +760,14 @@ export default function ProductDetails() {
     enabled: !!product?.sellerId,
     staleTime: 5 * 60 * 1000,
   });
+
+  // 3D / AR visibility — platform-wide kill switch + food vendor exclusion.
+  const _platformSettingsFor3D = usePlatformSettings();
+  const show3DAR =
+    _platformSettingsFor3D.enable3DAR &&
+    !isFoodVendorStore(sellerStore as any) &&
+    (product as any)?.storeType !== "food_beverages" &&
+    (product as any)?.storeType !== "restaurant";
 
   const { data: relatedProducts = [] } = useQuery<Product[]>({
     queryKey: ["/api/products", "active", "product-details-related", productId],
@@ -2296,6 +2307,27 @@ export default function ProductDetails() {
                     </span>
                   ) : null}
                 </div>
+
+                {/* 3D / AR product viewer — shown when product has a 3D model
+                    or enough images for a 360° rotation fallback. Hidden when the
+                    platform 3D/AR toggle is off OR the store is a food vendor. */}
+                {show3DAR && canShow3DViewer({
+                  modelUrl: (product as any).modelUrl,
+                  modelUrlIos: (product as any).modelUrlIos,
+                  modelPoster: (product as any).modelPoster,
+                  productImages: productImages,
+                }) ? (
+                  <div className="mb-2">
+                    <Product3DViewer
+                      asLauncher
+                      modelUrl={(product as any).modelUrl}
+                      modelUrlIos={(product as any).modelUrlIos}
+                      modelPoster={(product as any).modelPoster}
+                      productName={product.name}
+                      productImages={productImages}
+                    />
+                  </div>
+                ) : null}
 
                 {/* Action Buttons */}
                 <div className="flex flex-wrap items-stretch gap-3">

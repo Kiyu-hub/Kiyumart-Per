@@ -7,6 +7,7 @@ interface User {
   email: string;
   name: string;
   role: string;
+  emailVerified?: boolean;
   roleFeatures?: Record<string, boolean>;
   requestedRole?: "seller" | "rider" | null;
   applicationStatus?: "pending" | "interview_scheduled" | "approved" | "rejected";
@@ -35,8 +36,8 @@ function normalizeUser(user: User): User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (data: { email: string; password: string; name: string; role?: string; referralCode?: string }) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>;
+  signup: (data: { email: string; password: string; name: string; role?: string; referralCode?: string }) => Promise<User>;
   logout: () => Promise<void>;
   ensureAuthenticated: (options?: { force?: boolean }) => Promise<User | null>;
   isAuthenticated: boolean;
@@ -162,12 +163,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const login = async (email: string, password: string) => {
-    await loginMutation.mutateAsync({ email, password });
+  const login = async (email: string, password: string): Promise<User> => {
+    const result = await loginMutation.mutateAsync({ email, password });
+    return normalizeUser(result.user);
   };
 
-  const signup = async (data: { email: string; password: string; name: string; role?: string; referralCode?: string }) => {
-    await signupMutation.mutateAsync(data);
+  const signup = async (data: { email: string; password: string; name: string; role?: string; referralCode?: string }): Promise<User> => {
+    const result = await signupMutation.mutateAsync(data);
+    return normalizeUser(result.user);
   };
 
   const logout = async () => {

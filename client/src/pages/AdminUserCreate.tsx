@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatGhanaCardInput, GHANA_CARD_MAX_LENGTH } from "@/lib/ghanaCard";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -326,7 +327,17 @@ export default function AdminUserCreate() {
                             {selectedRole !== "pickup_agent" ? <span className="text-destructive">*</span> : null}
                           </FormLabel>
                           <FormControl>
-                            <Input placeholder="GHA-XXXXXXXXX-X" {...field} data-testid="input-national-id-card" />
+                            <Input
+                              placeholder="GHA-XXXXXXXXX-X"
+                              inputMode="text"
+                              autoComplete="off"
+                              spellCheck={false}
+                              maxLength={GHANA_CARD_MAX_LENGTH}
+                              {...field}
+                              value={field.value || ""}
+                              onChange={(e) => field.onChange(formatGhanaCardInput(e.target.value))}
+                              data-testid="input-national-id-card"
+                            />
                           </FormControl>
                           {selectedRole === "pickup_agent" ? (
                             <FormDescription>

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -6,9 +6,9 @@ import { useHaptic } from "@/hooks/useHaptic";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
 import { cn } from "@/lib/utils";
 import {
-  Home, Search, ShoppingCart, Heart, User,
-  Package, BarChart3, MessageCircle, Store, Settings,
-  Truck, ClipboardList, Users, LayoutDashboard,
+  Home, ShoppingCart, Package, User,
+  BarChart3, MessageCircle, Store, Settings,
+  Truck, ClipboardList, Users, LayoutDashboard, Heart,
 } from "lucide-react";
 
 interface Tab {
@@ -18,11 +18,11 @@ interface Tab {
 }
 
 const BUYER_TABS: Tab[] = [
-  { label: "Home",    icon: Home,         href: "/" },
-  { label: "Browse",  icon: Search,       href: "/products" },
-  { label: "Cart",    icon: ShoppingCart, href: "/cart" },
-  { label: "Orders",  icon: Package,      href: "/orders" },
-  { label: "Profile", icon: User,         href: "/profile" },
+  { label: "Home",     icon: Home,         href: "/" },
+  { label: "Wishlist", icon: Heart,        href: "/wishlist" },
+  { label: "Cart",     icon: ShoppingCart, href: "/cart" },
+  { label: "Orders",   icon: Package,      href: "/orders" },
+  { label: "Profile",  icon: User,         href: "/profile" },
 ];
 
 const SELLER_TABS: Tab[] = [
@@ -49,7 +49,7 @@ const ADMIN_TABS: Tab[] = [
   { label: "Settings", icon: Settings,        href: "/admin/settings" },
 ];
 
-const HIDE_ROUTES = ["/auth", "/checkout", "/payment", "/live-tracking", "/cart-link"];
+const HIDE_ROUTES = ["/auth", "/checkout", "/payment", "/live-tracking", "/cart-link", "/search", "/mobile/vendors", "/mobile/stores", "/become-seller", "/become-rider", "/sellers/"];
 
 interface CartItem { id: string; quantity: number; }
 
@@ -59,11 +59,45 @@ export function MobileBottomTabBar() {
   const { user, isAuthenticated } = useAuth();
   const { trigger: haptic } = useHaptic();
 
+  // Theme awareness — read from localStorage, sync with document class
+  const [isDark, setIsDark] = useState(true);
+  useEffect(() => {
+    const read = () => {
+      const saved = localStorage.getItem("theme");
+      setIsDark(saved ? saved === "dark" : document.documentElement.classList.contains("dark"));
+    };
+    read();
+    // Re-sync whenever localStorage changes (other tab or MobileHome toggle)
+    const onStorage = (e: StorageEvent) => { if (e.key === "theme") read(); };
+    window.addEventListener("storage", onStorage);
+    // Also poll for class changes (same-tab toggle)
+    const observer = new MutationObserver(read);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => { window.removeEventListener("storage", onStorage); observer.disconnect(); };
+  }, []);
+
+  // Cart count
   const { data: cartItems = [] } = useQuery<CartItem[]>({
     queryKey: ["/api/cart"],
     enabled: isAuthenticated,
   });
-  const cartCount = cartItems.reduce((s, i) => s + (i.quantity || 1), 0);
+  const cartCount = Array.isArray(cartItems)
+    ? cartItems.reduce((s, i) => s + (i.quantity || 1), 0)
+    : 0;
+
+  // Notification count
+  const { data: notifCount = 0 } = useQuery<number>({
+    queryKey: ["/api/notifications/unread-count", user?.id],
+    queryFn: async () => {
+      const res = await fetch("/api/notifications/unread-count", { credentials: "include" });
+      if (!res.ok) return 0;
+      const d = await res.json();
+      return typeof d === "number" ? d : (d?.count ?? 0);
+    },
+    enabled: isAuthenticated && !!user,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
 
   if (!isMobile) return null;
   if (HIDE_ROUTES.some((r) => location.startsWith(r))) return null;
@@ -77,12 +111,18 @@ export function MobileBottomTabBar() {
   const isActive = (href: string) =>
     href === "/" ? location === "/" : location.startsWith(href);
 
+  // Theme-aware colors
+  const bg         = isDark ? "#111111" : "#FFFFFF";
+  const border     = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.09)";
+  const activeClr  = "#009688";
+  const inactiveClr = isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)";
+
   return (
     <>
       {/* Content spacer */}
       <div
         className="md:hidden"
-        style={{ height: `calc(68px + env(safe-area-inset-bottom, 0px))` }}
+        style={{ height: `calc(62px + env(safe-area-inset-bottom, 0px))` }}
         aria-hidden
       />
 
@@ -92,20 +132,22 @@ export function MobileBottomTabBar() {
         role="tablist"
         aria-label="Main navigation"
       >
-        {/* Floating bar */}
         <div
-          className="mx-3 mb-2 rounded-[28px] border border-border/40 shadow-xl shadow-black/10"
           style={{
-            background: "hsl(var(--background))",
-            backdropFilter: "blur(20px)",
-            WebkitBackdropFilter: "blur(20px)",
+            background: bg,
+            borderTop: `1px solid ${border}`,
           }}
         >
-          <div className="flex h-[58px] px-1">
+          <div style={{ display: "flex", height: 62, padding: "0 4px" }}>
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const active = isActive(tab.href);
-              const badge = tab.href === "/cart" ? cartCount : 0;
+
+              // Badge: cart count for cart tab, notif count for profile tab
+              const badge =
+                tab.href === "/cart" ? cartCount :
+                tab.href === "/profile" ? notifCount :
+                0;
 
               return (
                 <button
@@ -114,39 +156,64 @@ export function MobileBottomTabBar() {
                   aria-selected={active}
                   aria-label={tab.label}
                   onClick={() => { haptic("light"); navigate(tab.href); }}
-                  className={cn(
-                    "touch-ripple flex flex-col items-center justify-center flex-1 h-full gap-0.5 relative",
-                    "transition-all duration-200 select-none rounded-[24px]",
-                    active ? "text-primary" : "text-muted-foreground/60",
-                  )}
+                  style={{
+                    flex: 1, display: "flex", flexDirection: "column",
+                    alignItems: "center", justifyContent: "center",
+                    height: "100%", position: "relative",
+                    background: "transparent", border: "none",
+                    cursor: "pointer", WebkitTapHighlightColor: "transparent",
+                    transition: "color 0.15s",
+                  }}
                 >
-                  {/* Active pill highlight */}
-                  {active && (
-                    <span className="absolute inset-x-1 top-1 bottom-1 rounded-[22px] bg-primary/10 mobile-bounce-in" />
-                  )}
-
-                  <div className="relative z-10 flex flex-col items-center gap-0.5">
-                    <div className="relative">
-                      <Icon
-                        className={cn(
-                          "transition-all duration-200",
-                          active ? "w-[22px] h-[22px] stroke-[2.5]" : "w-[21px] h-[21px] stroke-[1.8]",
-                        )}
-                        style={active ? { filter: "drop-shadow(0 0 4px oklch(var(--primary) / 0.4))" } : {}}
-                      />
+                  {active ? (
+                    <div style={{ position: "relative", maxWidth: "calc(100% - 6px)" }}>
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 4,
+                        background: activeClr, borderRadius: 7,
+                        padding: "5px 9px",
+                        overflow: "hidden",
+                      }}>
+                        <Icon style={{ width: 15, height: 15, strokeWidth: 2.2, color: "#fff", flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {tab.label}
+                        </span>
+                      </div>
                       {badge > 0 && (
-                        <span className="absolute -top-2 -right-2.5 min-w-[17px] h-[17px] px-[3px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center mobile-bounce-in border-2 border-background">
+                        <span style={{
+                          position: "absolute", top: -5, right: -5,
+                          minWidth: 16, height: 16, borderRadius: 8,
+                          background: isDark ? "#111" : "#fff",
+                          color: activeClr, fontSize: 9, fontWeight: 900,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          padding: "0 3px", border: `1.5px solid ${activeClr}`,
+                          zIndex: 2,
+                        }}>
                           {badge > 99 ? "99+" : badge}
                         </span>
                       )}
                     </div>
-                    <span className={cn(
-                      "text-[10px] leading-none transition-all duration-200",
-                      active ? "font-bold" : "font-medium",
-                    )}>
-                      {tab.label}
-                    </span>
-                  </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, position: "relative" }}>
+                      <div style={{ position: "relative" }}>
+                        <Icon style={{ width: 21, height: 21, strokeWidth: 1.6, color: inactiveClr }} />
+                        {badge > 0 && (
+                          <span style={{
+                            position: "absolute", top: -6, right: -10,
+                            minWidth: 17, height: 17, borderRadius: 9,
+                            background: activeClr, color: "#000",
+                            fontSize: 10, fontWeight: 900,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            padding: "0 3px",
+                          }}>
+                            {badge > 99 ? "99+" : badge}
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 10, lineHeight: 1, fontWeight: 500, color: inactiveClr }}>
+                        {tab.label}
+                      </span>
+                    </div>
+                  )}
                 </button>
               );
             })}

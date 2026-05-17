@@ -621,6 +621,8 @@ app.use(cookieParser());
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS suggestions_enabled boolean DEFAULT false`);
     // Refund button visibility
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_refund_button boolean DEFAULT true`);
+    // Per-storeType image / label overrides managed by super_admin
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS store_category_overrides jsonb DEFAULT '{}'::jsonb`);
     // Sound & ringtone settings
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS caller_ringtone text DEFAULT 'default'`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS receiver_ringtone text DEFAULT 'default'`);
@@ -700,6 +702,10 @@ app.use(cookieParser());
     // Product slug for /p/:slug social commerce pages
     await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS slug text`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS products_slug_unique_idx ON products(slug) WHERE slug IS NOT NULL`);
+    // 3D / AR model assets — let sellers attach .glb (Android/Web) and .usdz (iOS)
+    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS model_url text`);
+    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS model_url_ios text`);
+    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS model_poster text`);
     // Product modifiers (food add-ons for QUICK_EATS stores)
     await db.execute(sql`
       DO $$ BEGIN
@@ -786,6 +792,60 @@ app.use(cookieParser());
         );
       EXCEPTION WHEN OTHERS THEN NULL;
       END $$`);
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+      EXCEPTION WHEN OTHERS THEN NULL; END $$`);
+    await db.execute(sql`
+      DO $$ BEGIN
+        CREATE TABLE IF NOT EXISTS email_otp_verifications (
+          id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id VARCHAR NOT NULL,
+          email TEXT NOT NULL,
+          code TEXT NOT NULL,
+          expires_at TIMESTAMP NOT NULL,
+          used BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      EXCEPTION WHEN OTHERS THEN NULL; END $$`);
+    // Stores — business type, location text + coordinates for local vendor/restaurant distance calc
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS business_type text DEFAULT 'store'`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS location text`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS latitude decimal(10,7)`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS longitude decimal(10,7)`);
+    // Grandfather existing users as email-verified (they predate the email verification requirement)
+    await db.execute(sql`UPDATE users SET email_verified = true WHERE email_verified = false AND created_at < '2026-05-15 00:00:00'::timestamp`);
+    // Store verification columns
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verification_status text DEFAULT 'none'`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verification_doc_front text`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verification_doc_back text`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verification_selfie text`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verification_applied_at timestamp`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verification_reviewed_at timestamp`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verification_rejection_reason text`);
+    // Bolt-style food storefront columns (Restaurants & Local Vendors page).
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS prep_time_mins integer DEFAULT 15`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS min_order_amount decimal(10,2) DEFAULT 0`);
+    // Hero banner placement scope + theme color so super admin can target the
+    // food vendors page separately from the home page.
+    await db.execute(sql`ALTER TABLE hero_banners ADD COLUMN IF NOT EXISTS placement text DEFAULT 'home'`);
+    await db.execute(sql`ALTER TABLE hero_banners ADD COLUMN IF NOT EXISTS theme_color text`);
+    // Global 3D / AR feature toggle on platform_settings.
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS enable_3d_ar boolean DEFAULT true`);
+    // Per-category dynamic field template (Bolt-style cuisine fields).
+    await db.execute(sql`ALTER TABLE categories ADD COLUMN IF NOT EXISTS product_fields_config jsonb`);
+    // Add restaurant to store_type enum
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_enum
+          WHERE enumlabel = 'restaurant' AND enumtypid = 'store_type'::regtype
+        ) THEN
+          ALTER TYPE store_type ADD VALUE 'restaurant';
+        END IF;
+      END $$;
+    `);
   } catch (e: any) {
     console.warn("[STARTUP] Could not run schema self-heal compatibility checks:", e?.message || String(e));
   } // end if (schemaHealEnabled)

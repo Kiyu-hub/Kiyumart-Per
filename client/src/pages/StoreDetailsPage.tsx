@@ -219,6 +219,9 @@ export default function StoreDetailsPage() {
   const [tagline, setTagline] = useState("");
   const [whatsappNum, setWhatsappNum] = useState("");
   const [merchantCat, setMerchantCat] = useState("");
+  // Bolt-style storefront fields (Restaurants & Local Vendors page)
+  const [prepTimeMins, setPrepTimeMins] = useState<string>("15");
+  const [minOrderAmount, setMinOrderAmount] = useState<string>("0");
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin"))) {
@@ -242,6 +245,8 @@ export default function StoreDetailsPage() {
     setTagline(b?.tagline || "");
     setWhatsappNum(store.whatsappNumber || "");
     setMerchantCat(store.merchantCategory || "");
+    setPrepTimeMins(String(store.prepTimeMins ?? 15));
+    setMinOrderAmount(String(store.minOrderAmount ?? "0"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.store?.id]);
 
@@ -250,6 +255,8 @@ export default function StoreDetailsPage() {
       const res = await apiRequest("PATCH", `/api/stores/${storeId}`, {
         whatsappNumber: whatsappNum.trim() || null,
         merchantCategory: merchantCat || null,
+        prepTimeMins: Math.max(0, parseInt(prepTimeMins || "15", 10)) || 15,
+        minOrderAmount: String(Math.max(0, parseFloat(minOrderAmount || "0")) || 0),
         brandingConfig: {
           primaryColor: primaryColor || "#16a34a",
           accentColor: accentColor || "#0ea5e9",
@@ -679,6 +686,36 @@ export default function StoreDetailsPage() {
                             </button>
                           ))}
                         </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Average prep time (minutes)</label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={prepTimeMins}
+                          onChange={(e) => setPrepTimeMins(e.target.value)}
+                          placeholder="15"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Shown on the Restaurants &amp; Local Vendors page to compute live ETAs.
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Minimum order (GH₵)</label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={minOrderAmount}
+                          onChange={(e) => setMinOrderAmount(e.target.value)}
+                          placeholder="0"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Buyers see this on the card; 0 = no minimum.
+                        </p>
                       </div>
                     </div>
                   </div>

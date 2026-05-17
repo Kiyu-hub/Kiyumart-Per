@@ -44,7 +44,8 @@ export default function AdminUsers() {
   const showInternalRiderFeatures = !isExternalRiderSystemEnabled;
   
   const [confirmBanUser, setConfirmBanUser] = useState<{ id: string; name: string; isActive: boolean } | null>(null);
-  const [confirmDeleteUser, setConfirmDeleteUser] = useState<{ id: string; name: string } | null>(null);
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState<{ id: string; name: string; role?: string; hasStore?: boolean } | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [resetPasswordTarget, setResetPasswordTarget] = useState<UserData | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
@@ -94,6 +95,7 @@ export default function AdminUsers() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       setConfirmDeleteUser(null);
+      setDeleteConfirmText("");
     },
     onError: (error: any) => {
       toast({
@@ -102,6 +104,7 @@ export default function AdminUsers() {
         variant: "destructive",
       });
       setConfirmDeleteUser(null);
+      setDeleteConfirmText("");
     },
   });
 
@@ -134,9 +137,12 @@ export default function AdminUsers() {
   };
 
   const handleDeleteUser = (userData: UserData) => {
+    setDeleteConfirmText("");
     setConfirmDeleteUser({
       id: userData.id,
       name: userData.name || userData.username,
+      role: userData.role,
+      hasStore: userData.role === "seller",
     });
   };
 
@@ -686,21 +692,57 @@ export default function AdminUsers() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!confirmDeleteUser} onOpenChange={(open) => !open && setConfirmDeleteUser(null)}>
+      {/* Delete Confirmation Dialog — gated elevation: super admin must type DELETE */}
+      <AlertDialog
+        open={!!confirmDeleteUser}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmDeleteUser(null);
+            setDeleteConfirmText("");
+          }
+        }}
+      >
         <AlertDialogContent data-testid="dialog-confirm-delete">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete User</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to permanently delete {confirmDeleteUser?.name}? This will remove their account and all related data (products, orders, messages, etc.) from the database. This action cannot be undone.
+            <AlertDialogTitle className="text-destructive">Delete User Permanently</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p>
+                  You are about to permanently delete{" "}
+                  <span className="font-semibold text-foreground">{confirmDeleteUser?.name}</span>
+                  {confirmDeleteUser?.role ? ` (${confirmDeleteUser.role})` : ""}.
+                </p>
+                {confirmDeleteUser?.hasStore && (
+                  <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive">
+                    ⚠ This seller has a store. Deleting this account will also remove the store, its products, orders, payouts and reviews.
+                  </p>
+                )}
+                <p className="text-muted-foreground">
+                  This removes the user and every associated record (orders, products, payouts, messages, notifications, etc.) and cannot be undone.
+                </p>
+                <div className="space-y-1.5 pt-1">
+                  <label className="text-xs font-medium text-foreground" htmlFor="delete-confirm-input">
+                    Type <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-destructive">DELETE</span> to confirm
+                  </label>
+                  <Input
+                    id="delete-confirm-input"
+                    autoFocus
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    placeholder="DELETE"
+                    data-testid="input-delete-confirm"
+                  />
+                </div>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={confirmDeleteAction}
               data-testid="button-confirm-delete"
-              className="bg-destructive hover:bg-destructive/90"
+              disabled={deleteConfirmText.trim() !== "DELETE" || deleteUserMutation.isPending}
+              className="bg-destructive hover:bg-destructive/90 disabled:opacity-50"
             >
               {deleteUserMutation.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

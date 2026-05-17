@@ -125,6 +125,8 @@ export function SwipeableRow({
         style={{
           transform: `translateX(${offsetX}px)`,
           transition: isDragging.current ? "none" : "transform 0.25s cubic-bezier(0.25, 1, 0.5, 1)",
+          zIndex: 1,
+          position: "relative",
         }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}

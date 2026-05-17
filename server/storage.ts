@@ -5,7 +5,7 @@ import {
   productVariants, heroBanners, promotionalAds, promotionPricing, promotionApplications, coupons, bannerCollections, marketplaceBanners,
   stores, categoryFields, categories, notifications, mediaLibrary, footerPages,
   idempotencyKeys,
-  commissions, platformEarnings, sellerPayouts, riderPayouts, roleFeatures, cartLinks,
+  commissions, platformEarnings, sellerPayouts, riderPayouts, roleFeatures, cartLinks, emailOtpVerifications,
   type User, type InsertUser, type Product, type InsertProduct,
   type Order, type InsertOrder, type DeliveryZone, type InsertDeliveryZone,
   type ChatMessage, type InsertChatMessage, type Transaction, type PlatformSettings,
@@ -20,7 +20,7 @@ import {
   type RiderPayout, type InsertRiderPayout,
   type OrderStatusHistory, type InsertOrderStatusHistory
 } from "@shared/schema";
-import { eq, and, asc, desc, sql, lte, gte, or, isNull, isNotNull, inArray, ilike } from "drizzle-orm";
+import { eq, and, asc, desc, sql, lte, gte, gt, or, isNull, isNotNull, inArray, ilike } from "drizzle-orm";
 import { promises as fs } from "fs";
 import path from "path";
 import {
@@ -690,7 +690,7 @@ export interface IStorage {
   deleteCategory(id: string): Promise<boolean>;
   
   // Hero Banner operations
-  getHeroBanners(storeMode?: string): Promise<HeroBanner[]>;
+  getHeroBanners(storeMode?: string, placement?: string): Promise<HeroBanner[]>;
   getAllHeroBanners(): Promise<HeroBanner[]>;
   getHeroBanner(id: string): Promise<HeroBanner | undefined>;
   createHeroBanner(banner: InsertHeroBanner): Promise<HeroBanner>;
@@ -1218,6 +1218,37 @@ export class DbStorage implements IStorage {
 
   async getUsersByRole(role: string): Promise<User[]> {
     return db.select().from(users).where(eq(users.role, role as any));
+  }
+
+  async createEmailOtp(userId: string, email: string, code: string, expiresAt: Date) {
+    // Delete any existing unused OTPs for this email first
+    await db.delete(emailOtpVerifications).where(eq(emailOtpVerifications.email, email));
+    const [otp] = await db.insert(emailOtpVerifications).values({ userId, email, code, expiresAt }).returning();
+    return otp;
+  }
+
+  async getValidEmailOtp(email: string, code: string) {
+    const [otp] = await db
+      .select()
+      .from(emailOtpVerifications)
+      .where(
+        and(
+          eq(emailOtpVerifications.email, email.toLowerCase()),
+          eq(emailOtpVerifications.code, code),
+          eq(emailOtpVerifications.used, false),
+          gt(emailOtpVerifications.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+    return otp || null;
+  }
+
+  async markEmailOtpUsed(id: string) {
+    await db.update(emailOtpVerifications).set({ used: true }).where(eq(emailOtpVerifications.id, id));
+  }
+
+  async markUserEmailVerified(userId: string) {
+    await db.update(users).set({ emailVerified: true }).where(eq(users.id, userId));
   }
 
   // Product operations
@@ -3599,6 +3630,9 @@ export class DbStorage implements IStorage {
           isMultiVendor: false,
           platformName: 'KiyuMart',
           logo: null,
+          logoLight: null,
+          logoDark: null,
+          favicon: null,
           primaryColor: '#1e7b5f',
           secondaryColor: '#2c3e50',
           accentColor: '#e74c3c',
@@ -3717,6 +3751,7 @@ export class DbStorage implements IStorage {
           referralSellerPromoHours: 24,
           suggestionsEnabled: false,
           showRefundButton: true,
+          storeCategoryOverrides: {},
           callerRingtone: 'default',
           receiverRingtone: 'default',
           notificationSound: 'default',
@@ -4687,20 +4722,27 @@ export class DbStorage implements IStorage {
   }
 
   // Hero Banner operations
-  async getHeroBanners(storeMode?: string): Promise<HeroBanner[]> {
+  async getHeroBanners(storeMode?: string, placement?: string): Promise<HeroBanner[]> {
+    const conditions: any[] = [eq(heroBanners.isActive, true)];
     if (storeMode && storeMode !== 'both') {
-      return await db.select().from(heroBanners)
-        .where(and(
-          eq(heroBanners.isActive, true),
-          or(
-            eq(heroBanners.storeMode, storeMode as any),
-            eq(heroBanners.storeMode, 'both')
-          )
-        ))
-        .orderBy(heroBanners.displayOrder);
+      conditions.push(or(
+        eq(heroBanners.storeMode, storeMode as any),
+        eq(heroBanners.storeMode, 'both'),
+      ));
+    }
+    if (placement) {
+      // Legacy banners with no placement count as 'home'.
+      if (placement === 'home') {
+        conditions.push(or(
+          eq(heroBanners.placement, 'home'),
+          sql`${heroBanners.placement} IS NULL`,
+        ));
+      } else {
+        conditions.push(eq(heroBanners.placement, placement));
+      }
     }
     return await db.select().from(heroBanners)
-      .where(eq(heroBanners.isActive, true))
+      .where(and(...conditions))
       .orderBy(heroBanners.displayOrder);
   }
   
@@ -5201,9 +5243,12 @@ export class DbStorage implements IStorage {
 
   // Centralized idempotent store creation/retrieval for sellers
   // Returns: Store object on success, throws error with specific message on failure
-  async ensureStoreForSeller(sellerId: string, options?: { requireApproval?: boolean }): Promise<Store> {
+  // `allowPendingPromotion`: skip the "user must already be a seller" gate. Used by
+  // the approval flow which creates the store immediately before promoting the user.
+  async ensureStoreForSeller(sellerId: string, options?: { requireApproval?: boolean; allowPendingPromotion?: boolean }): Promise<Store> {
     const requireApproval = options?.requireApproval ?? false;
-    
+    const allowPendingPromotion = options?.allowPendingPromotion ?? false;
+
     // First, check if store already exists
     const existingStore = await this.getStoreByPrimarySeller(sellerId);
     if (existingStore) {
@@ -5217,8 +5262,8 @@ export class DbStorage implements IStorage {
       throw new Error(`Seller account not found`);
     }
 
-    // Check seller role
-    if (seller.role !== "seller") {
+    // Check seller role unless we're in the approval flow (about to promote them)
+    if (!allowPendingPromotion && seller.role !== "seller") {
       throw new Error(`User is not a seller (role: ${seller.role})`);
     }
 
@@ -5241,6 +5286,10 @@ export class DbStorage implements IStorage {
       banner: seller.storeBanner || undefined,
       storeType: seller.storeType,
       storeTypeMetadata: seller.storeTypeMetadata,
+      businessType: (seller as any).businessType || 'store',
+      location: (seller as any).businessAddress || null,
+      latitude: (seller as any).storeLatitude || null,
+      longitude: (seller as any).storeLongitude || null,
       isActive: true,
       isApproved: true
     };
@@ -5270,10 +5319,8 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  async getStores(filters?: { isActive?: boolean; isApproved?: boolean }): Promise<Store[]> {
-    let query = db.select().from(stores);
-    
-    const conditions = [];
+  async getStores(filters?: { isActive?: boolean; isApproved?: boolean }): Promise<any[]> {
+    const conditions: any[] = [];
     if (filters?.isActive !== undefined) {
       conditions.push(eq(stores.isActive, filters.isActive));
     }
@@ -5281,11 +5328,45 @@ export class DbStorage implements IStorage {
       conditions.push(eq(stores.isApproved, filters.isApproved));
     }
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as any;
-    }
+    const rows = await db
+      .select({
+        id: stores.id,
+        primarySellerId: stores.primarySellerId,
+        name: stores.name,
+        description: stores.description,
+        logo: stores.logo,
+        banner: stores.banner,
+        category: stores.category,
+        storeType: stores.storeType,
+        storeTypeMetadata: stores.storeTypeMetadata,
+        isActive: stores.isActive,
+        isApproved: stores.isApproved,
+        paystackSubaccountId: stores.paystackSubaccountId,
+        payoutType: stores.payoutType,
+        payoutDetails: stores.payoutDetails,
+        isPayoutVerified: stores.isPayoutVerified,
+        merchantCategory: stores.merchantCategory,
+        whatsappNumber: stores.whatsappNumber,
+        socialLinks: stores.socialLinks,
+        brandingConfig: stores.brandingConfig,
+        businessType: stores.businessType,
+        location: stores.location,
+        latitude: stores.latitude,
+        longitude: stores.longitude,
+        createdAt: stores.createdAt,
+        updatedAt: stores.updatedAt,
+        sellerName: users.name,
+        verificationStatus: (stores as any).verificationStatus,
+        averageRating: sql<string>`COALESCE((SELECT AVG(p.ratings::numeric)::numeric(3,2)::text FROM products p WHERE p.store_id = ${stores.id} AND p.is_active = true), '0')`,
+        totalOrders: sql<number>`(SELECT COUNT(*)::integer FROM orders o WHERE o.store_id = ${stores.id})`,
+        productCount: sql<number>`(SELECT COUNT(*)::integer FROM products p WHERE p.store_id = ${stores.id} AND p.is_active = true)`,
+      })
+      .from(stores)
+      .leftJoin(users, eq(stores.primarySellerId, users.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(stores.createdAt));
 
-    return query.orderBy(desc(stores.createdAt));
+    return rows;
   }
 
   async getStoreByPrimarySeller(sellerId: string): Promise<Store | undefined> {
@@ -5350,6 +5431,53 @@ export class DbStorage implements IStorage {
     return result.rowCount !== null && result.rowCount > 0;
   }
 
+  async applyForVerification(storeId: string, docs: { front: string; back: string; selfie: string }): Promise<any> {
+    const [updated] = await db.update(stores)
+      .set({
+        verificationStatus: 'pending',
+        verificationDocFront: docs.front,
+        verificationDocBack: docs.back,
+        verificationSelfie: docs.selfie,
+        verificationAppliedAt: new Date(),
+        verificationRejectionReason: null,
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(stores.id, storeId))
+      .returning();
+    return updated;
+  }
+
+  async approveVerification(storeId: string): Promise<any> {
+    const [updated] = await db.update(stores)
+      .set({
+        verificationStatus: 'approved',
+        verificationReviewedAt: new Date(),
+        verificationRejectionReason: null,
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(stores.id, storeId))
+      .returning();
+    return updated;
+  }
+
+  async rejectVerification(storeId: string, reason: string): Promise<any> {
+    const [updated] = await db.update(stores)
+      .set({
+        verificationStatus: 'rejected',
+        verificationReviewedAt: new Date(),
+        verificationRejectionReason: reason,
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(stores.id, storeId))
+      .returning();
+    return updated;
+  }
+
+  async getVerificationApplications(): Promise<any[]> {
+    return db.select().from(stores)
+      .where(eq(stores.verificationStatus as any, 'pending'));
+  }
+
   // Category operations
   async createCategory(category: any): Promise<Category> {
     const [newCategory] = await db.insert(categories).values(category).returning();
@@ -5394,8 +5522,16 @@ export class DbStorage implements IStorage {
   }
 
   async deleteCategory(id: string): Promise<boolean> {
-    const result = await db.delete(categories).where(eq(categories.id, id));
-    return result.rowCount !== null && result.rowCount > 0;
+    // Unbind any products that reference this category before deletion so the
+    // foreign-key constraint doesn't block the delete. Products remain alive
+    // and accessible (they just lose their category link).
+    await db.transaction(async (tx) => {
+      await tx.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
+      await tx.delete(categories).where(eq(categories.id, id));
+    });
+    // Verify deletion happened
+    const [check] = await db.select({ id: categories.id }).from(categories).where(eq(categories.id, id)).limit(1);
+    return !check;
   }
 
   async getCategoriesByStore(storeId: string): Promise<Category[]> {

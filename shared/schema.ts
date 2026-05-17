@@ -32,7 +32,7 @@ export const adminTransactionTypeEnum = pgEnum("admin_transaction_type", ["sale"
 export const mediaTypeEnum = pgEnum("media_type", ["image", "video"]);
 export const deliveryAssignmentStatusEnum = pgEnum("delivery_assignment_status", ["assigned", "en_route", "delivered", "cancelled"]);
 export const mediaCategoryEnum = pgEnum("media_category", ["banner", "category", "logo", "product", "general"]);
-export const storeTypeEnum = pgEnum("store_type", ["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness"]);
+export const storeTypeEnum = pgEnum("store_type", ["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness", "restaurant"]);
 export const promoTypeEnum = pgEnum("promo_type", ["store", "product"]);
 export const applicationStatusEnum = pgEnum("application_status", ["pending", "interview_scheduled", "approved", "rejected"]);
 
@@ -159,6 +159,7 @@ export const users = pgTable("users", {
   lastReferralNotificationAt: timestamp("last_referral_notification_at"),
   ratings: decimal("ratings", { precision: 3, scale: 2 }).default("0"),
   totalRatings: integer("total_ratings").default(0),
+  emailVerified: boolean("email_verified").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   roleIdx: index("users_role_idx").on(table.role),
@@ -200,6 +201,16 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   expiresAt: timestamp("expires_at").notNull(),
   usedAt: timestamp("used_at"),
   createdBy: varchar("created_by").references(() => users.id), // Admin who triggered reset
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const emailOtpVerifications = pgTable("email_otp_verifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  email: text("email").notNull(),
+  code: text("code").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -292,6 +303,10 @@ export const platformSettings = pgTable("platform_settings", {
   allowSellerRegistration: boolean("allow_seller_registration").default(false),
   allowRiderRegistration: boolean("allow_rider_registration").default(false),
   allowSellerBankPayouts: boolean("allow_seller_bank_payouts").default(true),
+  // Global kill-switch for 3D / AR product features. When false the seller
+  // guidance card, viewers, and all 3D/AR references stay hidden across every
+  // dashboard. Food vendors / restaurants are always treated as off regardless.
+  enable3DAR: boolean("enable_3d_ar").default(true),
   allowSharedVariantColorStock: boolean("allow_shared_variant_color_stock").default(false),
   primaryStoreId: varchar("primary_store_id"),
   defaultCommissionRate: decimal("default_commission_rate", { precision: 5, scale: 2 }).default("1.00"), // 1% default
@@ -340,6 +355,9 @@ export const platformSettings = pgTable("platform_settings", {
   suggestionsEnabled: boolean("suggestions_enabled").default(false),
   // Refund button visibility (super_admin controlled)
   showRefundButton: boolean("show_refund_button").default(true),
+  // Per-storeType overrides (cover image, label, displayOrder) — managed by
+  // super_admin via /api/admin/store-categories. Keyed by storeType.
+  storeCategoryOverrides: jsonb("store_category_overrides").$type<Record<string, { image?: string | null; label?: string | null; displayOrder?: number | null }>>().default({}),
   // Sound & ringtone settings
   callerRingtone: text("caller_ringtone").default("default"),
   receiverRingtone: text("receiver_ringtone").default("default"),
@@ -383,6 +401,27 @@ export const stores = pgTable("stores", {
   socialLinks: jsonb("social_links").$type<{ instagram?: string; facebook?: string; tiktok?: string; twitter?: string; website?: string }>(),
   brandingConfig: jsonb("branding_config").$type<{ primaryColor?: string; accentColor?: string; logoOverride?: string; coverImage?: string; tagline?: string }>(),
 
+  // Business classification — 'store' | 'restaurant' | 'local_vendor'
+  businessType: text("business_type").default("store"),
+  // Bolt-style food storefront fields — drive the per-store ETA and minimum
+  // order warnings on the Restaurants & Local Vendors page. Default 15 min
+  // prep / 0 GHS minimum so non-food stores aren't blocked.
+  prepTimeMins: integer("prep_time_mins").default(15),
+  minOrderAmount: decimal("min_order_amount", { precision: 10, scale: 2 }).default("0"),
+  // Physical location label and coordinates for distance calculation
+  location: text("location"),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }),
+
+  // Store verification system — 'none' | 'pending' | 'approved' | 'rejected'
+  verificationStatus: text("verification_status").default("none"),
+  verificationDocFront: text("verification_doc_front"),
+  verificationDocBack: text("verification_doc_back"),
+  verificationSelfie: text("verification_selfie"),
+  verificationAppliedAt: timestamp("verification_applied_at"),
+  verificationReviewedAt: timestamp("verification_reviewed_at"),
+  verificationRejectionReason: text("verification_rejection_reason"),
+
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -408,6 +447,18 @@ export const categories = pgTable("categories", {
   image: text("image").notNull(),
   description: text("description"),
   storeTypes: text("store_types").array(), // Array of store types this category applies to
+  // Per-category dynamic field templates — Bolt-style, e.g. Pizza category
+  // exposes crust/sauce/toppings, Sushi exposes rice/fish, etc. Each entry
+  // matches the DynamicField shape consumed by DynamicFieldRenderer.
+  productFieldsConfig: jsonb("product_fields_config").$type<Array<{
+    name: string;
+    label: string;
+    type: "text" | "textarea" | "select" | "multiselect" | "number" | "date";
+    placeholder?: string;
+    options?: string[];
+    description?: string;
+    required?: boolean;
+  }>>(),
   displayOrder: integer("display_order").default(0),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -429,6 +480,10 @@ export const products = pgTable("products", {
   images: text("images").array().notNull(),
   video: text("video"), // Max 30 seconds, MP4 or WEBM
   videoDuration: integer("video_duration"), // Duration in seconds for validation
+  // 3D / AR product viewing
+  modelUrl: text("model_url"),         // .glb file URL — used by <model-viewer> for 3D + Android AR (Scene Viewer / WebXR)
+  modelUrlIos: text("model_url_ios"),  // .usdz file URL — used by AR Quick Look on iOS
+  modelPoster: text("model_poster"),   // Optional preview image shown before 3D model loads
   tags: text("tags").array(),
   dynamicFields: jsonb("dynamic_fields").$type<Record<string, any>>(), // Category-specific dynamic fields
   deliveryDuration: varchar("delivery_duration"), // Delivery time estimate (e.g., "1-2 days", "3-5 business days")
@@ -804,6 +859,13 @@ export const heroBanners = pgTable("hero_banners", {
   ctaText: text("cta_text"),
   ctaLink: text("cta_link"),
   storeMode: storeModeEnum("store_mode").default("both"),
+  // Where this banner surfaces. "home" → main homepage (existing behaviour);
+  // "food_vendors" → Restaurants & Local Vendors page. Extending is just
+  // adding a new value here + a UI option — no enum/migration needed.
+  placement: text("placement").default("home"),
+  // Optional accent color so super admin can match brand or promote contrast
+  // banners without uploading a tinted image (e.g. transparent CTA on solid color).
+  themeColor: text("theme_color"),
   isActive: boolean("is_active").default(true),
   displayOrder: integer("display_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1352,6 +1414,8 @@ export const insertHeroBannerSchema = createInsertSchema(heroBanners).pick({
   ctaText: true,
   ctaLink: true,
   storeMode: true,
+  placement: true,
+  themeColor: true,
   isActive: true,
   displayOrder: true,
 });

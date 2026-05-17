@@ -7,6 +7,9 @@ export interface PublicPlatformSettings {
   isMultiVendor: boolean;
   allowSellerBankPayouts: boolean;
   allowSellerDirectSupportMessages: boolean;
+  allowSellerRegistration: boolean;
+  allowRiderRegistration: boolean;
+  enable3DAR: boolean;
   referralEnabled: boolean;
   referralEnabledSingleStore: boolean;
   referralEnabledMultiVendor: boolean;
@@ -33,6 +36,9 @@ const defaultPublicPlatformSettings: PublicPlatformSettings = {
   isMultiVendor: false,
   allowSellerBankPayouts: true,
   allowSellerDirectSupportMessages: true,
+  allowSellerRegistration: true,
+  allowRiderRegistration: false,
+  enable3DAR: true,
   referralEnabled: false,
   referralEnabledSingleStore: false,
   referralEnabledMultiVendor: false,
@@ -67,6 +73,9 @@ export function usePlatformSettings() {
     isMultiVendor: query.data?.isMultiVendor === true,
     allowSellerBankPayouts: query.data?.allowSellerBankPayouts !== false,
     allowSellerDirectSupportMessages: query.data?.allowSellerDirectSupportMessages !== false,
+    allowSellerRegistration: query.data?.allowSellerRegistration !== false,
+    allowRiderRegistration: query.data?.allowRiderRegistration === true,
+    enable3DAR: query.data?.enable3DAR !== false,
     referralEnabled: query.data?.referralEnabled === true,
     referralEnabledSingleStore: query.data?.referralEnabledSingleStore === true,
     referralEnabledMultiVendor: query.data?.referralEnabledMultiVendor === true,

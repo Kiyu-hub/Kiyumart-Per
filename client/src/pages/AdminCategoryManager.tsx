@@ -26,9 +26,21 @@ import type { Category } from "@shared/schema";
 import { STORE_TYPES } from "@shared/storeTypes";
 import { productMatchesCategory } from "@/lib/categoryUtils";
 
+const dynamicFieldSchema = z.object({
+  name: z.string().min(1),
+  label: z.string().min(1),
+  type: z.enum(["text", "textarea", "select", "multiselect", "number"]),
+  placeholder: z.string().optional(),
+  options: z.array(z.string()).optional(),
+  description: z.string().optional(),
+  required: z.boolean().optional(),
+});
+type CuisineField = z.infer<typeof dynamicFieldSchema>;
+
 const categoryFormSchema = insertCategorySchema.extend({
   slug: z.string().min(1, "Slug is required").regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
   storeTypes: z.array(z.string()).optional(),
+  productFieldsConfig: z.array(dynamicFieldSchema).optional(),
 });
 
 type CategoryFormData = z.infer<typeof categoryFormSchema>;
@@ -45,7 +57,11 @@ export default function AdminCategoryManager() {
   const [location, navigate] = useLocation();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [activeTab, setActiveTab] = useState<"all" | "pending">("all");
+  // Super-admin scopes: categories live in two contexts that surface on different
+  // mobile/desktop sections — generic "stores" feed vs. the "Restaurants & Local
+  // Vendors" food page. A category is food-scoped when its storeTypes array
+  // includes food_beverages or restaurant.
+  const [activeTab, setActiveTab] = useState<"stores" | "food" | "pending">("stores");
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
   const { data: categories = [], isLoading } = useQuery<Category[]>({
@@ -87,6 +103,7 @@ export default function AdminCategoryManager() {
       displayOrder: 0,
       isActive: true,
       storeTypes: [],
+      productFieldsConfig: [],
     },
   });
 
@@ -140,6 +157,28 @@ export default function AdminCategoryManager() {
     },
   });
 
+  // One-click seed of standard cuisine categories (Rice, Drinks, Pizza, etc.)
+  const seedCuisinesMutation = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/categories/seed-cuisines");
+      return r.json();
+    },
+    onSuccess: (data: { created: string[]; skipped: string[] }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      const c = data?.created?.length ?? 0;
+      const s = data?.skipped?.length ?? 0;
+      toast({
+        title: c > 0 ? "Cuisines seeded" : "Already seeded",
+        description: c > 0
+          ? `Added ${c} cuisine${c === 1 ? "" : "s"}${s > 0 ? `, skipped ${s} existing` : ""}.`
+          : "All default cuisines are already present.",
+      });
+    },
+    onError: (error: any) => {
+      toast({ title: "Seed failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const approveMutation = useMutation({
     mutationFn: async (id: string) => {
       const response = await apiRequest("POST", `/api/categories/${id}/approve`);
@@ -182,6 +221,7 @@ export default function AdminCategoryManager() {
       displayOrder: category.displayOrder || 0,
       isActive: category.isActive,
       storeTypes: category.storeTypes || [],
+      productFieldsConfig: (category as any).productFieldsConfig || [],
     });
     setIsDialogOpen(true);
   };
@@ -208,6 +248,12 @@ export default function AdminCategoryManager() {
 
   const handleOpenDialog = () => {
     setEditingCategory(null);
+    // Pre-scope storeTypes based on the active tab so categories created from
+    // the "Restaurants & Local Vendors" tab only surface on the food page,
+    // and ones from "Stores" only surface in the general feed.
+    const defaultStoreTypes = activeTab === "food"
+      ? ["food_beverages", "restaurant"]
+      : [];
     form.reset({
       name: "",
       slug: "",
@@ -215,7 +261,8 @@ export default function AdminCategoryManager() {
       description: "",
       displayOrder: categories.length,
       isActive: true,
-      storeTypes: [],
+      storeTypes: defaultStoreTypes,
+      productFieldsConfig: [],
     });
     setIsDialogOpen(true);
   };
@@ -227,6 +274,10 @@ export default function AdminCategoryManager() {
 
     if (!targetCategory.isActive) {
       setActiveTab("pending");
+    } else if (isFoodCategory(targetCategory)) {
+      setActiveTab("food");
+    } else {
+      setActiveTab("stores");
     }
 
     handleEdit(targetCategory);
@@ -273,8 +324,21 @@ export default function AdminCategoryManager() {
       return a.name.localeCompare(b.name);
     });
 
+  const isFoodCategory = (c: Category) =>
+    Array.isArray(c.storeTypes) &&
+    c.storeTypes.some((t) => t === "food_beverages" || t === "restaurant");
+
   const pendingCategories = sortCategoriesByProductCount(categories.filter((category) => !category.isActive));
-  const visibleCategories = activeTab === "pending" ? pendingCategories : sortCategoriesByProductCount(categories);
+  const storeCategories = sortCategoriesByProductCount(
+    categories.filter((c) => c.isActive && !isFoodCategory(c)),
+  );
+  const foodCategories = sortCategoriesByProductCount(
+    categories.filter((c) => c.isActive && isFoodCategory(c)),
+  );
+  const visibleCategories =
+    activeTab === "pending" ? pendingCategories
+    : activeTab === "food" ? foodCategories
+    : storeCategories;
 
   if (authLoading || isLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
@@ -307,24 +371,42 @@ export default function AdminCategoryManager() {
                 </p>
               )}
             </div>
-            <Button onClick={handleOpenDialog} data-testid="button-create-category">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Category
-            </Button>
+            <div className="flex items-center gap-2">
+              {user?.role === "super_admin" && activeTab === "food" && (
+                <Button
+                  variant="outline"
+                  onClick={() => seedCuisinesMutation.mutate()}
+                  disabled={seedCuisinesMutation.isPending}
+                  data-testid="button-seed-cuisines"
+                >
+                  {seedCuisinesMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Seed default cuisines
+                </Button>
+              )}
+              <Button onClick={handleOpenDialog} data-testid="button-create-category">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Category
+              </Button>
+            </div>
           </div>
 
           {user?.role === "super_admin" && (
             <Tabs
               value={activeTab}
-              onValueChange={(value) => setActiveTab((value === "pending" ? "pending" : "all"))}
+              onValueChange={(value) =>
+                setActiveTab(value === "food" ? "food" : value === "pending" ? "pending" : "stores")
+              }
               className="mb-6"
             >
               <TabsList>
-                <TabsTrigger value="all" data-testid="tab-all-categories">
-                  All Categories ({categories.length})
+                <TabsTrigger value="stores" data-testid="tab-store-categories">
+                  Stores ({storeCategories.length})
+                </TabsTrigger>
+                <TabsTrigger value="food" data-testid="tab-food-categories">
+                  Restaurants &amp; Local Vendors ({foodCategories.length})
                 </TabsTrigger>
                 <TabsTrigger value="pending" data-testid="tab-pending-categories">
-                  Pending Categories ({pendingCategories.length})
+                  Pending ({pendingCategories.length})
                 </TabsTrigger>
               </TabsList>
               <TabsContent value={activeTab} className="mt-0" />
@@ -335,9 +417,13 @@ export default function AdminCategoryManager() {
             <Card>
               <CardContent className="py-12 text-center">
                 <p className="text-muted-foreground mb-4">
-                  {activeTab === "pending" ? "No pending categories right now" : "No categories yet"}
+                  {activeTab === "pending"
+                    ? "No pending categories right now"
+                    : activeTab === "food"
+                      ? "No restaurant or local-vendor categories yet"
+                      : "No store categories yet"}
                 </p>
-                {activeTab === "all" && (
+                {activeTab !== "pending" && (
                   <Button onClick={handleOpenDialog}>
                     <Plus className="h-4 w-4 mr-2" />
                     Create First Category
@@ -435,17 +521,16 @@ export default function AdminCategoryManager() {
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
                           </Button>
-                          {(category.isActive || user?.role !== "super_admin") && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDelete(category.id)}
-                              data-testid={`button-delete-${category.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
-                            </Button>
-                          )}
+                          {/* Super-admin can delete ANY category (active or inactive). */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDelete(category.id)}
+                            data-testid={`button-delete-${category.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </Button>
                         </div>
                       </div>
                     </div>
@@ -600,6 +685,148 @@ export default function AdminCategoryManager() {
                         <FormMessage />
                       </FormItem>
                     )}
+                  />
+
+                  {/* Cuisine field builder — visible only when this category is
+                      scoped to food vendors / restaurants. Lets super admin define
+                      Pizza→crust/sauce/toppings or Sushi→rice type style fields. */}
+                  <FormField
+                    control={form.control}
+                    name="productFieldsConfig"
+                    render={({ field }) => {
+                      const storeTypesVal = form.watch("storeTypes") || [];
+                      const isFoodScope = storeTypesVal.some((t: string) => t === "food_beverages" || t === "restaurant");
+                      if (!isFoodScope) return <></>;
+                      const fields: CuisineField[] = Array.isArray(field.value) ? (field.value as any) : [];
+                      const updateField = (idx: number, patch: Partial<CuisineField>) => {
+                        const next = fields.map((f, i) => i === idx ? { ...f, ...patch } : f);
+                        field.onChange(next);
+                      };
+                      const removeField = (idx: number) => {
+                        field.onChange(fields.filter((_, i) => i !== idx));
+                      };
+                      const addField = () => {
+                        field.onChange([
+                          ...fields,
+                          { name: "", label: "", type: "text", required: false } as CuisineField,
+                        ]);
+                      };
+                      return (
+                        <FormItem>
+                          <FormLabel>Cuisine-specific fields</FormLabel>
+                          <FormDescription>
+                            When a seller picks this cuisine, these fields appear on the product form alongside the usual ones — e.g. Pizza shows Crust / Sauce / Toppings, Sushi shows Rice type / Fish.
+                          </FormDescription>
+                          <div className="mt-3 space-y-3">
+                            {fields.map((f, idx) => (
+                              <div key={idx} className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-muted-foreground">Internal key</label>
+                                    <Input
+                                      value={f.name}
+                                      onChange={(e) => updateField(idx, {
+                                        name: e.target.value
+                                          .toLowerCase()
+                                          .replace(/[^a-z0-9_]+/g, "_")
+                                          .replace(/^_+|_+$/g, ""),
+                                      })}
+                                      placeholder="e.g. crust_type"
+                                      data-testid={`input-cuisine-field-name-${idx}`}
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-muted-foreground">Buyer-facing label</label>
+                                    <Input
+                                      value={f.label}
+                                      onChange={(e) => updateField(idx, { label: e.target.value })}
+                                      placeholder="e.g. Crust type"
+                                      data-testid={`input-cuisine-field-label-${idx}`}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-muted-foreground">Field type</label>
+                                    <select
+                                      value={f.type}
+                                      onChange={(e) => updateField(idx, { type: e.target.value as CuisineField["type"] })}
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                      data-testid={`select-cuisine-field-type-${idx}`}
+                                    >
+                                      <option value="text">Short text</option>
+                                      <option value="textarea">Long text</option>
+                                      <option value="select">Pick one (options)</option>
+                                      <option value="multiselect">Pick many (options)</option>
+                                      <option value="number">Number</option>
+                                    </select>
+                                  </div>
+                                  <div className="flex items-end gap-2">
+                                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-muted-foreground">
+                                      <Checkbox
+                                        checked={!!f.required}
+                                        onCheckedChange={(c) => updateField(idx, { required: !!c })}
+                                      />
+                                      Required
+                                    </label>
+                                  </div>
+                                </div>
+                                {(f.type === "select" || f.type === "multiselect") && (
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-muted-foreground">Options (comma-separated)</label>
+                                    <Input
+                                      value={Array.isArray(f.options) ? f.options.join(", ") : ""}
+                                      onChange={(e) => updateField(idx, {
+                                        options: e.target.value
+                                          .split(",")
+                                          .map((s) => s.trim())
+                                          .filter(Boolean),
+                                      })}
+                                      placeholder="e.g. Thin crust, Thick crust, Stuffed crust"
+                                      data-testid={`input-cuisine-field-options-${idx}`}
+                                    />
+                                  </div>
+                                )}
+                                {(f.type === "text" || f.type === "textarea") && (
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-muted-foreground">Placeholder (optional)</label>
+                                    <Input
+                                      value={f.placeholder || ""}
+                                      onChange={(e) => updateField(idx, { placeholder: e.target.value })}
+                                      placeholder="What the seller sees as a hint"
+                                    />
+                                  </div>
+                                )}
+                                <div className="flex justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => removeField(idx)}
+                                    className="text-destructive hover:text-destructive"
+                                    data-testid={`button-remove-cuisine-field-${idx}`}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                    Remove field
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={addField}
+                              data-testid="button-add-cuisine-field"
+                            >
+                              <Plus className="h-3.5 w-3.5 mr-1.5" />
+                              Add cuisine field
+                            </Button>
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
                   />
 
                   <FormField

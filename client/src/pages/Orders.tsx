@@ -71,6 +71,7 @@ export default function Orders() {
   const { currencySymbol, formatPrice } = useLanguage();
   const { toast } = useToast();
   const { isExternalRiderSystemEnabled, showRefundButton } = usePlatformSettings();
+  const { isMobile } = useMobileDevice();
 
   const cancelOrderMutation = useMutation({
     mutationFn: (orderId: string) =>
@@ -730,7 +731,6 @@ export default function Orders() {
     );
   }
 
-  const { isMobile } = useMobileDevice();
   if (isMobile) {
     return (
       <MobileOrders

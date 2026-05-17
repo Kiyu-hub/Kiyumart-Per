@@ -59,14 +59,14 @@ interface SellerStore {
     coverImage?: string | null;
     tagline?: string | null;
   } | null;
+  verificationStatus?: string | null;
+  verificationDocFront?: string | null;
+  verificationDocBack?: string | null;
+  verificationSelfie?: string | null;
+  verificationAppliedAt?: string | null;
+  verificationRejectionReason?: string | null;
 }
 
-const MERCHANT_CATEGORIES = [
-  { value: "QUICK_EATS", label: "Quick Eats / Food & Cafe", icon: "🍔" },
-  { value: "HEALTH_ESSENTIALS", label: "Health & Pharmacy", icon: "💊" },
-  { value: "RETAIL_BOUTIQUE", label: "Retail / Fashion Boutique", icon: "👗" },
-  { value: "GENERAL_PROVISIONS", label: "General Provisions / Mixed", icon: "🏪" },
-];
 
 const hasSellerPayoutSetup = (store?: SellerStore | null) => {
   if (!store?.payoutType || !store?.payoutDetails) return false;
@@ -114,8 +114,6 @@ export default function SellerSettings() {
   const [facebook, setFacebook] = useState("");
   const [tiktok, setTiktok] = useState("");
   const [website, setWebsite] = useState("");
-  const [merchantCat, setMerchantCat] = useState("");
-  const [personaEditing, setPersonaEditing] = useState(false);
   const [socialSaved, setSocialSaved] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
@@ -135,7 +133,6 @@ export default function SellerSettings() {
       setFacebook(store.socialLinks?.facebook || "");
       setTiktok(store.socialLinks?.tiktok || "");
       setWebsite(store.socialLinks?.website || "");
-      setMerchantCat(store.merchantCategory || "");
       setBrandPrimaryColor(store.brandingConfig?.primaryColor || "");
       setBrandAccentColor(store.brandingConfig?.accentColor || "");
       setBrandLogoOverride(store.brandingConfig?.logoOverride || store.logo || "");
@@ -193,22 +190,27 @@ export default function SellerSettings() {
     },
   });
 
-  const [personaSaved, setPersonaSaved] = useState(false);
-  const savePersonaMutation = useMutation({
+
+  // Verification state
+  const [verDocFront, setVerDocFront] = useState("");
+  const [verDocBack, setVerDocBack] = useState("");
+  const [verSelfie, setVerSelfie] = useState("");
+
+  const applyVerificationMutation = useMutation({
     mutationFn: async () => {
-      if (!store?.id) throw new Error("Store not found");
-      const res = await apiRequest("PATCH", `/api/stores/${store.id}`, { merchantCategory: merchantCat || null });
+      const res = await apiRequest("POST", "/api/seller/verification/apply", {
+        docFront: verDocFront.trim(),
+        docBack: verDocBack.trim(),
+        selfie: verSelfie.trim(),
+      });
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Store persona updated!" });
-      setPersonaSaved(true);
-      setPersonaEditing(false);
-      setTimeout(() => setPersonaSaved(false), 2000);
+      toast({ title: "Application submitted!", description: "We'll review your documents and notify you soon." });
       queryClient.invalidateQueries({ queryKey: ["/api/stores/my-store"] });
     },
     onError: (e: any) => {
-      toast({ title: e?.message || "Failed to save", variant: "destructive" });
+      toast({ title: e?.message || "Failed to submit", variant: "destructive" });
     },
   });
 
@@ -520,87 +522,6 @@ export default function SellerSettings() {
             );
           })()}
 
-          {/* Store Persona */}
-          <Card data-testid="card-store-persona" className="lg:col-span-3">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Store className="h-5 w-5 text-primary" />
-                    Store Persona
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Your store category controls which product fields appear when listing items.
-                  </CardDescription>
-                </div>
-                {merchantCat && !personaEditing && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-xs"
-                    onClick={() => setPersonaEditing(true)}
-                  >
-                    Change
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {merchantCat && !personaEditing ? (
-                /* Compact read-only — already configured */
-                (() => {
-                  const active = MERCHANT_CATEGORIES.find((c) => c.value === merchantCat);
-                  return active ? (
-                    <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
-                      <span className="text-2xl">{active.icon}</span>
-                      <div>
-                        <p className="text-sm font-semibold text-primary">{active.label}</p>
-                        <p className="text-xs text-muted-foreground">Set during store setup. Tap "Change" to update.</p>
-                      </div>
-                    </div>
-                  ) : null;
-                })()
-              ) : (
-                /* Edit mode — show full picker */
-                <>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {MERCHANT_CATEGORIES.map((cat) => (
-                      <button
-                        key={cat.value}
-                        type="button"
-                        onClick={() => setMerchantCat(cat.value)}
-                        className={`rounded-xl border p-3 text-left transition-colors ${
-                          merchantCat === cat.value
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border hover:bg-muted"
-                        }`}
-                      >
-                        <span className="text-2xl">{cat.icon}</span>
-                        <p className="mt-1.5 text-xs font-medium leading-tight">{cat.label}</p>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    {personaEditing && (
-                      <Button variant="ghost" size="sm" onClick={() => { setMerchantCat(store?.merchantCategory || ""); setPersonaEditing(false); }}>
-                        Cancel
-                      </Button>
-                    )}
-                    <Button onClick={() => savePersonaMutation.mutate()} disabled={savePersonaMutation.isPending}>
-                      {savePersonaMutation.isPending ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
-                      ) : personaSaved ? (
-                        <><Check className="h-4 w-4 mr-2" /> Saved!</>
-                      ) : (
-                        "Save Persona"
-                      )}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Social Commerce — social links, merchant category */}
           <Card data-testid="card-social-commerce" className="lg:col-span-3">
             <CardHeader>
@@ -845,6 +766,109 @@ export default function SellerSettings() {
                   )}
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Store Verification */}
+          <Card data-testid="card-store-verification" className="lg:col-span-3">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-blue-500" />
+                Store Verification
+              </CardTitle>
+              <CardDescription>
+                Verify your store to earn a Verified badge visible to customers. You'll need a Ghana card (front &amp; back) and a selfie holding it.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {/* Status display */}
+              {store?.verificationStatus === 'approved' && (
+                <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800 px-4 py-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600">
+                    <ShieldCheck className="h-4 w-4 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-blue-800 dark:text-blue-200">Store Verified ✓</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-300">Your store displays the Verified badge to all customers.</p>
+                  </div>
+                </div>
+              )}
+
+              {store?.verificationStatus === 'pending' && (
+                <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 px-4 py-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+                  <div>
+                    <p className="font-semibold text-amber-800 dark:text-amber-200">Application Under Review</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      Submitted {store.verificationAppliedAt ? new Date(store.verificationAppliedAt).toLocaleDateString() : "recently"}. We typically review within 1–2 business days.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {store?.verificationStatus === 'rejected' && (
+                <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3">
+                  <p className="font-semibold text-red-800 dark:text-red-200">Application Not Approved</p>
+                  {store.verificationRejectionReason && (
+                    <p className="text-xs text-red-700 dark:text-red-300 mt-1">Reason: {store.verificationRejectionReason}</p>
+                  )}
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">You can re-apply by uploading new documents below.</p>
+                </div>
+              )}
+
+              {/* Upload form — shown when not approved and not pending */}
+              {store?.verificationStatus !== 'approved' && store?.verificationStatus !== 'pending' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    {store?.verificationStatus === 'rejected'
+                      ? "Re-apply with new documents below."
+                      : "Upload your Ghana card and selfie to apply for verification. All images are securely stored."}
+                  </p>
+                  <MediaUploadInput
+                    id="ver-doc-front"
+                    label="Ghana Card — Front"
+                    value={verDocFront}
+                    onChange={setVerDocFront}
+                    accept="image"
+                    description="Clear photo of the front of your Ghana National ID card."
+                    skip4KValidation
+                    minDimensions={{ width: 200, height: 100 }}
+                    mediaCategory="document"
+                  />
+                  <MediaUploadInput
+                    id="ver-doc-back"
+                    label="Ghana Card — Back"
+                    value={verDocBack}
+                    onChange={setVerDocBack}
+                    accept="image"
+                    description="Clear photo of the back of your Ghana National ID card."
+                    skip4KValidation
+                    minDimensions={{ width: 200, height: 100 }}
+                    mediaCategory="document"
+                  />
+                  <MediaUploadInput
+                    id="ver-selfie"
+                    label="Selfie Holding Card"
+                    value={verSelfie}
+                    onChange={setVerSelfie}
+                    accept="image"
+                    description="A photo of you holding your Ghana card next to your face."
+                    skip4KValidation
+                    minDimensions={{ width: 200, height: 200 }}
+                    mediaCategory="profile"
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={() => applyVerificationMutation.mutate()}
+                      disabled={applyVerificationMutation.isPending || !verDocFront || !verDocBack || !verSelfie}
+                    >
+                      {applyVerificationMutation.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Submitting…</>
+                      ) : store?.verificationStatus === 'rejected' ? "Re-submit Application" : "Submit for Verification"}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

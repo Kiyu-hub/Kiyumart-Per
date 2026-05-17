@@ -70,6 +70,7 @@ const settingsSchema = z.object({
   allowRiderRegistration: z.boolean(),
   allowSellerBankPayouts: z.boolean(),
   allowSharedVariantColorStock: z.boolean(),
+  enable3DAR: z.boolean(),
   showHomepageFeaturedSection: z.boolean(),
   showHomepageNewArrivalSection: z.boolean(),
   isExternalRiderSystemEnabled: z.boolean(),
@@ -1343,6 +1344,7 @@ export default function AdminSettings() {
       allowRiderRegistration: false,
       allowSellerBankPayouts: true,
       allowSharedVariantColorStock: false,
+      enable3DAR: true,
       showHomepageFeaturedSection: true,
       showHomepageNewArrivalSection: true,
       isExternalRiderSystemEnabled: false,
@@ -1479,6 +1481,7 @@ export default function AdminSettings() {
         allowRiderRegistration: mergedData.allowRiderRegistration || false,
         allowSellerBankPayouts: mergedData.allowSellerBankPayouts !== false,
         allowSharedVariantColorStock: mergedData.allowSharedVariantColorStock === true,
+        enable3DAR: mergedData.enable3DAR !== false,
         showHomepageFeaturedSection: mergedData.showHomepageFeaturedSection !== false,
         showHomepageNewArrivalSection: mergedData.showHomepageNewArrivalSection !== false,
         isExternalRiderSystemEnabled: mergedData.isExternalRiderSystemEnabled || false,
@@ -1664,6 +1667,7 @@ export default function AdminSettings() {
         allowRiderRegistration: (settings as any).allowRiderRegistration || false,
         allowSellerBankPayouts: (settings as any).allowSellerBankPayouts !== false,
         allowSharedVariantColorStock: (settings as any).allowSharedVariantColorStock === true,
+        enable3DAR: (settings as any).enable3DAR !== false,
         showHomepageFeaturedSection: (settings as any).showHomepageFeaturedSection !== false,
         showHomepageNewArrivalSection: (settings as any).showHomepageNewArrivalSection !== false,
         isExternalRiderSystemEnabled: (settings as any).isExternalRiderSystemEnabled || false,
@@ -2925,6 +2929,21 @@ export default function AdminSettings() {
                         checked={form.watch("allowSellerBankPayouts")}
                         onCheckedChange={(checked) => form.setValue("allowSellerBankPayouts", checked)}
                         data-testid="switch-allow-seller-bank-payouts"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="enable3DAR">Enable 3D &amp; AR Product Features</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Turn on to allow sellers to upload multi-angle product photos that unlock the 3D viewer and AR placement.
+                          When off, every reference to 3D / AR is hidden across all dashboards. Food vendors and restaurants are always excluded regardless of this setting.
+                        </p>
+                      </div>
+                      <Switch
+                        id="enable3DAR"
+                        checked={form.watch("enable3DAR")}
+                        onCheckedChange={(checked) => form.setValue("enable3DAR", checked)}
+                        data-testid="switch-enable-3d-ar"
                       />
                     </div>
                     <div className="flex items-center justify-between p-3 border rounded-lg bg-background">

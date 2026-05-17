@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatGhanaCardInput, GHANA_CARD_MAX_LENGTH } from "@/lib/ghanaCard";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -15,7 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { STORE_TYPES, STORE_TYPE_CONFIG } from "@shared/storeTypes";
+import { STORE_TYPES, type StoreType } from "@shared/storeTypes";
+import { StoreTypeSelector, StoreTypeDynamicFields } from "@/components/StoreTypeSelector";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { getRoleDisplayName } from "@/lib/roleLabels";
 
@@ -48,6 +50,7 @@ const editUserSchema = z
     nationalIdCard: z.string().optional(),
     businessAddress: z.string().optional(),
     storeType: z.string().optional(),
+    storeTypeMetadata: z.record(z.any()).optional(),
     riderCity: z.string().optional(),
     riderRegion: z.string().optional(),
     deliveryZoneId: z.string().optional(),
@@ -187,6 +190,7 @@ export default function AdminUserEdit() {
       nationalIdCard: "",
       businessAddress: "",
       storeType: "",
+      storeTypeMetadata: {},
       riderCity: "",
       riderRegion: "",
       deliveryZoneId: "",
@@ -231,6 +235,7 @@ export default function AdminUserEdit() {
         nationalIdCard: userData.nationalIdCard || "",
         businessAddress: userData.businessAddress || "",
         storeType: userData.storeType || "",
+        storeTypeMetadata: (userData as any).storeTypeMetadata || {},
         riderCity: userData.riderCity || "",
         riderRegion: userData.riderRegion || "",
         deliveryZoneId: userData.deliveryZoneId || "",
@@ -255,6 +260,9 @@ export default function AdminUserEdit() {
 
       if (data.role === "seller") {
         payload.storeType = trimOrUndefined(data.storeType);
+        if (data.storeTypeMetadata && Object.keys(data.storeTypeMetadata).length > 0) {
+          payload.storeTypeMetadata = data.storeTypeMetadata;
+        }
       }
 
       if (data.role === "rider") {
@@ -440,7 +448,17 @@ export default function AdminUserEdit() {
                             {selectedRole !== "pickup_agent" ? " (Required)" : ""}
                           </FormLabel>
                           <FormControl>
-                            <Input placeholder="GHA-XXXXXXXXX-X" {...field} data-testid="input-national-id-card" />
+                            <Input
+                              placeholder="GHA-XXXXXXXXX-X"
+                              inputMode="text"
+                              autoComplete="off"
+                              spellCheck={false}
+                              maxLength={GHANA_CARD_MAX_LENGTH}
+                              {...field}
+                              value={field.value || ""}
+                              onChange={(e) => field.onChange(formatGhanaCardInput(e.target.value))}
+                              data-testid="input-national-id-card"
+                            />
                           </FormControl>
                           {selectedRole === "pickup_agent" ? (
                             <p className="text-xs text-muted-foreground">
@@ -483,28 +501,29 @@ export default function AdminUserEdit() {
                       name="storeType"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Store Type</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value || undefined}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-store-type">
-                                <SelectValue placeholder="Select store type" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {STORE_TYPES.map((type) => (
-                                <SelectItem key={type} value={type}>
-                                  {STORE_TYPE_CONFIG[type].label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
+                          <FormLabel>Store Type <span className="text-destructive">*</span></FormLabel>
+                          <p className="text-xs text-muted-foreground">
+                            Choose the category that best fits this seller's business.
+                          </p>
+                          <StoreTypeSelector
+                            value={field.value || null}
+                            onChange={(value) => {
+                              field.onChange(value);
+                              form.setValue("storeTypeMetadata", {});
+                            }}
+                            error={form.formState.errors.storeType?.message as string | undefined}
+                          />
                         </FormItem>
                       )}
                     />
+
+                    {form.watch("storeType") && STORE_TYPES.includes(form.watch("storeType") as StoreType) && (
+                      <StoreTypeDynamicFields
+                        storeType={form.watch("storeType") as StoreType}
+                        metadata={form.watch("storeTypeMetadata") || {}}
+                        onChange={(updated) => form.setValue("storeTypeMetadata", updated)}
+                      />
+                    )}
                   </>
                 )}
 

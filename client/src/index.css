@@ -137,11 +137,22 @@
   * {
     @apply border-border;
   }
+
+  /* ── Typography & rendering ── */
+  html {
+    /* Never set overflow on html — it is the document scroll root on iOS/Android */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* clip horizontal overflow at body without blocking vertical document scroll */
+    overflow-x: clip;
+    overflow-y: auto;
   }
 }
 
@@ -327,6 +338,36 @@
     transition: opacity 0.18s;
   }
   .m-ripple:active::after { opacity: 0.07; }
+}
+
+/* ── Mobile PWA layout lock ────────────────────────────────────────── */
+@media (max-width: 1023px) {
+  /* Prevent horizontal overflow — target containers, NOT html/body */
+  #root { overflow-x: clip; }
+
+  /* Images never overflow their container */
+  img { max-width: 100%; height: auto; }
+
+  /* Remove tap highlight on all interactives */
+  a, button, [role="button"], input, select, textarea {
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+  }
+
+  /* Smooth native-feeling momentum scroll on any scrollable container */
+  [class*="overflow-y-auto"],
+  [class*="overflow-y-scroll"],
+  main {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+
+  /* Horizontal scroll containers scroll only horizontally */
+  [class*="overflow-x-auto"] {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: none;
+  }
 }
 
 /* ── Frosted glass ─────────────────────────────────────────────────── */

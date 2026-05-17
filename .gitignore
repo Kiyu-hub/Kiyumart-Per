@@ -1,4 +1,5 @@
 node_modules
+lib/reference
 dist
 .DS_Store
 server/public
@@ -12,3 +13,11 @@ cloudflared.exe
 .env
 .env.local
 .env.*.local
+
+# Claude Code local state — runtime scratch, not source
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+
+# Backup files left behind during refactors
+*.backup
+*.bak

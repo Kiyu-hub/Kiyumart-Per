@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Search, Store, Plus, Edit, Trash2, ArrowLeft, Eye } from "lucide-react";
+import { Loader2, Search, Store, Plus, Edit, Trash2, ArrowLeft, Eye, ShieldCheck, ShieldX, ShieldAlert, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -29,6 +29,12 @@ interface StoreType {
   isActive: boolean;
   isApproved: boolean;
   createdAt: string;
+  verificationStatus?: string | null;
+  verificationDocFront?: string | null;
+  verificationDocBack?: string | null;
+  verificationSelfie?: string | null;
+  verificationAppliedAt?: string | null;
+  verificationRejectionReason?: string | null;
 }
 
 interface Seller {
@@ -253,8 +259,132 @@ function CreateStoreDialog({ sellers }: { sellers: Seller[] }) {
   );
 }
 
+function VerificationReviewDialog({ store, onClose }: { store: StoreType; onClose: () => void }) {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const [rejectReason, setRejectReason] = useState("");
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const isSuperAdmin = user?.role === "super_admin";
+
+  const approveMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/admin/stores/${store.id}/approve-verification`),
+    onSuccess: () => {
+      toast({ title: "Store verified!", description: `${store.name} is now verified.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: e?.message || "Failed", variant: "destructive" }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/admin/stores/${store.id}/reject-verification`, { reason: rejectReason }),
+    onSuccess: () => {
+      toast({ title: "Application rejected", description: "The seller has been notified." });
+      queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: e?.message || "Failed", variant: "destructive" }),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-xl rounded-2xl bg-background border shadow-xl overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div>
+            <h2 className="text-lg font-bold">Verification Review</h2>
+            <p className="text-sm text-muted-foreground">{store.name}</p>
+          </div>
+          <button onClick={onClose} className="rounded-full p-1 hover:bg-muted">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+          {store.verificationAppliedAt && (
+            <p className="text-xs text-muted-foreground">Applied: {new Date(store.verificationAppliedAt).toLocaleString()}</p>
+          )}
+
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Ghana Card Front", url: store.verificationDocFront },
+              { label: "Ghana Card Back", url: store.verificationDocBack },
+              { label: "Selfie with Card", url: store.verificationSelfie },
+            ].map(({ label, url }) => (
+              <div key={label} className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                {url ? (
+                  <a href={url} target="_blank" rel="noopener noreferrer">
+                    <img src={url} alt={label} className="w-full aspect-video object-cover rounded-lg border hover:opacity-80 transition-opacity" />
+                  </a>
+                ) : (
+                  <div className="w-full aspect-video bg-muted rounded-lg border flex items-center justify-center text-xs text-muted-foreground">No image</div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {!showRejectInput ? (
+            <div className="flex gap-3 pt-2">
+              {isSuperAdmin && (
+                <>
+                  <button
+                    onClick={() => approveMutation.mutate()}
+                    disabled={approveMutation.isPending}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-blue-600 text-white py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {approveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                    Approve & Verify
+                  </button>
+                  <button
+                    onClick={() => setShowRejectInput(true)}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-red-300 text-red-600 py-2.5 text-sm font-semibold hover:bg-red-50 dark:hover:bg-red-900/20"
+                  >
+                    <ShieldX className="h-4 w-4" />
+                    Reject
+                  </button>
+                </>
+              )}
+              {!isSuperAdmin && (
+                <p className="text-sm text-muted-foreground">Only super admins can approve or reject verification applications.</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3 pt-2">
+              <p className="text-sm font-medium">Reason for rejection</p>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={3}
+                placeholder="Explain why the application was not approved..."
+                className="w-full rounded-lg border bg-muted/40 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowRejectInput(false); setRejectReason(""); }}
+                  className="flex-1 rounded-lg border py-2.5 text-sm font-medium hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => rejectMutation.mutate()}
+                  disabled={rejectMutation.isPending || !rejectReason.trim()}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-red-600 text-white py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50"
+                >
+                  {rejectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Confirm Rejection
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminStoresList() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [reviewingStore, setReviewingStore] = useState<StoreType | null>(null);
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
@@ -315,6 +445,7 @@ export default function AdminStoresList() {
   }
 
   return (
+    <>
     <DashboardLayout role={user?.role as any} showBackButton>
       <div className="p-8">
           <div className="flex items-center gap-4 mb-6">
@@ -358,6 +489,7 @@ export default function AdminStoresList() {
                     <TableHead>Store Name</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Verification</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -387,29 +519,56 @@ export default function AdminStoresList() {
                           <Badge variant="secondary" data-testid={`badge-status-${store.id}`}>Inactive</Badge>
                         )}
                       </TableCell>
+                      <TableCell>
+                        {store.verificationStatus === 'approved' ? (
+                          <Badge className="bg-blue-600 text-white gap-1">
+                            <ShieldCheck className="h-3 w-3" /> Verified
+                          </Badge>
+                        ) : store.verificationStatus === 'pending' ? (
+                          <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300 gap-1">
+                            <ShieldAlert className="h-3 w-3" /> Pending
+                          </Badge>
+                        ) : store.verificationStatus === 'rejected' ? (
+                          <Badge variant="destructive" className="gap-1">
+                            <ShieldX className="h-3 w-3" /> Rejected
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">None</span>
+                        )}
+                      </TableCell>
                       <TableCell data-testid={`text-created-${store.id}`}>
                         {new Date(store.createdAt).toLocaleDateString()}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button 
-                            variant="ghost" 
+                          {store.verificationStatus === 'pending' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setReviewingStore(store)}
+                              className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-900/20"
+                            >
+                              <ShieldAlert className="h-3.5 w-3.5" /> Review
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
                             size="icon"
                             onClick={() => navigate(`/admin/stores/${store.id}`)}
                             data-testid={`button-view-${store.id}`}
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          <Button 
-                            variant="ghost" 
+                          <Button
+                            variant="ghost"
                             size="icon"
                             onClick={() => navigate(`/admin/store?id=${store.id}`)}
                             data-testid={`button-edit-${store.id}`}
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
-                          <Button 
-                            variant="ghost" 
+                          <Button
+                            variant="ghost"
                             size="icon"
                             onClick={() => handleDelete(store.id)}
                             data-testid={`button-delete-${store.id}`}
@@ -438,5 +597,13 @@ export default function AdminStoresList() {
           )}
         </div>
     </DashboardLayout>
+
+    {reviewingStore && (
+      <VerificationReviewDialog
+        store={reviewingStore}
+        onClose={() => setReviewingStore(null)}
+      />
+    )}
+  </>
   );
 }

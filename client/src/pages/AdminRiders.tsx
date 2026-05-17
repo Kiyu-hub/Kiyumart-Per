@@ -19,6 +19,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatGhanaCardInput, GHANA_CARD_MAX_LENGTH } from "@/lib/ghanaCard";
 
 interface Rider {
   id: string;
@@ -333,7 +334,17 @@ function AddRiderDialog() {
                 <FormItem>
                   <FormLabel>National ID Card</FormLabel>
                   <FormControl>
-                    <Input placeholder="GHA-123456789-0" {...field} data-testid="input-national-id" />
+                    <Input
+                      placeholder="GHA-XXXXXXXXX-X"
+                      inputMode="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      maxLength={GHANA_CARD_MAX_LENGTH}
+                      {...field}
+                      value={field.value || ""}
+                      onChange={(e) => field.onChange(formatGhanaCardInput(e.target.value))}
+                      data-testid="input-national-id"
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

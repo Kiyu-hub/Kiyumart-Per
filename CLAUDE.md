@@ -128,6 +128,22 @@ Four workers start at server boot:
 - `FaviconInjector` component in `App.tsx` updates all `<link rel="icon">` and `<link rel="apple-touch-icon">` tags when `favicon` changes.
 - `GET /api/public/app-manifest` serves a dynamic `manifest.json` with DB-stored icon and color. `client/index.html` points to this endpoint (not a static file).
 
+### Bolt Food experience (restaurants & local vendors)
+A dedicated mobile food ordering surface lives alongside the e-commerce flows.
+Active when a store has `businessType` of `local_vendor` / `restaurant`, OR
+`storeType` of `food_beverages` / `restaurant`, OR `merchantCategory === QUICK_EATS`
+(`isFoodVendorStore` in `client/src/lib/foodVendors.ts` is the single source of truth).
+
+- **Discovery:** `client/src/pages/mobile/MobileAllVendors.tsx` at `/mobile/vendors` (also `/vendors` on mobile). Sticky DELIVER TO header, debounced search, sub-tab pills, cuisine chips from food-scoped categories, super-admin banner, top picks rail, vertical store cards.
+- **Restaurant detail:** `client/src/pages/mobile/MobileFoodStorePage.tsx` — lazy-rendered by `SellerStorePage.tsx` when `isMobile && isFoodVendorStore(store)`. Sticky scroll-spy category tabs + Bolt-style menu rows.
+- **Food item detail:** `client/src/pages/mobile/MobileFoodDetail.tsx` — routed via `MobileProductDecider` in `App.tsx`. Modifier groups from `product_modifiers`, sticky live-priced Add to cart CTA.
+- **Order tracking:** `client/src/pages/mobile/MobileFoodOrderTracking.tsx` — `OrderTracking.tsx` branches to it for mobile single-order views when the store is food. Vertical timeline + rider card + payment summary.
+- **Live quote API:** `GET /api/stores/quotes?ids=&lat=&lon=&city=&region=` returns per-store `prepMins / etaLowMins / etaHighMins / deliveryFee (from delivery_zones) / minOrderAmount / distanceKm / totalSold`. Use this rather than hardcoding.
+- **Schema additions:** `stores.prepTimeMins`, `stores.minOrderAmount`, `hero_banners.placement` + `theme_color`, `categories.productFieldsConfig`, `platform_settings.enable_3d_ar`.
+- **Separation invariants:** Homepage banners (`placement=home`) never appear on the food page; food banners (`placement=food_vendors`) never appear on the homepage. Food-scoped categories never appear in the generic Shop by Category surface. 3D/AR is hard-disabled for food vendors regardless of `platform_settings.enable_3d_ar`.
+- **Admin surfaces:** AdminHeroBanners has Homepage / Restaurants & Local Vendors tabs. AdminCategoryManager has Stores / Restaurants & Local Vendors / Pending tabs with a "Seed default cuisines" button and a per-cuisine field builder. `/admin/food-products` (`AdminFoodProducts.tsx`) lists food items only; `/admin/products` excludes them and links to the food page.
+- **Variant section** in `SellerProducts.tsx` is hidden for `food_beverages` AND `restaurant` storeTypes — sellers use `product_modifiers` instead.
+
 ### Merchant categories & store personas
 Stores have a `merchantCategory` text column (values: `QUICK_EATS`, `HEALTH_ESSENTIALS`, `RETAIL_BOUTIQUE`, `GENERAL_PROVISIONS`). This is separate from `storeType` in `shared/storeTypes.ts` (which drives adaptive product fields).
 

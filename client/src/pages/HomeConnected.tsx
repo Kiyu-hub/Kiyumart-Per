@@ -1,6 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+
+const MobileHomeComp = lazy(() =>
+  import("@/pages/mobile/MobileHome").then(m => ({ default: m.MobileHome }))
+);
 import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -20,8 +25,15 @@ import SinglePromotionSidebar from "@/components/SinglePromotionSidebar";
 import LocationPrompt from "@/components/LocationPrompt";
 import { Button } from '@/components/ui/button';
 import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
+import {
+  excludeFoodVendorProducts,
+  getFoodStoreIdSet,
+  getLocalVendors,
+  getRestaurants,
+  splitProductsByFoodStores,
+} from "@/lib/foodVendors";
 import type { PlatformSettings } from "@shared/schema";
-import { ChevronDown, ChevronUp, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronRight, Loader2, UtensilsCrossed } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import heroImage from "@assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png";
@@ -66,6 +78,7 @@ export default function HomeConnected() {
   const { isAuthenticated, isLoading: authLoading, ensureAuthenticated } = useAuth();
   const { toast } = useToast();
   const { currency, currencySymbol, t } = useLanguage();
+  const { isMobile, isTablet } = useMobileDevice();
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllFeaturedProducts, setShowAllFeaturedProducts] = useState(false);
@@ -359,6 +372,8 @@ export default function HomeConnected() {
       slug: cat.slug,
       name: cat.name,
       image: cat.image,
+      displayOrder: 0,
+      isActive: cat.isActive,
       requestedBySeller: Boolean(cat.requestedBySeller),
       productCount: products.filter((product) => productMatchesCategory(product, cat)).length,
     }))
@@ -425,18 +440,40 @@ export default function HomeConnected() {
     return product.name.toLowerCase().includes(searchQuery) || categoryLabel.includes(searchQuery);
   };
 
-  // Filter products based on search query
+  // Food-vendor isolation — same shared utility as MobileHome / MultiVendorHome.
+  // Food products live ONLY in the Local Vendors & Restaurants section; the
+  // generic feeds (Featured / New Arrivals / All Products) exclude them.
+  const foodStoreIds = getFoodStoreIdSet(dbStores as any);
+  const localVendorList = getLocalVendors(dbStores as any);
+  const restaurantList  = getRestaurants(dbStores as any);
+  const foodVendorList = splitProductsByFoodStores<Product>(availableProducts, dbStores as any).foodVendorProducts;
+
+  // Filter products based on search query (food excluded from generic feeds)
   const filteredProducts = searchQuery
-    ? availableProducts.filter(matchesProductSearch)
-    : availableProducts;
+    ? excludeFoodVendorProducts<Product>(availableProducts, foodStoreIds).filter(matchesProductSearch)
+    : excludeFoodVendorProducts<Product>(availableProducts, foodStoreIds);
   const filteredFeaturedProducts = (
     searchQuery
-      ? featuredProducts.filter(matchesProductSearch)
-      : featuredProducts
+      ? excludeFoodVendorProducts<Product>(featuredProducts, foodStoreIds).filter(matchesProductSearch)
+      : excludeFoodVendorProducts<Product>(featuredProducts, foodStoreIds)
   ).slice(0, 5);
   const filteredNewArrivalProducts = searchQuery
-    ? newArrivalProducts.filter(matchesProductSearch)
-    : newArrivalProducts;
+    ? excludeFoodVendorProducts<Product>(newArrivalProducts, foodStoreIds).filter(matchesProductSearch)
+    : excludeFoodVendorProducts<Product>(newArrivalProducts, foodStoreIds);
+  const filteredFoodVendorProducts: Product[] = searchQuery
+    ? foodVendorList.filter(matchesProductSearch).slice(0, 12)
+    : foodVendorList.slice(0, 12);
+
+  // MOBILE — pass unfiltered lists so MobileHome can split using the shared utility
+  const mobileAllProducts = searchQuery
+    ? (availableProducts || []).filter(matchesProductSearch)
+    : (availableProducts || []);
+  const mobileFeatured = (
+    searchQuery ? (featuredProducts || []).filter(matchesProductSearch) : (featuredProducts || [])
+  ).slice(0, 12);
+  const mobileNewArrivals = (
+    searchQuery ? (newArrivalProducts || []).filter(matchesProductSearch) : (newArrivalProducts || [])
+  ).slice(0, 12);
 
   const FEATURED_ROW_LIMIT = 5;
   const visibleFeaturedProducts =
@@ -478,6 +515,23 @@ export default function HomeConnected() {
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (isMobile || isTablet) {
+    return (
+      <Suspense fallback={null}>
+        <MobileHomeComp
+          featuredProducts={mobileFeatured as any}
+          newArrivalProducts={mobileNewArrivals as any}
+          allProducts={mobileAllProducts as any}
+          categories={categories as any}
+          stores={dbStores}
+          wishlist={wishlist as any}
+          isLoading={productsLoading || featuredProductsLoading || newArrivalProductsLoading}
+          onToggleWishlist={handleToggleWishlist}
+        />
+      </Suspense>
     );
   }
 
@@ -607,6 +661,66 @@ export default function HomeConnected() {
 
             {/* Products column - Adjust width based on sidebar visibility */}
             <div className={sidebarItemCount > 0 ? 'lg:col-span-8' : 'lg:col-span-12'}>
+              {/* Local Vendors & Restaurants — dedicated food section */}
+              {(productsLoading || filteredFoodVendorProducts.length > 0 || localVendorList.length > 0 || restaurantList.length > 0) && (
+                <section className="rounded-2xl border bg-card p-6 shadow-sm mb-8" data-testid="section-local-vendors">
+                  <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-xl bg-orange-500/15 text-orange-500 flex items-center justify-center">
+                        <UtensilsCrossed className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h2 className="text-2xl font-bold tracking-tight">Local Vendors &amp; Restaurants</h2>
+                        <p className="text-sm text-muted-foreground">Fresh food &amp; drinks near you</p>
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => navigate('/vendors')} data-testid="button-see-all-vendors">
+                      See all <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+
+                  {productsLoading ? (
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Skeleton key={i} className="aspect-square w-full rounded-xl" />
+                      ))}
+                    </div>
+                  ) : filteredFoodVendorProducts.length > 0 ? (
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`} data-testid="grid-food-vendor-products">
+                      {filteredFoodVendorProducts.map((product) => {
+                        const sellingPrice = parseFloat(product.price);
+                        const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
+                        const calculatedDiscount = originalPrice && originalPrice > sellingPrice
+                          ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
+                          : 0;
+                        const isWishlisted = wishlist.some(item => item.productId === product.id);
+                        const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : heroImage;
+                        return (
+                          <ProductCard
+                            key={product.id}
+                            id={product.id}
+                            name={product.name}
+                            price={product.price}
+                            costPrice={product.costPrice || undefined}
+                            image={productImage}
+                            discount={product.discount || calculatedDiscount}
+                            rating={product.ratings || "0"}
+                            reviewCount={product.totalRatings || 0}
+                            inStock={(product.stock || 0) > 0}
+                            isWishlisted={isWishlisted}
+                            onToggleWishlist={handleToggleWishlist}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-10 text-muted-foreground text-sm">
+                      No dishes available yet — check back soon.
+                    </div>
+                  )}
+                </section>
+              )}
+
               {showHomepageFeaturedSection && (featuredProductsLoading || filteredFeaturedProducts.length > 0 || Boolean(searchQuery)) && (
               <section className="rounded-2xl border bg-card p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-6">

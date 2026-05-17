@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, useLocation, useRoute } from "wouter";
 import * as React from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import { NotificationProvider } from "@/contexts/NotificationContext";
 import { JitsiCallProvider } from "@/contexts/JitsiCallContext";
 import { useBranding } from "@/hooks/useBranding";
 import LogoLoadingScreen from "@/components/LogoLoadingScreen";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
 
 // Eagerly loaded — needed on first paint or used by route guards
 import Home from "@/pages/HomeConnected";
@@ -22,6 +23,8 @@ import NotFound from "@/pages/not-found";
 const SocialProductPage = React.lazy(() => import("@/pages/SocialProductPage"));
 const CartLinkCheckout = React.lazy(() => import("@/pages/CartLinkCheckout"));
 const ProductDetails = React.lazy(() => import("@/pages/ProductDetails"));
+const MobileProductDetails = React.lazy(() => import("@/pages/mobile/MobileProductDetails"));
+const MobileFoodDetail = React.lazy(() => import("@/pages/mobile/MobileFoodDetail"));
 const Cart = React.lazy(() => import("@/pages/Cart"));
 const ResetPassword = React.lazy(() => import("@/pages/ResetPassword"));
 const AdminDashboardConnected = React.lazy(() => import("@/pages/AdminDashboardConnected"));
@@ -62,6 +65,7 @@ const AdminPlatformEarnings = React.lazy(() => import("@/pages/AdminPlatformEarn
 const AdminSellersPayouts = React.lazy(() => import("@/pages/AdminSellersPayouts"));
 const AdminRiderPayouts = React.lazy(() => import("@/pages/AdminRiderPayouts"));
 const AdminProducts = React.lazy(() => import("@/pages/AdminProducts"));
+const AdminFoodProducts = React.lazy(() => import("@/pages/AdminFoodProducts"));
 const AdminOrders = React.lazy(() => import("@/pages/AdminOrders"));
 const AdminOrderActionPage = React.lazy(() => import("@/pages/AdminOrderActionPage"));
 const AdminUsers = React.lazy(() => import("@/pages/AdminUsers"));
@@ -131,6 +135,10 @@ const AdminReportedCases = React.lazy(() => import("@/pages/AdminReportedCases")
 const AdminSuggestions = React.lazy(() => import("@/pages/AdminSuggestions"));
 const SuggestionsPage = React.lazy(() => import("@/pages/SuggestionsPage"));
 const ReportCasePage = React.lazy(() => import("@/pages/ReportCasePage"));
+const MobileAllCategories = React.lazy(() => import("@/pages/mobile/MobileAllCategories"));
+const MobileAllStores = React.lazy(() => import("@/pages/mobile/MobileAllStores"));
+const MobileAllVendors = React.lazy(() => import("@/pages/mobile/MobileAllVendors"));
+const BrowseVendors = React.lazy(() => import("@/pages/BrowseVendors"));
 import { Loader2 } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useQuery } from "@tanstack/react-query";
@@ -211,6 +219,53 @@ function FaviconInjector() {
   }, [primaryColor]);
 
   return null;
+}
+
+function ProductDetailsRoute() {
+  const { isMobile } = useMobileDevice();
+  if (!isMobile) {
+    return <React.Suspense fallback={null}><ProductDetails /></React.Suspense>;
+  }
+  return <React.Suspense fallback={null}><MobileProductDecider /></React.Suspense>;
+}
+
+// Decides between MobileFoodDetail (Bolt-style) and MobileProductDetails based
+// on the product's store type. Does a small product fetch first so we can
+// branch without rendering the wrong UI for a frame.
+function MobileProductDecider() {
+  const [, params] = useRoute<{ id: string }>("/product/:id");
+  const productId = params?.id || "";
+  const { data: product } = useQuery<{ id: string; storeId?: string | null } & Record<string, any>>({
+    queryKey: ["/api/products", productId],
+    queryFn: async () => {
+      const r = await fetch(`/api/products/${productId}`);
+      if (!r.ok) throw new Error("Not found");
+      return r.json();
+    },
+    enabled: !!productId,
+  });
+  const { data: store } = useQuery<{ id: string; storeType?: string | null; businessType?: string | null; merchantCategory?: string | null } | null>({
+    queryKey: ["/api/stores", product?.storeId, "lite-router"],
+    queryFn: async () => {
+      if (!product?.storeId) return null;
+      const r = await fetch(`/api/stores/${product.storeId}`);
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: !!product?.storeId,
+    staleTime: 5 * 60_000,
+  });
+  const isFood =
+    store?.businessType === "restaurant" ||
+    store?.businessType === "local_vendor" ||
+    store?.storeType === "food_beverages" ||
+    store?.storeType === "restaurant" ||
+    store?.merchantCategory === "QUICK_EATS";
+
+  if (product && store && isFood) {
+    return <React.Suspense fallback={null}><MobileFoodDetail /></React.Suspense>;
+  }
+  return <React.Suspense fallback={null}><MobileProductDetails /></React.Suspense>;
 }
 
 function withExternalRiderRouteGuard(Component: React.ComponentType) {
@@ -295,6 +350,44 @@ const GuardedAdminDeliveryTracking = withAdminExternalRiderFeatureGuard(AdminDel
 const GuardedAdminDeliveryZones = withAdminExternalRiderFeatureGuard(AdminDeliveryZones);
 const GuardedSellerPromotions = withSellerFeatureRouteGuard(SellerPromotions, { requireMultiVendor: true });
 const GuardedSellerDeliveries = withSellerFeatureRouteGuard(SellerDeliveries, { requireInternalRider: true });
+
+// Blocks protected routes for authenticated-but-unverified users.
+// Public browse routes (homepage, product/store pages) remain accessible.
+function EmailVerificationGuard({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated, isLoading } = useAuth();
+  const [location, navigate] = useLocation();
+
+  // Routes accessible even when authenticated but email not yet verified
+  const isPublicRoute =
+    location === "/" ||
+    location.startsWith("/auth") ||
+    location.startsWith("/reset-password") ||
+    location.startsWith("/sellers/") ||
+    location.startsWith("/products/") ||
+    location.startsWith("/p/") ||
+    location.startsWith("/cart/") ||
+    location.startsWith("/categories") ||
+    location.startsWith("/search") ||
+    location.startsWith("/browse") ||
+    location.startsWith("/all-") ||
+    location.startsWith("/pages/") ||
+    location === "/become-seller" ||
+    location === "/become-rider";
+
+  React.useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated || !user) return;
+    if (user.emailVerified !== false) return;
+    if (isPublicRoute) return;
+    navigate("/auth");
+  }, [isLoading, isAuthenticated, user, location, navigate, isPublicRoute]);
+
+  if (!isLoading && isAuthenticated && user && user.emailVerified === false && !isPublicRoute) {
+    return null;
+  }
+
+  return <>{children}</>;
+}
 
 function MaintenanceGuard({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -400,8 +493,12 @@ function Router() {
       <Route path="/search" component={SearchPage} />
       <Route path="/products" component={AllProducts} />
       <Route path="/stores" component={BrowseStores} />
+      <Route path="/categories" component={MobileAllCategories} />
+      <Route path="/mobile/stores" component={MobileAllStores} />
+      <Route path="/mobile/vendors" component={MobileAllVendors} />
+      <Route path="/vendors" component={BrowseVendors} />
       <Route path="/sellers/:id" component={SellerStorePage} />
-      <Route path="/product/:id" component={ProductDetails} />
+      <Route path="/product/:id" component={ProductDetailsRoute} />
       <Route path="/p/:slug" component={SocialProductPage} />
       <Route path="/cart/:token" component={CartLinkCheckout} />
       <Route path="/category/:id" component={CategoryPage} />
@@ -446,6 +543,7 @@ function Router() {
       <Route path="/admin/media-library" component={AdminMediaLibrary} />
       <Route path="/admin/products/create" component={AdminProductCreate} />
       <Route path="/admin/products/:id/edit" component={AdminProductEdit} />
+      <Route path="/admin/food-products" component={AdminFoodProducts} />
       <Route path="/admin/products" component={AdminProducts} />
       <Route path="/admin/orders/:id/action" component={AdminOrderActionPage} />
       <Route path="/admin/orders" component={AdminOrders} />
@@ -537,6 +635,7 @@ function Router() {
 function App() {
   const [isAppReady, setIsAppReady] = React.useState(false);
   const backendRecoveredRef = React.useRef(true);
+  const { isMobile, isTablet } = useMobileDevice();
 
   React.useEffect(() => {
     // Initialize app - preload critical resources and detect backend availability
@@ -635,14 +734,18 @@ function App() {
           <NotificationProvider>
             <JitsiCallProvider>
             <TooltipProvider>
-              <LogoLoadingScreen 
-                isLoading={!isAppReady} 
-                minDisplayTime={2000}
-                message="Preparing your experience"
-              />
+              {!isMobile && !isTablet && (
+                <LogoLoadingScreen
+                  isLoading={!isAppReady}
+                  minDisplayTime={2000}
+                  message="Preparing your experience"
+                />
+              )}
               <Toaster />
               <MaintenanceGuard>
-                <Router />
+                <EmailVerificationGuard>
+                  <Router />
+                </EmailVerificationGuard>
               </MaintenanceGuard>
               <AnalyticsInjector />
               <FaviconInjector />

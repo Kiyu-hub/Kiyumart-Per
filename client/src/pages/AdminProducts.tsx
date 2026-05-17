@@ -14,6 +14,7 @@ import { PageLoadingState } from "@/components/ui/loading-state";
 import { Loader2, Search, Edit, Eye, ArrowLeft, Package, EyeOff, MessageCircle, Store, Layers3, Boxes } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
+import { isFoodVendorStore } from "@/lib/foodVendors";
 
 interface Product {
   id: string;
@@ -33,6 +34,9 @@ interface StoreRecord {
   id: string;
   name: string;
   primarySellerId?: string | null;
+  businessType?: string | null;
+  storeType?: string | null;
+  merchantCategory?: string | null;
 }
 
 interface ProductStoreGroup {
@@ -135,9 +139,34 @@ export default function AdminProducts() {
     refetchOnMount: "always",
   });
 
-  const activeProductsCount = useMemo(() => products.filter((product) => product.isActive).length, [products]);
-  const lowStockCount = useMemo(() => products.filter((product) => Number(product.stock || 0) <= 5).length, [products]);
-  const hiddenProductsCount = useMemo(() => products.filter((product) => !product.isActive).length, [products]);
+  // Food vendor / restaurant products live under the dedicated Restaurants &
+  // Local Vendors area — strip them from the generic Admin All Products grid
+  // so super admin can manage them without mixing inventory.
+  const foodStoreIds = useMemo(() => {
+    const ids = new Set<string>();
+    const foodSellerIds = new Set<string>();
+    for (const s of stores) {
+      if (s.id && isFoodVendorStore(s as any)) {
+        ids.add(String(s.id));
+        if (s.primarySellerId) foodSellerIds.add(String(s.primarySellerId));
+      }
+    }
+    return { ids, foodSellerIds };
+  }, [stores]);
+  const nonFoodProducts = useMemo(() => {
+    return products.filter((p) => {
+      const sid = String(p.storeId || "").trim();
+      const sellerId = String(p.sellerId || "").trim();
+      if (sid && foodStoreIds.ids.has(sid)) return false;
+      if (!sid && sellerId && foodStoreIds.foodSellerIds.has(sellerId)) return false;
+      return true;
+    });
+  }, [products, foodStoreIds]);
+  const foodProductsCount = products.length - nonFoodProducts.length;
+
+  const activeProductsCount = useMemo(() => nonFoodProducts.filter((product) => product.isActive).length, [nonFoodProducts]);
+  const lowStockCount = useMemo(() => nonFoodProducts.filter((product) => Number(product.stock || 0) <= 5).length, [nonFoodProducts]);
+  const hiddenProductsCount = useMemo(() => nonFoodProducts.filter((product) => !product.isActive).length, [nonFoodProducts]);
   const storeNameById = useMemo(() => {
     const map = new Map<string, StoreRecord>();
     stores.forEach((store) => {
@@ -183,15 +212,15 @@ export default function AdminProducts() {
   }, [storeNameById, storeBySellerId]);
   const filteredProducts = useMemo(() => {
     const normalizedQuery = debouncedSearchQuery.toLowerCase().trim();
-    if (!normalizedQuery) return products;
+    if (!normalizedQuery) return nonFoodProducts;
 
-    return products.filter((product) =>
+    return nonFoodProducts.filter((product) =>
       product.name.toLowerCase().includes(normalizedQuery) ||
       String(product.category || "").toLowerCase().includes(normalizedQuery) ||
       String(product.categoryName || "").toLowerCase().includes(normalizedQuery) ||
       resolveStoreMeta(product).storeName.toLowerCase().includes(normalizedQuery),
     );
-  }, [products, debouncedSearchQuery, resolveStoreMeta]);
+  }, [nonFoodProducts, debouncedSearchQuery, resolveStoreMeta]);
   const groupedProducts = useMemo<ProductStoreGroup[]>(() => {
     const grouped = new Map<string, ProductStoreGroup>();
     filteredProducts.forEach((product) => {
@@ -261,6 +290,17 @@ export default function AdminProducts() {
               <h1 className="text-3xl font-bold text-foreground" data-testid="heading-products">Products Management</h1>
               <p className="text-muted-foreground mt-1">Browse stores first, then open a store to manage the products inside it</p>
             </div>
+            <Button
+              variant="outline"
+              onClick={() => navigate("/admin/food-products")}
+              data-testid="button-go-food-products"
+            >
+              <Boxes className="h-4 w-4 mr-2" />
+              Food products
+              {foodProductsCount > 0 && (
+                <Badge variant="secondary" className="ml-2">{foodProductsCount}</Badge>
+              )}
+            </Button>
           </div>
 
           <div className="mb-5">

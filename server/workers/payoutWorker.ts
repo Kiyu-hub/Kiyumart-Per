@@ -27,6 +27,29 @@ export async function runPayoutWorker(io?: any) {
 
     batchRunning = true;
     try {
+      // Advance pending payouts to processing/completed for sellers who have since verified their setup
+      const pendingPayouts = await storage.getPayoutsByStatus('pending');
+      for (const pendingPayout of pendingPayouts || []) {
+        try {
+          // Normalize commissionIds — DB may return a plain UUID string if the column
+          // was stored before the text[] type migration was applied.
+          let commissionIds: string[];
+          if (Array.isArray(pendingPayout.commissionIds)) {
+            commissionIds = pendingPayout.commissionIds.filter(Boolean);
+          } else if (typeof pendingPayout.commissionIds === 'string' && pendingPayout.commissionIds) {
+            const raw = String(pendingPayout.commissionIds).replace(/[{}"]/g, '').trim();
+            commissionIds = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+          } else {
+            commissionIds = [];
+          }
+          for (const commissionId of commissionIds) {
+            await storage.ensureAutomaticSellerPayoutForCommission(commissionId);
+          }
+        } catch (advanceErr: any) {
+          console.warn('[PAYOUT-WORKER] Could not advance pending payout', pendingPayout.id, advanceErr?.message || advanceErr);
+        }
+      }
+
       const payouts = await storage.getPayoutsByStatus('processing');
       if (!payouts || payouts.length === 0) return;
 

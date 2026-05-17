@@ -9,6 +9,7 @@ import fs from "fs/promises";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { db } from "../db";
+import { enhanceCloudinaryUrl, enhanceImageList } from "./imageEnhance";
 import {
   users,
   cart,
@@ -1706,6 +1707,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
+  // ── Email OTP: send verification code ─────────────────────────────────────
+  app.post("/api/auth/send-verification-otp", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.id || !user?.email) return res.status(401).json({ error: "Not authenticated" });
+
+      if (user.emailVerified) return res.status(200).json({ message: "Email already verified" });
+
+      const code = String(Math.floor(100000 + Math.random() * 900000)); // 6-digit
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+
+      await storage.createEmailOtp(user.id, user.email.toLowerCase(), code, expiresAt);
+
+      const platformSettings = await storage.getPlatformSettings();
+      const platformName = String(platformSettings?.platformName || "KiyuMart").trim() || "KiyuMart";
+
+      const { sendOtpEmail } = await import("./email");
+      await sendOtpEmail({ to: user.email, code, platformName });
+
+      return res.json({ message: "OTP sent" });
+    } catch (err: any) {
+      console.error("[OTP] send error:", err?.message || err);
+      return res.status(503).json({ error: "Could not send verification email. Please try again." });
+    }
+  });
+
+  // ── Email OTP: verify code ─────────────────────────────────────────────────
+  app.post("/api/auth/verify-email-otp", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.id || !user?.email) return res.status(401).json({ error: "Not authenticated" });
+
+      const code = String(req.body?.code || "").trim();
+      if (!code || code.length !== 6) return res.status(400).json({ error: "Enter the 6-digit code." });
+
+      const otp = await storage.getValidEmailOtp(user.email.toLowerCase(), code);
+      if (!otp) return res.status(400).json({ error: "Invalid or expired code. Try resending." });
+
+      await storage.markEmailOtpUsed(otp.id);
+      await storage.markUserEmailVerified(user.id);
+
+      return res.json({ message: "Email verified" });
+    } catch (err: any) {
+      console.error("[OTP] verify error:", err?.message || err);
+      return res.status(500).json({ error: "Verification failed. Please try again." });
+    }
+  });
+
   app.post("/api/auth/forgot-password", async (req, res) => {
     try {
       const email = String(req.body?.email || "").trim().toLowerCase();
@@ -1842,7 +1891,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const hashedPassword = await hashPassword(newPassword);
-      await db.update(users).set({ password: hashedPassword }).where(eq(users.id, account.id));
+      // Mark emailVerified = false so user must confirm identity via OTP on next login
+      await db.update(users).set({ password: hashedPassword, emailVerified: false }).where(eq(users.id, account.id));
       await db
         .update(passwordResetTokens)
         .set({ usedAt: new Date() })
@@ -2317,6 +2367,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   : "";
                 storeUpdate.logo = normalizedLogo || null;
               }
+              if ("businessType" in updateData) storeUpdate.businessType = updateData.businessType;
+              if ("businessAddress" in updateData) storeUpdate.location = updateData.businessAddress || null;
+              if ("storeLatitude" in updateData) storeUpdate.latitude = updateData.storeLatitude;
+              if ("storeLongitude" in updateData) storeUpdate.longitude = updateData.storeLongitude;
 
               if (Object.keys(storeUpdate).length > 0) {
                 await storage.updateStore(existingStore.id, storeUpdate);
@@ -2519,19 +2573,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Normalize orientation at upload time so ID/profile cards render correctly downstream.
+      // `purpose=id_card` forces landscape (for Ghana ID admin review surfaces). All other
+      // uploads (profile photos, store banners, product images) keep their natural orientation.
+      const purpose = String((req.body as any)?.purpose || "").trim().toLowerCase();
+      const forceLandscape = purpose === "id_card" || purpose === "ghana_card";
       let uploadBuffer = req.file.buffer;
       let uploadMimeType = req.file.mimetype;
       if (req.file.mimetype !== "image/gif") {
         try {
           const autoOriented = await sharp(req.file.buffer).rotate().toBuffer();
-          const orientedMeta = await sharp(autoOriented).metadata();
-          const orientedWidth = orientedMeta.width || 0;
-          const orientedHeight = orientedMeta.height || 0;
-
-          // Ghana/ID cards should be landscape in admin review surfaces.
-          uploadBuffer = orientedHeight > orientedWidth
-            ? await sharp(autoOriented).rotate(90).toBuffer()
-            : autoOriented;
+          if (forceLandscape) {
+            const orientedMeta = await sharp(autoOriented).metadata();
+            const orientedWidth = orientedMeta.width || 0;
+            const orientedHeight = orientedMeta.height || 0;
+            uploadBuffer = orientedHeight > orientedWidth
+              ? await sharp(autoOriented).rotate(90).toBuffer()
+              : autoOriented;
+          } else {
+            uploadBuffer = autoOriented;
+          }
         } catch (orientationError) {
           console.warn("Public image orientation normalization skipped:", orientationError);
           uploadBuffer = req.file.buffer;
@@ -2863,10 +2923,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
-      
-      const targetRole = (user as any).requestedRole || user.role;
+
+      // Idempotent: if user is already approved as seller/rider, just return success
+      // so a stale UI click doesn't surface a confusing error.
+      if (user.isApproved && (user.role === "seller" || user.role === "rider")) {
+        const { password: _p, ...safeUser } = user as any;
+        return res.json({ ...safeUser, alreadyApproved: true });
+      }
+
+      // Resolve target role: prefer requestedRole, fall back to body override (admin can specify),
+      // then user.role. This handles records where requestedRole is missing.
+      const bodyRole = typeof req.body?.role === "string" ? req.body.role.trim().toLowerCase() : "";
+      const overrideRole = bodyRole === "seller" || bodyRole === "rider" ? bodyRole : "";
+      const requestedRoleVal = String((user as any).requestedRole || "").toLowerCase();
+      const currentRoleVal = String(user.role || "").toLowerCase();
+      const targetRole = (overrideRole || requestedRoleVal || currentRoleVal) as string;
       if (targetRole !== "seller" && targetRole !== "rider") {
-        return res.status(400).json({ error: "User does not have a pending seller/rider application" });
+        return res.status(400).json({
+          error: "This user has no pending seller or rider application. If you want to approve them as a seller or rider directly, include {\"role\":\"seller\"} (or \"rider\") in the request body.",
+        });
       }
 
       // CRITICAL: Validate role-specific requirements before approval
@@ -2882,10 +2957,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           user = (await storage.updateUser(user.id, { storeType: "clothing" as any })) || user;
         }
         
-        // For sellers: Create store BEFORE approving to ensure atomicity
+        // For sellers: Create store BEFORE approving to ensure atomicity.
+        // allowPendingPromotion=true bypasses the role gate — the user is still
+        // "buyer" at this point and will be promoted to "seller" just below.
         try {
-          // Use centralized helper (requireApproval=false allows creation before approval)
-          await storage.ensureStoreForSeller(user.id, { requireApproval: false });
+          await storage.ensureStoreForSeller(user.id, { requireApproval: false, allowPendingPromotion: true });
         } catch (storeError: any) {
           console.error(`[Approval] CRITICAL: Failed to ensure store for seller ${user.id}:`, storeError.message);
           // Store creation failed - DO NOT approve user, return error so admin can retry
@@ -3043,17 +3119,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      const targetRole = ((user as any).requestedRole || user.role) as string;
+      // Resolve target role with body fallback so admin can schedule interviews
+      // even if the applicant record is missing `requestedRole`.
+      const bodyRole = typeof req.body?.role === "string" ? req.body.role.trim().toLowerCase() : "";
+      const overrideRole = bodyRole === "seller" || bodyRole === "rider" ? bodyRole : "";
+      const requestedRoleVal = String((user as any).requestedRole || "").toLowerCase();
+      const currentRoleVal = String(user.role || "").toLowerCase();
+      const targetRole = (overrideRole || requestedRoleVal || (currentRoleVal === "seller" || currentRoleVal === "rider" ? currentRoleVal : "")) as string;
       if (targetRole !== "seller" && targetRole !== "rider") {
-        return res.status(400).json({ error: "Interview scheduling is only available for seller and rider applications" });
+        return res.status(400).json({
+          error: "This user has no seller/rider application on record. Include {\"role\":\"seller\"} (or \"rider\") in the request body to schedule an interview anyway.",
+        });
       }
 
-      if (user.isApproved || user.applicationStatus === "approved") {
-        return res.status(400).json({ error: "Cannot schedule interview for an approved application" });
+      // If the user has no requestedRole but admin is explicitly scheduling an interview,
+      // backfill the field so the rest of the flow works correctly.
+      if (!requestedRoleVal && overrideRole) {
+        await storage.updateUser(req.params.id, { requestedRole: overrideRole as any });
+      }
+
+      if (user.isApproved && user.role === targetRole) {
+        return res.status(400).json({ error: `This applicant is already approved as a ${targetRole}. Use deactivate to revoke approval first.` });
       }
 
       if (user.applicationStatus === "rejected") {
-        return res.status(400).json({ error: "Cannot schedule interview for a rejected application" });
+        return res.status(400).json({ error: "Cannot schedule interview for a rejected application. Use 'unreject' or reset the application first." });
       }
 
       const updatedUser = await storage.updateUser(req.params.id, {
@@ -3307,6 +3397,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updateData.profileImage = sellerProfileImage;
         updateData.ghanaCardFront = sellerCardFront;
         updateData.ghanaCardBack = sellerCardBack;
+        if (req.body?.businessType) updateData.businessType = req.body.businessType;
+        if (req.body?.storeLatitude != null) updateData.storeLatitude = req.body.storeLatitude;
+        if (req.body?.storeLongitude != null) updateData.storeLongitude = req.body.storeLongitude;
       } else if (role === "rider") {
         const riderBusinessAddress = typeof req.body?.businessAddress === "string"
           ? req.body.businessAddress.trim()
@@ -5481,14 +5574,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const metadata = await sharp(image.buffer).metadata();
           const width = metadata.width || 0;
           const height = metadata.height || 0;
-          
+
           const result = await uploadWith4KEnhancement(
             image.buffer,
             "kiyumart/products",
             width,
             height
           );
-          imageUrls.push(result.url);
+          // Auto-enhance: bake Cloudinary `e_enhance` into the stored URL so
+          // every delivered product image is denoised, sharpened, and
+          // contrast-corrected. Zero extra cost — runs on Cloudinary's edge.
+          imageUrls.push(enhanceCloudinaryUrl(result.url));
         }
       }
 
@@ -6439,6 +6535,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
 
+      // Auto-enhance any incoming Cloudinary image URLs so the stored URL
+      // always carries `e_enhance` and delivers AI-enhanced bytes.
+      if (Array.isArray(updateData.images)) {
+        updateData.images = enhanceImageList(updateData.images);
+      }
+      if (typeof updateData.modelPoster === "string" && updateData.modelPoster) {
+        updateData.modelPoster = enhanceCloudinaryUrl(updateData.modelPoster);
+      }
+
       const updated = await storage.updateProduct(req.params.id, updateData);
       if (!updated) {
         return res.status(404).json({ error: "Product not found" });
@@ -7282,8 +7387,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/hero-banners", async (req, res) => {
     try {
-      const { storeMode } = req.query;
-      const banners = await storage.getHeroBanners(storeMode as string | undefined);
+      const { storeMode, placement } = req.query;
+      const banners = await storage.getHeroBanners(
+        storeMode as string | undefined,
+        placement as string | undefined,
+      );
       res.json(banners);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -7314,18 +7422,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Create banner with storeMode selection
+  // Create banner with storeMode + placement selection
   app.post("/api/admin/hero-banners", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
     try {
-      const { title, subtitle, image, ctaText, ctaLink, storeMode, isActive, displayOrder } = req.body;
-      
+      const { title, subtitle, image, ctaText, ctaLink, storeMode, placement, themeColor, isActive, displayOrder } = req.body;
+
       if (!title || !image) {
         return res.status(400).json({ error: "Title and image are required" });
       }
-      
+
       const validStoreModes = ['single', 'multivendor', 'both'];
+      const validPlacements = ['home', 'food_vendors'];
       const selectedStoreMode = validStoreModes.includes(storeMode) ? storeMode : 'both';
-      
+      const selectedPlacement = validPlacements.includes(placement) ? placement : 'home';
+
       const banner = await storage.createHeroBanner({
         title,
         subtitle: subtitle || null,
@@ -7333,16 +7443,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ctaText: ctaText || null,
         ctaLink: ctaLink || null,
         storeMode: selectedStoreMode,
+        placement: selectedPlacement,
+        themeColor: themeColor || null,
         isActive: isActive !== false,
         displayOrder: displayOrder || 0,
       });
-      
+
       res.json(banner);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
-  
+
   // Update banner
   app.patch("/api/admin/hero-banners/:id", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_promotions"), async (req: AuthRequest, res) => {
     try {
@@ -7350,10 +7462,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!banner) {
         return res.status(404).json({ error: "Banner not found" });
       }
-      
+
       const validStoreModes = ['single', 'multivendor', 'both'];
+      const validPlacements = ['home', 'food_vendors'];
       const updates: any = {};
-      
+
       if (req.body.title !== undefined) updates.title = req.body.title;
       if (req.body.subtitle !== undefined) updates.subtitle = req.body.subtitle;
       if (req.body.image !== undefined) updates.image = req.body.image;
@@ -7362,9 +7475,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.body.storeMode !== undefined && validStoreModes.includes(req.body.storeMode)) {
         updates.storeMode = req.body.storeMode;
       }
+      if (req.body.placement !== undefined && validPlacements.includes(req.body.placement)) {
+        updates.placement = req.body.placement;
+      }
+      if (req.body.themeColor !== undefined) updates.themeColor = req.body.themeColor;
       if (req.body.isActive !== undefined) updates.isActive = req.body.isActive;
       if (req.body.displayOrder !== undefined) updates.displayOrder = req.body.displayOrder;
-      
+
       const updated = await storage.updateHeroBanner(req.params.id, updates);
       res.json(updated);
     } catch (error: any) {
@@ -16483,6 +16600,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isMultiVendor: settings.isMultiVendor === true,
         allowSellerBankPayouts: settings.allowSellerBankPayouts !== false,
         allowSellerDirectSupportMessages: settings.allowSellerDirectSupportMessages !== false,
+        allowSellerRegistration: settings.allowSellerRegistration !== false,
+        allowRiderRegistration: settings.allowRiderRegistration === true,
+        enable3DAR: settings.enable3DAR !== false,
         contactEmail: String(settings.contactEmail || "support@kiyumart.com").trim() || "support@kiyumart.com",
         contactPhone: String(settings.contactPhone || "").trim() || null,
         platformName: String(settings.platformName || "KiyuMart").trim() || "KiyuMart",
@@ -16506,6 +16626,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isMultiVendor: false,
         allowSellerBankPayouts: true,
         allowSellerDirectSupportMessages: true,
+        allowSellerRegistration: true,
+        allowRiderRegistration: false,
+        enable3DAR: true,
         contactEmail: "support@kiyumart.com",
         contactPhone: null,
         platformName: "KiyuMart",
@@ -17455,6 +17578,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         delete updateData.allowPickupAgentAdminChat;
         delete updateData.allowSellerDirectSupportMessages;
         delete updateData.allowSharedVariantColorStock;
+        delete updateData.enable3DAR;
         delete updateData.inviteOnlyRegistration;
         delete updateData.orderAutoCancelHours;
         delete updateData.freeTierProductLimit;
@@ -23622,6 +23746,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Bolt-style quote: computes per-store ETA range, delivery fee and minimum
+  // order using real delivery_zones data + the store's prepTimeMins. Accepts
+  // a comma-separated list of store ids (or "all" for every active store)
+  // plus the user's coordinates and optional city/region. Falls back to a
+  // city-name lookup when coordinates are missing.
+  //
+  // GET /api/stores/quotes?ids=<csv>&lat=<n>&lon=<n>&city=<s>&region=<s>
+  // Response: [{ storeId, prepMins, travelMins, etaLowMins, etaHighMins,
+  //   deliveryFee, minOrderAmount, distanceKm }]
+  app.get("/api/stores/quotes", async (req, res) => {
+    try {
+      const { ids, lat, lon, city, region } = req.query as Record<string, string | undefined>;
+      const userLat = lat ? parseFloat(lat) : null;
+      const userLon = lon ? parseFloat(lon) : null;
+      const userCity = (city || "").trim().toLowerCase();
+      const userRegion = (region || "").trim().toLowerCase();
+
+      const allStores = await storage.getStores({ isActive: true, isApproved: true });
+      const wanted = ids && ids !== "all"
+        ? new Set(ids.split(",").map((s) => s.trim()).filter(Boolean))
+        : null;
+      const target = wanted ? allStores.filter((s: any) => wanted.has(s.id)) : allStores;
+
+      const zones = await storage.getDeliveryZones(false, "delivery_zone");
+      // Pre-index zones by normalised city/region for O(1) lookup.
+      const zoneByCity = new Map<string, any>();
+      const zoneByRegion = new Map<string, any>();
+      let cheapestZone: any = null;
+      for (const z of zones) {
+        const c = String(z.city || "").trim().toLowerCase();
+        const r = String(z.region || "").trim().toLowerCase();
+        if (c) zoneByCity.set(c, z);
+        if (r) zoneByRegion.set(r, z);
+        const fee = parseFloat(String(z.fee || "0"));
+        if (!cheapestZone || fee < parseFloat(String(cheapestZone.fee || "0"))) cheapestZone = z;
+      }
+
+      // Aggregate total units sold per store from completed/delivered orders.
+      // Drives the "120 sold" badge on cards. Single batched aggregate query
+      // — O(orders+items) instead of N round-trips.
+      const soldByStore = new Map<string, number>();
+      try {
+        const completed = ['completed', 'delivered'];
+        const aggregateRows: any[] = await db.execute(sql`
+          SELECT o.store_id AS store_id, COALESCE(SUM(oi.quantity), 0)::int AS total_sold
+          FROM order_items oi
+          INNER JOIN orders o ON oi.order_id = o.id
+          WHERE o.status IN (${sql.join(completed.map((s) => sql`${s}`), sql`, `)})
+            AND o.store_id IS NOT NULL
+          GROUP BY o.store_id
+        `) as any;
+        const rows: any[] = Array.isArray(aggregateRows) ? aggregateRows : (aggregateRows?.rows || []);
+        for (const row of rows) {
+          if (row?.store_id) soldByStore.set(String(row.store_id), Number(row.total_sold) || 0);
+        }
+      } catch (e) {
+        // Non-fatal — cards still render with totalSold=0 when aggregation fails.
+        console.warn("[stores/quotes] totalSold aggregate failed:", (e as any)?.message);
+      }
+
+      const earth = 6371; // km
+      const haversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+        return earth * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
+
+      const quotes = target.map((store: any) => {
+        const prepMins = Number.isFinite(Number(store.prepTimeMins)) ? Number(store.prepTimeMins) : 15;
+        const minOrder = parseFloat(String(store.minOrderAmount ?? "0")) || 0;
+
+        const sLat = store.latitude ? parseFloat(store.latitude) : null;
+        const sLon = store.longitude ? parseFloat(store.longitude) : null;
+        const distanceKm = (userLat !== null && userLon !== null && sLat !== null && sLon !== null)
+          ? haversine(userLat, userLon, sLat, sLon)
+          : null;
+
+        // Travel time: a rider averages roughly 25 km/h in urban Accra, so
+        // ~2.4 min/km plus a 5-minute baseline for handoff & traffic.
+        const travelMins = distanceKm !== null
+          ? Math.max(5, Math.round(distanceKm * 2.4) + 5)
+          : 15;
+
+        const etaLowMins = prepMins + travelMins;
+        const etaHighMins = etaLowMins + 10;
+
+        // Delivery fee: prefer a zone matching the user's stated city, then
+        // region, then a fallback to the cheapest active zone. A nearby
+        // distance threshold (<2 km) bumps the fee down to the cheapest tier.
+        let zone: any = null;
+        if (userCity && zoneByCity.has(userCity)) zone = zoneByCity.get(userCity);
+        else if (userRegion && zoneByRegion.has(userRegion)) zone = zoneByRegion.get(userRegion);
+        else zone = cheapestZone;
+        const deliveryFee = zone ? parseFloat(String(zone.fee || "0")) : 0;
+
+        return {
+          storeId: store.id,
+          prepMins,
+          travelMins,
+          etaLowMins,
+          etaHighMins,
+          deliveryFee,
+          minOrderAmount: minOrder,
+          distanceKm: distanceKm !== null ? Number(distanceKm.toFixed(2)) : null,
+          deliveryZoneId: zone?.id ?? null,
+          deliveryZoneName: zone?.name ?? null,
+          totalSold: soldByStore.get(String(store.id)) || 0,
+        };
+      });
+
+      res.json(quotes);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // Get current seller's store (auto-create if missing)
   app.get("/api/stores/my-store", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
     try {
@@ -23751,6 +23993,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Store not found" });
       }
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============ Store Verification Routes ============
+
+  // Seller applies for verification (uploads 3 document URLs)
+  app.post("/api/seller/verification/apply", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const { docFront, docBack, selfie } = req.body;
+      if (!docFront || !docBack || !selfie) {
+        return res.status(400).json({ error: "All three documents are required: Ghana card front, back, and selfie." });
+      }
+      const store = await storage.getStoreByPrimarySeller(req.user!.id);
+      if (!store) {
+        return res.status(404).json({ error: "Store not found" });
+      }
+      if ((store as any).verificationStatus === 'approved') {
+        return res.status(400).json({ error: "Store is already verified." });
+      }
+      const updated = await storage.applyForVerification(store.id, { front: docFront, back: docBack, selfie });
+      // Notify all admins
+      try {
+        const admins = await storage.getUsersByRole("admin");
+        const superAdmins = await storage.getUsersByRole("super_admin");
+        for (const admin of [...admins, ...superAdmins]) {
+          await storage.createNotification({
+            userId: admin.id,
+            type: "system",
+            title: "New Verification Application",
+            message: `${store.name} has submitted documents for store verification.`,
+            metadata: { storeId: store.id } as any,
+          });
+        }
+      } catch (e) { /* non-critical */ }
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get pending verification applications (admin/super_admin)
+  app.get("/api/admin/verification/applications", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const applications = await storage.getVerificationApplications();
+      res.json(applications);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Approve a store's verification (super_admin only)
+  app.post("/api/admin/stores/:id/approve-verification", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const store = await storage.getStore(req.params.id);
+      if (!store) return res.status(404).json({ error: "Store not found" });
+      const updated = await storage.approveVerification(req.params.id);
+      // Notify the seller
+      if (store.primarySellerId) {
+        await storage.createNotification({
+          userId: store.primarySellerId,
+          type: "system",
+          title: "Store Verified!",
+          message: `Congratulations! Your store "${store.name}" has been verified.`,
+          metadata: { storeId: store.id } as any,
+        }).catch(() => {});
+      }
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Reject a store's verification (super_admin only)
+  app.post("/api/admin/stores/:id/reject-verification", requireAuth, requireRole("super_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { reason } = req.body;
+      if (!reason?.trim()) return res.status(400).json({ error: "Rejection reason is required." });
+      const store = await storage.getStore(req.params.id);
+      if (!store) return res.status(404).json({ error: "Store not found" });
+      const updated = await storage.rejectVerification(req.params.id, reason.trim());
+      // Notify the seller
+      if (store.primarySellerId) {
+        await storage.createNotification({
+          userId: store.primarySellerId,
+          type: "system",
+          title: "Verification Not Approved",
+          message: `Your verification for "${store.name}" was not approved. Reason: ${reason.trim()}`,
+          metadata: { storeId: store.id } as any,
+        }).catch(() => {});
+      }
+      res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -24015,17 +24350,180 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/categories", async (req, res) => {
+  // One-click seed of standard cuisine categories scoped to food_beverages +
+  // restaurant. Idempotent — skips any slug that already exists.
+  app.post("/api/categories/seed-cuisines", requireAuth, requireRole("super_admin"), requirePermission("manage_categories"), async (_req: AuthRequest, res) => {
     try {
-      const { isActive } = req.query;
-      const categories = await storage.getCategories({
-        isActive: isActive === "true" ? true : isActive === "false" ? false : undefined,
-      });
-      res.json(await flagSellerRequestedCategories(categories));
+      const presets: { name: string; slug: string; image: string; description: string }[] = [
+        { name: "Rice",       slug: "rice",       image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f35a.png", description: "Jollof, fried rice, plain rice and rice bowls" },
+        { name: "Local",      slug: "local",      image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f958.png", description: "Banku, fufu, waakye, kenkey and other local dishes" },
+        { name: "Pizza",      slug: "pizza",      image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f355.png", description: "Pizza pies and slices" },
+        { name: "Burger",     slug: "burger",     image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f354.png", description: "Burgers, sliders and chicken sandwiches" },
+        { name: "Grill",      slug: "grill",      image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f357.png", description: "Grilled chicken, suya, kebabs and BBQ" },
+        { name: "Drinks",     slug: "drinks",     image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f964.png", description: "Soft drinks, juices, smoothies and water" },
+        { name: "Pastry",     slug: "pastry",     image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f369.png", description: "Cakes, doughnuts, croissants and pastries" },
+        { name: "Salad",      slug: "salad",      image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f957.png", description: "Fresh salads and bowls" },
+        { name: "Fast Food",  slug: "fast-food",  image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f35f.png", description: "Quick bites — fries, wings, hotdogs" },
+        { name: "Noodles",    slug: "noodles",    image: "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f35c.png", description: "Noodles, ramen, indomie and pasta" },
+      ];
+      const created: string[] = [];
+      const skipped: string[] = [];
+      const existing = await storage.getCategories({});
+      const existingSlugs = new Set((existing as any[]).map((c) => String(c.slug)));
+      for (const p of presets) {
+        if (existingSlugs.has(p.slug)) { skipped.push(p.slug); continue; }
+        try {
+          await storage.createCategory({
+            name: p.name,
+            slug: p.slug,
+            image: p.image,
+            description: p.description,
+            storeTypes: ["food_beverages", "restaurant"],
+            displayOrder: 0,
+            isActive: true,
+          } as any);
+          created.push(p.slug);
+        } catch (e: any) {
+          // Skip duplicates / fall through to next.
+          skipped.push(p.slug);
+        }
+      }
+      res.json({ created, skipped });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
+
+  app.get("/api/categories", async (req, res) => {
+    try {
+      const { isActive } = req.query;
+      const cats = await storage.getCategories({
+        isActive: isActive === "true" ? true : isActive === "false" ? false : undefined,
+      });
+      const flagged = await flagSellerRequestedCategories(cats);
+
+      // Attach per-category product counts via a single DB query
+      try {
+        const counts = await db
+          .select({ categoryId: products.categoryId, cnt: sql<number>`count(*)::int` })
+          .from(products)
+          .where(and(eq(products.isActive, true), sql`${products.categoryId} IS NOT NULL`))
+          .groupBy(products.categoryId);
+        const countMap = new Map(counts.map(r => [r.categoryId, r.cnt]));
+        res.json(flagged.map((c: any) => ({ ...c, productCount: countMap.get(c.id) ?? 0 })));
+      } catch {
+        res.json(flagged);
+      }
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
+   * Super-admin: list main store-type categories (one row per storeType) with
+   * cover image, category counts, and product counts. Lets admins curate the
+   * cover image / label used for each top-level store type across the platform.
+   *
+   * GET  /api/admin/store-categories      → list
+   * PATCH /api/admin/store-categories/:storeType  → update image / label / displayOrder
+   */
+  app.get(
+    "/api/admin/store-categories",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("manage_categories"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const { STORE_TYPE_CONFIG, STORE_TYPES } = await import("@shared/storeTypes");
+        // Pull stored overrides (if any) from platform settings JSON.
+        const ps = await storage.getPlatformSettings().catch(() => null);
+        const overrides = ((ps as any)?.storeCategoryOverrides || {}) as Record<
+          string,
+          { image?: string | null; label?: string | null; displayOrder?: number | null }
+        >;
+        const allCats = await storage.getCategories({});
+        const allStores = await storage.getStores({}).catch(() => [] as any[]);
+        const allProducts = await storage
+          .getProducts({ isActive: true })
+          .catch(() => [] as any[]);
+
+        const rows = STORE_TYPES.map((st) => {
+          const config = (STORE_TYPE_CONFIG as any)[st] || {};
+          const ov = overrides?.[st] || {};
+          const storeCount = (allStores as any[]).filter(
+            (s) => String(s?.storeType || "").toLowerCase() === st,
+          ).length;
+          // categories that map to this storeType
+          const matchingCats = (allCats as any[]).filter((c) =>
+            Array.isArray(c?.storeTypes) ? c.storeTypes.includes(st) : false,
+          );
+          // products in any of those categories
+          const catIds = new Set(matchingCats.map((c) => String(c?.id || "")));
+          const productCount = (allProducts as any[]).filter((p) =>
+            p?.categoryId ? catIds.has(String(p.categoryId)) : false,
+          ).length;
+          // sample image from first category if no override
+          const sampleImage =
+            ov.image ||
+            matchingCats.map((c) => c?.image).find((img) => Boolean(img)) ||
+            null;
+          return {
+            storeType: st,
+            label: ov.label || config.label || st,
+            description: config.description || "",
+            icon: config.icon || "",
+            image: sampleImage,
+            displayOrder: typeof ov.displayOrder === "number" ? ov.displayOrder : 0,
+            storeCount,
+            productCount,
+            categoryCount: matchingCats.length,
+            categoryIds: matchingCats.map((c) => c?.id).filter(Boolean),
+          };
+        }).sort((a, b) => a.displayOrder - b.displayOrder);
+
+        res.json(rows);
+      } catch (e: any) {
+        console.error("[admin/store-categories] error:", e?.message);
+        res.status(500).json({ error: e?.message || "Failed to load store categories" });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/admin/store-categories/:storeType",
+    requireAuth,
+    requireRole("admin", "super_admin"),
+    requirePermission("manage_categories"),
+    async (req: AuthRequest, res) => {
+      try {
+        const { STORE_TYPES } = await import("@shared/storeTypes");
+        const storeType = String(req.params.storeType || "").toLowerCase();
+        if (!STORE_TYPES.includes(storeType as any)) {
+          return res.status(400).json({ error: "Unknown store type" });
+        }
+        const image = typeof req.body?.image === "string" ? req.body.image.trim() : undefined;
+        const label = typeof req.body?.label === "string" ? req.body.label.trim() : undefined;
+        const displayOrder = typeof req.body?.displayOrder === "number" ? req.body.displayOrder : undefined;
+
+        const ps = await storage.getPlatformSettings().catch(() => null);
+        const current = ((ps as any)?.storeCategoryOverrides || {}) as Record<string, any>;
+        const next = {
+          ...current,
+          [storeType]: {
+            ...(current[storeType] || {}),
+            ...(image !== undefined ? { image: image || null } : {}),
+            ...(label !== undefined ? { label: label || null } : {}),
+            ...(displayOrder !== undefined ? { displayOrder } : {}),
+          },
+        };
+        await storage.updatePlatformSettings({ storeCategoryOverrides: next } as any);
+        res.json({ success: true, storeType, override: next[storeType] });
+      } catch (e: any) {
+        console.error("[admin/store-categories patch] error:", e?.message);
+        res.status(500).json({ error: e?.message || "Failed to update store category" });
+      }
+    },
+  );
 
   app.get("/api/categories/:id", async (req, res) => {
     try {

@@ -94,6 +94,7 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Order history with full detail view; pending/unpaid orders can be removed
 - Referral programme (share code → earn rewards when friends complete orders)
 - Chat message delete and edit (with real-time sync)
+- **Bolt-style food ordering** for restaurants and local vendors — discovery page, restaurant detail, food detail with modifiers, live order tracking with timeline + rider card. See [Food Vendors & Restaurants](#food-vendors--restaurants-bolt-style-experience).
 
 ### Seller Features
 - Product management: create, edit, delete, with image/video upload
@@ -166,6 +167,31 @@ Every role except `super_admin` has a **role-feature map**: a DB-stored set of b
 - Verify pickup orders by scanning QR code or entering OTP
 - View shift schedule
 - Performance and earnings tracking
+
+### Food Vendors & Restaurants (Bolt-style experience)
+A dedicated food ordering surface lives alongside the standard e-commerce flows. Food vendors (`businessType: local_vendor`) and restaurants (`businessType: restaurant` or `storeType: restaurant`) automatically use this experience on mobile.
+
+**Buyer-facing**
+- `/mobile/vendors` (also `/vendors` on mobile) — Restaurants & Local Vendors discovery page. Sticky **DELIVER TO** header that requests geolocation and reverse-geocodes via `/api/public/geocode/reverse`. Sub-tab pills (All / Restaurants / Local Vendors). Cuisine chip row sourced from food-scoped categories. Super-admin-managed banner. "Top picks for you" rail. Vertical store cards with rating, ETA range, distance, delivery fee, minimum order, and total units sold — sorted by distance when location is set.
+- Restaurant / vendor detail page — full-bleed hero, overlapping info card with Rating · ETA · Distance · Sold stat strip, sticky scroll-spy category tabs, Bolt-style menu rows (text left + 96×96 thumb + `+` button right). `MobileFoodStorePage.tsx`.
+- Food item detail page — hero, description, modifier groups from `product_modifiers` (radio for required single-select, checkboxes for multi), special-instructions textarea, pill quantity stepper, sticky `Add to cart · GH₵xx.xx` CTA with live total. Required-group validation toasts the missing groups by name. `MobileFoodDetail.tsx`.
+- Order tracking — top-glow hero with status emoji, live "Arrives in ~N min" chip, 5-step vertical timeline (Order confirmed → Preparing food → Ready for pickup → Rider on the way → Delivered), rider card with call/chat, items list with modifier summary lines, payment summary. Subscribes to `order_status_changed` / `order_updated` / `rider_assigned` socket events. `MobileFoodOrderTracking.tsx`.
+
+**Super-admin controls**
+- AdminHeroBanners — separate **Homepage** vs **Restaurants & Local Vendors** tabs. Each shows its own count and filtered list. New banners inherit the active tab's placement. Food-emoji library (🛵 🍕 🍔 🍱 🍜 🥘 🍗 🥤 🥗 🍩) for quick title decoration.
+- AdminCategoryManager — three tabs: **Stores** / **Restaurants & Local Vendors** / **Pending**. Categories pre-scope `storeTypes` based on the active tab. "Seed default cuisines" button on the food tab creates Rice / Local / Pizza / Burger / Grill / Drinks / Pastry / Salad / Fast Food / Noodles (idempotent). Per-cuisine field builder lets super admin define Pizza → crust/sauce/toppings, Sushi → rice/fish style fields.
+- `/admin/food-products` — dedicated page listing only food/restaurant items. Mirrors All Products controls (search, hide/unhide, edit) but inverts the filter. Admin All Products excludes food and links to this page with a live badge count.
+- StoreDetailsPage — "Average prep time (minutes)" and "Minimum order (GH₵)" inputs per store. These drive the live ETA and minimum-order warnings on the food page.
+- AdminSettings — "Enable 3D & AR Product Features" toggle. Food vendors are always excluded from 3D/AR regardless of this setting.
+
+**Live quote endpoint**
+- `GET /api/stores/quotes?ids=&lat=&lon=&city=&region=` returns per-store `prepMins`, `travelMins`, `etaLowMins`, `etaHighMins`, `deliveryFee` (resolved through `delivery_zones` by user city → region → cheapest fallback), `minOrderAmount`, `distanceKm`, and `totalSold` (aggregated from completed/delivered `order_items`).
+
+**Strict separation rules**
+- Homepage banners (`placement: home`) never appear on the food page; food banners (`placement: food_vendors`) never appear on the homepage. Legacy NULL placement counts as `home`.
+- Food categories never appear in the generic "Shop by Category" section — they only surface on the Restaurants & Local Vendors page.
+- 3D/AR features are hard-disabled for food vendors across SellerProducts, ProductDetails, and MobileProductDetails — the store record is cross-referenced via `isFoodVendorStore` so legacy products without a `storeType` field still get correctly identified and locked out.
+- Variant section is hidden from `SellerProducts` when the store type is `food_beverages` or `restaurant`; sellers use `product_modifiers` (size, add-ons) instead.
 
 ---
 
@@ -474,10 +500,10 @@ Access control has three layers:
 | Table | Purpose |
 |---|---|
 | `users` | All accounts. Fields: role, isApproved, isActive, applicationStatus, vehicleInfo, roleFeatures (JSONB), isPremiumSeller |
-| `stores` | One per seller in multi-vendor mode. Logo, description, payout details |
+| `stores` | One per seller in multi-vendor mode. Logo, description, payout details, `businessType` (`store` / `restaurant` / `local_vendor`), `prepTimeMins`, `minOrderAmount` (Bolt-style food fields), branding config |
 | `products` | Catalog. Images array, video, stock, category, dynamic fields, ratings |
 | `product_variants` | Color/size variants with per-variant stock, images, price override |
-| `categories` | Product categories with custom fields (e.g. "Size" for clothing) |
+| `categories` | Product categories with custom fields (e.g. "Size" for clothing). `storeTypes` array scopes a category to specific store types. `productFieldsConfig` JSONB defines per-cuisine dynamic fields (Pizza → crust/sauce/toppings) |
 | `orders` | Order records: status, paymentStatus, deliveryMethod, total, fee breakdown |
 | `order_items` | Line items (product, variant, quantity, unit price) |
 | `order_status_history` | Audit log of every status transition with actor and reason |
@@ -504,7 +530,7 @@ Access control has three layers:
 | `promotionalAds` | Time-limited promoted stores/products. `banner_config` JSONB stores the visual Banner Designer output (`BannerConfig`) |
 | `promotionPricing` | Pricing tiers for promo applications |
 | `promotionApplications` | Seller applications to run promotions |
-| `heroBanners` | Hero section images with CTA |
+| `heroBanners` | Hero section images with CTA. `placement` (`home` / `food_vendors`) routes each banner to its surface. `themeColor` for solid-colour banners |
 | `bannerCollections` | Groups of banners for carousels |
 | `marketplaceBanners` | Marketplace-wide promotional banners |
 | `footerPages` | CMS pages (Terms, Privacy, etc.) |
@@ -645,6 +671,21 @@ POST   /api/coupons                                      Create coupon
 POST   /api/seller/promotions/:appId/verify-payment      Re-verify promo payment reference
 DELETE /api/seller/promotions/:appId                     Remove expired or rejected promo application
 POST   /api/seller/cart-links                            Create a cart link (multi-item WhatsApp cart)
+```
+
+### Food Vendors & Restaurants
+```
+GET  /api/stores/quotes?ids=&lat=&lon=&city=&region=  Batched per-store quote — prep mins, ETA range,
+                                                     delivery fee (from delivery_zones), min order,
+                                                     distance, total units sold
+GET  /api/hero-banners?placement=home|food_vendors    Banners scoped by placement
+POST /api/categories/seed-cuisines                    (super_admin) Seed default cuisine categories
+                                                     (Rice / Pizza / Burger / Grill / Drinks etc.)
+                                                     — idempotent on slug
+GET  /api/products/:id/modifiers                      List modifier groups (size, add-ons) for a
+                                                     food product — consumed by MobileFoodDetail
+POST /api/products/:id/modifiers                      (seller / admin) Create a modifier group
+PATCH/DELETE /api/products/:id/modifiers/:modId       Manage a single modifier group
 ```
 
 ### Social Commerce (Magic Links & Cart Links)

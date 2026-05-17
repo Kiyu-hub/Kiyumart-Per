@@ -365,7 +365,7 @@ export default function CartLinkCheckout() {
       setPaymentSummary({
         subtotal: parseFloat(data.subtotal ?? String(frontendSubtotal)),
         processingFee: parseFloat(data.processingFee ?? "0"),
-        finalTotal: parseFloat(data.finalTotal ?? String(data.paystackConfig?.amount / 100 ?? frontendSubtotal)),
+        finalTotal: data.finalTotal,
         cfg: data.paystackConfig,
         orderNumber: data.orderNumber || "N/A",
       });
