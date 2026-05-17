@@ -191,6 +191,10 @@ export default function MobileAllVendors() {
 
   // Banner — only food-vendors-scoped banners. Super admin manages content,
   // image, color, CTA via AdminHeroBanners with placement="food_vendors".
+  // Defensive client-side filter: even if the backend leaks a homepage banner
+  // through (e.g. legacy NULL placement, stale cache), we drop anything that
+  // doesn't strictly match food_vendors so no clothing/store banner ever
+  // surfaces on this page.
   const { data: banners = [] } = useQuery<HeroBanner[]>({
     queryKey: ['/api/hero-banners', 'food_vendors'],
     queryFn: async () => {
@@ -201,7 +205,10 @@ export default function MobileAllVendors() {
     },
     staleTime: 5 * 60_000,
   });
-  const banner: HeroBanner | null = banners[0] ?? null;
+  const banner: HeroBanner | null = useMemo(
+    () => banners.find((b) => b.placement === 'food_vendors') ?? null,
+    [banners],
+  );
 
   // Food-scoped categories — drives the cuisine chip row (Pizza / Burger /
   // Local etc.). Created by super admin under the "Restaurants & Local Vendors"
@@ -484,8 +491,12 @@ export default function MobileAllVendors() {
         </div>
       )}
 
-      {/* ── Banner (super admin-managed) ──────────────────────── */}
-      {banner && (
+      {/* ── Banner ───────────────────────────────────────────────
+          When super admin uploads a banner with placement="food_vendors",
+          we render that. Otherwise the original solid-TEAL gradient default
+          stays visible. Homepage banners are blocked at both the server
+          filter AND a defensive client filter so they NEVER appear here. */}
+      {banner ? (
         <button
           onClick={() => banner.ctaLink && navigate(banner.ctaLink)}
           style={{
@@ -531,6 +542,27 @@ export default function MobileAllVendors() {
             </div>
           </div>
         </button>
+      ) : (
+        /* Default food banner — solid TEAL gradient, 🛵 emoji, free-delivery promo.
+           Always visible when no admin-uploaded food banner exists. Never replaced
+           by a homepage banner. */
+        <div style={{
+          margin: '12px 16px 4px',
+          padding: '14px 18px',
+          borderRadius: 16,
+          background: `linear-gradient(135deg, ${TEAL} 0%, #00B89A 100%)`,
+          color: '#fff',
+          display: 'flex', alignItems: 'center', gap: 12,
+          overflow: 'hidden', position: 'relative',
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1.2 }}>Free delivery</div>
+            <div style={{ fontSize: 12, opacity: 0.92, marginTop: 4 }}>
+              On orders over GH₵ 80 from selected restaurants near you
+            </div>
+          </div>
+          <div style={{ fontSize: 38, lineHeight: 1, flexShrink: 0 }}>🛵</div>
+        </div>
       )}
 
       {/* ── Top picks rail ────────────────────────────────────── */}
