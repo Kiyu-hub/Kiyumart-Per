@@ -153,18 +153,41 @@ export async function fetchSameOrigin(url: string, init?: RequestInit): Promise<
   }
 }
 
+function safeParseJson(text: string): any {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function friendlyStatusMessage(status: number, fallback: string): string {
+  if (status === 429) return "Too many attempts. Please wait a moment and try again.";
+  if (status === 502 || status === 503 || status === 504) {
+    return "The service is temporarily unavailable. Please try again shortly.";
+  }
+  return fallback;
+}
+
 export async function fetchSameOriginJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetchSameOrigin(url, init);
   const text = await res.text();
-  const parsed = text ? JSON.parse(text) : null;
+  const parsed = safeParseJson(text);
 
   if (!res.ok) {
     if (res.status === 503 && isMaintenanceBody(parsed)) {
       signalMaintenanceDetected();
       throw new Error("maintenance");
     }
-    const message = parsed?.userMessage || parsed?.error || text || res.statusText;
+    const rawMessage = parsed?.userMessage || parsed?.error || (parsed ? null : text) || res.statusText;
+    const message = friendlyStatusMessage(res.status, rawMessage);
     throw new Error(`${res.status}: ${message}`);
+  }
+
+  if (!parsed && text) {
+    // Server returned 2xx but non-JSON body — surface a clear error instead of crashing.
+    throw new Error(`${res.status}: Unexpected response from server.`);
   }
 
   return parsed as T;
@@ -173,15 +196,20 @@ export async function fetchSameOriginJson<T>(url: string, init?: RequestInit): P
 export async function fetchApiJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetchWithApiFallback(url, init);
   const text = await res.text();
-  const parsed = text ? JSON.parse(text) : null;
+  const parsed = safeParseJson(text);
 
   if (!res.ok) {
     if (res.status === 503 && isMaintenanceBody(parsed)) {
       signalMaintenanceDetected();
       throw new Error("maintenance");
     }
-    const message = parsed?.userMessage || parsed?.error || text || res.statusText;
+    const rawMessage = parsed?.userMessage || parsed?.error || (parsed ? null : text) || res.statusText;
+    const message = friendlyStatusMessage(res.status, rawMessage);
     throw new Error(`${res.status}: ${message}`);
+  }
+
+  if (!parsed && text) {
+    throw new Error(`${res.status}: Unexpected response from server.`);
   }
 
   return parsed as T;

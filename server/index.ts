@@ -275,6 +275,10 @@ app.set('trust proxy', 1);
 
 // Role-aware rate limiting - Different limits based on user role
 // Uses IP-based keying (IPv6-safe by default) with role-based quotas
+const rateLimitJsonHandler = (message: string) => (_req: any, res: any) => {
+  res.status(429).json({ error: message, userMessage: message });
+};
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: (req) => {
@@ -309,9 +313,9 @@ const apiLimiter = rateLimit({
     return 100; // Anonymous: 100 requests per 15 min per IP
   },
   // No custom keyGenerator - use library's default IPv6-safe IP-based keying
-  message: 'Too many requests, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  handler: rateLimitJsonHandler('Too many requests, please try again later.'),
   skip: (req) => {
     // Skip rate limiting for static assets
     return req.path.startsWith('/attached_assets') || !req.path.startsWith('/api');
@@ -321,9 +325,9 @@ const apiLimiter = rateLimit({
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // Limit each IP to 5 login/register attempts per windowMs
-  message: 'Too many authentication attempts, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  handler: rateLimitJsonHandler('Too many login attempts. Please wait 15 minutes and try again.'),
 });
 
 // Stricter rate limiting for auth routes (applied first)
