@@ -7242,27 +7242,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : [];
       const normalizedStock = Number.isFinite(Number(stock)) ? Math.max(0, Math.floor(Number(stock))) : 0;
 
+      // Primary axis (color / option-group / shade / etc.) is the only one
+      // we strictly require. Secondary axis (size / specification / pack) is
+      // optional so single-axis products (fragrance, perfume, drink) work.
       if (!normalizedColor) {
-        return res.status(400).json({ error: "Color is required" });
+        return res.status(400).json({ error: "Primary option is required" });
       }
-      if (!normalizedSize) {
-        return res.status(400).json({ error: "Size is required" });
-      }
-      if (normalizedImages.length < 3 || normalizedImages.length > 5) {
-        return res.status(400).json({ error: "Each variant must have 3 to 5 images" });
+      // Lowered image floor from 3 to 1. Ghana sellers often have 1-2 photos;
+      // 3 was blocking real listings. Cap stays at 8 to keep payloads sane.
+      if (normalizedImages.length < 1 || normalizedImages.length > 8) {
+        return res.status(400).json({ error: "Each variant needs 1 to 8 images" });
       }
 
       const variant = await storage.createProductVariant({
         productId,
         color: normalizedColor,
-        size: normalizedSize,
+        size: normalizedSize || null,
         images: normalizedImages,
         image: normalizedImages[0] || null,
         stock: normalizedStock,
         originalStock: normalizedStock,
         sku: null,
         priceAdjustment: "0",
-      });
+      } as any);
 
       const allVariants = await storage.getProductVariants(productId);
       const { productImages, productStock } = getProductImagesAndStockFromValidVariants(allVariants);
@@ -7310,25 +7312,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : [];
       const normalizedStock = Number.isFinite(Number(stock)) ? Math.max(0, Math.floor(Number(stock))) : 0;
 
+      // Primary axis required, secondary axis optional, images 1-8.
       if (!normalizedColor) {
-        return res.status(400).json({ error: "Color is required" });
+        return res.status(400).json({ error: "Primary option is required" });
       }
-      if (!normalizedSize) {
-        return res.status(400).json({ error: "Size is required" });
-      }
-      if (normalizedImages.length < 3 || normalizedImages.length > 5) {
-        return res.status(400).json({ error: "Each variant must have 3 to 5 images" });
+      if (normalizedImages.length < 1 || normalizedImages.length > 8) {
+        return res.status(400).json({ error: "Each variant needs 1 to 8 images" });
       }
 
       const variant = await storage.updateProductVariant(variantId, {
         color: normalizedColor,
-        size: normalizedSize,
+        size: normalizedSize || null,
         images: normalizedImages,
         image: normalizedImages[0] || null,
         stock: normalizedStock,
         sku: null,
         priceAdjustment: "0",
-      });
+      } as any);
 
       const allVariants = await storage.getProductVariants(productId);
       const { productImages, productStock } = getProductImagesAndStockFromValidVariants(allVariants);

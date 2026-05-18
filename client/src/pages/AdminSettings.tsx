@@ -2950,8 +2950,21 @@ export default function AdminSettings() {
                       <div className="space-y-0.5 pr-4">
                         <Label htmlFor="allowSharedVariantColorStock">Show Shared Stock Option For Variants</Label>
                         <p className="text-sm text-muted-foreground">
-                          Keep this off to make sellers use separate stock for each size only. Turn it on only if you want sellers to choose one shared stock number for a whole color.
+                          Controls how variant stock is split across sizes when a seller creates
+                          a colour variant.
                         </p>
+                        <ul className="text-xs text-muted-foreground/90 list-disc pl-4 mt-1 space-y-0.5">
+                          <li>
+                            <strong>OFF (recommended):</strong> Each size carries its own stock
+                            number — e.g. <em>Red S = 5, Red M = 10, Red L = 7</em>. Accurate
+                            for clothing where sizes sell at different rates.
+                          </li>
+                          <li>
+                            <strong>ON:</strong> The seller can pick a single stock number for
+                            the whole colour group — e.g. <em>Red = 22</em> shared across S/M/L.
+                            Use when sizes are interchangeable (jewellery, accessories).
+                          </li>
+                        </ul>
                       </div>
                       <Switch
                         id="allowSharedVariantColorStock"

@@ -612,6 +612,12 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   const [editingVariant, setEditingVariant] = useState<any>(null);
   const [isVariantSubmitting, setIsVariantSubmitting] = useState(false);
   const [activeVariantGroupId, setActiveVariantGroupId] = useState<string | null>(null);
+  // Matrix generator — Shopify-style: pick colors + sizes, generate the
+  // cross-product of variant rows in one shot instead of N round-trips.
+  const [showMatrixDialog, setShowMatrixDialog] = useState(false);
+  const [matrixColors, setMatrixColors] = useState("");
+  const [matrixSizes, setMatrixSizes] = useState("");
+  const [matrixStockEach, setMatrixStockEach] = useState("10");
   const [sizeGuide, setSizeGuide] = useState<SizeGuideData>(() =>
     buildSizeGuideFromSource(effectiveProduct?.dynamicFields?.sizeGuide, []),
   );
@@ -1605,24 +1611,43 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                       : variantConfig.sectionDescription}
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isVariantSubmitting}
-                  onClick={() => {
-                    setEditingVariant(null);
-                    setShowVariantDialog(true);
-                  }}
-                  data-testid="button-add-variant"
-                >
-                  {isVariantSubmitting && !editingVariant ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Plus className="h-4 w-4 mr-2" />
-                  )}
-                  Add Variant
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={isVariantSubmitting}
+                    onClick={() => {
+                      setMatrixColors("");
+                      setMatrixSizes("");
+                      setMatrixStockEach("10");
+                      setShowMatrixDialog(true);
+                    }}
+                    data-testid="button-generate-variants"
+                    title="Pick colors and sizes once — we'll create every combination"
+                  >
+                    <span className="text-base mr-1">⚡</span>
+                    Generate variants
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isVariantSubmitting}
+                    onClick={() => {
+                      setEditingVariant(null);
+                      setShowVariantDialog(true);
+                    }}
+                    data-testid="button-add-variant"
+                  >
+                    {isVariantSubmitting && !editingVariant ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-2" />
+                    )}
+                    Add Variant
+                  </Button>
+                </div>
               </div>
 
               {groupedVariants.length > 0 && (
@@ -1656,7 +1681,19 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
                       </div>
                       <div className="text-center">{variantGroup.imageCount}</div>
                       <div className="text-center">{variantGroup.originalStock}</div>
-                      <div className="text-center">{variantGroup.remainingStock}</div>
+                      <div className="text-center">
+                        {variantGroup.remainingStock <= 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-red-50 text-red-700 px-2 py-0.5 text-xs font-semibold dark:bg-red-950/40 dark:text-red-300">
+                            Out of stock
+                          </span>
+                        ) : variantGroup.remainingStock <= 5 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-xs font-semibold dark:bg-amber-950/40 dark:text-amber-300">
+                            {variantGroup.remainingStock} left
+                          </span>
+                        ) : (
+                          variantGroup.remainingStock
+                        )}
+                      </div>
                       <div className="flex items-center justify-center gap-1">
                         <Button
                           type="button"
@@ -1767,6 +1804,109 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
               setEditingVariant(null);
             }}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* Matrix generator — Shopify-style. Pick colors + sizes once, we
+          create the full cross-product of variant rows in one click. */}
+      <Dialog open={showMatrixDialog} onOpenChange={setShowMatrixDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Generate variants</DialogTitle>
+            <DialogDescription>
+              List your {variantConfig.primaryLabel.toLowerCase()}s and{" "}
+              {variantConfig.secondaryLabel.toLowerCase()}s separated by commas. We'll create
+              every combination as a fresh variant — you can fill images and stock per row after.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">{variantConfig.primaryLabel}s (comma-separated)</Label>
+              <Input
+                value={matrixColors}
+                onChange={(e) => setMatrixColors(e.target.value)}
+                placeholder={variantConfig.primaryPlaceholder}
+                data-testid="matrix-colors"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">{variantConfig.secondaryLabel}s (comma-separated, optional)</Label>
+              <Input
+                value={matrixSizes}
+                onChange={(e) => setMatrixSizes(e.target.value)}
+                placeholder={variantConfig.secondaryPlaceholder}
+                data-testid="matrix-sizes"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Stock per variant</Label>
+              <Input
+                value={matrixStockEach}
+                onChange={(e) => setMatrixStockEach(e.target.value)}
+                type="number"
+                min={0}
+                data-testid="matrix-stock"
+              />
+            </div>
+            {(() => {
+              const colors = matrixColors.split(",").map((s) => s.trim()).filter(Boolean);
+              const sizes = matrixSizes.split(",").map((s) => s.trim()).filter(Boolean);
+              const total = colors.length * (sizes.length || 1);
+              return (
+                <p className="text-xs text-muted-foreground">
+                  Will create <span className="font-semibold">{total}</span> variant
+                  {total !== 1 ? "s" : ""}{" "}
+                  {colors.length > 0 ? `(${colors.length} × ${sizes.length || 1})` : ""}.
+                </p>
+              );
+            })()}
+            <div className="flex gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setShowMatrixDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="flex-1"
+                disabled={!matrixColors.trim()}
+                onClick={() => {
+                  const colors = matrixColors.split(",").map((s) => s.trim()).filter(Boolean);
+                  const sizes = matrixSizes.split(",").map((s) => s.trim()).filter(Boolean);
+                  const stockEach = Math.max(0, parseInt(matrixStockEach || "0", 10) || 0);
+                  if (colors.length === 0) return;
+                  const sizeList = sizes.length > 0 ? sizes : [""];
+                  const generated: any[] = [];
+                  for (const c of colors) {
+                    for (const s of sizeList) {
+                      generated.push({
+                        id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                        color: c,
+                        size: s,
+                        sizes: s ? [s] : [],
+                        images: [],
+                        stock: stockEach,
+                        originalStock: stockEach,
+                        priceAdjustment: "0",
+                      });
+                    }
+                  }
+                  setProductVariants((prev) => [...prev, ...generated]);
+                  setShowMatrixDialog(false);
+                  toast({
+                    title: `${generated.length} variant${generated.length !== 1 ? "s" : ""} created`,
+                    description: "Open each row to add images and tweak stock.",
+                  });
+                }}
+                data-testid="matrix-confirm"
+              >
+                Generate
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -841,6 +841,34 @@ app.use(cookieParser());
     // Cart link mode — "prefilled" (default, locked-in items) vs "browse"
     // (buyer picks from the seller's catalog).
     await db.execute(sql`ALTER TABLE cart_links ADD COLUMN IF NOT EXISTS mode text DEFAULT 'prefilled'`);
+    // Variant curation: displayOrder lets sellers re-order chips; isDefault
+    // controls which variant a buyer sees first on the product page.
+    await db.execute(sql`ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS display_order integer DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS is_default boolean DEFAULT false`);
+    // Variant FK cascade — orphan variant rows when a product is deleted is
+    // a data-integrity bug. Drop the old FK and recreate with ON DELETE CASCADE.
+    // Postgres requires this dance because ALTER CONSTRAINT can't change the
+    // referential action; we drop and re-add idempotently.
+    await db.execute(sql`
+      DO $$
+      DECLARE
+        fk_name text;
+      BEGIN
+        SELECT conname INTO fk_name
+          FROM pg_constraint
+         WHERE conrelid = 'product_variants'::regclass
+           AND contype = 'f'
+           AND pg_get_constraintdef(oid) LIKE '%REFERENCES products%';
+        IF fk_name IS NOT NULL AND pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = fk_name)) NOT LIKE '%ON DELETE CASCADE%' THEN
+          EXECUTE format('ALTER TABLE product_variants DROP CONSTRAINT %I', fk_name);
+          ALTER TABLE product_variants
+            ADD CONSTRAINT product_variants_product_id_fkey
+            FOREIGN KEY (product_id)
+            REFERENCES products(id)
+            ON DELETE CASCADE;
+        END IF;
+      END $$;
+    `);
     // Add restaurant to store_type enum
     await db.execute(sql`
       DO $$

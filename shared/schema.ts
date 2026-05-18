@@ -836,7 +836,8 @@ export type GroupChatMessage = typeof groupChatMessages.$inferSelect;
 
 export const productVariants = pgTable("product_variants", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  productId: varchar("product_id").notNull().references(() => products.id),
+  // ON DELETE CASCADE prevents orphan variant rows when a product is removed.
+  productId: varchar("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
   color: text("color"),
   size: text("size"),
   images: text("images").array(),
@@ -845,6 +846,9 @@ export const productVariants = pgTable("product_variants", {
   stock: integer("stock").default(0),
   originalStock: integer("original_stock").default(0),
   priceAdjustment: decimal("price_adjustment", { precision: 10, scale: 2 }).default("0"),
+  // Curation — sellers can re-order the variant chips and mark one default.
+  displayOrder: integer("display_order").default(0),
+  isDefault: boolean("is_default").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
