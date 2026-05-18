@@ -20,6 +20,7 @@ import { queryClient } from "@/lib/queryClient";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { useJitsiCall } from "@/hooks/useJitsiCall";
+import { isFoodStoreType, STORE_KIND_LABELS, type StoreKind } from "@shared/storeTypes";
 
 interface Application {
   id: string;
@@ -67,6 +68,7 @@ export default function AdminApplications() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [interviewDateTime, setInterviewDateTime] = useState("");
   const [applicationTab, setApplicationTab] = useState<"pending_sellers" | "pending_riders" | "interview" | "rejected">("pending_sellers");
+  const [sellerKind, setSellerKind] = useState<"general" | "food">("general");
   const deepLinkHandledRef = useRef(false);
   const [rotatedImageUrls, setRotatedImageUrls] = useState<Record<string, boolean>>({});
   const [zoomedImage, setZoomedImage] = useState<{ label: string; url: string; rotation: number } | null>(null);
@@ -598,6 +600,40 @@ export default function AdminApplications() {
   const interviewTotal = interviewSellerApplications.length + (showInternalRiderFeatures ? interviewRiderApplications.length : 0);
   const rejectedTotal = rejectedSellerApplications.length + (showInternalRiderFeatures ? rejectedRiderApplications.length : 0);
 
+  // Split seller applications by business kind so food applicants are never
+  // mixed with general-store applicants in the review queue.
+  const matchKind = (storeType: string | null | undefined, kind: StoreKind) =>
+    kind === "food" ? isFoodStoreType(storeType) : !isFoodStoreType(storeType);
+  const filterByKind = (list: Application[]) => list.filter((a) => matchKind(a.storeType, sellerKind));
+
+  const pendingGeneralCount = pendingSellerApplications.filter((a) => !isFoodStoreType(a.storeType)).length;
+  const pendingFoodCount = pendingSellerApplications.filter((a) => isFoodStoreType(a.storeType)).length;
+  const interviewGeneralCount = interviewSellerApplications.filter((a) => !isFoodStoreType(a.storeType)).length;
+  const interviewFoodCount = interviewSellerApplications.filter((a) => isFoodStoreType(a.storeType)).length;
+  const rejectedGeneralCount = rejectedSellerApplications.filter((a) => !isFoodStoreType(a.storeType)).length;
+  const rejectedFoodCount = rejectedSellerApplications.filter((a) => isFoodStoreType(a.storeType)).length;
+
+  const SellerKindTabs = () => (
+    <div className="mb-4 flex flex-wrap gap-2" data-testid="seller-kind-tabs">
+      <Button
+        size="sm"
+        variant={sellerKind === "general" ? "default" : "outline"}
+        onClick={() => setSellerKind("general")}
+        data-testid="seller-kind-general"
+      >
+        {STORE_KIND_LABELS.general}
+      </Button>
+      <Button
+        size="sm"
+        variant={sellerKind === "food" ? "default" : "outline"}
+        onClick={() => setSellerKind("food")}
+        data-testid="seller-kind-food"
+      >
+        {STORE_KIND_LABELS.food}
+      </Button>
+    </div>
+  );
+
   const ApplicationCard = ({
     application,
     type,
@@ -944,17 +980,31 @@ export default function AdminApplications() {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
                 ) : (
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    {pendingSellerApplications.map((application) => (
-                      <ApplicationCard key={application.id} application={application} type="seller" status="pending" />
-                    ))}
-                    {pendingSellerApplications.length === 0 ? (
-                      <div className="col-span-full text-center py-12">
-                        <Store className="h-10 w-10 mx-auto text-muted-foreground/20 mb-3" />
-                        <p className="text-muted-foreground" data-testid="text-no-sellers">No pending seller applications</p>
-                      </div>
-                    ) : null}
-                  </div>
+                  <>
+                    <div className="mb-3 flex items-center gap-3">
+                      <SellerKindTabs />
+                      <span className="text-xs text-muted-foreground">
+                        {sellerKind === "food"
+                          ? `${pendingFoodCount} food applicants`
+                          : `${pendingGeneralCount} general store applicants`}
+                      </span>
+                    </div>
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      {filterByKind(pendingSellerApplications).map((application) => (
+                        <ApplicationCard key={application.id} application={application} type="seller" status="pending" />
+                      ))}
+                      {filterByKind(pendingSellerApplications).length === 0 ? (
+                        <div className="col-span-full text-center py-12">
+                          <Store className="h-10 w-10 mx-auto text-muted-foreground/20 mb-3" />
+                          <p className="text-muted-foreground" data-testid="text-no-sellers">
+                            {sellerKind === "food"
+                              ? "No pending restaurant or local vendor applications"
+                              : "No pending general store applications"}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
                 )}
               </TabsContent>
 
@@ -990,10 +1040,23 @@ export default function AdminApplications() {
                     {interviewSellerApplications.length > 0 ? (
                       <div>
                         <h3 className="mb-4 text-lg font-semibold">Seller Interviews</h3>
+                        <div className="mb-3 flex items-center gap-3">
+                          <SellerKindTabs />
+                          <span className="text-xs text-muted-foreground">
+                            {sellerKind === "food"
+                              ? `${interviewFoodCount} food applicants`
+                              : `${interviewGeneralCount} general store applicants`}
+                          </span>
+                        </div>
                         <div className="grid gap-4 xl:grid-cols-2">
-                          {interviewSellerApplications.map((application) => (
+                          {filterByKind(interviewSellerApplications).map((application) => (
                             <ApplicationCard key={application.id} application={application} type="seller" status="interview_scheduled" />
                           ))}
+                          {filterByKind(interviewSellerApplications).length === 0 ? (
+                            <div className="col-span-full text-center py-8 text-sm text-muted-foreground">
+                              No {sellerKind === "food" ? "food" : "general store"} interviews scheduled.
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
@@ -1029,10 +1092,23 @@ export default function AdminApplications() {
                     {rejectedSellerApplications.length > 0 ? (
                       <div>
                         <h3 className="mb-4 text-lg font-semibold">Rejected Sellers</h3>
+                        <div className="mb-3 flex items-center gap-3">
+                          <SellerKindTabs />
+                          <span className="text-xs text-muted-foreground">
+                            {sellerKind === "food"
+                              ? `${rejectedFoodCount} food rejections`
+                              : `${rejectedGeneralCount} general store rejections`}
+                          </span>
+                        </div>
                         <div className="grid gap-4 xl:grid-cols-2">
-                          {rejectedSellerApplications.map((application) => (
+                          {filterByKind(rejectedSellerApplications).map((application) => (
                             <ApplicationCard key={application.id} application={application} type="seller" status="rejected" />
                           ))}
+                          {filterByKind(rejectedSellerApplications).length === 0 ? (
+                            <div className="col-span-full text-center py-8 text-sm text-muted-foreground">
+                              No {sellerKind === "food" ? "food" : "general store"} rejections in this view.
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}

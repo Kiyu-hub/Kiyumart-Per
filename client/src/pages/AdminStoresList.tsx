@@ -19,6 +19,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import MediaUploadInput from "@/components/MediaUploadInput";
+import { isFoodStoreType, STORE_KIND_LABELS, type StoreKind } from "@shared/storeTypes";
 
 interface StoreType {
   id: string;
@@ -35,6 +36,8 @@ interface StoreType {
   verificationSelfie?: string | null;
   verificationAppliedAt?: string | null;
   verificationRejectionReason?: string | null;
+  storeType?: string | null;
+  businessType?: string | null;
 }
 
 interface Seller {
@@ -43,10 +46,9 @@ interface Seller {
   email: string;
 }
 
-const storeTypeOptions = [
+const generalStoreTypeOptions = [
   { value: "clothing", label: "Clothing & Fashion" },
   { value: "electronics", label: "Electronics" },
-  { value: "food_beverages", label: "Food & Beverages" },
   { value: "beauty_cosmetics", label: "Beauty & Cosmetics" },
   { value: "home_garden", label: "Home & Garden" },
   { value: "sports_fitness", label: "Sports & Fitness" },
@@ -55,12 +57,16 @@ const storeTypeOptions = [
   { value: "automotive", label: "Automotive" },
   { value: "health_wellness", label: "Health & Wellness" },
 ] as const;
+const foodStoreTypeOptions = [
+  { value: "food_beverages", label: "Food & Beverages (Local Vendor)" },
+  { value: "restaurant", label: "Restaurant" },
+] as const;
 
 const storeSchema = z.object({
   name: z.string().min(3, "Store name must be at least 3 characters"),
   description: z.string().min(10, "Description must be at least 10 characters"),
   logo: z.string().optional(),
-  storeType: z.enum(["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness"], {
+  storeType: z.enum(["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness", "restaurant"], {
     required_error: "Please select a store type",
   }),
   primarySellerId: z.string().min(1, "Please select a seller"),
@@ -70,7 +76,9 @@ type StoreFormData = z.infer<typeof storeSchema>;
 
 function CreateStoreDialog({ sellers }: { sellers: Seller[] }) {
   const [open, setOpen] = useState(false);
+  const [businessKind, setBusinessKind] = useState<"general" | "food">("general");
   const { toast } = useToast();
+  const visibleStoreTypeOptions = businessKind === "food" ? foodStoreTypeOptions : generalStoreTypeOptions;
 
   const form = useForm<StoreFormData>({
     resolver: zodResolver(storeSchema),
@@ -182,20 +190,54 @@ function CreateStoreDialog({ sellers }: { sellers: Seller[] }) {
               )}
             />
 
+            {/* Business kind toggle — never mix food and general store types. */}
+            <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2" data-testid="store-business-kind">
+              <FormLabel>Business Kind</FormLabel>
+              <p className="text-xs text-muted-foreground">
+                Pick the kind of business — controls which store types you can pick.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={businessKind === "general" ? "default" : "outline"}
+                  onClick={() => {
+                    setBusinessKind("general");
+                    form.setValue("storeType", undefined as any);
+                  }}
+                  data-testid="store-kind-general"
+                >
+                  🏬 General Store
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={businessKind === "food" ? "default" : "outline"}
+                  onClick={() => {
+                    setBusinessKind("food");
+                    form.setValue("storeType", undefined as any);
+                  }}
+                  data-testid="store-kind-food"
+                >
+                  🛵 Restaurant / Local Vendor
+                </Button>
+              </div>
+            </div>
+
             <FormField
               control={form.control}
               name="storeType"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Store Type</FormLabel>
+                  <FormLabel>{businessKind === "food" ? "Food Business Type" : "Store Type"}</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger data-testid="select-store-type">
-                        <SelectValue placeholder="Select store type" />
+                        <SelectValue placeholder={businessKind === "food" ? "Select food business type" : "Select store type"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {storeTypeOptions.map((type) => (
+                      {visibleStoreTypeOptions.map((type) => (
                         <SelectItem key={type.value} value={type.value}>
                           {type.label}
                         </SelectItem>
@@ -384,6 +426,7 @@ function VerificationReviewDialog({ store, onClose }: { store: StoreType; onClos
 
 export default function AdminStoresList() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeKind, setActiveKind] = useState<StoreKind>("general");
   const [reviewingStore, setReviewingStore] = useState<StoreType | null>(null);
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -432,9 +475,19 @@ export default function AdminStoresList() {
     }
   };
 
-  const filteredStores = stores.filter(s => 
-    (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase())
-  );
+  // Treat a store as "food" if its storeType is food_beverages/restaurant OR its
+  // businessType is local_vendor/restaurant. Anything else is general.
+  const matchesActiveKind = (s: StoreType) => {
+    const food = isFoodStoreType(s.storeType) || s.businessType === "local_vendor" || s.businessType === "restaurant";
+    return activeKind === "food" ? food : !food;
+  };
+
+  const generalCount = stores.filter((s) => !isFoodStoreType(s.storeType) && s.businessType !== "local_vendor" && s.businessType !== "restaurant").length;
+  const foodCount = stores.length - generalCount;
+
+  const filteredStores = stores
+    .filter(matchesActiveKind)
+    .filter(s => (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()));
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
     return (
@@ -464,11 +517,31 @@ export default function AdminStoresList() {
             <CreateStoreDialog sellers={sellers} />
           </div>
 
+          {/* Business-kind tabs — general stores and food businesses never mix. */}
+          <div className="mb-4 flex flex-wrap gap-2" data-testid="store-kind-tabs">
+            <Button
+              variant={activeKind === "general" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveKind("general")}
+              data-testid="store-kind-tab-general"
+            >
+              {STORE_KIND_LABELS.general} ({generalCount})
+            </Button>
+            <Button
+              variant={activeKind === "food" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveKind("food")}
+              data-testid="store-kind-tab-food"
+            >
+              {STORE_KIND_LABELS.food} ({foodCount})
+            </Button>
+          </div>
+
           <div className="mb-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search stores..."
+                placeholder={activeKind === "food" ? "Search restaurants & local vendors..." : "Search general stores..."}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"

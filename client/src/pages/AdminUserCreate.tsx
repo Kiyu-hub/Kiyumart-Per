@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -19,10 +19,9 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { getRoleDisplayName } from "@/lib/roleLabels";
 
-const STORE_TYPES = [
+const GENERAL_STORE_TYPE_OPTIONS = [
   { value: "clothing", label: "Clothing & Fashion" },
   { value: "electronics", label: "Electronics" },
-  { value: "food_beverages", label: "Food & Beverages" },
   { value: "beauty_cosmetics", label: "Beauty & Cosmetics" },
   { value: "home_garden", label: "Home & Garden" },
   { value: "sports_fitness", label: "Sports & Fitness" },
@@ -30,6 +29,10 @@ const STORE_TYPES = [
   { value: "toys_games", label: "Toys & Games" },
   { value: "automotive", label: "Automotive" },
   { value: "health_wellness", label: "Health & Wellness" },
+];
+const FOOD_STORE_TYPE_OPTIONS = [
+  { value: "food_beverages", label: "Food & Beverages (Local Vendor)" },
+  { value: "restaurant", label: "Restaurant" },
 ];
 
 const createUserSchema = z.object({
@@ -42,7 +45,7 @@ const createUserSchema = z.object({
   nationalIdCard: z.string().optional(),
   businessAddress: z.string().optional(),
   // Seller-specific fields
-  storeType: z.enum(["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness"]).optional(),
+  storeType: z.enum(["clothing", "electronics", "food_beverages", "beauty_cosmetics", "home_garden", "sports_fitness", "books_media", "toys_games", "automotive", "health_wellness", "restaurant"]).optional(),
   // Rider-specific fields
   vehicleType: z.string().optional(),
   vehicleColor: z.string().optional(),
@@ -141,6 +144,8 @@ export default function AdminUserCreate() {
   });
 
   const selectedRole = form.watch("role");
+  const [businessKind, setBusinessKind] = useState<"general" | "food">("general");
+  const visibleStoreTypeOptions = businessKind === "food" ? FOOD_STORE_TYPE_OPTIONS : GENERAL_STORE_TYPE_OPTIONS;
   const selectedVehicleType = form.watch("vehicleType");
   const { data: deliveryZones = [] } = useQuery<Array<{ id: string; name: string; city?: string | null; region?: string | null }>>({
     queryKey: [selectedRole === "pickup_agent" ? "/api/pickup-stations" : "/api/delivery-zones", selectedRole],
@@ -373,20 +378,53 @@ export default function AdminUserCreate() {
                 {/* Seller-specific fields */}
                 {selectedRole === "seller" && (
                   <>
+                    {/* Business kind — food vs general never mix. Switching
+                        clears storeType so an admin can't accidentally save a
+                        food type under "General Store". */}
+                    <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
+                      <FormLabel>Business Kind <span className="text-destructive">*</span></FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        General stores and food businesses are managed separately. Pick the kind to see the right store types below.
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={businessKind === "general" ? "default" : "outline"}
+                          onClick={() => { setBusinessKind("general"); form.setValue("storeType", undefined); }}
+                          data-testid="user-business-kind-general"
+                        >
+                          🏬 General Store
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={businessKind === "food" ? "default" : "outline"}
+                          onClick={() => { setBusinessKind("food"); form.setValue("storeType", undefined); }}
+                          data-testid="user-business-kind-food"
+                        >
+                          🛵 Restaurant / Local Vendor
+                        </Button>
+                      </div>
+                    </div>
+
                     <FormField
                       control={form.control}
                       name="storeType"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Store Type / Category <span className="text-destructive">*</span></FormLabel>
+                          <FormLabel>
+                            {businessKind === "food" ? "Food Business Type" : "Store Type / Category"}{" "}
+                            <span className="text-destructive">*</span>
+                          </FormLabel>
                           <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger data-testid="select-store-type-trigger">
-                                <SelectValue placeholder="Select store type" />
+                                <SelectValue placeholder={businessKind === "food" ? "Select food business type" : "Select store type"} />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent data-testid="select-store-type-content">
-                              {STORE_TYPES.map((type) => (
+                              {visibleStoreTypeOptions.map((type) => (
                                 <SelectItem key={type.value} value={type.value} data-testid={`select-store-type-${type.value}`}>
                                   {type.label}
                                 </SelectItem>
@@ -394,7 +432,9 @@ export default function AdminUserCreate() {
                             </SelectContent>
                           </Select>
                           <FormDescription>
-                            This determines which product categories will be available for this seller
+                            {businessKind === "food"
+                              ? "Local vendors and restaurants are surfaced separately from general stores across the platform."
+                              : "This determines which product categories will be available for this seller."}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

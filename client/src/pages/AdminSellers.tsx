@@ -21,7 +21,17 @@ import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatGhanaCardInput, GHANA_CARD_MAX_LENGTH } from "@/lib/ghanaCard";
 import MediaUploadInput from "@/components/MediaUploadInput";
-import { STORE_TYPES, STORE_TYPE_CONFIG, type StoreType } from "@shared/storeTypes";
+import {
+  STORE_TYPES,
+  STORE_TYPE_CONFIG,
+  type StoreType,
+  type StoreKind,
+  STORE_KIND_LABELS,
+  getStoreKind,
+  isFoodStoreType,
+  GENERAL_STORE_TYPES,
+  FOOD_STORE_TYPE_LIST,
+} from "@shared/storeTypes";
 import { StoreTypeSelector, StoreTypeDynamicFields } from "@/components/StoreTypeSelector";
 
 interface SellerData {
@@ -111,6 +121,7 @@ const normalizeSeller = (raw: any): SellerData => ({
 
 function CreateSellerDialog() {
   const [open, setOpen] = useState(false);
+  const [businessKind, setBusinessKind] = useState<StoreKind>("general");
   const { toast } = useToast();
 
   const form = useForm<CreateSellerFormData>({
@@ -128,6 +139,20 @@ function CreateSellerDialog() {
       storeTypeMetadata: {},
     },
   });
+
+  // If business kind changes after the user picked a type that no longer fits,
+  // clear the storeType so they can pick a fresh one.
+  useEffect(() => {
+    const current = form.getValues("storeType") as string | undefined;
+    if (!current) return;
+    if (businessKind === "general" && isFoodStoreType(current)) {
+      form.setValue("storeType", undefined as any);
+      form.setValue("storeTypeMetadata", {});
+    } else if (businessKind === "food" && !isFoodStoreType(current)) {
+      form.setValue("storeType", undefined as any);
+      form.setValue("storeTypeMetadata", {});
+    }
+  }, [businessKind, form]);
 
   const createSellerMutation = useMutation({
     mutationFn: async (data: CreateSellerFormData) => {
@@ -251,17 +276,54 @@ function CreateSellerDialog() {
               )}
             />
 
+            {/* Business kind toggle — keeps food and general storeTypes
+                strictly separated. Food types only show under the
+                Restaurants & Local Vendors mode. */}
+            <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2" data-testid="business-kind-toggle">
+              <FormLabel>Business Kind <span className="text-destructive">*</span></FormLabel>
+              <FormDescription>
+                Pick the kind of business — this controls which store types appear below.
+                Food vendors and restaurants are managed separately from general stores.
+              </FormDescription>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={businessKind === "general" ? "default" : "outline"}
+                  onClick={() => setBusinessKind("general")}
+                  data-testid="business-kind-general"
+                >
+                  🏬 General Store
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={businessKind === "food" ? "default" : "outline"}
+                  onClick={() => setBusinessKind("food")}
+                  data-testid="business-kind-food"
+                >
+                  🛵 Restaurant / Local Vendor
+                </Button>
+              </div>
+            </div>
+
             <FormField
               control={form.control}
               name="storeType"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Store Type <span className="text-destructive">*</span></FormLabel>
+                  <FormLabel>
+                    {businessKind === "food" ? "Food Business Type" : "Store Type"}{" "}
+                    <span className="text-destructive">*</span>
+                  </FormLabel>
                   <FormDescription>
-                    Choose the category that best fits this seller's business.
+                    {businessKind === "food"
+                      ? "Pick whether this is a local vendor or a sit-down restaurant."
+                      : "Choose the category that best fits this seller's business. Food businesses are managed under the Restaurant / Local Vendor option above."}
                   </FormDescription>
                   <StoreTypeSelector
                     value={field.value}
+                    kind={businessKind}
                     onChange={(value) => {
                       field.onChange(value);
                       form.setValue("storeTypeMetadata", {});
@@ -370,6 +432,9 @@ function CreateSellerDialog() {
 
 function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
   const [open, setOpen] = useState(false);
+  const [businessKind, setBusinessKind] = useState<StoreKind>(
+    isFoodStoreType(sellerData.storeType) ? "food" : "general",
+  );
   const { toast } = useToast();
   const normalizeMediaUrl = (value?: string | null) => {
     if (!value) return "";
@@ -397,6 +462,19 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
       storeTypeMetadata: sellerData.storeTypeMetadata || {},
     },
   });
+
+  // Clear storeType if the admin switches to a kind that no longer matches.
+  useEffect(() => {
+    const current = form.getValues("storeType") as string | undefined;
+    if (!current) return;
+    if (businessKind === "general" && isFoodStoreType(current)) {
+      form.setValue("storeType", undefined as any);
+      form.setValue("storeTypeMetadata", {});
+    } else if (businessKind === "food" && !isFoodStoreType(current)) {
+      form.setValue("storeType", undefined as any);
+      form.setValue("storeTypeMetadata", {});
+    }
+  }, [businessKind, form]);
 
   const { data: sellerStore } = useQuery<{ banner?: string | null; logo?: string | null; name?: string | null; description?: string | null } | null>({
     queryKey: ["/api/stores/by-seller", sellerData.id, "edit"],
@@ -565,17 +643,54 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
               />
             </div>
 
+            {/* Business kind toggle — keeps food and general storeTypes
+                strictly separated. Food types only show under the
+                Restaurants & Local Vendors mode. */}
+            <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2" data-testid="business-kind-toggle">
+              <FormLabel>Business Kind <span className="text-destructive">*</span></FormLabel>
+              <FormDescription>
+                Pick the kind of business — this controls which store types appear below.
+                Food vendors and restaurants are managed separately from general stores.
+              </FormDescription>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={businessKind === "general" ? "default" : "outline"}
+                  onClick={() => setBusinessKind("general")}
+                  data-testid="business-kind-general"
+                >
+                  🏬 General Store
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={businessKind === "food" ? "default" : "outline"}
+                  onClick={() => setBusinessKind("food")}
+                  data-testid="business-kind-food"
+                >
+                  🛵 Restaurant / Local Vendor
+                </Button>
+              </div>
+            </div>
+
             <FormField
               control={form.control}
               name="storeType"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Store Type <span className="text-destructive">*</span></FormLabel>
+                  <FormLabel>
+                    {businessKind === "food" ? "Food Business Type" : "Store Type"}{" "}
+                    <span className="text-destructive">*</span>
+                  </FormLabel>
                   <FormDescription>
-                    Choose the category that best fits this seller's business.
+                    {businessKind === "food"
+                      ? "Pick whether this is a local vendor or a sit-down restaurant."
+                      : "Choose the category that best fits this seller's business. Food businesses are managed under the Restaurant / Local Vendor option above."}
                   </FormDescription>
                   <StoreTypeSelector
                     value={field.value}
+                    kind={businessKind}
                     onChange={(value) => {
                       field.onChange(value);
                       form.setValue("storeTypeMetadata", {});
@@ -1401,6 +1516,7 @@ function BanActivateDialog({ sellerData }: { sellerData: SellerData }) {
 export default function AdminSellers() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
+  const [activeKind, setActiveKind] = useState<StoreKind>("general");
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
@@ -1449,13 +1565,21 @@ export default function AdminSellers() {
   const approvedSellers = allSellers.filter(s => s.isApproved === true);
   
   // Get the appropriate seller list based on active tab
-  const sellers = activeTab === "pending" 
-    ? pendingSellers 
-    : activeTab === "approved" 
-      ? approvedSellers 
+  const sellers = activeTab === "pending"
+    ? pendingSellers
+    : activeTab === "approved"
+      ? approvedSellers
       : allSellers;
-  
-  const filteredSellers = sellers.filter(s => 
+
+  // Split current tab into food vs general buckets. Pending applications without
+  // a storeType set yet count as "general" so the admin can still see them.
+  const sellersByKind = (kind: StoreKind) => sellers.filter((s) => getStoreKind(s.storeType) === kind);
+  const generalCount = sellersByKind("general").length;
+  const foodCount = sellersByKind("food").length;
+
+  const kindFilteredSellers = sellers.filter((s) => getStoreKind(s.storeType) === activeKind);
+
+  const filteredSellers = kindFilteredSellers.filter(s =>
     (s.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
     (s.email?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
     (s.storeName?.toLowerCase() || '').includes(searchQuery.toLowerCase())
@@ -1501,11 +1625,37 @@ export default function AdminSellers() {
               </TabsTrigger>
             </TabsList>
 
+            {/* Business-kind split — sellers are never mixed between the two
+                kinds. Food storeTypes (food_beverages / restaurant) only show
+                in the Restaurants & Local Vendors tab. */}
+            <div className="mb-4 flex flex-wrap gap-2" data-testid="kind-tabs">
+              <Button
+                variant={activeKind === "general" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setActiveKind("general")}
+                data-testid="tab-kind-general"
+              >
+                {STORE_KIND_LABELS.general} ({generalCount})
+              </Button>
+              <Button
+                variant={activeKind === "food" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setActiveKind("food")}
+                data-testid="tab-kind-food"
+              >
+                {STORE_KIND_LABELS.food} ({foodCount})
+              </Button>
+            </div>
+
             <div className="mb-6">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search sellers by name, email or store..."
+                  placeholder={
+                    activeKind === "food"
+                      ? "Search restaurants & local vendors..."
+                      : "Search general stores..."
+                  }
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -1686,11 +1836,15 @@ export default function AdminSellers() {
                 <div className="text-center py-12">
                   <Store className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground" data-testid="text-no-sellers">
-                    {searchQuery 
-                      ? "No sellers found matching your search" 
+                    {searchQuery
+                      ? "No sellers found matching your search"
                       : activeTab === "pending"
-                        ? "No pending applications"
-                        : "No sellers registered yet"
+                        ? activeKind === "food"
+                          ? "No pending restaurant or local vendor applications"
+                          : "No pending general store applications"
+                        : activeKind === "food"
+                          ? "No restaurants or local vendors registered yet"
+                          : "No general stores registered yet"
                     }
                   </p>
                 </div>

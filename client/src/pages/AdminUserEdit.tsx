@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { STORE_TYPES, type StoreType } from "@shared/storeTypes";
+import { STORE_TYPES, type StoreType, type StoreKind, isFoodStoreType } from "@shared/storeTypes";
 import { StoreTypeSelector, StoreTypeDynamicFields } from "@/components/StoreTypeSelector";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { getRoleDisplayName } from "@/lib/roleLabels";
@@ -203,6 +203,16 @@ export default function AdminUserEdit() {
 
   const selectedRole = form.watch("role");
   const selectedVehicleType = form.watch("vehicleType");
+  const [businessKind, setBusinessKind] = useState<StoreKind>("general");
+
+  // Sync businessKind to the loaded user's storeType (food vs general).
+  useEffect(() => {
+    if (userData?.storeType) {
+      setBusinessKind(isFoodStoreType(userData.storeType) ? "food" : "general");
+    }
+  }, [userData?.storeType]);
+
+  // Clearing on mismatched kind toggles is handled by the picker onClick.
   const { data: deliveryZones = [] } = useQuery<Array<{ id: string; name: string; city?: string | null; region?: string | null }>>({
     queryKey: [selectedRole === "pickup_agent" ? "/api/pickup-stations" : "/api/delivery-zones", selectedRole],
     queryFn: async () => {
@@ -496,17 +506,66 @@ export default function AdminUserEdit() {
                     <div className="pt-2 border-t" />
                     <h3 className="text-base font-semibold">Seller Store Information</h3>
 
+                    {/* Business kind — General vs Restaurant / Local Vendor.
+                        Food storeTypes only show under the Food kind. */}
+                    <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
+                      <FormLabel>Business Kind <span className="text-destructive">*</span></FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        General stores and food businesses are managed separately. Pick the kind to see the right store types.
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={businessKind === "general" ? "default" : "outline"}
+                          onClick={() => {
+                            setBusinessKind("general");
+                            const current = form.getValues("storeType") as string | undefined;
+                            if (current && isFoodStoreType(current)) {
+                              form.setValue("storeType", "");
+                              form.setValue("storeTypeMetadata", {});
+                            }
+                          }}
+                          data-testid="edit-business-kind-general"
+                        >
+                          🏬 General Store
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={businessKind === "food" ? "default" : "outline"}
+                          onClick={() => {
+                            setBusinessKind("food");
+                            const current = form.getValues("storeType") as string | undefined;
+                            if (current && !isFoodStoreType(current)) {
+                              form.setValue("storeType", "");
+                              form.setValue("storeTypeMetadata", {});
+                            }
+                          }}
+                          data-testid="edit-business-kind-food"
+                        >
+                          🛵 Restaurant / Local Vendor
+                        </Button>
+                      </div>
+                    </div>
+
                     <FormField
                       control={form.control}
                       name="storeType"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Store Type <span className="text-destructive">*</span></FormLabel>
+                          <FormLabel>
+                            {businessKind === "food" ? "Food Business Type" : "Store Type"}{" "}
+                            <span className="text-destructive">*</span>
+                          </FormLabel>
                           <p className="text-xs text-muted-foreground">
-                            Choose the category that best fits this seller's business.
+                            {businessKind === "food"
+                              ? "Pick whether this is a local vendor or sit-down restaurant."
+                              : "Choose the category that best fits this seller's business."}
                           </p>
                           <StoreTypeSelector
                             value={field.value || null}
+                            kind={businessKind}
                             onChange={(value) => {
                               field.onChange(value);
                               form.setValue("storeTypeMetadata", {});

@@ -19,6 +19,43 @@ export const FOOD_STORE_TYPES = new Set(["food_beverages", "restaurant"] as cons
 
 export type StoreType = typeof STORE_TYPES[number];
 
+/**
+ * Helpers for splitting the admin UI into two consistent buckets:
+ *   - General Stores                  → everything that isn't food
+ *   - Restaurants & Local Vendors     → food_beverages + restaurant
+ *
+ * Every admin page (sellers, applications, stores, products, categories,
+ * banners, user create/edit) must use these to avoid mixing food merchants
+ * with general merchants. Food storeTypes are surfaced ONLY in the food tab.
+ */
+export const GENERAL_STORE_TYPES: StoreType[] = STORE_TYPES.filter(
+  (t) => !FOOD_STORE_TYPES.has(t as any),
+);
+
+export const FOOD_STORE_TYPE_LIST: StoreType[] = STORE_TYPES.filter(
+  (t) => FOOD_STORE_TYPES.has(t as any),
+);
+
+export type StoreKind = "general" | "food";
+
+export const STORE_KIND_LABELS: Record<StoreKind, string> = {
+  general: "General Stores",
+  food: "Restaurants & Local Vendors",
+};
+
+export function isFoodStoreType(storeType?: string | null): boolean {
+  if (!storeType) return false;
+  return FOOD_STORE_TYPES.has(storeType as any);
+}
+
+export function getStoreKind(storeType?: string | null): StoreKind {
+  return isFoodStoreType(storeType) ? "food" : "general";
+}
+
+export function getStoreTypesForKind(kind: StoreKind): StoreType[] {
+  return kind === "food" ? FOOD_STORE_TYPE_LIST : GENERAL_STORE_TYPES;
+}
+
 export interface DynamicField {
   name: string;
   label: string;

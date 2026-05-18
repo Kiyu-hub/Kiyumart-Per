@@ -1,4 +1,12 @@
-import { STORE_TYPES, STORE_TYPE_CONFIG, getStoreTypeFields, type StoreType, type DynamicField } from "@shared/storeTypes";
+import {
+  STORE_TYPES,
+  STORE_TYPE_CONFIG,
+  getStoreTypeFields,
+  type StoreType,
+  type DynamicField,
+  type StoreKind,
+  isFoodStoreType,
+} from "@shared/storeTypes";
 import { CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -13,10 +21,22 @@ interface StoreTypeSelectorProps {
   onChange: (value: string) => void;
   error?: string;
   exclude?: string[];
+  /**
+   * Restrict the picker to one business kind:
+   *   - "general" → hides food_beverages and restaurant
+   *   - "food"    → shows ONLY food_beverages and restaurant
+   * Leave undefined to show every storeType.
+   */
+  kind?: StoreKind;
 }
 
-export function StoreTypeSelector({ value, onChange, error, exclude = [] }: StoreTypeSelectorProps) {
-  const visibleTypes = STORE_TYPES.filter((t) => !exclude.includes(t));
+export function StoreTypeSelector({ value, onChange, error, exclude = [], kind }: StoreTypeSelectorProps) {
+  const visibleTypes = STORE_TYPES.filter((t) => {
+    if (exclude.includes(t)) return false;
+    if (kind === "general" && isFoodStoreType(t)) return false;
+    if (kind === "food" && !isFoodStoreType(t)) return false;
+    return true;
+  });
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
