@@ -27,7 +27,18 @@ npx drizzle-kit migrate    # Apply pending migrations to DB
 
 # Platform audit
 npm run audit:platform
+
+# Dev data: populate every storeType with stores + categories + ≥10 products
+npm run seed:dev                  # idempotent — re-run safely
+npm run wipe:dev                  # dry-run summary, nothing deleted
+npm run wipe:dev -- --confirm     # actually delete dev-seeded data
+npm run wipe:dev -- --confirm --orders   # also clear seed-order rows
 ```
+
+### Dev data seeding & wipe (production-launch-safe)
+- `scripts/seed-dev-data.ts` creates one approved seller (`seller.<storetype>@dev.kiyumart.local`, password `DevSeed123!`) per storeType, attaches a store, upserts category rows, and inserts ≥10 realistic products per (store × category). Restaurant cuisines (Pizza, Sushi, etc.) include per-category `productFieldsConfig` and modifier groups (size, protein, spice). Idempotent — products are matched by `(sellerId, name)` so re-running only fills gaps.
+- Every seeded row is tagged with `devSeed: true` in JSON columns (`users.storeTypeMetadata`, `stores.storeTypeMetadata`, `products.dynamicFields`) and seller emails live exclusively on `@dev.kiyumart.local`.
+- `scripts/wipe-dev-data.ts` removes only those marked rows. **Preserves:** `platform_settings`, `hero_banners`, `delivery_zones`, super admin, all real users, and any category that has at least one non-seeded product attached. Categories created exclusively for seeded products are dropped. Orders are preserved by default — pass `--orders` to clear seed-order rows too. The script is dry-run unless you pass `--confirm`.
 
 ## Architecture
 

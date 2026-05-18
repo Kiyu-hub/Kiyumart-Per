@@ -20,7 +20,9 @@
     "audit:platform": "scripts\\run-tsx-safe.cmd scripts/generate-platform-audit.ts",
     "audit:platform:check": "scripts\\run-tsx-safe.cmd scripts/generate-platform-audit.ts --check --strict-free-only",
     "typecheck": "scripts\\typecheck-safe.cmd",
-    "test:finance": "scripts\\run-tsx-safe.cmd scripts/verify-platform-earnings.ts"
+    "test:finance": "scripts\\run-tsx-safe.cmd scripts/verify-platform-earnings.ts",
+    "seed:dev": "scripts\\run-tsx-safe.cmd scripts/seed-dev-data.ts",
+    "wipe:dev": "scripts\\run-tsx-safe.cmd scripts/wipe-dev-data.ts"
   },
   "dependencies": {
     "@google/model-viewer": "^4.2.0",
