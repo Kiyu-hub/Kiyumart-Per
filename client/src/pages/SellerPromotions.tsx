@@ -826,7 +826,10 @@ export default function SellerPromotions() {
                       const cfg = STATUS_CONFIG[effectiveStatus];
                       const isConfirming = pendingConfirmationIds.has(app.id);
                       const isHighlighted = applicationIdFromUrl && String(app.id) === String(applicationIdFromUrl);
-                      const canDelete = ["expired", "rejected"].includes(app.status);
+                      // Sellers can clear pending_payment (never paid),
+                      // expired, and rejected applications. Confirmed
+                      // payments must be cancelled by admin/support.
+                      const canDelete = ["pending_payment", "expired", "rejected"].includes(app.status);
                       return (
                         <div
                           key={app.id}
@@ -926,9 +929,15 @@ export default function SellerPromotions() {
                                   </AlertDialogTrigger>
                                   <AlertDialogContent>
                                     <AlertDialogHeader>
-                                      <AlertDialogTitle>Remove this application?</AlertDialogTitle>
+                                      <AlertDialogTitle>
+                                        {app.status === "pending_payment"
+                                          ? "Cancel this pending promotion?"
+                                          : "Remove this application?"}
+                                      </AlertDialogTitle>
                                       <AlertDialogDescription>
-                                        This will permanently remove this {app.status} promotion application from your history. This cannot be undone.
+                                        {app.status === "pending_payment"
+                                          ? "You haven't paid for this promotion yet. Cancelling will remove the application so you can start fresh."
+                                          : `This will permanently remove this ${app.status.replace(/_/g, " ")} promotion application from your history. This cannot be undone.`}
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>

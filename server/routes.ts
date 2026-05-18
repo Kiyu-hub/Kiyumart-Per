@@ -3167,10 +3167,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minute: "2-digit",
       });
 
-      // Generate a dedicated Jitsi room for this interview
+      // Generate a deterministic Jitsi room name for this interview. The
+      // URL is NOT sent to the applicant — admins/agents derive the same
+      // room from the user id + scheduledAt when initiating the call.
       const interviewRoomName = `kiyumart-interview-${updatedUser.id.slice(0, 8)}-${interviewDate.getTime()}`;
       const sanitizedRoom = interviewRoomName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-");
-      const interviewCallUrl = `https://meet.jit.si/${sanitizedRoom}`;
+      void sanitizedRoom; // referenced by admin-side call initiation logic.
 
       const message = formatFormalNotification(
         `Dear ${updatedUser.name || "Applicant"},`,
@@ -3184,12 +3186,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             value: formattedDate,
           },
           {
-            label: "Video Call Link",
-            value: `Join via video call at the scheduled time: ${interviewCallUrl}`,
-          },
-          {
-            label: "Next Steps",
-            value: "Please be available at the scheduled time. The interviewer will initiate the call, or you may join using the link above.",
+            label: "How it works",
+            value: "Our team will call you directly from the platform at the scheduled time. Please keep your phone and the KiyuMart app open so you don't miss the call.",
           },
         ],
       );
@@ -3203,7 +3201,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           role: targetRole,
           status: "interview_scheduled",
           interviewScheduledAt: interviewDate.toISOString(),
-          interviewCallUrl,
+          // interviewCallUrl intentionally omitted — applicant should NOT see
+          // the meeting URL. The platform initiates the call from admin side.
           link: "/profile",
         } as any,
       });
@@ -3211,7 +3210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       io.to(updatedUser.id).emit("notification", {
         type: "default",
         title: `${roleLabel} Interview Scheduled`,
-        message: `Your interview is scheduled for ${formattedDate}. A video call link has been sent to you.`,
+        message: `Your interview is scheduled for ${formattedDate}. Our team will call you at the scheduled time — please be available.`,
       });
 
       // Transactional email — interview scheduled (best-effort)
@@ -3226,10 +3225,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             `Your ${roleLabel} application interview has been scheduled for:`,
             formattedDate,
             "",
-            "Join the video call at the scheduled time using this link:",
-            interviewCallUrl,
-            "",
-            "The interviewer may also initiate the call directly. Please be available at the scheduled time.",
+            "Our team will call you directly from the platform at the scheduled time.",
+            "Please keep your phone and the KiyuMart app open so you don't miss the call.",
             "",
             `— ${pName}`,
           ].join("\n");
@@ -3239,11 +3236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               <p>Dear ${updatedUser.name || "Applicant"},</p>
               <p>Your <strong>${roleLabel}</strong> application interview has been scheduled for:</p>
               <p style="font-size:18px;font-weight:bold;color:#10b981;">${formattedDate}</p>
-              <p>Join the video call at the scheduled time:</p>
-              <p style="margin:16px 0;">
-                <a href="${interviewCallUrl}" style="background:#10b981;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;display:inline-block;">Join Video Call</a>
-              </p>
-              <p style="font-size:13px;color:#64748b;">The interviewer may also initiate the call directly. Please be available at the scheduled time.</p>
+              <p>Our team will call you directly from the platform at the scheduled time. Please keep your phone and the KiyuMart app open so you don't miss the call.</p>
               <p style="font-size:13px;color:#64748b;">— ${pName}</p>
             </div>`.trim();
           const { sendEmail } = await import("./email");
@@ -4088,7 +4081,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: `A promotion application for this ${type} is already in progress.` });
       }
 
-      // Get target name for the record
+      // Validate seller email up-front so Paystack doesn't reject the init
+      // call with a cryptic "Invalid email address passed". This way the
+      // toast reads cleanly without us ever creating an orphan DB row.
+      const sellerEmail = String(seller.email || "").trim();
+      const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sellerEmail) && !sellerEmail.endsWith("@dev.kiyumart.local");
+      if (!emailLooksValid) {
+        return res.status(400).json({
+          error:
+            "Your account email is not valid for payments. Please update your email under Settings before promoting a product or store.",
+        });
+      }
+
+      // Get target name for the record (best-effort lookup before we
+      // initialize payment so we can pass it to Paystack metadata).
       let targetName = targetId;
       try {
         if (type === "store") {
@@ -4100,10 +4106,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } catch { /* best-effort */ }
 
-      // Create the application record immediately (pending_payment)
+      // Generate the application ID upfront so Paystack can carry it in
+      // metadata. We DO NOT insert the row until Paystack confirms init —
+      // that way invalid emails / gateway errors don't leave orphan rows.
+      const applicationId = randomUUID();
+      const reference = `promo-${applicationId}-${Date.now()}`;
+
+      const initRes = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${paystackSecretKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: sellerEmail,
+          amount: amountKobo,
+          currency: "GHS",
+          reference,
+          metadata: {
+            upgradeType: "seller_promotion",
+            sellerId: req.user!.id,
+            sellerName: seller.name,
+            applicationId,
+            promoType: type,
+            targetId,
+            targetName,
+            durationType,
+            duration: Number(duration),
+            totalPrice,
+          },
+        }),
+      });
+
+      if (!initRes.ok) {
+        const err = await initRes.json().catch(() => ({}));
+        const gatewayMessage = err?.message || `Payment gateway error (HTTP ${initRes.status})`;
+        return res.status(502).json({ error: gatewayMessage });
+      }
+
+      const initData = await initRes.json();
+      if (!initData.status) {
+        return res.status(502).json({ error: initData.message || "Payment initialization failed" });
+      }
+
+      // Paystack accepted the init — NOW we persist the application row.
       const [application] = await db
         .insert(promotionApplications)
         .values({
+          id: applicationId,
           sellerId: req.user!.id,
           type,
           targetId,
@@ -4117,45 +4164,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: "pending_payment",
         })
         .returning();
-
-      const reference = `promo-${application.id}-${Date.now()}`;
-
-      const initRes = await fetch("https://api.paystack.co/transaction/initialize", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${paystackSecretKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: seller.email,
-          amount: amountKobo,
-          currency: "GHS",
-          reference,
-          metadata: {
-            upgradeType: "seller_promotion",
-            sellerId: req.user!.id,
-            sellerName: seller.name,
-            applicationId: application.id,
-            promoType: type,
-            targetId,
-            targetName,
-            durationType,
-            duration: Number(duration),
-            totalPrice,
-          },
-        }),
-      });
-
-      if (!initRes.ok) {
-        const err = await initRes.json().catch(() => ({}));
-        return res.status(502).json({ error: err?.message || "Payment gateway error" });
-      }
-
-      const initData = await initRes.json();
-      if (!initData.status) return res.status(502).json({ error: initData.message || "Payment initialization failed" });
-
-      // Store the reference on the application
-      await db
-        .update(promotionApplications)
-        .set({ updatedAt: new Date() } as any)
-        .where(eq(promotionApplications.id, application.id));
 
       res.json({
         reference,
@@ -4305,7 +4313,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Delete an expired or rejected promotion application (seller only)
+  // Delete a promotion application the seller can safely cancel.
+  // Allowed statuses: pending_payment (never paid) | expired | rejected.
+  // Confirmed payments cannot be deleted — they belong to finance & admin.
   app.delete("/api/seller/promotions/:applicationId", requireAuth, requireRole("seller"), async (req: AuthRequest, res) => {
     try {
       const { applicationId } = req.params;
@@ -4313,8 +4323,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(and(eq(promotionApplications.id, applicationId), eq(promotionApplications.sellerId, req.user!.id)))
         .limit(1);
       if (!application) return res.status(404).json({ error: "Application not found" });
-      if (!["expired", "rejected"].includes(String(application.status))) {
-        return res.status(400).json({ error: "Only expired or rejected applications can be deleted" });
+      const status = String(application.status);
+      if (!["pending_payment", "expired", "rejected"].includes(status)) {
+        return res.status(400).json({
+          error:
+            "This promotion has already been paid for. Contact support if you need to cancel a confirmed promotion.",
+        });
       }
       await db.delete(promotionApplications).where(eq(promotionApplications.id, applicationId));
       res.json({ ok: true });
