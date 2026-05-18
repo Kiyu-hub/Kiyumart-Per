@@ -16737,41 +16737,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Cart Link routes for social commerce
   app.post("/api/seller/cart-links", requireAuth, requireRole("seller"), async (req: any, res) => {
     try {
-      const { items, note } = req.body;
-      if (!Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({ error: "At least one item is required" });
-      }
-      for (const item of items) {
-        if (!item.productId || !item.quantity || item.quantity < 1) {
-          return res.status(400).json({ error: "Each item needs productId and quantity >= 1" });
+      const { items, note, mode: rawMode } = req.body;
+      const mode = rawMode === "browse" ? "browse" : "prefilled";
+
+      // Browse-mode links don't require items — the buyer picks from the
+      // store catalog. Pre-filled mode requires at least one item.
+      if (mode === "prefilled") {
+        if (!Array.isArray(items) || items.length === 0) {
+          return res.status(400).json({ error: "At least one item is required for a pre-selected cart link." });
+        }
+        for (const item of items) {
+          if (!item.productId || !item.quantity || item.quantity < 1) {
+            return res.status(400).json({ error: "Each item needs productId and quantity >= 1" });
+          }
         }
       }
 
       const store = await storage.getStoreByPrimarySeller(req.user.id);
       if (!store) return res.status(404).json({ error: "Seller store not found" });
 
-      // Server-side price lookup + total calculation
+      // Server-side price lookup + total calculation (prefilled only).
       const resolvedItems: Array<{productId: string; name: string; price: number; image: string | null; quantity: number}> = [];
       let totalAmount = 0;
 
-      for (const item of items) {
-        const product = await storage.getProduct(item.productId);
-        if (!product || !product.isActive) {
-          return res.status(400).json({ error: `Product ${item.productId} not found or inactive` });
+      if (mode === "prefilled" && Array.isArray(items)) {
+        for (const item of items) {
+          const product = await storage.getProduct(item.productId);
+          if (!product || !product.isActive) {
+            return res.status(400).json({ error: `Product ${item.productId} not found or inactive` });
+          }
+          if (product.sellerId !== req.user.id) {
+            return res.status(403).json({ error: "You can only include your own products" });
+          }
+          const price = parseFloat(product.price || "0");
+          const qty = Math.max(1, parseInt(item.quantity));
+          resolvedItems.push({
+            productId: product.id,
+            name: product.name,
+            price,
+            image: product.images?.[0] || null,
+            quantity: qty,
+          });
+          totalAmount += price * qty;
         }
-        if (product.sellerId !== req.user.id) {
-          return res.status(403).json({ error: "You can only include your own products" });
-        }
-        const price = parseFloat(product.price || "0");
-        const qty = Math.max(1, parseInt(item.quantity));
-        resolvedItems.push({
-          productId: product.id,
-          name: product.name,
-          price,
-          image: product.images?.[0] || null,
-          quantity: qty,
-        });
-        totalAmount += price * qty;
       }
 
       // Generate unique token
@@ -16782,6 +16790,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         token,
         storeId: store.id,
         sellerId: req.user.id,
+        mode,
         items: resolvedItems,
         note: note || undefined,
         totalAmount: totalAmount.toFixed(2),
@@ -16790,6 +16799,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         token: cartLink.token,
+        mode,
         url: `${process.env.FRONTEND_URL || ""}/cart/${cartLink.token}`,
         totalAmount: cartLink.totalAmount,
         expiresAt: cartLink.expiresAt,
@@ -16798,6 +16808,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error creating cart link:", error);
       res.status(500).json({ error: error.message || "Failed to create cart link" });
+    }
+  });
+
+  // Public store catalog for cart-link browse mode. The cart token gates
+  // access so we don't expose arbitrary seller catalogs without a magic link.
+  app.get("/api/cart-links/:token/catalog", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const cartLink = await storage.getCartLinkByToken(token);
+      if (!cartLink) return res.status(404).json({ error: "Cart link not found" });
+      if (new Date(cartLink.expiresAt) < new Date()) {
+        return res.status(410).json({ error: "This cart link has expired" });
+      }
+      const all = await storage.getProducts({ sellerId: cartLink.sellerId, isActive: true });
+      // Return a buyer-safe projection — no costPrice, no internal fields.
+      const items = (Array.isArray(all) ? all : []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        price: Number(p.price ?? 0),
+        image: Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : null,
+        category: p.category || null,
+        stock: typeof p.stock === "number" ? p.stock : null,
+      }));
+      res.json({ items });
+    } catch (error: any) {
+      console.error("Error fetching cart-link catalog:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch catalog" });
     }
   });
 
@@ -16812,9 +16850,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const store = await storage.getStore(cartLink.storeId);
       res.json({
         token: cartLink.token,
+        mode: (cartLink as any).mode === "browse" ? "browse" : "prefilled",
+        sellerId: cartLink.sellerId,
+        storeId: cartLink.storeId,
         storeName: store?.name || "Unknown Store",
-        storeLogo: (store?.brandingConfig as any)?.logoOverride || null,
+        storeLogo: (store?.brandingConfig as any)?.logoOverride || store?.logo || null,
         storeColor: (store?.brandingConfig as any)?.primaryColor || null,
+        storeTagline: (store?.brandingConfig as any)?.tagline || null,
         items: cartLink.items,
         totalAmount: cartLink.totalAmount,
         note: cartLink.note,
@@ -16827,7 +16869,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/orders/cart-checkout", async (req, res) => {
     try {
-      const { token, customerName, customerPhone, customerEmail, deliveryAddress } = req.body;
+      const { token, customerName, customerPhone, customerEmail, deliveryAddress, selectedItems } = req.body;
       if (!token) return res.status(400).json({ error: "Cart token is required" });
       if (!String(customerName || "").trim()) return res.status(400).json({ error: "Customer name is required" });
       if (!String(customerPhone || "").trim()) return res.status(400).json({ error: "Phone number is required" });
@@ -16839,19 +16881,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(410).json({ error: "This cart link has expired" });
       }
 
-      const items = cartLink.items as Array<{productId: string; name: string; price: number; image: string | null; quantity: number}>;
-      if (!items || items.length === 0) return res.status(400).json({ error: "Cart is empty" });
+      // In browse mode, the buyer picks items from the store's catalog. The
+      // server validates each picked product belongs to the cart link's seller
+      // before charging — never trust client prices.
+      const cartMode = (cartLink as any).mode === "browse" ? "browse" : "prefilled";
+      const sourceItems: Array<{productId: string; name?: string; quantity: number}> =
+        cartMode === "browse"
+          ? Array.isArray(selectedItems)
+            ? selectedItems
+            : []
+          : (cartLink.items as Array<{productId: string; name: string; price: number; image: string | null; quantity: number}>);
+
+      if (!sourceItems || sourceItems.length === 0) {
+        return res.status(400).json({ error: cartMode === "browse" ? "Pick at least one item before checkout." : "Cart is empty" });
+      }
 
       // Recalculate total server-side
       let serverSubtotal = 0;
       const orderItems: any[] = [];
-      for (const item of items) {
+      for (const item of sourceItems) {
         const product = await storage.getProduct(item.productId);
         if (!product || !product.isActive) {
-          return res.status(400).json({ error: `Product "${item.name}" is no longer available` });
+          return res.status(400).json({ error: `Product "${(item as any).name || item.productId}" is no longer available` });
+        }
+        if (cartMode === "browse" && product.sellerId !== cartLink.sellerId) {
+          return res.status(400).json({ error: `Product "${product.name}" doesn't belong to this store.` });
         }
         const price = parseFloat(product.price || "0");
-        const qty = Math.max(1, item.quantity);
+        const qty = Math.max(1, Math.floor(Number(item.quantity) || 0));
+        if (qty < 1) continue;
         serverSubtotal += price * qty;
         orderItems.push({
           productId: item.productId,
@@ -16863,6 +16921,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           price: price.toFixed(2),
           total: (price * qty).toFixed(2),
         });
+      }
+      if (orderItems.length === 0) {
+        return res.status(400).json({ error: "No valid items in your cart." });
       }
 
       const rawPhone = String(customerPhone).replace(/\D/g, "").slice(-10);
@@ -16901,8 +16962,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const keyPair = resolvePaystackKeyPair(platformSettings as any);
       if (!keyPair.secretKey) return res.status(503).json({ error: "Payment gateway not configured" });
 
-      // Idempotency: reuse existing unpaid order for the same cart token (buyer + cart link)
-      const cartSessionId = `cart-${token}`;
+      // Idempotency: reuse existing unpaid order for the same cart token.
+      // Browse-mode lets the buyer modify their basket between attempts —
+      // hash the items so a different basket gets a fresh order row.
+      const basketDigest = orderItems
+        .map((i) => `${i.productId}:${i.quantity}`)
+        .sort()
+        .join("|");
+      const cartSessionId = cartMode === "browse"
+        ? `cart-browse-${token}-${basketDigest}`
+        : `cart-${token}`;
       const existingCartOrder = await db
         .select()
         .from(orders)

@@ -2753,6 +2753,7 @@ function ProductShareDialog({ product }: { product: Product }) {
 
 function CartLinkGeneratorDialog({ products }: { products: Product[] }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"prefilled" | "browse">("prefilled");
   const [cart, setCart] = useState<Array<{ product: Product; quantity: number }>>([]);
   const [note, setNote] = useState("");
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
@@ -2782,7 +2783,11 @@ function CartLinkGeneratorDialog({ products }: { products: Product[] }) {
   const generateMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/seller/cart-links", {
-        items: cart.map((c) => ({ productId: c.product.id, quantity: c.quantity })),
+        mode,
+        items:
+          mode === "prefilled"
+            ? cart.map((c) => ({ productId: c.product.id, quantity: c.quantity }))
+            : [],
         note: note || undefined,
       });
       return res.json();
@@ -2808,6 +2813,7 @@ function CartLinkGeneratorDialog({ products }: { products: Product[] }) {
     setCart([]);
     setNote("");
     setGeneratedLink(null);
+    setMode("prefilled");
   };
 
   const activeProducts = products.filter((p) => p.isActive);
@@ -2860,6 +2866,51 @@ function CartLinkGeneratorDialog({ products }: { products: Product[] }) {
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Mode toggle — seller decides whether buyers see a locked
+                pre-selected list or the full catalog to pick from. */}
+            <div className="rounded-xl border bg-muted/30 p-3 space-y-2">
+              <p className="text-sm font-semibold">How should the buyer use this link?</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMode("prefilled")}
+                  className={`text-left rounded-lg border p-3 transition-colors ${
+                    mode === "prefilled" ? "border-primary bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/50"
+                  }`}
+                  data-testid="cart-link-mode-prefilled"
+                >
+                  <p className="text-xs font-bold">🛒 Pre-selected cart</p>
+                  <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                    You pick the items now. Buyer pays exactly that list.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("browse")}
+                  className={`text-left rounded-lg border p-3 transition-colors ${
+                    mode === "browse" ? "border-primary bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/50"
+                  }`}
+                  data-testid="cart-link-mode-browse"
+                >
+                  <p className="text-xs font-bold">🏬 Browse my store</p>
+                  <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                    Buyer opens your store, picks any items, pays.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {mode === "browse" ? (
+              <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-center">
+                <ShoppingCart className="h-6 w-6 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm font-medium">Browse-mode link</p>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  You don't pick items now. When the buyer opens this link they'll
+                  see your full active catalog and pick what they want.
+                </p>
+              </div>
+            ) : (
+              <>
             {/* Product picker */}
             <div className="space-y-2">
               <p className="text-sm font-semibold">Add Products</p>
@@ -2915,6 +2966,8 @@ function CartLinkGeneratorDialog({ products }: { products: Product[] }) {
                 </div>
               </div>
             )}
+              </>
+            )}
 
             {/* Optional note */}
             <div className="space-y-1.5">
@@ -2929,7 +2982,7 @@ function CartLinkGeneratorDialog({ products }: { products: Product[] }) {
 
             <Button
               className="w-full"
-              disabled={cart.length === 0 || generateMutation.isPending}
+              disabled={(mode === "prefilled" && cart.length === 0) || generateMutation.isPending}
               onClick={() => generateMutation.mutate()}
             >
               {generateMutation.isPending ? (

@@ -1691,6 +1691,11 @@ export const cartLinks = pgTable("cart_links", {
   token: text("token").notNull().unique(),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   sellerId: varchar("seller_id").notNull().references(() => users.id),
+  // Mode chosen by the seller at generation time:
+  //   "prefilled" — items are pre-selected; buyer pays for the exact list.
+  //   "browse"    — buyer lands on the seller's catalog and picks themselves.
+  // Defaults to "prefilled" to preserve the old behaviour.
+  mode: text("mode").default("prefilled"),
   items: jsonb("items").$type<Array<{productId: string; name: string; price: number; image: string | null; quantity: number}>>().notNull(),
   note: text("note"),
   totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),

@@ -838,6 +838,9 @@ app.use(cookieParser());
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS enable_3d_ar boolean DEFAULT true`);
     // Per-category dynamic field template (Bolt-style cuisine fields).
     await db.execute(sql`ALTER TABLE categories ADD COLUMN IF NOT EXISTS product_fields_config jsonb`);
+    // Cart link mode — "prefilled" (default, locked-in items) vs "browse"
+    // (buyer picks from the seller's catalog).
+    await db.execute(sql`ALTER TABLE cart_links ADD COLUMN IF NOT EXISTS mode text DEFAULT 'prefilled'`);
     // Add restaurant to store_type enum
     await db.execute(sql`
       DO $$

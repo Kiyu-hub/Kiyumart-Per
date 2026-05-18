@@ -13,13 +13,27 @@ import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 interface CartLinkData {
   token: string;
+  mode?: "prefilled" | "browse";
+  sellerId?: string;
+  storeId?: string;
   storeName: string;
   storeLogo: string | null;
   storeColor: string | null;
+  storeTagline?: string | null;
   items: Array<{ productId: string; name: string; price: number; image: string | null; quantity: number }>;
   totalAmount: string;
   note: string | null;
   expiresAt: string;
+}
+
+interface BrowseCatalogItem {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  image: string | null;
+  category: string | null;
+  stock: number | null;
 }
 
 interface CompletedOrder {
@@ -342,8 +356,48 @@ export default function CartLinkCheckout() {
     retry: false,
   });
 
+  const isBrowseMode = cart?.mode === "browse";
+
+  // ── Browse-mode state — buyer picks items from the seller's catalog ────────
+  const { data: catalog = [], isLoading: catalogLoading } = useQuery<BrowseCatalogItem[]>({
+    queryKey: ["/api/cart-links", token, "catalog"],
+    queryFn: () => fetchApiJson<{ items: BrowseCatalogItem[] }>(`/api/cart-links/${token}/catalog`)
+      .then((d) => d.items),
+    enabled: !!token && isBrowseMode,
+    retry: false,
+  });
+  const [browseQty, setBrowseQty] = useState<Record<string, number>>({});
+  const browseSearch = useState("");
+  const [browseSearchText, setBrowseSearchText] = browseSearch;
+
+  const visibleCatalog = browseSearchText.trim()
+    ? catalog.filter((p) => p.name.toLowerCase().includes(browseSearchText.toLowerCase()))
+    : catalog;
+
+  const selectedBrowseItems = catalog
+    .map((p) => ({ product: p, qty: browseQty[p.id] || 0 }))
+    .filter((entry) => entry.qty > 0);
+
+  const incBrowse = useCallback((productId: string) => {
+    setBrowseQty((prev) => ({ ...prev, [productId]: (prev[productId] || 0) + 1 }));
+  }, []);
+  const decBrowse = useCallback((productId: string) => {
+    setBrowseQty((prev) => {
+      const next = { ...prev };
+      const current = next[productId] || 0;
+      if (current <= 1) {
+        delete next[productId];
+      } else {
+        next[productId] = current - 1;
+      }
+      return next;
+    });
+  }, []);
+
   const brandColor = cart?.storeColor || "#16a34a";
-  const frontendSubtotal = cart?.items.reduce((sum, item) => sum + item.price * item.quantity, 0) ?? 0;
+  const frontendSubtotal = isBrowseMode
+    ? selectedBrowseItems.reduce((sum, e) => sum + e.product.price * e.qty, 0)
+    : cart?.items.reduce((sum, item) => sum + item.price * item.quantity, 0) ?? 0;
 
   const checkoutMutation = useMutation({
     mutationFn: async () => {
@@ -353,6 +407,9 @@ export default function CartLinkCheckout() {
         customerPhone: phone.trim(),
         customerEmail: email.trim() || undefined,
         deliveryAddress: address.trim(),
+        selectedItems: isBrowseMode
+          ? selectedBrowseItems.map((e) => ({ productId: e.product.id, quantity: e.qty }))
+          : undefined,
       });
       return res.json();
     },
@@ -390,11 +447,20 @@ export default function CartLinkCheckout() {
         },
         callback: (response: any) => {
           if (response.status === "success" || response.status === "completed") {
+            const items: CompletedOrder["items"] = isBrowseMode
+              ? selectedBrowseItems.map((e) => ({
+                  productId: e.product.id,
+                  name: e.product.name,
+                  price: e.product.price,
+                  image: e.product.image,
+                  quantity: e.qty,
+                }))
+              : cart?.items ?? [];
             setPaymentSummary(null);
             setCompletedOrder({
               orderNumber,
               storeName: cart?.storeName ?? "",
-              items: cart?.items ?? [],
+              items,
               subtotal: finalTotal,
               address: address.trim(),
               date: new Date().toLocaleDateString("en-GH", { year: "numeric", month: "short", day: "numeric" }),
@@ -481,7 +547,12 @@ export default function CartLinkCheckout() {
     );
   }
 
-  const canSubmit = name.trim() && phone.trim() && address.trim();
+  const canSubmit = Boolean(
+    name.trim() &&
+    phone.trim() &&
+    address.trim() &&
+    (!isBrowseMode || selectedBrowseItems.length > 0),
+  );
 
   return (
     <div className="min-h-screen bg-background pb-10">
@@ -500,33 +571,120 @@ export default function CartLinkCheckout() {
       </div>
 
       <div className="mx-auto max-w-md space-y-5 px-4 pt-5">
-        {/* Cart items */}
-        <div className="rounded-xl border overflow-hidden">
-          <div className="bg-muted/40 px-4 py-2.5 flex items-center gap-2">
-            <ShoppingCart className="h-3.5 w-3.5 text-muted-foreground" />
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Order</p>
-          </div>
-          <div className="divide-y">
-            {cart.items.map((item, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3">
-                {item.image ? (
-                  <img src={item.image} alt={item.name} className="h-12 w-12 rounded-lg object-cover shrink-0" />
-                ) : (
-                  <div className="h-12 w-12 rounded-lg bg-muted shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{item.name}</p>
-                  <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
+        {isBrowseMode ? (
+          // ── Browse mode — buyer picks items from the seller's catalog ──
+          <div className="rounded-xl border overflow-hidden">
+            <div className="bg-muted/40 px-4 py-2.5 flex items-center gap-2">
+              <ShoppingCart className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {cart.storeName}'s Catalog
+              </p>
+            </div>
+            <div className="border-b px-3 py-2">
+              <Input
+                placeholder="Search products…"
+                value={browseSearchText}
+                onChange={(e) => setBrowseSearchText(e.target.value)}
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="max-h-[360px] overflow-y-auto divide-y">
+              {catalogLoading ? (
+                <div className="py-8 flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-                <p className="text-sm font-semibold" style={{ color: brandColor }}>GHS {(item.price * item.quantity).toFixed(2)}</p>
-              </div>
-            ))}
+              ) : visibleCatalog.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No products available in this store.
+                </p>
+              ) : (
+                visibleCatalog.map((p) => {
+                  const qty = browseQty[p.id] || 0;
+                  return (
+                    <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                      {p.image ? (
+                        <img src={p.image} alt={p.name} className="h-12 w-12 rounded-lg object-cover shrink-0" />
+                      ) : (
+                        <div className="h-12 w-12 rounded-lg bg-muted shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{p.name}</p>
+                        <p className="text-xs font-semibold" style={{ color: brandColor }}>GHS {p.price.toFixed(2)}</p>
+                      </div>
+                      {qty > 0 ? (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => decBrowse(p.id)}
+                            className="h-7 w-7 rounded-full border flex items-center justify-center hover:bg-muted"
+                            aria-label="Decrease quantity"
+                          >
+                            <span className="text-sm font-bold">−</span>
+                          </button>
+                          <span className="w-6 text-center text-sm font-semibold">{qty}</span>
+                          <button
+                            type="button"
+                            onClick={() => incBrowse(p.id)}
+                            className="h-7 w-7 rounded-full text-white flex items-center justify-center"
+                            style={{ backgroundColor: brandColor }}
+                            aria-label="Increase quantity"
+                          >
+                            <span className="text-sm font-bold">+</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => incBrowse(p.id)}
+                          className="h-7 px-3 text-xs font-semibold rounded-full text-white"
+                          style={{ backgroundColor: brandColor }}
+                        >
+                          Add
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <div className="border-t bg-muted/40 px-4 py-3 flex items-center justify-between">
+              <p className="text-sm font-semibold">
+                Subtotal ({selectedBrowseItems.reduce((n, e) => n + e.qty, 0)} items)
+              </p>
+              <p className="text-base font-bold" style={{ color: brandColor }}>
+                GHS {frontendSubtotal.toFixed(2)}
+              </p>
+            </div>
           </div>
-          <div className="border-t bg-muted/40 px-4 py-3 flex items-center justify-between">
-            <p className="text-sm font-semibold">Subtotal</p>
-            <p className="text-base font-bold" style={{ color: brandColor }}>GHS {frontendSubtotal.toFixed(2)}</p>
+        ) : (
+          // ── Pre-filled mode — locked-in items ──
+          <div className="rounded-xl border overflow-hidden">
+            <div className="bg-muted/40 px-4 py-2.5 flex items-center gap-2">
+              <ShoppingCart className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Order</p>
+            </div>
+            <div className="divide-y">
+              {cart.items.map((item, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3">
+                  {item.image ? (
+                    <img src={item.image} alt={item.name} className="h-12 w-12 rounded-lg object-cover shrink-0" />
+                  ) : (
+                    <div className="h-12 w-12 rounded-lg bg-muted shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{item.name}</p>
+                    <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
+                  </div>
+                  <p className="text-sm font-semibold" style={{ color: brandColor }}>GHS {(item.price * item.quantity).toFixed(2)}</p>
+                </div>
+              ))}
+            </div>
+            <div className="border-t bg-muted/40 px-4 py-3 flex items-center justify-between">
+              <p className="text-sm font-semibold">Subtotal</p>
+              <p className="text-base font-bold" style={{ color: brandColor }}>GHS {frontendSubtotal.toFixed(2)}</p>
+            </div>
           </div>
-        </div>
+        )}
 
         {cart.note && (
           <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
@@ -587,7 +745,7 @@ export default function CartLinkCheckout() {
             <div className="p-4 space-y-2.5 text-sm bg-background">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">
-                  Items ({cart?.items.length ?? 0})
+                  Items ({isBrowseMode ? selectedBrowseItems.length : (cart?.items.length ?? 0)})
                 </span>
                 <span className="font-semibold">GHS {paymentSummary.subtotal.toFixed(2)}</span>
               </div>
