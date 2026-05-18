@@ -12,6 +12,28 @@ interface DynamicFieldRendererProps {
   basePath?: string;
 }
 
+/**
+ * Phase 9 — renders the local Ghanaian-language hint beneath the English
+ * label when defined on the field. Comma-joined so all four languages fit on
+ * one tiny line; if a seller prefers only one we can later read from
+ * localStorage `kiyumart.preferredLocalLanguage`.
+ */
+function LocalLabelHint({ field }: { field: DynamicField }) {
+  const local = field.labelLocal;
+  if (!local) return null;
+  const stored = typeof window !== "undefined" ? window.localStorage.getItem("kiyumart.preferredLocalLanguage") : null;
+  const preferred = stored && local[stored as keyof typeof local];
+  const hint = preferred
+    ? preferred
+    : [local.twi, local.ga, local.ewe, local.hausa].filter(Boolean).join(" · ");
+  if (!hint) return null;
+  return (
+    <span className="ml-1 text-[10px] font-normal text-muted-foreground/80" aria-hidden="true">
+      ({hint})
+    </span>
+  );
+}
+
 export function DynamicFieldRenderer({ field, form, basePath = "dynamicFields" }: DynamicFieldRendererProps) {
   const fieldName = basePath ? `${basePath}.${field.name}` : field.name;
 
@@ -24,6 +46,7 @@ export function DynamicFieldRenderer({ field, form, basePath = "dynamicFields" }
           <FormItem>
             <FormLabel>
               {field.label} {field.required && "*"}
+              <LocalLabelHint field={field} />
             </FormLabel>
             <Select onValueChange={formField.onChange} value={formField.value}>
               <FormControl>
@@ -56,6 +79,7 @@ export function DynamicFieldRenderer({ field, form, basePath = "dynamicFields" }
           <FormItem>
             <FormLabel>
               {field.label} {field.required && "*"}
+              <LocalLabelHint field={field} />
             </FormLabel>
             <FormDescription>{field.description}</FormDescription>
             <div className="grid grid-cols-2 gap-2" data-testid={`multiselect-${field.name}`}>
@@ -106,6 +130,7 @@ export function DynamicFieldRenderer({ field, form, basePath = "dynamicFields" }
           <FormItem>
             <FormLabel>
               {field.label} {field.required && "*"}
+              <LocalLabelHint field={field} />
             </FormLabel>
             <FormControl>
               <Textarea
@@ -132,6 +157,7 @@ export function DynamicFieldRenderer({ field, form, basePath = "dynamicFields" }
           <FormItem>
             <FormLabel>
               {field.label} {field.required && "*"}
+              <LocalLabelHint field={field} />
             </FormLabel>
             <FormControl>
               <Input
@@ -159,6 +185,7 @@ export function DynamicFieldRenderer({ field, form, basePath = "dynamicFields" }
           <FormItem>
             <FormLabel>
               {field.label} {field.required && "*"}
+              <LocalLabelHint field={field} />
             </FormLabel>
             <FormControl>
               <Input

@@ -754,13 +754,14 @@ function App() {
           <NotificationProvider>
             <JitsiCallProvider>
             <TooltipProvider>
-              {!isMobile && !isTablet && (
-                <LogoLoadingScreen
-                  isLoading={!isAppReady}
-                  minDisplayTime={2000}
-                  message="Preparing your experience"
-                />
-              )}
+              {/* LogoLoadingScreen branches internally — desktop gets the full
+                  animated splash, mobile gets the compact wordmark splash.
+                  Always mount it so both surfaces actually render. */}
+              <LogoLoadingScreen
+                isLoading={!isAppReady}
+                minDisplayTime={isMobile || isTablet ? 1400 : 2000}
+                message="Preparing your experience"
+              />
               <Toaster />
               <MaintenanceGuard>
                 <EmailVerificationGuard>

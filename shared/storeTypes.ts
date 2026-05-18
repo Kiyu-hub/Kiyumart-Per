@@ -64,6 +64,20 @@ export interface DynamicField {
   options?: string[];
   description?: string;
   required?: boolean;
+  /**
+   * Phase 9 — optional Ghanaian-language label hints rendered as a small
+   * caption beneath the English label. Helps sellers who think in their local
+   * language find the right field. Only the language they configured shows
+   * (or all if no preference is set).
+   */
+  labelLocal?: {
+    twi?: string;
+    ga?: string;
+    ewe?: string;
+    hausa?: string;
+  };
+  /** Phase 8 — category overrides can hide a base field for that category. */
+  hidden?: boolean;
 }
 
 export interface StoreTypeVariantConfig {
@@ -451,85 +465,130 @@ export function getStoreTypeFields(storeType: StoreType): DynamicField[] {
 
 export const STORE_TYPE_PRODUCT_CONFIG: Record<StoreType, DynamicField[]> = {
   clothing: [
+    { name: "genderTarget", label: "Target Wearer", type: "select", options: ["Women", "Men", "Unisex", "Girls", "Boys"], required: true, description: "Who this clothing item is designed for." },
     { name: "fitType", label: "Fit Type", type: "select", options: ["Slim fit", "Regular fit", "Relaxed fit", "Oversized"], required: true, description: "Choose how this item fits on the body." },
     { name: "material", label: "Material", type: "text", placeholder: "e.g. Chiffon, Cotton, Crepe", required: true, description: "Main fabric or material used for this product." },
-    { name: "careInstructions", label: "Care Instructions", type: "textarea", placeholder: "e.g. Hand wash cold, iron on low heat", required: true, description: "Simple washing and care instructions for buyers." },
-    { name: "occasion", label: "Best For", type: "multiselect", options: ["Everyday wear", "Office", "Prayer", "Wedding", "Party", "Travel", "Special occasion"], required: true, description: "Where buyers are most likely to wear this item." },
-    { name: "genderTarget", label: "Target Wearer", type: "select", options: ["Women", "Men", "Unisex", "Girls", "Boys"], required: true, description: "Who this clothing item is designed for." },
+    // Demoted to optional (Phase 1 rebalance) — Shopify keeps these optional;
+    // Ghana sellers commonly skip them and lose the listing.
+    { name: "careInstructions", label: "Care Instructions", type: "textarea", placeholder: "e.g. Hand wash cold, iron on low heat", required: false, description: "Simple washing and care instructions for buyers." },
+    { name: "occasion", label: "Best For", type: "multiselect", options: ["Everyday wear", "Office", "Prayer", "Wedding", "Party", "Travel", "Special occasion"], required: false, description: "Where buyers are most likely to wear this item." },
+    { name: "pattern", label: "Pattern", type: "select", options: ["Plain", "Striped", "Floral", "Print", "Embroidered", "Checked"], required: false, description: "Optional surface pattern." },
+    // Cross-cutting (Phase 6) — optional, helps stock management & receipt printing.
+    { name: "sku", label: "SKU / Internal Code", type: "text", placeholder: "e.g. ADW-AB-001", required: false, description: "Optional internal reference code." },
   ],
   electronics: [
     { name: "brand", label: "Brand", type: "text", placeholder: "e.g. Samsung, Apple, JBL", required: true, description: "Brand name buyers will recognize." },
     { name: "model", label: "Model", type: "text", placeholder: "e.g. Galaxy A55, WH-1000XM5", required: true, description: "Exact model or series for this item." },
     { name: "keySpecs", label: "Key Specifications", type: "textarea", placeholder: "e.g. 8GB RAM, 256GB storage, Bluetooth 5.3", required: true, description: "List the most important product specifications." },
-    { name: "warranty", label: "Warranty", type: "select", options: ["No warranty", "7 days", "30 days", "3 months", "6 months", "1 year"], required: true, description: "Warranty period buyers will receive." },
     { name: "condition", label: "Condition", type: "select", options: ["Brand new", "Open box", "Refurbished"], required: true, description: "State the condition clearly." },
+    // Critical for the West African market — wrong voltage kills devices.
+    { name: "voltage", label: "Power", type: "select", options: ["220V (Ghana standard)", "110V", "Dual 110V/220V", "Battery only", "USB only"], required: true, description: "What power input this device needs." },
+    { name: "warranty", label: "Warranty", type: "select", options: ["No warranty", "7 days", "30 days", "3 months", "6 months", "1 year"], required: false, description: "Warranty period buyers will receive." },
+    { name: "boxContents", label: "What's in the box", type: "textarea", placeholder: "e.g. Phone, USB-C cable, charger, SIM tool", required: false, description: "Help buyers know what they're getting." },
+    { name: "sku", label: "SKU / Internal Code", type: "text", placeholder: "e.g. KTH-SA55-128", required: false, description: "Optional internal reference code." },
   ],
   food_beverages: [
-    { name: "foodType", label: "Food Type", type: "select", options: ["Cooked meal / Local dish", "Street food", "Packaged food", "Beverage", "Snack", "Fresh produce", "Frozen item", "Bakery", "Pastry / Dessert", "Other"], required: true, description: "Choose the product type." },
-    { name: "prepTime", label: "Preparation Time", type: "select", options: ["Ready immediately", "5–10 minutes", "10–20 minutes", "20–30 minutes", "30–45 minutes", "45–60 minutes", "Pre-order only"], required: false, description: "How long does it take to prepare this item after an order is placed?" },
+    { name: "foodType", label: "Food Type", type: "select", options: ["Cooked meal / Local dish", "Street food", "Packaged food", "Beverage", "Snack", "Fresh produce", "Frozen item", "Bakery", "Pastry / Dessert", "Other"], required: true, description: "Choose the product type.", labelLocal: { twi: "Aduane bi", ga: "Niyenii", ewe: "Nuɖuɖu ƒomevi", hausa: "Irin abinci" } },
+    // Phase 1 — prep time now required (matches Bolt/Uber/Deliveroo industry standard).
+    { name: "prepTime", label: "Preparation Time", type: "select", options: ["Ready immediately", "5–10 minutes", "10–20 minutes", "20–30 minutes", "30–45 minutes", "45–60 minutes", "Pre-order only"], required: true, description: "How long does it take to prepare this item after an order is placed?", labelLocal: { twi: "Bere a wode siesie", ga: "Be ni akɛhɛ saa", ewe: "Ɣeyiɣi si nedzra ɖo", hausa: "Lokacin shiri" } },
     { name: "portionOrWeight", label: "Portion / Pack Size", type: "text", placeholder: "e.g. One plate, 500g, 1L, Pack of 2", required: false, description: "Describe the serving size or pack quantity." },
     { name: "ingredients", label: "Ingredients / Contents", type: "textarea", placeholder: "List the main ingredients or food contents (optional for local dishes)", required: false, description: "Helps buyers know what is in the food." },
     { name: "storageGuide", label: "Storage / Serving Guide", type: "select", options: ["Serve fresh / hot", "Room temperature", "Keep refrigerated", "Keep frozen"], required: false, description: "How should buyers store or serve this item." },
-    { name: "allergyNote", label: "Allergy / Dietary Note", type: "text", placeholder: "e.g. Contains nuts, Halal, Vegan-friendly", required: false, description: "Optional note for buyers with dietary needs." },
+    // Phase 2 — structured allergens (EU 14-allergen standard). Powers
+    // filters like "show me peanut-free dishes" — was free text before.
+    { name: "allergens", label: "Allergens", type: "multiselect", options: ["Peanuts", "Tree nuts", "Eggs", "Dairy", "Gluten", "Soy", "Shellfish", "Fish", "Sesame", "Mustard", "Celery", "Sulphites", "Lupin", "Molluscs"], required: false, description: "Pick every allergen this product contains. Powers buyer-side allergy filters." },
+    { name: "dietaryTags", label: "Dietary Info", type: "multiselect", options: ["Halal", "Vegan", "Vegetarian", "Gluten-free", "Dairy-free", "Sugar-free", "Kosher"], required: false, description: "Add relevant dietary labels." },
+    { name: "spiceLevel", label: "Spice Level", type: "select", options: ["Not spicy", "Mild", "Medium", "Hot", "Extra hot"], required: false, description: "Heat level for the dish.", labelLocal: { twi: "Mako tumi", ga: "Mako hewalɛ", ewe: "Atadi sesẽme", hausa: "Yawan barkono" } },
+    { name: "containsAlcohol", label: "Contains alcohol", type: "select", options: ["No", "Yes"], required: false, description: "Triggers age-gate at checkout." },
+    // Cross-cutting (Phase 6) — useful for packaged items only.
+    { name: "unitOfMeasure", label: "Sold By", type: "select", options: ["Per piece", "Per plate / portion", "Per pack", "Per kg", "Per gram", "Per litre", "Per ml", "Per bundle"], required: false, description: "How buyers will see the unit on the receipt." },
+    { name: "barcode", label: "Barcode / UPC", type: "text", placeholder: "e.g. 0123456789012", required: false, description: "Optional — printed on packaged goods." },
   ],
   beauty_cosmetics: [
     { name: "brand", label: "Brand", type: "text", placeholder: "e.g. Nivea, MAC, Cerave", required: true, description: "Brand name for the product." },
-    { name: "productType", label: "Product Type", type: "select", options: ["Skincare", "Makeup", "Haircare", "Fragrance", "Body care", "Men's grooming"], required: true, description: "Choose the beauty category." },
-    { name: "skinOrHairType", label: "Best For", type: "multiselect", options: ["All skin types", "Oily skin", "Dry skin", "Sensitive skin", "Normal skin", "All hair types", "Dry hair", "Curly hair"], required: true, description: "Show who this product works best for." },
-    { name: "benefits", label: "Main Benefits", type: "textarea", placeholder: "e.g. Hydrates, brightens, smooths texture", required: true, description: "Short summary of the product benefits." },
+    { name: "productType", label: "Product Type", type: "select", options: ["Skincare", "Makeup", "Haircare", "Fragrance", "Body care", "Men's grooming"], required: false, description: "Choose the beauty category. Optional when the listing category already specifies it." },
+    { name: "skinOrHairType", label: "Best For", type: "multiselect", options: ["All skin types", "Oily skin", "Dry skin", "Sensitive skin", "Normal skin", "All hair types", "Dry hair", "Curly hair"], required: false, description: "Show who this product works best for." },
+    { name: "benefits", label: "Main Benefits", type: "textarea", placeholder: "e.g. Hydrates, brightens, smooths texture", required: false, description: "Short summary of the product benefits." },
     { name: "sizeVolume", label: "Size / Volume", type: "text", placeholder: "e.g. 100ml, 250g", required: true, description: "State the product quantity clearly." },
+    { name: "countryOfOrigin", label: "Country of Origin", type: "text", placeholder: "e.g. France, USA, Ghana", required: false, description: "Trust signal — buyers actively look for imported / Made in Ghana." },
+    { name: "expiryDate", label: "Expiry Date", type: "date", required: false, description: "Helps buyers compare freshness; recommended for compliance." },
+    { name: "sku", label: "SKU / Internal Code", type: "text", placeholder: "e.g. GLO-VC-30", required: false, description: "Optional internal reference code." },
+    { name: "barcode", label: "Barcode / UPC", type: "text", placeholder: "e.g. 0123456789012", required: false, description: "Useful for retail scanning." },
   ],
   home_garden: [
     { name: "material", label: "Material", type: "text", placeholder: "e.g. Wood, Steel, Cotton", required: true, description: "Main material used for this item." },
-    { name: "dimensions", label: "Dimensions", type: "text", placeholder: "e.g. 120 x 60 x 75 cm", required: true, description: "Give the size of the product." },
-    { name: "useArea", label: "Best For", type: "multiselect", options: ["Living room", "Bedroom", "Kitchen", "Bathroom", "Office", "Outdoor", "Garden"], required: true, description: "Where this item fits best." },
-    { name: "assemblyNeeded", label: "Assembly Needed", type: "select", options: ["No", "Yes - simple", "Yes - full assembly"], required: true, description: "Let buyers know if setup is needed." },
+    { name: "useArea", label: "Best For", type: "multiselect", options: ["Living room", "Bedroom", "Kitchen", "Bathroom", "Office", "Outdoor", "Garden"], required: false, description: "Where this item fits best." },
+    { name: "dimensions", label: "Dimensions", type: "text", placeholder: "e.g. 120 x 60 x 75 cm", required: false, description: "Give the size of the product. Strongly recommended for furniture." },
+    { name: "assemblyNeeded", label: "Assembly Needed", type: "select", options: ["No", "Yes - simple", "Yes - full assembly"], required: false, description: "Let buyers know if setup is needed." },
     { name: "careInstructions", label: "Care Instructions", type: "textarea", placeholder: "e.g. Wipe with dry cloth", required: false, description: "Optional care note for buyers." },
+    { name: "sku", label: "SKU / Internal Code", type: "text", placeholder: "e.g. CHS-CHA-001", required: false, description: "Optional internal reference code." },
   ],
   sports_fitness: [
     { name: "sportCategory", label: "Sport / Activity", type: "multiselect", options: ["Gym", "Running", "Football", "Cycling", "Yoga", "Outdoor", "Home workout"], required: true, description: "Choose the activities this product supports." },
     { name: "brand", label: "Brand", type: "text", placeholder: "e.g. Nike, Adidas, Puma", required: false, description: "Add the brand if available." },
-    { name: "material", label: "Material", type: "text", placeholder: "e.g. Polyester, Rubber, Foam", required: true, description: "Main material or build." },
-    { name: "skillLevel", label: "Skill Level", type: "select", options: ["Beginner", "Intermediate", "Advanced", "All levels"], required: true, description: "Who this product is best for." },
+    { name: "material", label: "Material", type: "text", placeholder: "e.g. Polyester, Rubber, Foam", required: false, description: "Main material or build." },
+    { name: "skillLevel", label: "Skill Level", type: "select", options: ["Beginner", "Intermediate", "Advanced", "All levels"], required: false, description: "Who this product is best for." },
     { name: "usageNote", label: "Usage Note", type: "textarea", placeholder: "e.g. Good for indoor and outdoor training", required: false, description: "Optional quick usage note." },
+    { name: "sku", label: "SKU / Internal Code", type: "text", placeholder: "e.g. PKF-YM6", required: false, description: "Optional internal reference code." },
   ],
   books_media: [
     { name: "authorOrCreator", label: "Author / Creator", type: "text", placeholder: "e.g. Chimamanda Ngozi Adichie", required: true, description: "Author, artist, or creator name." },
     { name: "format", label: "Format", type: "select", options: ["Paperback", "Hardcover", "E-book", "Audio CD", "DVD", "Digital download"], required: true, description: "Choose the product format." },
-    { name: "genre", label: "Genre", type: "text", placeholder: "e.g. Fiction, Business, Education", required: true, description: "Main genre or category." },
-    { name: "language", label: "Language", type: "text", placeholder: "e.g. English, Arabic, French", required: true, description: "Main language of the item." },
-    { name: "summary", label: "Quick Summary", type: "textarea", placeholder: "Short note about the book or media item", required: true, description: "A helpful short summary for buyers." },
+    { name: "language", label: "Language", type: "select", options: ["English", "Twi", "Ga", "Ewe", "Hausa", "Arabic", "French", "Portuguese", "Other"], required: true, description: "Main language of the item." },
+    { name: "genre", label: "Genre", type: "select", options: ["Fiction", "Non-Fiction", "Education", "Business", "Self-Help", "Religious", "Children", "Reference", "Magazine", "Music", "Movie", "Other"], required: false, description: "Main genre or category." },
+    { name: "summary", label: "Quick Summary", type: "textarea", placeholder: "Short note about the book or media item", required: false, description: "A helpful short summary for buyers." },
+    { name: "isbn", label: "ISBN", type: "text", placeholder: "e.g. 978-3-16-148410-0", required: false, description: "Helps appear in Google Books and global search." },
+    { name: "publicationYear", label: "Publication Year", type: "number", required: false, description: "Year of first publication or edition." },
+    { name: "publisher", label: "Publisher", type: "text", placeholder: "e.g. Penguin Random House", required: false, description: "Publisher name." },
+    { name: "sku", label: "SKU / Internal Code", type: "text", placeholder: "e.g. PNS-001", required: false, description: "Optional internal reference code." },
   ],
   toys_games: [
     { name: "ageRange", label: "Age Range", type: "select", options: ["0-2 years", "3-5 years", "6-8 years", "9-12 years", "13+ years"], required: true, description: "Pick the right age range." },
     { name: "toyType", label: "Toy Type", type: "select", options: ["Educational", "Board game", "Puzzle", "Action figure", "Doll", "Outdoor toy", "Electronic toy"], required: true, description: "Select the main toy category." },
     { name: "material", label: "Material", type: "text", placeholder: "e.g. Plastic, Wood, Fabric", required: false, description: "Optional material info." },
     { name: "safetyNote", label: "Safety Note", type: "textarea", placeholder: "e.g. Not for children under 3 years", required: true, description: "Important safety information." },
+    { name: "chokingHazard", label: "Choking Hazard Warning", type: "select", options: ["No", "Yes — small parts, not for children under 3"], required: false, description: "EU/US legal requirement for products targeted at under-3s." },
+    { name: "batteryInfo", label: "Batteries", type: "select", options: ["No batteries", "Batteries included", "Batteries required (specify type in description)"], required: false, description: "Lets buyers know if extra purchase is needed." },
     { name: "skillsDeveloped", label: "Learning Benefit", type: "multiselect", options: ["Creativity", "Coordination", "Logic", "Problem solving", "Social play", "Motor skills"], required: false, description: "Optional developmental benefit." },
+    { name: "sku", label: "SKU / Internal Code", type: "text", placeholder: "e.g. LST-001", required: false, description: "Optional internal reference code." },
   ],
   automotive: [
     { name: "brand", label: "Brand", type: "text", placeholder: "e.g. Toyota, Bosch, Michelin", required: true, description: "Brand of the part or accessory." },
     { name: "vehicleCompatibility", label: "Vehicle Compatibility", type: "textarea", placeholder: "e.g. Toyota Corolla 2014-2018", required: true, description: "List the vehicles or models this item fits." },
     { name: "productType", label: "Product Type", type: "select", options: ["Part", "Accessory", "Tool", "Fluid", "Cleaning"], required: true, description: "Choose the automotive product type." },
     { name: "condition", label: "Condition", type: "select", options: ["Brand new", "Refurbished", "Used"], required: true, description: "State the item condition clearly." },
+    { name: "partType", label: "Part type", type: "select", options: ["OEM (original manufacturer)", "Aftermarket", "Performance / Tuning"], required: false, description: "Helps mechanics filter exact-fit parts." },
+    { name: "oemNumber", label: "OEM Number", type: "text", placeholder: "e.g. 90919-01253", required: false, description: "Manufacturer's part reference — strong buyer trust signal." },
     { name: "installationNote", label: "Installation Note", type: "textarea", placeholder: "e.g. Professional installation recommended", required: false, description: "Optional fitting or installation note." },
+    { name: "sku", label: "SKU / Internal Code", type: "text", placeholder: "e.g. RRA-BP-001", required: false, description: "Optional internal reference code." },
   ],
   health_wellness: [
     { name: "productCategory", label: "Product Category", type: "select", options: ["Supplement", "Medical supply", "Wellness device", "Personal care", "Fitness nutrition"], required: true, description: "Choose the product category." },
-    { name: "barcode", label: "Barcode / UPC", type: "text", placeholder: "e.g. 012345678905", required: false, description: "Barcode or UPC number printed on the product packaging." },
     { name: "prescriptionRequired", label: "Prescription Required", type: "select", options: ["No", "Yes – prescription required", "Yes – pharmacist consultation required"], required: true, description: "Let buyers know whether a prescription or consultation is needed before purchase." },
+    { name: "dosageForm", label: "Dosage Form", type: "select", options: ["Tablet", "Capsule", "Syrup / Liquid", "Powder", "Cream / Ointment", "Spray", "Device", "Other"], required: true, description: "Pick the form of the product." },
+    { name: "strength", label: "Strength", type: "text", placeholder: "e.g. 500mg, 5% w/w, 200 IU", required: false, description: "Strength per dose." },
     { name: "usageDirections", label: "How To Use", type: "textarea", placeholder: "Add simple usage directions", required: true, description: "Explain how the buyer should use this product." },
     { name: "keyIngredients", label: "Key Ingredients / Components", type: "textarea", placeholder: "List the main active ingredients or components", required: true, description: "Important for product clarity and trust." },
     { name: "warnings", label: "Important Warnings", type: "textarea", placeholder: "e.g. Keep out of reach of children", required: false, description: "Optional safety information." },
-    { name: "certification", label: "Certification", type: "multiselect", options: ["FDA approved", "Organic", "GMP certified", "Halal", "Vegan"], required: false, description: "Add any relevant certification." },
+    { name: "expiryDate", label: "Expiry Date", type: "date", required: false, description: "Strongly recommended for compliance & buyer trust." },
+    { name: "barcode", label: "Barcode / UPC", type: "text", placeholder: "e.g. 012345678905", required: false, description: "Barcode or UPC number printed on the product packaging." },
+    { name: "certification", label: "Certification", type: "multiselect", options: ["Ghana FDA Approved", "FDA approved", "Organic", "GMP certified", "Halal", "Vegan"], required: false, description: "Add any relevant certification." },
+    { name: "sku", label: "SKU / Internal Code", type: "text", placeholder: "e.g. WPC-VITD3", required: false, description: "Optional internal reference code." },
   ],
   restaurant: [
-    { name: "cuisineType", label: "Cuisine Type", type: "select", options: ["Ghanaian", "West African", "Continental", "Chinese", "Fast Food", "Grills & BBQ", "Seafood", "Italian", "Indian", "Café & Pastry", "Mixed / Other"], required: true, description: "Choose the cuisine style." },
-    { name: "mealCategory", label: "Meal Category", type: "select", options: ["Main course", "Appetizer / Starter", "Side dish", "Dessert", "Drink / Beverage", "Combo / Meal deal"], required: true, description: "Categorize this menu item." },
-    { name: "prepTime", label: "Preparation Time", type: "select", options: ["Ready immediately", "5–10 minutes", "10–20 minutes", "20–30 minutes", "30–45 minutes", "45–60 minutes", "Pre-order only"], required: false, description: "Estimated preparation time after order is placed." },
+    // cuisineType demoted — when the listing's category IS "Pizza", the
+    // cuisine is implied. Keep as override-only.
+    { name: "mealCategory", label: "Meal Category", type: "select", options: ["Main course", "Appetizer / Starter", "Side dish", "Dessert", "Drink / Beverage", "Combo / Meal deal"], required: true, description: "Categorize this menu item.", labelLocal: { twi: "Aduane no su", ga: "Niyenii kron", ewe: "Nuɖuɖu ƒomevi", hausa: "Nau'in abinci" } },
+    // Promoted to required — every food platform requires it.
+    { name: "prepTime", label: "Preparation Time", type: "select", options: ["Ready immediately", "5–10 minutes", "10–20 minutes", "20–30 minutes", "30–45 minutes", "45–60 minutes", "Pre-order only"], required: true, description: "Estimated preparation time after order is placed.", labelLocal: { twi: "Bere a wode siesie", ga: "Be ni akɛhɛ saa", ewe: "Ɣeyiɣi si nedzra ɖo", hausa: "Lokacin shiri" } },
+    { name: "cuisineType", label: "Cuisine Type", type: "select", options: ["Ghanaian", "West African", "Continental", "Chinese", "Fast Food", "Grills & BBQ", "Seafood", "Italian", "Indian", "Café & Pastry", "Mixed / Other"], required: false, description: "Override the cuisine style. Optional — listing category usually carries it." },
     { name: "portionSize", label: "Portion Size", type: "select", options: ["Small", "Regular", "Large", "Family size", "Per piece", "Per pack"], required: false, description: "Serving size for this item." },
-    { name: "dietaryTags", label: "Dietary Info", type: "multiselect", options: ["Halal", "Vegan", "Vegetarian", "Gluten-free", "Dairy-free", "Spicy", "Nut-free"], required: false, description: "Add relevant dietary labels." },
-    { name: "spiceLevel", label: "Spice Level", type: "select", options: ["Mild", "Medium", "Hot", "Extra hot", "Not applicable"], required: false, description: "Optional heat level for this dish." },
+    // Structured allergens added per Deliveroo / Bolt baseline.
+    { name: "allergens", label: "Allergens", type: "multiselect", options: ["Peanuts", "Tree nuts", "Eggs", "Dairy", "Gluten", "Soy", "Shellfish", "Fish", "Sesame", "Mustard", "Celery", "Sulphites", "Lupin", "Molluscs"], required: false, description: "Pick every allergen this dish contains." },
+    { name: "dietaryTags", label: "Dietary Info", type: "multiselect", options: ["Halal", "Vegan", "Vegetarian", "Gluten-free", "Dairy-free", "Sugar-free", "Kosher", "Contains alcohol", "Nut-free"], required: false, description: "Add relevant dietary labels." },
+    { name: "spiceLevel", label: "Spice Level", type: "select", options: ["Not spicy", "Mild", "Medium", "Hot", "Extra hot"], required: false, description: "Optional heat level for this dish." },
+    { name: "caloriesPerPortion", label: "Calories per portion", type: "number", required: false, description: "Optional kcal estimate — useful for fitness-conscious buyers." },
+    { name: "ageRestricted", label: "Age restricted", type: "select", options: ["No", "Yes — 18+"], required: false, description: "Auto-yes when 'Contains alcohol' is selected above." },
   ],
 };
 

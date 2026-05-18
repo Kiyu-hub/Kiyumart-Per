@@ -590,16 +590,35 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   });
 
   const storeTypeProductFields = useMemo(() => {
-    const merged = [...baseStoreTypeFields];
-    const seen = new Set(merged.map((f) => f.name));
+    // Phase 8 — category-driven field overrides via `productFieldsConfig`.
+    //
+    // Merge semantics:
+    //   • A cuisine/category field with a NEW name is appended.
+    //   • A cuisine/category field that re-uses an existing `name` REPLACES
+    //     the base field — so a category can tighten/loosen the base
+    //     storeType field (e.g. mark `prepTime` required for Pizza, optional
+    //     for Drinks; swap `options` for a localized list).
+    //   • A cuisine/category field with `hidden: true` removes the base
+    //     field entirely (e.g. drop `caloriesPerPortion` from Sushi).
+    const baseByName = new Map(baseStoreTypeFields.map((f) => [f.name, f] as const));
     const cuisineFields: any[] = Array.isArray(selectedCategoryData?.productFieldsConfig)
       ? selectedCategoryData.productFieldsConfig
       : [];
+    const hiddenNames = new Set<string>();
+    const overrides = new Map<string, any>();
+    const additions: any[] = [];
     for (const cf of cuisineFields) {
-      if (!cf?.name || seen.has(cf.name)) continue;
-      merged.push(cf as any);
-      seen.add(cf.name);
+      if (!cf?.name) continue;
+      if (cf.hidden === true) { hiddenNames.add(cf.name); continue; }
+      if (baseByName.has(cf.name)) overrides.set(cf.name, cf);
+      else additions.push(cf);
     }
+    const merged: typeof baseStoreTypeFields = [];
+    for (const base of baseStoreTypeFields) {
+      if (hiddenNames.has(base.name)) continue;
+      merged.push(overrides.has(base.name) ? (overrides.get(base.name) as any) : base);
+    }
+    for (const add of additions) merged.push(add as any);
     return merged;
   }, [baseStoreTypeFields, selectedCategoryData]);
   const selectedDeliveryPreset = getDeliveryDurationPreset(watchedDeliveryDuration);
@@ -735,6 +754,49 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
     }
   }, [open, store?.storeType, watchedDynamicFields, form]);
 
+  // Phase 10 — smart-defaults: when creating a new product and a category is
+  // picked, restore the dynamic fields the seller submitted on their last
+  // product for the same storeType+category. We only fill blanks (don't
+  // overwrite anything the seller already typed in this session) so the
+  // restore is purely additive.
+  const smartDefaultsAppliedRef = useRef<string>("");
+  useEffect(() => {
+    if (!open || mode !== "create" || !user?.id || !store?.storeType) return;
+    const key = `kiyumart.lastProductFields.${user.id}.${store.storeType}.${selectedCategoryId ?? "none"}`;
+    if (smartDefaultsAppliedRef.current === key) return; // already applied for this category
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) { smartDefaultsAppliedRef.current = key; return; }
+      const cached = JSON.parse(raw) as Record<string, any>;
+      if (!cached || typeof cached !== "object") return;
+      const current = (form.getValues("dynamicFields") as any)?.storeSpecific || {};
+      const merged: Record<string, any> = { ...current };
+      let changed = false;
+      for (const [k, v] of Object.entries(cached)) {
+        const existing = merged[k];
+        const isEmpty =
+          existing === undefined ||
+          existing === null ||
+          (typeof existing === "string" && existing.trim() === "") ||
+          (Array.isArray(existing) && existing.length === 0);
+        if (isEmpty && v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0) && v !== "") {
+          merged[k] = v;
+          changed = true;
+        }
+      }
+      if (changed) {
+        form.setValue(
+          "dynamicFields",
+          { ...(form.getValues("dynamicFields") as any), storeSpecific: merged },
+          { shouldDirty: false, shouldTouch: false },
+        );
+      }
+      smartDefaultsAppliedRef.current = key;
+    } catch {
+      smartDefaultsAppliedRef.current = key;
+    }
+  }, [open, mode, user?.id, store?.storeType, selectedCategoryId, form]);
+
   // Reset form when the dialog first opens, and only hydrate fresher product data
   // while the form is still untouched.
   useEffect(() => {
@@ -830,6 +892,19 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
           });
         }
       }
+
+      // Phase 10 — cache the last-submitted dynamic fields per seller +
+      // storeType + category so the NEXT create call can prefill them. Keeps
+      // sellers from re-typing brand, material, prepTime, etc. for every item.
+      try {
+        const lastSubmitted = form.getValues("dynamicFields") as any;
+        const storeSpec = lastSubmitted?.storeSpecific;
+        const catId = form.getValues("categoryId");
+        if (user?.id && store?.storeType && storeSpec && Object.keys(storeSpec).length > 0) {
+          const key = `kiyumart.lastProductFields.${user.id}.${store.storeType}.${catId ?? "none"}`;
+          window.localStorage.setItem(key, JSON.stringify(storeSpec));
+        }
+      } catch { /* localStorage may be unavailable */ }
 
       toast({
         title: "Success",
@@ -958,6 +1033,28 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
         variant: "destructive",
       });
       return;
+    }
+
+    // Phase 8 — submit-time validation honors category overrides (a category
+    // can promote a base field to required or hide it). The merged list
+    // `storeTypeProductFields` already reflects those overrides.
+    const storeSpecific = (data.dynamicFields as any)?.storeSpecific ?? {};
+    for (const field of storeTypeProductFields) {
+      if (!field.required) continue;
+      const v = storeSpecific[field.name];
+      const empty =
+        v === undefined ||
+        v === null ||
+        (typeof v === "string" && v.trim() === "") ||
+        (Array.isArray(v) && v.length === 0);
+      if (empty) {
+        toast({
+          title: `${field.label} is required`,
+          description: field.description || `Please fill in ${field.label.toLowerCase()} before saving.`,
+          variant: "destructive",
+        });
+        return;
+      }
     }
     if (mode === "create") {
       createProductMutation.mutate(data);
@@ -1432,37 +1529,65 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
             />
             </div>
 
-            {store?.storeType && storeTypeProductFields.length > 0 && (
-              <Card className="p-4 sm:p-5">
-                <div className="space-y-1">
-                  <h3 className="text-base font-semibold">
-                    {getStoreTypeLabel(store.storeType)} Product Details
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Add the extra product details buyers usually need for this type of store.
-                  </p>
-                </div>
+            {store?.storeType && storeTypeProductFields.length > 0 && (() => {
+              // Phase 7: progressive disclosure — required fields show up
+              // front, optional ones tuck under a "Add more details" toggle
+              // so the form never overwhelms new sellers.
+              const requiredFields = storeTypeProductFields.filter((f) => f.required);
+              const optionalFields = storeTypeProductFields.filter((f) => !f.required);
+              const renderField = (field: typeof storeTypeProductFields[number]) => {
+                const isWideField = field.type === "textarea" || field.type === "multiselect";
+                return (
+                  <div
+                    key={field.name}
+                    className={isWideField ? "md:col-span-2" : ""}
+                  >
+                    <DynamicFieldRenderer
+                      field={field}
+                      form={form}
+                      basePath="dynamicFields.storeSpecific"
+                    />
+                  </div>
+                );
+              };
 
-                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {storeTypeProductFields.map((field) => {
-                    const isWideField = field.type === "textarea" || field.type === "multiselect";
+              return (
+                <Card className="p-4 sm:p-5">
+                  <div className="space-y-1">
+                    <h3 className="text-base font-semibold">
+                      {getStoreTypeLabel(store.storeType)} Product Details
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Required details first. Optional fields are tucked below.
+                    </p>
+                  </div>
 
-                    return (
-                      <div
-                        key={field.name}
-                        className={isWideField ? "md:col-span-2" : ""}
-                      >
-                        <DynamicFieldRenderer
-                          field={field}
-                          form={form}
-                          basePath="dynamicFields.storeSpecific"
-                        />
+                  {requiredFields.length > 0 && (
+                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                      {requiredFields.map(renderField)}
+                    </div>
+                  )}
+
+                  {optionalFields.length > 0 && (
+                    <details className="group mt-4 rounded-lg border bg-muted/30 p-4">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
+                        <div>
+                          <h4 className="font-medium text-sm">Add more details (optional)</h4>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {optionalFields.length} extra field{optionalFields.length === 1 ? "" : "s"} buyers may find useful.
+                          </p>
+                        </div>
+                        <span className="text-xs font-medium text-primary transition-opacity group-open:hidden">Show</span>
+                        <span className="hidden text-xs font-medium text-primary group-open:inline">Hide</span>
+                      </summary>
+                      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                        {optionalFields.map(renderField)}
                       </div>
-                    );
-                  })}
-                </div>
-              </Card>
-            )}
+                    </details>
+                  )}
+                </Card>
+              );
+            })()}
 
             {/* Food/restaurant: product image gallery + Ghanaian food preset picker */}
             {(store?.storeType === "food_beverages" || store?.storeType === "restaurant") && (

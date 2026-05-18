@@ -21,7 +21,13 @@ import {
   products,
   productModifiers,
 } from "@shared/schema";
-import { STORE_TYPES, type StoreType, buildStoreTypeProductDefaults } from "@shared/storeTypes";
+import {
+  STORE_TYPES,
+  type StoreType,
+  buildStoreTypeProductDefaults,
+  getStoreTypeProductFields,
+  type DynamicField,
+} from "@shared/storeTypes";
 
 // ============================================================================
 //  Constants
@@ -170,9 +176,26 @@ const STORE_TYPE_CATALOG: Record<StoreType, { storeName: string; merchantCategor
           { name: "Add-ons", options: [{ label: "Extra Plantain", priceAdj: 5 }, { label: "Shito Sauce", priceAdj: 2 }, { label: "Salad", priceAdj: 5 }], maxSelections: 3 },
         ],
       },
-      { name: "Soups & Stews", productNames: ["Light Soup with Tilapia", "Groundnut Soup with Goat", "Palmnut Soup", "Okro Stew", "Garden Egg Stew", "Kontomire Stew", "Fante Fante Soup", "Ebunu Ebunu Soup", "Pepper Soup", "Tomato Stew"], priceBand: [30, 80] },
+      {
+        name: "Soups & Stews",
+        productNames: ["Light Soup with Tilapia", "Groundnut Soup with Goat", "Palmnut Soup", "Okro Stew", "Garden Egg Stew", "Kontomire Stew", "Fante Fante Soup", "Ebunu Ebunu Soup", "Pepper Soup", "Tomato Stew"],
+        priceBand: [30, 80],
+        modifiers: [
+          { name: "Swallow", options: [{ label: "Fufu", priceAdj: 8 }, { label: "Banku", priceAdj: 7 }, { label: "Kenkey", priceAdj: 6 }, { label: "Omo Tuo (Rice Balls)", priceAdj: 8 }, { label: "No swallow", priceAdj: 0 }], required: true, maxSelections: 1 },
+          { name: "Protein", options: [{ label: "Goat", priceAdj: 12 }, { label: "Chicken", priceAdj: 8 }, { label: "Tilapia", priceAdj: 10 }, { label: "Beef", priceAdj: 8 }, { label: "No meat", priceAdj: -5 }], required: false, maxSelections: 1 },
+        ],
+      },
       { name: "Snacks", productNames: ["Meat Pie", "Spring Rolls (6)", "Samosa Combo", "Bofrot (Doughnut)", "Chin Chin Pack", "Plantain Chips", "Kelewele Pack", "Roasted Plantain + Groundnut", "Pancake Stack", "Sweet Potato Chips"], priceBand: [8, 40] },
-      { name: "Drinks", productNames: ["Sobolo (Hibiscus)", "Pineapple Ginger", "Lamugin", "Asaana Drink", "Tigernut Drink", "Fresh Coconut Water", "Lemon Mint Iced Tea", "Watermelon Juice", "Banana Smoothie", "Cold Bissap"], priceBand: [10, 35] },
+      {
+        name: "Drinks",
+        productNames: ["Sobolo (Hibiscus)", "Pineapple Ginger", "Lamugin", "Asaana Drink", "Tigernut Drink", "Fresh Coconut Water", "Lemon Mint Iced Tea", "Watermelon Juice", "Banana Smoothie", "Cold Bissap"],
+        priceBand: [10, 35],
+        modifiers: [
+          { name: "Size", options: [{ label: "Small (250ml)", priceAdj: 0 }, { label: "Medium (500ml)", priceAdj: 5 }, { label: "Large (750ml)", priceAdj: 10 }], required: true, maxSelections: 1 },
+          { name: "Ice", options: [{ label: "Normal ice", priceAdj: 0 }, { label: "Less ice", priceAdj: 0 }, { label: "No ice", priceAdj: 0 }], required: true, maxSelections: 1 },
+          { name: "Sweetness", options: [{ label: "Regular", priceAdj: 0 }, { label: "Less sweet", priceAdj: 0 }, { label: "Extra sweet", priceAdj: 0 }, { label: "Unsweetened", priceAdj: 0 }], required: false, maxSelections: 1 },
+        ],
+      },
       { name: "Beverages — Packaged", productNames: ["Bottled Water 1.5L", "Coke 500ml", "Malta Guinness", "Alvaro Pineapple", "Fan Milk Strawberry", "Voltic 1L", "Sprite 500ml", "Energy Drink 250ml", "Iced Coffee Can", "Apple Juice 1L"], priceBand: [3, 18] },
       { name: "Bakery", productNames: ["Sugar Bread Loaf", "Tea Bread", "Butter Bread", "Coconut Bread", "Banana Bread Slice", "Whole Wheat Loaf", "Cinnamon Roll", "Croissant", "Muffin (Choco)", "Sausage Roll"], priceBand: [5, 30] },
     ],
@@ -284,6 +307,12 @@ const STORE_TYPE_CATALOG: Record<StoreType, { storeName: string; merchantCategor
         name: "Burgers",
         productNames: ["Classic Cheeseburger", "Double Beef Stack", "Crispy Chicken Burger", "Spicy Suya Burger", "BBQ Bacon Burger", "Veggie Black Bean", "Fish Fillet Burger", "Mushroom Swiss", "Smash Burger", "Turkey Avocado"],
         priceBand: [40, 95],
+        productFieldsConfig: [
+          { name: "patty", label: "Patty", type: "select", options: ["Beef", "Chicken", "Fish", "Turkey", "Plant-based", "Black bean (veggie)"], required: true, description: "Choose the main protein." },
+          { name: "bun", label: "Bun", type: "select", options: ["Brioche", "Sesame Seed", "Whole-wheat", "Pretzel", "Lettuce wrap (no bun)"], required: true, description: "Pick the bun style." },
+          { name: "cheese", label: "Cheese", type: "select", options: ["No cheese", "Cheddar", "Swiss", "Mozzarella", "Pepper-jack", "Blue cheese"], description: "Optional cheese choice." },
+          { name: "toppings", label: "Toppings", type: "multiselect", options: ["Lettuce", "Tomato", "Pickles", "Red Onion", "Jalapeños", "Bacon", "Fried Egg", "Caramelized Onions"], description: "Pick all toppings on this burger." },
+        ],
         modifiers: [
           { name: "Side", options: [{ label: "Fries", priceAdj: 8 }, { label: "Sweet Potato Fries", priceAdj: 12 }, { label: "Coleslaw", priceAdj: 6 }, { label: "Side Salad", priceAdj: 10 }], maxSelections: 1 },
           { name: "Spice Level", options: [{ label: "Mild", priceAdj: 0 }, { label: "Medium", priceAdj: 0 }, { label: "Hot", priceAdj: 0 }, { label: "Suya Spicy", priceAdj: 2 }], maxSelections: 1 },
@@ -293,11 +322,28 @@ const STORE_TYPE_CATALOG: Record<StoreType, { storeName: string; merchantCategor
         name: "Local Dishes",
         productNames: ["Jollof Rice & Chicken", "Banku & Tilapia", "Waakye Special", "Fufu & Light Soup", "Tuo Zaafi", "Red Red & Plantain", "Kenkey & Fried Fish", "Yam & Egg Stew", "Akple & Okro", "Konkonte & Soup"],
         priceBand: [40, 110],
+        productFieldsConfig: [
+          { name: "starchBase", label: "Starch / Swallow", type: "select", options: ["Jollof Rice", "Plain Rice", "Banku", "Fufu", "Kenkey", "Tuo Zaafi", "Akple", "Konkonte", "Yam", "Plantain", "Waakye"], required: true, description: "Pick the base of this dish." },
+          { name: "soupOrStew", label: "Soup / Stew", type: "select", options: ["Light Soup", "Groundnut Soup", "Palmnut Soup", "Okro Stew", "Tomato Stew", "Garden Egg Stew", "Kontomire Stew", "Pepper Soup", "None"], required: false, description: "Soup or stew served with this dish (if applicable)." },
+        ],
+        modifiers: [
+          { name: "Protein Choice", options: [{ label: "Chicken", priceAdj: 0 }, { label: "Goat", priceAdj: 10 }, { label: "Beef", priceAdj: 5 }, { label: "Tilapia", priceAdj: 12 }, { label: "Egg", priceAdj: -5 }, { label: "No protein", priceAdj: -8 }], required: true, maxSelections: 1 },
+          { name: "Add-ons", options: [{ label: "Extra Plantain", priceAdj: 5 }, { label: "Shito Sauce", priceAdj: 2 }, { label: "Boiled Egg", priceAdj: 3 }, { label: "Salad", priceAdj: 5 }, { label: "Avocado", priceAdj: 7 }], maxSelections: 3 },
+          { name: "Spice Level", options: [{ label: "Mild", priceAdj: 0 }, { label: "Medium", priceAdj: 0 }, { label: "Hot (Shito)", priceAdj: 0 }, { label: "Suya Hot", priceAdj: 2 }], required: true, maxSelections: 1 },
+        ],
       },
       {
         name: "Pasta",
         productNames: ["Spaghetti Bolognese", "Penne Arrabbiata", "Creamy Alfredo", "Carbonara", "Pesto Linguine", "Seafood Spaghetti", "Mac & Cheese", "Lasagna Slice", "Chicken Fettuccine", "Veggie Primavera"],
         priceBand: [50, 130],
+        productFieldsConfig: [
+          { name: "pastaType", label: "Pasta Type", type: "select", options: ["Spaghetti", "Penne", "Linguine", "Fettuccine", "Macaroni", "Lasagna sheets"], required: true, description: "Choose the noodle shape." },
+          { name: "sauceBase", label: "Sauce Base", type: "select", options: ["Tomato", "Cream / Alfredo", "Pesto", "Olive oil & garlic", "Cheese"], required: true, description: "Sauce style for this dish." },
+        ],
+        modifiers: [
+          { name: "Protein", options: [{ label: "Chicken", priceAdj: 12 }, { label: "Beef Mince", priceAdj: 10 }, { label: "Shrimp", priceAdj: 18 }, { label: "Veggie only", priceAdj: -5 }], required: true, maxSelections: 1 },
+          { name: "Extras", options: [{ label: "Extra Cheese", priceAdj: 8 }, { label: "Garlic Bread", priceAdj: 12 }, { label: "Side Salad", priceAdj: 10 }, { label: "Chili Flakes", priceAdj: 0 }], maxSelections: 3 },
+        ],
       },
       {
         name: "Sushi",
@@ -308,11 +354,20 @@ const STORE_TYPE_CATALOG: Record<StoreType, { storeName: string; merchantCategor
           { name: "fish", label: "Fish", type: "select", options: ["Salmon", "Tuna", "Eel", "Shrimp", "No Fish (Veggie)"], required: true, description: "Pick the fish (or veggie)." },
           { name: "wasabi", label: "Wasabi & Ginger", type: "select", options: ["Both", "Wasabi Only", "Ginger Only", "Neither"], description: "Sides for your sushi." },
         ],
+        modifiers: [
+          { name: "Pieces", options: [{ label: "4 pieces", priceAdj: 0 }, { label: "8 pieces", priceAdj: 20 }, { label: "12 pieces", priceAdj: 38 }, { label: "16 pieces", priceAdj: 55 }], required: true, maxSelections: 1 },
+          { name: "Sauces", options: [{ label: "Soy Sauce", priceAdj: 0 }, { label: "Spicy Mayo", priceAdj: 3 }, { label: "Eel Sauce", priceAdj: 3 }, { label: "Ponzu", priceAdj: 3 }], maxSelections: 4 },
+        ],
       },
       {
         name: "Grill & BBQ",
         productNames: ["Suya Skewer Beef", "Grilled Tilapia Whole", "BBQ Chicken Quarter", "Goat Khebab", "Grilled Pork Ribs", "Shawarma Wrap Beef", "Mixed Grill Platter", "Spicy Wings (10pc)", "Lamb Chops Trio", "Smoked Sausage Plate"],
         priceBand: [45, 200],
+        productFieldsConfig: [
+          { name: "meatType", label: "Meat", type: "select", options: ["Beef", "Chicken", "Goat", "Lamb", "Pork", "Tilapia", "Mixed"], required: true, description: "Main meat for this grill item." },
+          { name: "doneness", label: "Doneness", type: "select", options: ["Rare", "Medium-rare", "Medium", "Medium-well", "Well done"], required: false, description: "How well-cooked buyers prefer the meat." },
+          { name: "sides", label: "Sides", type: "multiselect", options: ["Fries", "Banku", "Kelewele", "Yam Chips", "Salad", "Rice", "Plantain", "Pita Bread"], description: "Sides served with this grill item." },
+        ],
         modifiers: [
           { name: "Spice", options: [{ label: "Mild", priceAdj: 0 }, { label: "Medium", priceAdj: 0 }, { label: "Hot", priceAdj: 0 }, { label: "Suya Hot", priceAdj: 3 }], required: true, maxSelections: 1 },
         ],
@@ -321,11 +376,28 @@ const STORE_TYPE_CATALOG: Record<StoreType, { storeName: string; merchantCategor
         name: "Drinks",
         productNames: ["Fresh Bissap (Sobolo)", "Pineapple Ginger Juice", "Asaana", "Iced Lemonade", "Iced Coffee", "Mango Smoothie", "Watermelon Cooler", "Cocoa Hot Drink", "Mint Mojito Mocktail", "Sparkling Water"],
         priceBand: [10, 45],
+        productFieldsConfig: [
+          { name: "drinkCategory", label: "Drink Type", type: "select", options: ["Fresh Juice", "Smoothie", "Soft Drink", "Iced Tea", "Hot Drink", "Mocktail", "Water"], required: true, description: "Pick the drink category." },
+          { name: "temperature", label: "Serve", type: "select", options: ["Iced", "Chilled", "Room temperature", "Hot"], required: true, description: "How this drink is served." },
+        ],
+        modifiers: [
+          { name: "Size", options: [{ label: "Small (250ml)", priceAdj: 0 }, { label: "Medium (500ml)", priceAdj: 6 }, { label: "Large (750ml)", priceAdj: 12 }], required: true, maxSelections: 1 },
+          { name: "Ice", options: [{ label: "Normal ice", priceAdj: 0 }, { label: "Less ice", priceAdj: 0 }, { label: "No ice", priceAdj: 0 }], required: true, maxSelections: 1 },
+          { name: "Sweetness", options: [{ label: "Regular", priceAdj: 0 }, { label: "Less sweet", priceAdj: 0 }, { label: "Extra sweet", priceAdj: 0 }, { label: "Unsweetened", priceAdj: 0 }], maxSelections: 1 },
+        ],
       },
       {
         name: "Desserts",
         productNames: ["Chocolate Lava Cake", "Cheesecake Slice", "Ice Cream Sundae", "Banana Split", "Tiramisu Cup", "Fruit Salad Bowl", "Coconut Tart", "Brownie à la Mode", "Apple Pie Slice", "Crème Brûlée"],
         priceBand: [20, 60],
+        productFieldsConfig: [
+          { name: "dessertStyle", label: "Style", type: "select", options: ["Cake", "Tart / Pie", "Ice Cream", "Pastry", "Mousse / Custard", "Fruit-based"], required: true, description: "Pick the dessert style." },
+          { name: "servedAs", label: "Served", type: "select", options: ["Cold", "Warm", "Room temperature"], required: false, description: "How this dessert is best served." },
+        ],
+        modifiers: [
+          { name: "Toppings", options: [{ label: "Whipped Cream", priceAdj: 4 }, { label: "Chocolate Drizzle", priceAdj: 4 }, { label: "Caramel Drizzle", priceAdj: 4 }, { label: "Fresh Berries", priceAdj: 8 }, { label: "Crushed Nuts", priceAdj: 5 }], maxSelections: 4 },
+          { name: "Ice Cream Side", options: [{ label: "No ice cream", priceAdj: 0 }, { label: "Vanilla scoop", priceAdj: 8 }, { label: "Chocolate scoop", priceAdj: 8 }, { label: "Strawberry scoop", priceAdj: 8 }], maxSelections: 1 },
+        ],
       },
     ],
   },
@@ -348,70 +420,98 @@ function buildProductDescription(productName: string, categoryName: string, stor
   return `Quality ${categoryName.toLowerCase()} item — ${productName}. Carefully curated for our ${lower.replace(/_/g, " ")} customers in Ghana.`;
 }
 
-function buildDynamicFields(storeType: StoreType, categoryFields: any[] = []): Record<string, any> {
-  // Start with empty defaults for this storeType
-  const base = buildStoreTypeProductDefaults(storeType, null);
+// Curated default text values per known field name. For `select`/`multiselect`
+// fields we DO NOT hardcode here — we pick the first available option from the
+// live schema (so values stay valid when options are renamed in storeTypes.ts).
+const TEXT_PRESETS: Record<string, string> = {
+  material: "Cotton",
+  careInstructions: "Hand wash cold, hang dry.",
+  brand: "Generic",
+  model: "Standard",
+  keySpecs: "Standard specifications, see product details.",
+  boxContents: "Product, basic accessories, user guide.",
+  portionOrWeight: "Regular serving",
+  ingredients: "Locally sourced fresh ingredients.",
+  benefits: "Hydrates and refreshes the skin.",
+  sizeVolume: "Standard size",
+  countryOfOrigin: "Ghana",
+  dimensions: "30 x 20 x 10 cm",
+  usageNote: "Good for indoor and outdoor use.",
+  authorOrCreator: "Various",
+  summary: "Engaging read for all ages.",
+  isbn: "978-0-00-000000-0",
+  publisher: "Self-published",
+  safetyNote: "Adult supervision recommended for children under 3.",
+  vehicleCompatibility: "Universal — most sedans 2010-2024.",
+  oemNumber: "GEN-0001",
+  installationNote: "Professional installation recommended.",
+  strength: "Standard",
+  usageDirections: "Use as directed by product label.",
+  keyIngredients: "See product packaging.",
+  warnings: "Keep out of reach of children.",
+  barcode: "012345678905",
+};
 
-  // Sensible default values so required dynamic fields are satisfied
-  const presets: Record<string, any> = {
-    fitType: "Regular fit",
-    material: "Cotton",
-    careInstructions: "Hand wash cold, hang dry.",
-    occasion: ["Everyday wear"],
-    genderTarget: "Unisex",
-    brand: "Generic",
-    model: "Standard",
-    keySpecs: "Standard specifications, see product details.",
-    warranty: "No warranty",
-    condition: "Brand new",
-    foodType: "Cooked meal / Local dish",
-    prepTime: "10–20 minutes",
-    portionOrWeight: "Regular serving",
-    storageGuide: "Serve fresh / hot",
-    productType: "Skincare",
-    skinOrHairType: ["All skin types"],
-    benefits: "Hydrates and refreshes the skin.",
-    sizeVolume: "Standard size",
-    dimensions: "30 x 20 x 10 cm",
-    useArea: ["Living room"],
-    assemblyNeeded: "No",
-    sportCategory: ["Gym"],
-    skillLevel: "All levels",
-    authorOrCreator: "Various",
-    format: "Paperback",
-    genre: "General",
-    language: "English",
-    summary: "Engaging read for all ages.",
-    ageRange: "6-8 years",
-    toyType: "Educational",
-    safetyNote: "Adult supervision recommended for children under 3.",
-    vehicleCompatibility: "Universal — most sedans 2010-2024.",
-    installationNote: "Professional installation recommended.",
-    productCategory: "Supplement",
-    prescriptionRequired: "No",
-    usageDirections: "Use as directed by product label.",
-    keyIngredients: "See product packaging.",
-    cuisineType: "Ghanaian",
-    mealCategory: "Main course",
-    portionSize: "Regular",
-    dietaryTags: ["Halal"],
-    spiceLevel: "Medium",
-  };
+const NUMBER_PRESETS: Record<string, number> = {
+  publicationYear: 2024,
+  caloriesPerPortion: 350,
+};
 
-  for (const k of Object.keys(base)) {
-    if (presets[k] !== undefined) base[k] = presets[k];
+// Today + 18 months — used for `expiryDate` defaults so dev rows look fresh.
+const DEFAULT_EXPIRY = (() => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 18);
+  return d.toISOString().slice(0, 10);
+})();
+
+const DATE_PRESETS: Record<string, string> = {
+  expiryDate: DEFAULT_EXPIRY,
+};
+
+function defaultForField(field: DynamicField): any {
+  if (field.type === "multiselect") {
+    // First option satisfies `min(1)` for required multiselects; arrays for optional too.
+    return field.options && field.options.length > 0 ? [field.options[0]] : [];
   }
+  if (field.type === "select") {
+    return field.options && field.options.length > 0 ? field.options[0] : "";
+  }
+  if (field.type === "number") {
+    return NUMBER_PRESETS[field.name] ?? 0;
+  }
+  if (field.type === "date") {
+    return DATE_PRESETS[field.name] ?? DEFAULT_EXPIRY;
+  }
+  // text / textarea
+  if (TEXT_PRESETS[field.name] !== undefined) return TEXT_PRESETS[field.name];
+  // Sensible fallback so Zod `min(1)` always passes for required text fields.
+  return `Sample ${field.label.toLowerCase()}`;
+}
 
-  // Cuisine fields — sensible defaults
+/**
+ * Returns the `dynamicFields.storeSpecific` payload for a seeded product.
+ *
+ * Every field declared in `STORE_TYPE_PRODUCT_CONFIG[storeType]` is filled
+ * with a concrete value (select → first option; text → curated preset; etc.),
+ * so seeded products satisfy `getStoreTypeProductSchema(storeType)` immediately
+ * — sellers can open & save a seeded product without resolving "field is
+ * required" errors. Per-category `productFieldsConfig` (cuisine fields like
+ * crust/sauce) overlay on top.
+ */
+function buildStoreSpecificPayload(
+  storeType: StoreType,
+  categoryFields: DynamicField[] = [],
+): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const field of getStoreTypeProductFields(storeType)) {
+    out[field.name] = defaultForField(field);
+  }
+  // Overlay category-driven cuisine fields (Pizza crust, Sushi rice, etc.)
   for (const f of categoryFields) {
     if (!f?.name) continue;
-    if (f.type === "multiselect") base[f.name] = f.options ? [f.options[0]] : [];
-    else if (f.type === "select") base[f.name] = f.options?.[0] ?? "";
-    else if (f.type === "number") base[f.name] = 0;
-    else base[f.name] = "";
+    out[f.name] = defaultForField(f);
   }
-
-  return base;
+  return out;
 }
 
 // ============================================================================
@@ -562,9 +662,15 @@ async function seedProducts(
 
     const price = rand(spec.priceBand[0], spec.priceBand[1]);
     const images = [pick(IMAGE_POOL[storeType]), pick(IMAGE_POOL[storeType])];
+    // Build a fully-valid `storeSpecific` payload that satisfies the storeType's
+    // Zod schema (required fields filled with concrete values from the live
+    // option list). This is the bag the seller-side edit form re-validates
+    // against — leaving it empty caused "field is required" errors on open.
+    const storeSpecific = buildStoreSpecificPayload(storeType, spec.productFieldsConfig ?? []);
     const dynamicFields = {
-      ...buildDynamicFields(storeType, spec.productFieldsConfig ?? []),
-      storeSpecific: buildStoreTypeProductDefaults(storeType),
+      ...storeSpecific, // legacy top-level mirror (some surfaces read from here)
+      storeType,
+      storeSpecific,    // canonical location read by SellerProducts edit form
       ...DEV_SEED_MARK,
     };
 
