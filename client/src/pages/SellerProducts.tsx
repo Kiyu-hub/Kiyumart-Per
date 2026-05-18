@@ -488,37 +488,6 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
   const isFoodStoreType = store?.storeType === "food_beverages" || store?.storeType === "restaurant";
   const show3DAR = platform.enable3DAR && !isFoodStoreType;
 
-  // Fetch the currently selected category so we can merge its `productFieldsConfig`
-  // (Bolt-style per-cuisine fields like crust / sauce / toppings) into the form.
-  // Only meaningful for food vendors — non-food stores don't define category fields.
-  const selectedCategoryId = form.watch("categoryId");
-  const { data: selectedCategoryData } = useQuery<any | null>({
-    queryKey: ["/api/categories", selectedCategoryId, "fields"],
-    queryFn: async () => {
-      if (!selectedCategoryId) return null;
-      const r = await fetch(`/api/categories`);
-      if (!r.ok) return null;
-      const all = await r.json();
-      return Array.isArray(all) ? all.find((c: any) => c.id === selectedCategoryId) : null;
-    },
-    enabled: !!selectedCategoryId && isFoodStoreType,
-    staleTime: 5 * 60_000,
-  });
-  const cuisineFields: any[] = Array.isArray(selectedCategoryData?.productFieldsConfig)
-    ? selectedCategoryData.productFieldsConfig
-    : [];
-  // Merge — cuisine fields come AFTER the storeType defaults; dedupe by name so
-  // a cuisine field can override a default one if needed.
-  const storeTypeProductFields = useMemo(() => {
-    const merged = [...baseStoreTypeFields];
-    const seen = new Set(merged.map((f) => f.name));
-    for (const cf of cuisineFields) {
-      if (!cf?.name || seen.has(cf.name)) continue;
-      merged.push(cf as any);
-      seen.add(cf.name);
-    }
-    return merged;
-  }, [baseStoreTypeFields, cuisineFields]);
   const variantConfig = useMemo(
     () => getStoreTypeVariantConfig(store?.storeType || null),
     [store?.storeType],
@@ -598,6 +567,41 @@ function ProductFormDialog({ product, mode }: { product?: Product; mode: "create
 
   const watchedDeliveryDuration = form.watch("deliveryDuration");
   const watchedDynamicFields = form.watch("dynamicFields");
+  const selectedCategoryId = form.watch("categoryId");
+
+  // Fetch the currently selected category so we can merge its `productFieldsConfig`
+  // (Bolt-style per-cuisine fields like crust / sauce / toppings) into the form.
+  // Only meaningful for food vendors — non-food stores don't define category fields.
+  const { data: selectedCategoryData } = useQuery<any | null>({
+    queryKey: ["/api/categories", selectedCategoryId, "fields"],
+    queryFn: async () => {
+      if (!selectedCategoryId) return null;
+      try {
+        const r = await fetch(`/api/categories`, { credentials: "include" });
+        if (!r.ok) return null;
+        const all = await r.json();
+        return Array.isArray(all) ? all.find((c: any) => c.id === selectedCategoryId) : null;
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!selectedCategoryId && isFoodStoreType,
+    staleTime: 5 * 60_000,
+  });
+
+  const storeTypeProductFields = useMemo(() => {
+    const merged = [...baseStoreTypeFields];
+    const seen = new Set(merged.map((f) => f.name));
+    const cuisineFields: any[] = Array.isArray(selectedCategoryData?.productFieldsConfig)
+      ? selectedCategoryData.productFieldsConfig
+      : [];
+    for (const cf of cuisineFields) {
+      if (!cf?.name || seen.has(cf.name)) continue;
+      merged.push(cf as any);
+      seen.add(cf.name);
+    }
+    return merged;
+  }, [baseStoreTypeFields, selectedCategoryData]);
   const selectedDeliveryPreset = getDeliveryDurationPreset(watchedDeliveryDuration);
   const showCustomDeliveryDurationInput =
     isCustomDeliveryDuration || selectedDeliveryPreset === "custom";
@@ -2672,53 +2676,60 @@ function ProductShareDialog({ product }: { product: Product }) {
           <Share2 className="h-3 w-3" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-1.5rem)] sm:w-auto max-w-[26rem] max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Share2 className="h-4 w-4" />
-            Share "{product.name}"
+          <DialogTitle className="flex items-start gap-2 pr-6 text-base sm:text-lg">
+            <Share2 className="h-4 w-4 shrink-0 mt-0.5" />
+            <span className="break-words">Share "{product.name}"</span>
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-xs sm:text-sm">
             Copy this link or scan the QR code to share your product. Customers can pay directly from this page — no account needed.
           </DialogDescription>
         </DialogHeader>
 
         {magicLink ? (
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {/* URL row */}
-            <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-2.5">
+            <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-2.5 min-w-0">
               <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <p className="flex-1 truncate text-xs font-mono text-muted-foreground">{magicLink}</p>
+              <p className="flex-1 min-w-0 truncate text-xs font-mono text-muted-foreground">{magicLink}</p>
               <Button size="sm" variant="outline" className="shrink-0 h-7 gap-1 text-xs" onClick={handleCopy}>
                 {copied ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
               </Button>
             </div>
 
-            {/* QR code */}
+            {/* QR code — never wider than its container */}
             <div className="flex flex-col items-center gap-3 rounded-xl border bg-white p-4">
-              <QRCode value={magicLink} size={160} />
+              <div className="w-full max-w-[200px]">
+                <QRCode
+                  value={magicLink}
+                  size={200}
+                  style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+                />
+              </div>
               <p className="text-xs text-muted-foreground text-center">Scan to open product page</p>
             </div>
 
-            {/* Share buttons */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* Share buttons — stack on narrow viewports so labels never clip */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <a
                 href={`https://wa.me/?text=${encodeURIComponent(`Check out ${product.name}: ${magicLink}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-1.5 rounded-lg border py-2 text-xs font-medium hover:bg-muted transition-colors"
+                className="flex items-center justify-center gap-1.5 rounded-lg border py-2.5 text-xs font-medium hover:bg-muted transition-colors"
               >
                 Share on WhatsApp
               </a>
-              <a
-                href={`https://www.instagram.com/`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-1.5 rounded-lg border py-2 text-xs font-medium hover:bg-muted transition-colors"
-                onClick={() => { navigator.clipboard.writeText(magicLink); toast({ title: "Link copied", description: "Paste it in your Instagram bio." }); }}
+              <button
+                type="button"
+                className="flex items-center justify-center gap-1.5 rounded-lg border py-2.5 text-xs font-medium hover:bg-muted transition-colors"
+                onClick={() => {
+                  navigator.clipboard.writeText(magicLink);
+                  toast({ title: "Link copied", description: "Paste it in your Instagram bio." });
+                }}
               >
                 Copy for Instagram
-              </a>
+              </button>
             </div>
           </div>
         ) : (
