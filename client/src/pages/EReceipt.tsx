@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
-import { buildCsv, createSimplePdf, logReportActivity, triggerDownload } from "@/lib/reporting";
+import { buildCsv, logReportActivity, triggerDownload } from "@/lib/reporting";
+import { generateBrandedReceiptPdf } from "@/lib/pdfReceipt";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import QRCode from "react-qr-code";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -72,6 +74,7 @@ export default function EReceipt() {
   const [, navigate] = useLocation();
   const { formatPrice } = useLanguage();
   const { toast } = useToast();
+  const platform = usePlatformSettings();
   const [showExportOptions, setShowExportOptions] = useState(false);
   const [exporting, setExporting] = useState<"none" | "csv" | "pdf">("none");
 
@@ -145,34 +148,41 @@ export default function EReceipt() {
     await logReportActivity({ action: "request", reportType: "order_receipt", format: "pdf", scope: reportScope, status: "success" });
     try {
       setExporting("pdf");
-      const lines: string[] = [
-        `Receipt Number: ${data.receipt.receiptNumber}`,
-        `Order Number: ${data.order.orderNumber}`,
-        `Generated At: ${new Date(data.receipt.updatedAt || data.receipt.createdAt).toISOString()}`,
-        `Order Status: ${data.order.status}`,
-        `Payment Status: ${data.order.paymentStatus}`,
-        `Delivery Method: ${data.order.deliveryMethod}`,
-        `Completed: ${data.completion?.isCompleted ? "Yes" : "No"}`,
-        `BUS Stage: ${data.busDeliveryWorkflow?.stage || "N/A"}`,
-        `Subtotal: ${Number(data.financial.subtotal || 0).toFixed(2)} ${data.financial.currency || "GHS"}`,
-        `Delivery Fee: ${Number(data.financial.deliveryFee || 0).toFixed(2)}`,
-        `Processing Fee: ${Number(data.financial.processingFee || 0).toFixed(2)}`,
-        `Coupon Discount: ${Number(data.financial.couponDiscount || 0).toFixed(2)}`,
-        `Total: ${Number(data.financial.total || 0).toFixed(2)}`,
-        `Transaction Reference: ${data.transaction?.reference || "N/A"}`,
-        `Status Flow: ${data.statusFlow || data.order.status}`,
-        " ",
-      ];
-      data.items.forEach((item, idx) => {
-        lines.push(`${idx + 1}. ${item.productName}`);
-        lines.push(`Qty: ${item.quantity} | Unit: ${item.price.toFixed(2)} | Total: ${item.lineTotal.toFixed(2)}`);
+      // Platform-branded PDF — same A5 layout as the magic-link receipt
+      // but pulling brand info from platform_settings instead of the store.
+      const blob = await generateBrandedReceiptPdf({
+        brandColor: platform.primaryColor || "#009688",
+        brandName: platform.platformName || "KiyuMart",
+        logoUrl: platform.logoLight || platform.logo || platform.favicon || null,
+        orderNumber: data.order.orderNumber || data.receipt.receiptNumber,
+        date: new Date(data.receipt.updatedAt || data.receipt.createdAt).toLocaleDateString("en-GH", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        }),
+        address: data.order.deliveryAddress || null,
+        items: data.items.map((item) => ({
+          name: item.productName,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        subtotal: Number(data.financial.subtotal || 0),
+        deliveryFee: Number(data.financial.deliveryFee || 0),
+        processingFee: Number(data.financial.processingFee || 0),
+        couponDiscount: Number(data.financial.couponDiscount || 0),
+        total: Number(data.financial.total || 0),
+        currency: data.financial.currency || "GHS",
+        contactEmail: platform.contactEmail || null,
+        contactPhone: platform.contactPhone || null,
+        footerLabel: "Secured by Paystack",
       });
-      const pdfBytes = createSimplePdf("Kiyumart - Order Receipt", lines);
       await logReportActivity({ action: "generate", reportType: "order_receipt", format: "pdf", scope: reportScope, status: "success" });
-      triggerDownload(new Blob([pdfBytes], { type: "application/pdf" }), `${data.receipt.receiptNumber}.pdf`);
+      triggerDownload(blob, `${data.receipt.receiptNumber}.pdf`);
       await logReportActivity({ action: "download", reportType: "order_receipt", format: "pdf", scope: reportScope, status: "success" });
+      toast({ title: "PDF receipt downloaded" });
     } catch {
       await logReportActivity({ action: "generate", reportType: "order_receipt", format: "pdf", scope: reportScope, status: "failed" });
+      toast({ title: "Couldn't generate PDF", description: "Please try again.", variant: "destructive" });
     } finally {
       setExporting("none");
     }

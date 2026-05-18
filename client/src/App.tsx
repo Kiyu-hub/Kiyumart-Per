@@ -154,6 +154,26 @@ function RouteGateLoader() {
   );
 }
 
+/**
+ * Delayed Suspense fallback.
+ *
+ * When a user navigates between lazy-loaded routes the previous page is
+ * unmounted instantly and React shows the Suspense fallback. If the new
+ * route resolves quickly (typical: under ~200ms once a chunk is cached) the
+ * spinner appears as a one-frame flash. Holding off the fallback for 200ms
+ * avoids the flash entirely while still surfacing a spinner when the load
+ * is genuinely slow.
+ */
+function DelayedRouteFallback() {
+  const [shown, setShown] = React.useState(false);
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setShown(true), 200);
+    return () => window.clearTimeout(id);
+  }, []);
+  if (!shown) return null;
+  return <RouteGateLoader />;
+}
+
 // Injects GA4 and Microsoft Clarity scripts from DB settings — no hardcoded IDs needed
 function AnalyticsInjector() {
   const { data } = useQuery<{ googleAnalyticsId: string | null; microsoftClarityId: string | null }>({
@@ -487,7 +507,7 @@ function Router() {
   return (
     <>
       <RouteScrollManager />
-      <React.Suspense fallback={<RouteGateLoader />}>
+      <React.Suspense fallback={<DelayedRouteFallback />}>
       <Switch>
         <Route path="/" component={HomeRouter} />
       <Route path="/search" component={SearchPage} />

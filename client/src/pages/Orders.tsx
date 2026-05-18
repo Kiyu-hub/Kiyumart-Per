@@ -611,6 +611,22 @@ export default function Orders() {
               >
                 {paymentButtonConfig.label}
               </Button>
+              {/* Receipt — only for paid orders. Opens the platform-branded
+                  E-Receipt with the PDF download. */}
+              {normalizePaymentStatus(order.paymentStatus) === "paid" && (
+                <Button
+                  className="w-full"
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/orders/${encodeURIComponent(order.id)}/receipt`);
+                  }}
+                  data-testid={`button-receipt-${order.id}`}
+                >
+                  View receipt
+                </Button>
+              )}
               {/* Cancel — only for unpaid/pending orders */}
               {["pending", "created"].includes(normalize(order.status)) &&
                 ["pending", "failed"].includes(normalizePaymentStatus(order.paymentStatus)) && (

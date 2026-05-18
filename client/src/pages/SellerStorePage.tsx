@@ -119,7 +119,7 @@ export default function SellerStorePage() {
   const sellerId = store?.primarySellerId || storeOrSellerId;
 
   // Load seller profile (public endpoint)
-  const { data: seller, isLoading: sellerLoading } = useQuery<any>({
+  const { data: seller, isLoading: sellerLoading, isFetched: sellerFetched } = useQuery<any>({
     queryKey: ["/api/seller-profile", sellerId],
     queryFn: async () => {
       // Try the public seller profile endpoint first
@@ -249,7 +249,11 @@ export default function SellerStorePage() {
     );
   }
 
-  if (!displayData && !storeLoading && !sellerLoading) {
+  // Only show "Store Not Found" once BOTH lookups have definitively
+  // resolved without data. sellerFetched guards against a race where
+  // sellerLoading transitions through true→false while the seller query
+  // re-runs with a derived sellerId.
+  if (!displayData && !storeLoading && !sellerLoading && sellerFetched) {
     if (isMobile) {
       return (
         <div style={{ minHeight: '100dvh', background: bg, fontFamily: F, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
