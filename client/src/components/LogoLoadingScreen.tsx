@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import appLogo from "@assets/kiyumart_logo.png";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
 
 // Use the dark logo as the heading image on the loading screen (served from attached_assets)
 const SCRIPT_HEADING_LOGO = "/attached_assets/kiyumart_logo_dark.png";
@@ -55,6 +56,23 @@ export default function LogoLoadingScreen({
   const [showLoader, setShowLoader] = useState(true);
   const [hasMinTimePassed, setHasMinTimePassed] = useState(false);
   const shouldReduceMotion = useReducedMotion();
+  const { isMobile } = useMobileDevice();
+
+  // Mobile gets a minimal "icon + animated wordmark" splash. Desktop keeps
+  // the full original animation (logo + rings + sparkles + script heading).
+  if (isMobile) {
+    return (
+      <MobileSplash
+        showLoader={showLoader}
+        setShowLoader={setShowLoader}
+        isLoading={isLoading}
+        minDisplayTime={minDisplayTime}
+        hasMinTimePassed={hasMinTimePassed}
+        setHasMinTimePassed={setHasMinTimePassed}
+        shouldReduceMotion={shouldReduceMotion}
+      />
+    );
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -176,7 +194,7 @@ export default function LogoLoadingScreen({
               transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
             />
 
-            {/* Logo with bounce */}
+            {/* Logo with bounce — original desktop animation. */}
             <motion.div variants={logoVariants} className="relative z-10">
               <motion.img
                 src={appLogo}
@@ -326,6 +344,130 @@ export function useAppLoading() {
   return { isLoading, setIsLoading };
 }
 
+
+/**
+ * MobileSplash — compact mobile-only splash screen.
+ *
+ * Shows the bouncing + spinning logo icon and the wordmark "kiyumart"
+ * spelled out letter-by-letter underneath as the loading indicator.
+ * White background to match the OS splash hand-off.
+ */
+interface MobileSplashProps {
+  showLoader: boolean;
+  setShowLoader: (b: boolean) => void;
+  isLoading: boolean;
+  minDisplayTime: number;
+  hasMinTimePassed: boolean;
+  setHasMinTimePassed: (b: boolean) => void;
+  shouldReduceMotion: boolean;
+}
+
+function MobileSplash({
+  showLoader,
+  setShowLoader,
+  isLoading,
+  minDisplayTime,
+  hasMinTimePassed,
+  setHasMinTimePassed,
+  shouldReduceMotion,
+}: MobileSplashProps) {
+  useEffect(() => {
+    const timer = setTimeout(() => setHasMinTimePassed(true), minDisplayTime);
+    return () => clearTimeout(timer);
+  }, [minDisplayTime, setHasMinTimePassed]);
+
+  useEffect(() => {
+    if (!isLoading && hasMinTimePassed) setShowLoader(false);
+  }, [isLoading, hasMinTimePassed, setShowLoader]);
+
+  const letters = "kiyumart".split("");
+
+  return (
+    <AnimatePresence mode="wait">
+      {showLoader && (
+        <motion.div
+          key="mobile-loader"
+          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, transition: { duration: 0.3 } }}
+          data-testid="logo-loading-screen"
+        >
+          {/* Logo icon — small, jumping with a flip */}
+          <motion.img
+            src={appLogo}
+            alt="KiyuMart"
+            className="w-14 h-14 object-contain"
+            animate={
+              shouldReduceMotion
+                ? {}
+                : {
+                    y: [0, -22, 0, -10, 0],
+                    rotateY: [0, 360],
+                    scale: [1, 1.08, 1, 1.04, 1],
+                  }
+            }
+            transition={{
+              duration: 1.4,
+              repeat: Infinity,
+              ease: "easeInOut",
+              times: [0, 0.25, 0.5, 0.75, 1],
+            }}
+            style={{ filter: "drop-shadow(0 10px 18px rgba(13,148,136,0.25))" }}
+          />
+
+          {/* Wordmark — letter by letter */}
+          <div className="mt-6 flex items-baseline justify-center" data-testid="splash-wordmark">
+            {letters.map((ch, i) => (
+              <motion.span
+                key={`${ch}-${i}`}
+                className="text-2xl font-extrabold tracking-tight"
+                style={{
+                  background: "linear-gradient(90deg, #0d9488, #14b8a6, #10b981)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                }}
+                initial={{ opacity: 0, y: 8 }}
+                animate={
+                  shouldReduceMotion
+                    ? { opacity: 1, y: 0 }
+                    : {
+                        opacity: [0, 1, 1, 0.7, 1],
+                        y: [8, 0, 0, 0, 0],
+                      }
+                }
+                transition={{
+                  duration: 1.8,
+                  delay: i * 0.12,
+                  repeat: Infinity,
+                  repeatDelay: 0.6,
+                  ease: "easeInOut",
+                }}
+              >
+                {ch}
+              </motion.span>
+            ))}
+          </div>
+
+          {/* Subtle three-dot pulse below the wordmark */}
+          <div className="mt-5 flex gap-1.5" data-testid="splash-dots">
+            {[0, 1, 2].map((i) => (
+              <motion.span
+                key={i}
+                className="h-1.5 w-1.5 rounded-full bg-teal-500"
+                animate={
+                  shouldReduceMotion ? {} : { opacity: [0.3, 1, 0.3], scale: [0.9, 1.1, 0.9] }
+                }
+                transition={{ duration: 1, delay: i * 0.15, repeat: Infinity, ease: "easeInOut" }}
+              />
+            ))}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 /**
  * LogoHeading - renders the big loading-screen heading.
