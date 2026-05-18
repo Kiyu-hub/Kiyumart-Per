@@ -51,12 +51,38 @@ interface ActiveCall {
   createdAt: string;
 }
 
+// ── Mesh group call (up to 4 participants) ───────────────────────────────────
+// Each browser opens an RTCPeerConnection to every other participant. Free
+// STUN + the existing OpenRelay TURN handle NAT traversal. No SFU, no signup.
+export const GROUP_CALL_MAX = 4;
+
+export interface GroupCallParticipant {
+  userId: string;
+  userName: string;
+  stream: MediaStream | null;
+  pc: RTCPeerConnection | null;
+}
+
+interface GroupCallState {
+  callId: string;
+  callType: "voice" | "video";
+  isHost: boolean;
+  hostId: string;
+  hostName: string;
+  // participants = everyone EXCEPT the local user
+  participants: Map<string, GroupCallParticipant>;
+}
+
 interface IncomingCall {
   roomName: string;
   roomUrl: string;
   callerId: string;
   callerName: string;
   callType: "voice" | "video";
+  // Group-call invites carry these. Falsy = legacy 1-to-1.
+  isGroup?: boolean;
+  groupCallId?: string;
+  participantIds?: string[];
 }
 
 interface PendingOffer {
@@ -94,6 +120,9 @@ export interface JitsiCallContextType {
   isJoining: boolean;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  // Group call (mesh, up to 4 participants total)
+  groupCall: GroupCallState | null;
+  remoteParticipants: GroupCallParticipant[];
   startCall: (targetUserId: string, callType?: "voice" | "video", orderId?: string) => Promise<void>;
   startGroupCall: (participantIds: string[], callType?: "voice" | "video") => Promise<void>;
   joinCall: (roomName: string) => Promise<void>;
@@ -138,6 +167,15 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
   const pendingOfferRef = useRef<PendingOffer | null>(null);
   const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const outgoingUnansweredRef = useRef<OutgoingUnansweredCall | null>(null);
+
+  // ── Group call state ────────────────────────────────────────────────────────
+  const [groupCall, setGroupCall] = useState<GroupCallState | null>(null);
+  const groupCallRef = useRef<GroupCallState | null>(null);
+  useEffect(() => { groupCallRef.current = groupCall; }, [groupCall]);
+
+  // ICE candidates that arrive before the corresponding peer's
+  // setRemoteDescription has resolved — keyed by peerUserId.
+  const groupIceQueueRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
   // ── Audio context for ringtone ───────────────────────────────────────────────
   const ringtoneRef = useRef<{
@@ -356,6 +394,17 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
     peerRef.current?.close();
     peerRef.current = null;
 
+    // Tear down every group peer connection.
+    if (groupCallRef.current) {
+      groupCallRef.current.participants.forEach((p) => {
+        try { p.pc?.close(); } catch { /* no-op */ }
+        try { p.stream?.getTracks().forEach((t) => t.stop()); } catch { /* no-op */ }
+      });
+    }
+    groupCallRef.current = null;
+    setGroupCall(null);
+    groupIceQueueRef.current.clear();
+
     setRemoteStream(null);
     setCurrentRoom(null);
     setIncomingCall(null);
@@ -381,6 +430,67 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
     localStreamRef.current = stream;
     setLocalStream(stream);
     return stream;
+  }, []);
+
+  // ── Group peer factory ──────────────────────────────────────────────────────
+  // Each group peer is identified by the remote user id. The callId is
+  // included on every signaling message so the server can validate.
+  const createGroupPeer = useCallback(
+    (peerUserId: string, callId: string): RTCPeerConnection => {
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate && socket) {
+          socket.emit("group_ice_candidate", { callId, targetUserId: peerUserId, candidate });
+        }
+      };
+
+      pc.ontrack = ({ streams }) => {
+        const stream = streams[0];
+        if (!stream) return;
+        setGroupCall((prev) => {
+          if (!prev) return prev;
+          const next = new Map(prev.participants);
+          const existing = next.get(peerUserId);
+          if (existing) {
+            next.set(peerUserId, { ...existing, stream });
+          } else {
+            next.set(peerUserId, { userId: peerUserId, userName: "Participant", stream, pc });
+          }
+          return { ...prev, participants: next };
+        });
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (
+          pc.connectionState === "failed" ||
+          pc.connectionState === "closed"
+        ) {
+          setGroupCall((prev) => {
+            if (!prev) return prev;
+            const next = new Map(prev.participants);
+            const existing = next.get(peerUserId);
+            if (existing) {
+              try { existing.pc?.close(); } catch { /* no-op */ }
+              next.set(peerUserId, { ...existing, pc: null, stream: null });
+            }
+            return { ...prev, participants: next };
+          });
+        }
+      };
+
+      return pc;
+    },
+    [socket],
+  );
+
+  const flushGroupIceQueue = useCallback(async (peerUserId: string, pc: RTCPeerConnection) => {
+    const queued = groupIceQueueRef.current.get(peerUserId);
+    if (!queued || queued.length === 0) return;
+    for (const c of queued) {
+      try { await pc.addIceCandidate(c); } catch { /* peer may have closed */ }
+    }
+    groupIceQueueRef.current.delete(peerUserId);
   }, []);
 
   // ── startCall (outgoing) ─────────────────────────────────────────────────────
@@ -448,6 +558,38 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
     const inc = incomingCall;
     if (!inc) return;
     setIsJoining(true);
+
+    // Group call branch — different signaling flow.
+    if (inc.isGroup && inc.groupCallId) {
+      try {
+        await getLocalMedia(inc.callType);
+        // Seed the group state so the dialog renders immediately.
+        setGroupCall({
+          callId: inc.groupCallId,
+          callType: inc.callType,
+          isHost: false,
+          hostId: inc.callerId,
+          hostName: inc.callerName.replace(/ \(group\)$/, ""),
+          participants: new Map(),
+        });
+        socket?.emit("group_call_join", { callId: inc.groupCallId });
+        stopRingtone();
+        setIncomingCall(null);
+        inCallRef.current = true;
+        setIsConnecting(true);
+        setIsJoining(false);
+      } catch (error: any) {
+        setIsJoining(false);
+        cleanupCall();
+        toast({
+          title: "Failed to join group call",
+          description: error?.message || "Could not access camera/microphone.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+
     try {
       const stream = await getLocalMedia(inc.callType);
 
@@ -514,6 +656,19 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
 
   // ── endCall / leaveCall ──────────────────────────────────────────────────────
   const endCall = useCallback(async () => {
+    // Group call: host ends for everyone, participant leaves only for self.
+    const group = groupCallRef.current;
+    if (group) {
+      if (group.isHost) {
+        socket?.emit("group_call_end", { callId: group.callId });
+      } else {
+        socket?.emit("group_call_leave", { callId: group.callId });
+      }
+      cleanupCall();
+      toast({ title: "Call ended" });
+      return;
+    }
+
     if (targetUserIdRef.current) {
       socket?.emit("call_end", { targetUserId: targetUserIdRef.current });
     }
@@ -528,9 +683,16 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
   }, [cleanupCall, currentRoom, recordOutgoingMissedCall, socket, toast]);
 
   const leaveCall = useCallback(async () => {
-    // For 1-on-1 WebRTC calls leave = end
+    // Group call: a non-host leaving = just emit leave; host leaving = end.
+    const group = groupCallRef.current;
+    if (group && !group.isHost) {
+      socket?.emit("group_call_leave", { callId: group.callId });
+      cleanupCall();
+      toast({ title: "You left the call" });
+      return;
+    }
     await endCall();
-  }, [endCall]);
+  }, [cleanupCall, endCall, socket, toast]);
 
   // ── joinCall (by roomName) — kept for API compat, maps to accept ──────────────
   const joinCall = useCallback(async (roomName: string) => {
@@ -539,13 +701,58 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
     }
   }, [acceptIncomingCall, incomingCall]);
 
-  // ── startGroupCall — not supported in WebRTC mode (use useGroupCall hook) ────
-  const startGroupCall = useCallback(async (_participantIds: string[], _callType?: "voice" | "video") => {
-    toast({
-      title: "Use group call button",
-      description: "Group calls are handled separately via the group call feature.",
-    });
-  }, [toast]);
+  // ── startGroupCall ──────────────────────────────────────────────────────────
+  // Mesh group call up to GROUP_CALL_MAX participants (host + 3 others = 4).
+  // Server fans out group_call_invite to each participant. Peer connections
+  // open as those participants accept (group_call_participant_joined).
+  const startGroupCall = useCallback(
+    async (participantIds: string[], callType: "voice" | "video" = "video") => {
+      if (inCallRef.current) {
+        toast({ title: "Already in a call", description: "End the current call before starting a new one." });
+        return;
+      }
+      if (!socket) {
+        toast({ title: "Connection error", description: "Not connected to the server.", variant: "destructive" });
+        return;
+      }
+      if (user?.role !== "admin" && user?.role !== "super_admin") {
+        toast({ title: "Permission denied", description: "Only admins can start group calls.", variant: "destructive" });
+        return;
+      }
+
+      const unique = Array.from(new Set(participantIds.filter((id) => id && id !== user?.id)));
+      if (unique.length === 0) {
+        toast({ title: "Pick at least one person", description: "Add participants before starting the call." });
+        return;
+      }
+      if (unique.length + 1 > GROUP_CALL_MAX) {
+        toast({
+          title: "Too many participants",
+          description: `Group calls support up to ${GROUP_CALL_MAX} people total — pick at most ${GROUP_CALL_MAX - 1} others.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setIsStarting(true);
+      try {
+        await getLocalMedia(callType);
+        socket.emit("group_call_start", { participantIds: unique, callType });
+        inCallRef.current = true;
+        await startOutgoingRingback();
+      } catch (error: any) {
+        cleanupCall();
+        toast({
+          title: "Failed to start group call",
+          description: error?.message || "Could not access camera/microphone.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsStarting(false);
+      }
+    },
+    [cleanupCall, getLocalMedia, socket, startOutgoingRingback, toast, user?.id, user?.role],
+  );
 
   // ── getJitsiUrl / jitsiConfig — always null in WebRTC mode ───────────────────
   const getJitsiUrl = useCallback(() => null, []);
@@ -631,12 +838,193 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
       toast({ title: "Call ended", description: "The other party ended the call." });
     };
 
+    // ── Group call signal handlers ─────────────────────────────────────────
+    // Incoming invite (participant side)
+    const handleGroupInvite = (data: {
+      callId: string;
+      hostId: string;
+      hostName: string;
+      participantIds: string[];
+      callType: "voice" | "video";
+    }) => {
+      if (inCallRef.current) return;
+      setIncomingCall({
+        roomName: data.callId,
+        roomUrl: "",
+        callerId: data.hostId,
+        callerName: `${data.hostName} (group)`,
+        callType: data.callType,
+        isGroup: true,
+        groupCallId: data.callId,
+        participantIds: data.participantIds,
+      });
+      startRingtone();
+      toast({
+        title: `Incoming group ${data.callType} call`,
+        description: `${data.hostName} added you to a call.`,
+      });
+    };
+
+    // Host gets confirmation that the call is live
+    const handleGroupStarted = (data: { callId: string; participants: string[]; callType: "voice" | "video" }) => {
+      const myId = user?.id || "";
+      const others = data.participants.filter((p) => p !== myId);
+      setGroupCall({
+        callId: data.callId,
+        callType: data.callType,
+        isHost: true,
+        hostId: myId,
+        hostName: user?.name || "You",
+        participants: new Map(
+          others.map((id) => [id, { userId: id, userName: "Participant", stream: null, pc: null }]),
+        ),
+      });
+      stopOutgoingRingback();
+    };
+
+    // Participant got their join confirmed — and receives the existing roster.
+    // They open offers to everyone already on the call.
+    const handleGroupJoined = async (data: {
+      callId: string;
+      participants: string[];
+      callType: "voice" | "video";
+    }) => {
+      const myId = user?.id || "";
+      const others = data.participants.filter((p) => p !== myId);
+      // Seed roster
+      setGroupCall((prev) => ({
+        callId: data.callId,
+        callType: data.callType,
+        isHost: false,
+        hostId: prev?.hostId || "",
+        hostName: prev?.hostName || "",
+        participants: new Map(
+          others.map((id) => [id, { userId: id, userName: "Participant", stream: null, pc: null }]),
+        ),
+      }));
+
+      const localStream = localStreamRef.current;
+      if (!localStream) return;
+
+      // Offer to every existing participant
+      for (const peerUserId of others) {
+        try {
+          const pc = createGroupPeer(peerUserId, data.callId);
+          localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit("group_call_offer", { callId: data.callId, targetUserId: peerUserId, offer });
+          setGroupCall((prev) => {
+            if (!prev) return prev;
+            const next = new Map(prev.participants);
+            const existing = next.get(peerUserId);
+            next.set(peerUserId, { ...(existing || { userId: peerUserId, userName: "Participant", stream: null }), pc });
+            return { ...prev, participants: next };
+          });
+        } catch (err) {
+          console.error("group offer failed:", err);
+        }
+      }
+    };
+
+    // Someone new joined while you're already in the call — just add to roster.
+    // The new joiner will send YOU the offer (handleGroupOffer).
+    const handleGroupParticipantJoined = (data: { callId: string; userId: string; userName: string }) => {
+      const myId = user?.id || "";
+      if (data.userId === myId) return;
+      setGroupCall((prev) => {
+        if (!prev) return prev;
+        const next = new Map(prev.participants);
+        if (!next.has(data.userId)) {
+          next.set(data.userId, { userId: data.userId, userName: data.userName || "Participant", stream: null, pc: null });
+        }
+        return { ...prev, participants: next };
+      });
+    };
+
+    // Incoming SDP offer from another participant
+    const handleGroupOffer = async (data: { callId: string; fromUserId: string; offer: RTCSessionDescriptionInit }) => {
+      const current = groupCallRef.current;
+      if (!current || current.callId !== data.callId) return;
+      try {
+        const pc = createGroupPeer(data.fromUserId, data.callId);
+        const localStream = localStreamRef.current;
+        if (localStream) localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+        await pc.setRemoteDescription(data.offer);
+        await flushGroupIceQueue(data.fromUserId, pc);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit("group_call_answer", { callId: data.callId, targetUserId: data.fromUserId, answer });
+        setGroupCall((prev) => {
+          if (!prev) return prev;
+          const next = new Map(prev.participants);
+          const existing = next.get(data.fromUserId);
+          next.set(data.fromUserId, { ...(existing || { userId: data.fromUserId, userName: "Participant", stream: null }), pc });
+          return { ...prev, participants: next };
+        });
+      } catch (err) {
+        console.error("group answer failed:", err);
+      }
+    };
+
+    const handleGroupAnswer = async (data: { callId: string; fromUserId: string; answer: RTCSessionDescriptionInit }) => {
+      const current = groupCallRef.current;
+      if (!current || current.callId !== data.callId) return;
+      const peer = current.participants.get(data.fromUserId)?.pc;
+      if (!peer) return;
+      try {
+        await peer.setRemoteDescription(data.answer);
+        await flushGroupIceQueue(data.fromUserId, peer);
+      } catch { /* peer may have torn down */ }
+    };
+
+    const handleGroupIceCandidate = async (data: { callId: string; fromUserId: string; candidate: RTCIceCandidateInit }) => {
+      const current = groupCallRef.current;
+      if (!current || current.callId !== data.callId) return;
+      const peer = current.participants.get(data.fromUserId)?.pc;
+      if (peer && peer.remoteDescription) {
+        try { await peer.addIceCandidate(data.candidate); } catch { /* no-op */ }
+      } else {
+        const list = groupIceQueueRef.current.get(data.fromUserId) || [];
+        list.push(data.candidate);
+        groupIceQueueRef.current.set(data.fromUserId, list);
+      }
+    };
+
+    const handleGroupParticipantLeft = (data: { callId: string; userId: string }) => {
+      setGroupCall((prev) => {
+        if (!prev) return prev;
+        const next = new Map(prev.participants);
+        const existing = next.get(data.userId);
+        if (existing) {
+          try { existing.pc?.close(); } catch { /* no-op */ }
+          next.delete(data.userId);
+        }
+        return { ...prev, participants: next };
+      });
+    };
+
+    const handleGroupEnded = () => {
+      if (!inCallRef.current && !incomingCall) return;
+      cleanupCall();
+      toast({ title: "Group call ended", description: "The host ended the call." });
+    };
+
     socket.on("jitsi_call_incoming", handleIncomingCall);
     socket.on("call_offer", handleCallOffer);
     socket.on("call_answer", handleCallAnswer);
     socket.on("ice_candidate", handleIceCandidate);
     socket.on("call_end", handleCallEnd);
     socket.on("jitsi_call_ended", handleCallEnd); // legacy compat
+    socket.on("group_call_invite", handleGroupInvite);
+    socket.on("group_call_started", handleGroupStarted);
+    socket.on("group_call_joined", handleGroupJoined);
+    socket.on("group_call_participant_joined", handleGroupParticipantJoined);
+    socket.on("group_call_offer", handleGroupOffer);
+    socket.on("group_call_answer", handleGroupAnswer);
+    socket.on("group_ice_candidate", handleGroupIceCandidate);
+    socket.on("group_call_participant_left", handleGroupParticipantLeft);
+    socket.on("group_call_ended", handleGroupEnded);
 
     return () => {
       socket.off("jitsi_call_incoming", handleIncomingCall);
@@ -645,16 +1033,29 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
       socket.off("ice_candidate", handleIceCandidate);
       socket.off("call_end", handleCallEnd);
       socket.off("jitsi_call_ended", handleCallEnd);
+      socket.off("group_call_invite", handleGroupInvite);
+      socket.off("group_call_started", handleGroupStarted);
+      socket.off("group_call_joined", handleGroupJoined);
+      socket.off("group_call_participant_joined", handleGroupParticipantJoined);
+      socket.off("group_call_offer", handleGroupOffer);
+      socket.off("group_call_answer", handleGroupAnswer);
+      socket.off("group_ice_candidate", handleGroupIceCandidate);
+      socket.off("group_call_participant_left", handleGroupParticipantLeft);
+      socket.off("group_call_ended", handleGroupEnded);
     };
   }, [
     cleanupCall,
     clearOutgoingUnanswered,
+    createGroupPeer,
+    flushGroupIceQueue,
     incomingCall,
     socket,
     startRingtone,
     stopOutgoingRingback,
     stopRingtone,
     toast,
+    user?.id,
+    user?.name,
   ]);
 
   // Stop ringtone when incoming call is dismissed
@@ -682,7 +1083,12 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
     return () => { cleanupCallRef.current?.(); };
   }, []);
 
-  const inCall = !!currentRoom;
+  const inCall = !!currentRoom || !!groupCall;
+
+  // Flatten the group participants Map into an array for the dialog.
+  const remoteParticipants: GroupCallParticipant[] = groupCall
+    ? Array.from(groupCall.participants.values())
+    : [];
 
   const value: JitsiCallContextType = {
     inCall,
@@ -692,6 +1098,8 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
     isJoining,
     localStream,
     remoteStream,
+    groupCall,
+    remoteParticipants,
     startCall,
     startGroupCall,
     joinCall,
@@ -703,22 +1111,31 @@ export function JitsiCallProvider({ children }: { children: ReactNode }) {
     jitsiConfig: null,
   };
 
-  // Determine callerName for the active call display
-  const callerName = incomingCall?.callerName ?? undefined;
+  const callerName = groupCall
+    ? `Group call · ${remoteParticipants.length + 1} people`
+    : (incomingCall?.callerName ?? undefined);
+
+  const callType = groupCall?.callType ?? currentRoom?.callType ?? incomingCall?.callType ?? "video";
 
   return (
     <JitsiCallContext.Provider value={value}>
       {children}
-      {/* Global WebRTC call dialog — active on every page */}
+      {/* Global WebRTC call dialog — active on every page. Renders the
+          multi-tile grid automatically when remoteParticipants has entries. */}
       <WebRTCCallDialog
         isOpen={inCall || !!incomingCall}
         localStream={localStream}
         remoteStream={remoteStream}
-        callType={currentRoom?.callType ?? incomingCall?.callType ?? "video"}
+        remoteParticipants={remoteParticipants}
+        callType={callType}
         callerName={callerName}
         incomingCall={
           incomingCall
-            ? { callerName: incomingCall.callerName, callType: incomingCall.callType }
+            ? {
+                callerName: incomingCall.callerName,
+                callType: incomingCall.callType,
+                isGroup: !!incomingCall.isGroup,
+              }
             : null
         }
         isConnecting={isConnecting}

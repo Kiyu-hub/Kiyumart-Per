@@ -22179,15 +22179,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const hostId = socket.data.userId;
         const host = await storage.getUser(hostId);
-        
+
         if (!host) {
           socket.emit("error", { message: "Host not found" });
           return;
         }
 
-        // Only super_admin can start group calls
+        // Only super_admin / admin can start group calls
         if (host.role !== "super_admin" && host.role !== "admin") {
           socket.emit("error", { message: "Only admins can start group calls" });
+          return;
+        }
+
+        // Mesh capacity cap. Each browser uploads N-1 streams over plain
+        // WebRTC; >4 people degrades quickly on mobile. Defense-in-depth:
+        // client also enforces this, but never trust the client.
+        const GROUP_CALL_MAX = 4;
+        const totalParticipants = 1 + (Array.isArray(participantIds) ? participantIds.length : 0);
+        if (totalParticipants > GROUP_CALL_MAX) {
+          socket.emit("error", {
+            message: `Group calls support up to ${GROUP_CALL_MAX} people total. You picked ${totalParticipants}.`,
+          });
+          return;
+        }
+        if (totalParticipants < 2) {
+          socket.emit("error", { message: "Pick at least one person to call." });
           return;
         }
 

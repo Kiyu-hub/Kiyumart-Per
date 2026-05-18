@@ -35,13 +35,21 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
+export interface RemoteParticipantTile {
+  userId: string;
+  userName: string;
+  stream: MediaStream | null;
+}
+
 interface WebRTCCallDialogProps {
   isOpen: boolean;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  /** Multi-party tiles. When non-empty, dialog renders the grid layout. */
+  remoteParticipants?: RemoteParticipantTile[];
   callType: "voice" | "video";
   callerName?: string;
-  incomingCall: { callerName: string; callType: "voice" | "video" } | null;
+  incomingCall: { callerName: string; callType: "voice" | "video"; isGroup?: boolean } | null;
   isConnecting: boolean;
   onAccept: () => void;
   onReject: () => void;
@@ -69,6 +77,7 @@ export function WebRTCCallDialog({
   isOpen,
   localStream,
   remoteStream,
+  remoteParticipants = [],
   callType,
   callerName,
   incomingCall,
@@ -77,6 +86,7 @@ export function WebRTCCallDialog({
   onReject,
   onEnd,
 }: WebRTCCallDialogProps) {
+  const isGroup = remoteParticipants.length > 0;
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const callStartRef = useRef<number | null>(null);
@@ -120,16 +130,18 @@ export function WebRTCCallDialog({
     }
   }, [isOpen]);
 
-  // Live call-duration tick — starts the moment we have a remote stream.
+  // Live call-duration tick — starts the moment we have at least one remote
+  // stream (1:1 or group).
+  const hasAnyRemote = remoteStream != null || remoteParticipants.some((p) => p.stream != null);
   useEffect(() => {
-    if (!remoteStream) return;
+    if (!hasAnyRemote) return;
     if (callStartRef.current === null) callStartRef.current = Date.now();
     const id = window.setInterval(() => {
       if (callStartRef.current === null) return;
       setCallDuration(Math.floor((Date.now() - callStartRef.current) / 1000));
     }, 1000);
     return () => window.clearInterval(id);
-  }, [remoteStream]);
+  }, [hasAnyRemote]);
 
   const toggleMute = useCallback(() => {
     if (!localStream) return;
@@ -201,9 +213,14 @@ export function WebRTCCallDialog({
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Incoming {incomingCall.callType} call
+              Incoming {incomingCall.isGroup ? "group " : ""}{incomingCall.callType} call
             </p>
             <h2 className="mt-1 text-2xl font-bold tracking-tight">{incomingCall.callerName}</h2>
+            {incomingCall.isGroup && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                You've been added to a group call.
+              </p>
+            )}
           </div>
           <div className="flex items-center justify-center gap-10">
             <div className="flex flex-col items-center gap-2">
@@ -265,7 +282,14 @@ export function WebRTCCallDialog({
     >
       {/* ── Remote video / status ──────────────────────────────────────── */}
       <div className="flex-1 relative overflow-hidden">
-        {callType === "video" && remoteStream && !isConnecting ? (
+        {isGroup ? (
+          // Group call grid — up to 4 tiles. Responsive layout:
+          //   1 remote  → full-screen
+          //   2 remotes → 2-column
+          //   3 remotes → 2x2 with bottom-right empty
+          //   (host counts as a tile too via the self-tile overlay)
+          <ParticipantsGrid participants={remoteParticipants} callType={callType} />
+        ) : callType === "video" && remoteStream && !isConnecting ? (
           <video
             ref={remoteVideoRef}
             autoPlay
@@ -331,11 +355,15 @@ export function WebRTCCallDialog({
               {callerName || "Call"}
             </p>
             <p className="text-[11px] text-white/70 leading-tight">
-              {remoteStream
-                ? `${callType === "video" ? "Video" : "Voice"} • ${formatDuration(callDuration)}`
+              {hasAnyRemote
+                ? `${callType === "video" ? "Video" : "Voice"} • ${formatDuration(callDuration)}${
+                    isGroup ? ` • ${remoteParticipants.length + 1} people` : ""
+                  }`
                 : isConnecting
                   ? "Connecting…"
-                  : "Calling…"}
+                  : isGroup
+                    ? "Waiting for others to join…"
+                    : "Calling…"}
             </p>
           </div>
           <button
@@ -550,6 +578,84 @@ function BackgroundSheet({
           browser.
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Single remote-participant tile — handles its own video/srcObject wiring and
+ * fades a name chip across the bottom.
+ */
+function ParticipantTile({
+  participant,
+  callType,
+}: {
+  participant: RemoteParticipantTile;
+  callType: "voice" | "video";
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (videoRef.current && participant.stream) {
+      videoRef.current.srcObject = participant.stream;
+    }
+  }, [participant.stream]);
+
+  return (
+    <div className="relative w-full h-full overflow-hidden rounded-xl bg-zinc-900">
+      {callType === "video" && participant.stream ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-zinc-800 to-zinc-900">
+          <div className="h-16 w-16 rounded-full bg-zinc-700 flex items-center justify-center">
+            <Phone className="h-7 w-7 text-zinc-400" />
+          </div>
+        </div>
+      )}
+      <div className="absolute left-2 bottom-2 rounded-full bg-black/55 backdrop-blur-md px-2.5 py-1">
+        <span className="text-[11px] font-medium text-white truncate max-w-[160px] block">
+          {participant.userName || "Participant"}
+        </span>
+      </div>
+      {!participant.stream && (
+        <div className="absolute right-2 top-2 rounded-full bg-black/55 backdrop-blur-md px-2 py-0.5 flex items-center gap-1.5">
+          <Loader2 className="h-3 w-3 animate-spin text-white" />
+          <span className="text-[10px] text-white/80">Joining…</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Responsive grid layout for 1-3 remote participants. Capacity is enforced
+ * server-side (4 total participants including the host).
+ */
+function ParticipantsGrid({
+  participants,
+  callType,
+}: {
+  participants: RemoteParticipantTile[];
+  callType: "voice" | "video";
+}) {
+  const count = participants.length;
+  // Tailwind grid-cols / grid-rows classes for the three realistic cases.
+  const gridClass =
+    count === 1
+      ? "grid grid-cols-1 grid-rows-1"
+      : count === 2
+        ? "grid grid-cols-1 sm:grid-cols-2 grid-rows-2 sm:grid-rows-1"
+        : "grid grid-cols-2 grid-rows-2";
+
+  return (
+    <div className={`absolute inset-0 ${gridClass} gap-1.5 p-1.5 bg-black`}>
+      {participants.map((p) => (
+        <ParticipantTile key={p.userId} participant={p} callType={callType} />
+      ))}
     </div>
   );
 }
