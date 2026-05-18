@@ -90,25 +90,25 @@ function resolveNotificationTarget(notif: Notification, role?: string): string |
   }
 }
 
-function notifStyle(type: string): { icon: React.ReactNode; accent: string; bg: string } {
-  const icons: Record<string, { path: React.ReactNode; accent: string; bg: string }> = {
-    order:          { path: <path d="M5 7h14l-1 13H6z"/>,                                                              accent: '#3B82F6', bg: 'rgba(59,130,246,0.15)' },
-    order_placed:   { path: <path d="M5 7h14l-1 13H6z"/>,                                                              accent: '#3B82F6', bg: 'rgba(59,130,246,0.15)' },
-    order_update:   { path: <path d="M5 7h14l-1 13H6z"/>,                                                              accent: '#3B82F6', bg: 'rgba(59,130,246,0.15)' },
-    payment:        { path: <><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></>,                accent: TEAL,      bg: 'rgba(0,150,136,0.15)' },
-    payment_success:{ path: <><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></>,                accent: TEAL,      bg: 'rgba(0,150,136,0.15)' },
-    payout:         { path: <><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 14a1 1 0 1 0 2 0 1 1 0 0 0-2 0z" fill="currentColor" stroke="none"/><path d="M2 10h20"/></>, accent: TEAL, bg: 'rgba(0,150,136,0.15)' },
-    delivery:       { path: <><rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 5v3h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></>, accent: '#8B5CF6', bg: 'rgba(139,92,246,0.15)' },
-    delivered:      { path: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>, accent: TEAL, bg: 'rgba(0,150,136,0.15)' },
-    message:        { path: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>,              accent: '#38BDF8', bg: 'rgba(56,189,248,0.15)' },
-    review:         { path: <path d="m12 3 3 6.5 7 .8-5 4.7 1.4 7L12 18.5 5.6 22 7 15l-5-4.7 7-.8z" fill="currentColor" stroke="none"/>, accent: '#F59E0B', bg: 'rgba(245,158,11,0.15)' },
-    alert:          { path: <><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></>,                         accent: '#EF4444', bg: 'rgba(239,68,68,0.15)' },
-    system:         { path: <><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></>,                         accent: '#6B7280', bg: 'rgba(107,114,128,0.15)' },
+function notifStyle(type: string): { icon: React.ReactNode; accent: string; bg: string; label: string; kind: string } {
+  const icons: Record<string, { path: React.ReactNode; accent: string; bg: string; kind: string }> = {
+    order:          { path: <path d="M5 7h14l-1 13H6z"/>,                                                              accent: '#3B82F6', bg: 'rgba(59,130,246,0.15)', kind: 'Order' },
+    order_placed:   { path: <path d="M5 7h14l-1 13H6z"/>,                                                              accent: '#3B82F6', bg: 'rgba(59,130,246,0.15)', kind: 'Order' },
+    order_update:   { path: <path d="M5 7h14l-1 13H6z"/>,                                                              accent: '#3B82F6', bg: 'rgba(59,130,246,0.15)', kind: 'Order' },
+    payment:        { path: <><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></>,                accent: TEAL,      bg: 'rgba(0,150,136,0.15)', kind: 'Payment' },
+    payment_success:{ path: <><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></>,                accent: TEAL,      bg: 'rgba(0,150,136,0.15)', kind: 'Payment' },
+    payout:         { path: <><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 14a1 1 0 1 0 2 0 1 1 0 0 0-2 0z" fill="currentColor" stroke="none"/><path d="M2 10h20"/></>, accent: TEAL, bg: 'rgba(0,150,136,0.15)', kind: 'Payout' },
+    delivery:       { path: <><rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 5v3h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></>, accent: '#8B5CF6', bg: 'rgba(139,92,246,0.15)', kind: 'Delivery' },
+    delivered:      { path: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>, accent: TEAL, bg: 'rgba(0,150,136,0.15)', kind: 'Delivered' },
+    message:        { path: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>,              accent: '#38BDF8', bg: 'rgba(56,189,248,0.15)', kind: 'Message' },
+    review:         { path: <path d="m12 3 3 6.5 7 .8-5 4.7 1.4 7L12 18.5 5.6 22 7 15l-5-4.7 7-.8z" fill="currentColor" stroke="none"/>, accent: '#F59E0B', bg: 'rgba(245,158,11,0.15)', kind: 'Review' },
+    alert:          { path: <><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></>,                         accent: '#EF4444', bg: 'rgba(239,68,68,0.15)', kind: 'Alert' },
+    system:         { path: <><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></>,                         accent: '#6B7280', bg: 'rgba(107,114,128,0.15)', kind: 'System' },
   };
-  const def = { path: <path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/>, accent: '#6B7280', bg: 'rgba(107,114,128,0.12)' };
+  const def = { path: <path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/>, accent: '#6B7280', bg: 'rgba(107,114,128,0.12)', kind: 'Update' };
   const s = icons[type] || def;
   return {
-    accent: s.accent, bg: s.bg,
+    accent: s.accent, bg: s.bg, label: s.accent, kind: s.kind,
     icon: (
       <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={s.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
         {s.path}
@@ -403,9 +403,9 @@ function NotifRow({ notif, isDark, onPress, onRequestAction }: {
         onTouchEnd={onTouchEnd}
         style={{
           width: '100%', display: 'flex', alignItems: 'flex-start', gap: 12,
-          padding: '13px 16px',
+          padding: '12px 14px',
           background: card,
-          border: 'none', borderRadius: 10, cursor: 'pointer',
+          border: 'none', borderRadius: 12, cursor: 'pointer',
           textAlign: 'left', fontFamily: F, WebkitTapHighlightColor: 'transparent',
           borderLeft: unread ? `3px solid ${TEAL}` : '3px solid transparent',
           transform: `translateX(${offsetX}px)`,
@@ -414,17 +414,76 @@ function NotifRow({ notif, isDark, onPress, onRequestAction }: {
           boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.07)',
         }}
       >
-        <div style={{ width: 44, height: 44, borderRadius: 12, background: ns.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: ns.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
           {ns.icon}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6, marginBottom: 3 }}>
-            <p style={{ fontSize: 14, fontWeight: unread ? 700 : 500, color: txt, lineHeight: 1.3, flex: 1 }}>{notif.title}</p>
-            <span style={{ fontSize: 11, color: muted, flexShrink: 0, whiteSpace: 'nowrap' as const }}>{timeAgo(notif.createdAt)}</span>
+          {/* Title row — single-line clamp so cards stay scannable. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <p
+              style={{
+                fontSize: 14.5,
+                fontWeight: unread ? 700 : 600,
+                color: txt,
+                lineHeight: 1.25,
+                flex: 1,
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap' as const,
+              }}
+            >
+              {notif.title}
+            </p>
+            {unread && (
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: TEAL,
+                  flexShrink: 0,
+                }}
+                aria-label="Unread"
+              />
+            )}
           </div>
-          <p style={{ fontSize: 13, color: muted, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
+          {/* Message — 2-line clamp, mobile-friendly. */}
+          <p
+            style={{
+              fontSize: 13,
+              color: muted,
+              lineHeight: 1.45,
+              overflow: 'hidden',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical' as const,
+              margin: 0,
+              wordBreak: 'break-word' as const,
+            }}
+          >
             {notif.message}
           </p>
+          {/* Footer row — type chip on the left, timestamp on the right. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 6 }}>
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 700,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase' as const,
+                color: ns.label,
+                background: ns.bg,
+                padding: '2px 8px',
+                borderRadius: 999,
+              }}
+            >
+              {ns.kind}
+            </span>
+            <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap' as const }}>
+              {timeAgo(notif.createdAt)}
+            </span>
+          </div>
         </div>
       </button>
     </div>
