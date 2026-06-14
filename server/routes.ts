@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { db } from "../db";
 import { enhanceCloudinaryUrl, enhanceImageList } from "./imageEnhance";
+import { sendApiError } from "./utils/apiError";
 import {
   users,
   cart,
@@ -1626,7 +1627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ).catch(() => {});
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -1698,7 +1699,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isConnectionErr) {
         return res.status(503).json({ error: "Service temporarily unavailable. Please try again in a moment." });
       }
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -1954,7 +1955,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         roleFeatures,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -1995,7 +1996,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true, message: "Password changed successfully" });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -2386,7 +2387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password: _, ...userWithoutPassword } = updatedUser;
       res.json(userWithoutPassword);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -2780,7 +2781,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const usersWithoutPasswords = users.map(({ password, ...user }) => user);
       res.json(usersWithoutPasswords);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -2793,7 +2794,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -3021,36 +3022,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const approvedRoleLabel = ROLE_LABELS[targetRole] || targetRole;
-      const approvalMessage = formatFormalNotification(
-        `Dear ${approvedUser.name || "Applicant"},`,
-        [
-          {
-            label: "Decision",
-            value: `Approved - Your ${approvedRoleLabel} application was successful.`,
-          },
-          {
-            label: "Reason for Decision",
-            value: "Your submitted profile and verification details met our onboarding requirements.",
-          },
-          {
-            label: "Next Steps",
-            value: targetRole === "seller"
-              ? "Open your seller dashboard, complete any remaining store setup items, and begin listing products."
-              : "Open your rider dashboard, confirm your vehicle details, and begin accepting delivery assignments.",
-          },
-        ],
-      );
+      const approvedFirstName = (approvedUser.name || "there").split(" ")[0];
+      const approvalMessage =
+        `🎉 Congratulations ${approvedFirstName} — you're officially a KiyuMart ${approvedRoleLabel}!\n\n` +
+        `Welcome aboard, we're so glad to have you. Just one quick step left: head to your profile to finish setting up your account` +
+        (targetRole === "seller" ? " and your store" : " and confirm your vehicle details") +
+        `, and you'll be all set to ` +
+        (targetRole === "seller" ? "start listing your products." : "start accepting deliveries.") +
+        `\n\nTap below to finish your setup.`;
 
-      // Send approval notification
+      // Send approval notification — "View detail" takes them to their profile
+      // so they can finish setting up their newly-approved account.
       await storage.createNotification({
         userId: approvedUser.id,
         type: "system",
-        title: `${approvedRoleLabel} Application Approved`,
+        title: `Welcome aboard — you're a KiyuMart ${approvedRoleLabel}! 🎉`,
         message: approvalMessage,
         metadata: {
           role: targetRole,
           status: "approved",
-          link: targetRole === "seller" ? "/seller" : "/rider",
+          link: "/profile",
         } as any,
       });
       
@@ -3098,7 +3089,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password, ...userWithoutPassword } = approvedUser;
       res.json(userWithoutPassword);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -3174,28 +3165,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sanitizedRoom = interviewRoomName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-");
       void sanitizedRoom; // referenced by admin-side call initiation logic.
 
-      const message = formatFormalNotification(
-        `Dear ${updatedUser.name || "Applicant"},`,
-        [
-          {
-            label: "Status Update",
-            value: `Your ${roleLabel} application has moved to Interview Scheduled.`,
-          },
-          {
-            label: "Interview Date & Time",
-            value: formattedDate,
-          },
-          {
-            label: "How it works",
-            value: "Our team will call you directly from the platform at the scheduled time. Please keep your phone and the KiyuMart app open so you don't miss the call.",
-          },
-        ],
-      );
+      const firstName = (updatedUser.name || "there").split(" ")[0];
+      const message =
+        `Hi ${firstName}! 🎉 Great news — we'd love to have a quick chat with you about becoming a ${roleLabel} on KiyuMart.\n\n` +
+        `We've set up a call for ${formattedDate}. Our team will reach out to you right here in the app at that time — just keep the app handy and your phone nearby so you don't miss us.\n\n` +
+        `Looking forward to speaking with you!`;
 
       await storage.createNotification({
         userId: updatedUser.id,
         type: "system",
-        title: `${roleLabel} Interview Scheduled`,
+        title: `Let's chat about your ${roleLabel} application 🎉`,
         message,
         metadata: {
           role: targetRole,
@@ -3250,7 +3229,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(userWithoutPassword);
     } catch (error: any) {
       console.error("Error scheduling interview:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -3498,7 +3477,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(userWithoutPassword);
     } catch (err: any) {
       console.error('Error submitting application:', err);
-      res.status(400).json({ error: err.message });
+      sendApiError(res, err);
     }
   });
 
@@ -3622,7 +3601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(userWithoutPassword);
     } catch (error: any) {
       console.error("Error rejecting user application:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -3697,7 +3676,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } catch (error: any) {
         console.error("Error clearing rejected application:", error);
-        res.status(400).json({ error: error.message || "Failed to clear rejected application" });
+        sendApiError(res, error, 400, "Failed to clear rejected application");
       }
     },
   );
@@ -3801,7 +3780,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(userWithoutPassword);
     } catch (error: any) {
       console.error("Error updating user status:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -3832,7 +3811,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password, ...safe } = updated;
       res.json(safe);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -4540,7 +4519,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(userWithoutPassword);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -4894,7 +4873,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -5131,7 +5110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } catch (error: any) {
         console.error("Error purging pending applications:", error);
-        res.status(400).json({ error: error.message || "Failed to purge pending applications" });
+        sendApiError(res, error, 400, "Failed to purge pending applications");
       }
     },
   );
@@ -5257,7 +5236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password: _, ...userWithoutPassword } = newUser;
       res.json(userWithoutPassword);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -5492,7 +5471,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password: _, ...userWithoutPassword } = newUser;
       res.json(userWithoutPassword);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -5724,7 +5703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(product);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -5829,7 +5808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(product);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6096,7 +6075,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(responseProducts);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6129,7 +6108,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         seller: seller ? { id: seller.id, name: seller.name } : null,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6139,7 +6118,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rows = await db.select().from(productModifiers).where(eq(productModifiers.productId, req.params.id));
       res.json(rows);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6156,7 +6135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } as any).returning();
       res.json(created);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6169,7 +6148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updated) return res.status(404).json({ error: "Modifier not found" });
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6179,7 +6158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(and(eq(productModifiers.id, req.params.modId), eq(productModifiers.productId, req.params.id)));
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6411,7 +6390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         categoryName: resolvedCategory?.name || null,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6573,7 +6552,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [hydratedUpdated] = await hydrateProductsWithCategories([updated]);
       res.json(hydratedUpdated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6588,7 +6567,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       clearProductListCache();
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6607,7 +6586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/products/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.delete"), async (req: AuthRequest, res) => {
+  app.delete("/api/products/:id", requireAuth, requireRole("admin", "super_admin", "seller"), requirePermissionIfAdmin("manage_products"), requireRoleFeatureIfRole(["seller"], "products.delete"), async (req: AuthRequest, res) => {
     try {
       const product = await storage.getProduct(req.params.id);
       if (!product) {
@@ -6667,7 +6646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       clearProductListCache();
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6696,7 +6675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: error.errors[0]?.message || "Validation failed" });
       }
       
-      res.status(400).json({ error: error.message || "Failed to create delivery zone" });
+      sendApiError(res, error, 400, "Failed to create delivery zone");
     }
   });
 
@@ -6709,7 +6688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const zones = await storage.getDeliveryZones(false, requestedEntityKind);
       res.json(zones);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6718,7 +6697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const stations = await storage.getDeliveryZones(false, "pickup_station");
       res.json(stations);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6732,7 +6711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const zones = await storage.getDeliveryZones(true, requestedEntityKind);
       res.json(zones);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6741,7 +6720,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const stations = await storage.getDeliveryZones(true, "pickup_station");
       res.json(stations);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6779,7 +6758,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      res.status(400).json({ error: error.message || "Failed to update delivery zone" });
+      sendApiError(res, error, 400, "Failed to update delivery zone");
     }
   });
 
@@ -6789,7 +6768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       io.emit("delivery_zones_updated", { action: "deleted", zoneId: req.params.id });
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6854,7 +6833,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error.message.includes("unique")) {
         return res.status(400).json({ error: "A coupon with this code already exists" });
       }
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6863,7 +6842,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const coupons = await storage.getCouponsBySeller(req.user!.id);
       res.json(coupons);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6889,7 +6868,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(availableCoupons);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6906,7 +6885,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(coupon);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6930,7 +6909,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updated = await storage.updateCoupon(req.params.id, req.body);
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6948,7 +6927,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteCoupon(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6963,7 +6942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await storage.validateCoupon(code, sellerId, parseFloat(orderTotal));
       res.json(result);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6982,7 +6961,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(cartItem);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -6991,7 +6970,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cartItems = await storage.getCart(req.user!.id);
       res.json(cartItems);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7001,7 +6980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updated = await storage.updateCartItem(req.params.id, quantity);
       res.json(updated || { deleted: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7010,7 +6989,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.removeFromCart(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7019,7 +6998,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.clearCart(req.user!.id);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7030,7 +7009,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const wishlistItem = await storage.addToWishlist(req.user!.id, validatedData.productId);
       res.json(wishlistItem);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7039,7 +7018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const wishlist = await storage.getWishlist(req.user!.id);
       res.json(wishlist);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7048,7 +7027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.removeFromWishlist(req.user!.id, req.params.productId);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7081,7 +7060,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(review);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7090,7 +7069,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reviews = await storage.getProductReviews(req.params.productId);
       res.json(reviews);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7121,7 +7100,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(review);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7130,7 +7109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reviews = await storage.getRiderReviews(req.params.riderId);
       res.json(reviews);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7139,7 +7118,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const avgRating = await storage.getRiderAverageRating(req.params.riderId);
       res.json({ averageRating: avgRating });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7215,7 +7194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(variants);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7279,7 +7258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(variant);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7343,7 +7322,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(variant);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7395,7 +7374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7408,7 +7387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(banners);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7419,7 +7398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const banners = await storage.getAllHeroBanners();
       res.json(banners);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
   
@@ -7432,7 +7411,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(banner);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
   
@@ -7465,7 +7444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(banner);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7499,7 +7478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updated = await storage.updateHeroBanner(req.params.id, updates);
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
   
@@ -7514,7 +7493,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteHeroBanner(req.params.id);
       res.json({ success: true, message: "Banner deleted successfully" });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7526,7 +7505,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const collection = await storage.createBannerCollection(validatedData);
       res.json(collection);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7535,7 +7514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const collections = await storage.getBannerCollections();
       res.json(collections);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7547,7 +7526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(collection);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7559,7 +7538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7568,7 +7547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteBannerCollection(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7605,7 +7584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const banner = await storage.createMarketplaceBanner(validatedData);
       res.json(banner);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7615,7 +7594,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const banners = await storage.getMarketplaceBanners(collectionId as string);
       res.json(banners);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7627,7 +7606,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(banner);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7655,7 +7634,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7664,7 +7643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteMarketplaceBanner(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7677,7 +7656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.reorderMarketplaceBanners(bannerIds);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7687,7 +7666,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const banners = await storage.getActiveMarketplaceBanners();
       res.json(banners);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7696,7 +7675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sellers = await storage.getApprovedSellers();
       res.json(sellers);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7745,7 +7724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       setCachedProductList(cacheKey, visibleFeaturedProducts);
       res.json(visibleFeaturedProducts);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7786,7 +7765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       setCachedProductList(cacheKey, visibleNewArrivals);
       res.json(visibleNewArrivals);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7796,7 +7775,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pages = await storage.getActiveFooterPages();
       res.json(pages);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7805,7 +7784,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pages = await storage.getAllFooterPages();
       res.json(pages);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7824,7 +7803,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(earnings);
     } catch (error: any) {
       console.error('ERROR /api/admin/platform-earnings', error?.stack || error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7833,7 +7812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const summary = await storage.getPlatformEarningsSummary();
       res.json(summary);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7854,7 +7833,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const resultRows = await storage.getAdminSellerPayoutSummaries();
       res.json(resultRows);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7881,7 +7860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } catch (error: any) {
         console.error("Error building seller dashboard bootstrap:", error);
-        return res.status(400).json({ error: error.message });
+        return sendApiError(res, error);
       }
     },
   );
@@ -7896,7 +7875,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payouts = await storage.getSellerPayouts(sellerId);
       res.json(payouts);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7935,7 +7914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(results);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7946,7 +7925,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payouts = await storage.getRiderPayouts(riderId);
       res.json(payouts);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -7956,7 +7935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pending = await storage.getAllPendingRiderPayouts();
       res.json(pending);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8017,7 +7996,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.info(`[PAYOUT] Payout ${payoutId} approved by ${adminId} order #${orderNumber}`);
       res.json({ success: true, payout: updated });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8075,7 +8054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.info(`[PAYOUT] Payout ${payoutId} rejected by ${adminId} order #${orderNumber}`);
       res.json({ success: true, payout: updated });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8087,7 +8066,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const txs = await storage.getTransactions(limit, offset);
       res.json(txs);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8097,7 +8076,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const page = await storage.createFooterPage(data);
       res.status(201).json(page);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8111,7 +8090,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(page);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8121,7 +8100,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteFooterPage(id);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8243,7 +8222,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8265,7 +8244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8294,7 +8273,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true, user: { id: user.id, email: user.email, role: user.role } });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8320,7 +8299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true, received: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8454,7 +8433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         credentials: "All sellers: password123"
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8596,7 +8575,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8667,7 +8646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         banners: createdBanners
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -8699,7 +8678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         products: createdProducts 
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -10996,7 +10975,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       return;
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -11178,7 +11157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(ordersWithItems);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -11250,7 +11229,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         res.json(payload);
       } catch (error: any) {
-        res.status(400).json({ error: error.message });
+        sendApiError(res, error);
       }
     },
   );
@@ -11290,7 +11269,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         shift: shift ? { onShift: true, startedAt: shift.startedAt, verificationsThisShift: shift.verificationsThisShift } : { onShift: false, startedAt: null, verificationsThisShift: 0 },
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -11337,12 +11316,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isPickup = deliveryMethod === "pickup";
       const isBus = deliveryMethod === "bus";
       const isManualExternalDelivery = isManualExternalDeliveryOrder(finalOrder as any);
-      const isBuyerOrAdminViewer =
-        req.user!.role === "buyer" ||
-        req.user!.role === "customer" ||
-        req.user!.role === "admin" ||
-        req.user!.role === "super_admin" ||
-        String(finalOrder?.buyerId || "") === String(req.user!.id);
+
+      // Enforce stakeholder access BEFORE any side effects. OTP generation below
+      // persists to the DB, so authorization must run first — otherwise a logged-in
+      // buyer probing another user's order id would trigger writes before the 403.
+      const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
+      const isSupportAgent = req.user!.role === "agent";
+      const isBuyer = req.user!.id === securedOrder.buyerId;
+      const isSeller = req.user!.id === securedOrder.sellerId;
+      const isRider = !!securedOrder.riderId && req.user!.id === securedOrder.riderId;
+      const isStakeholder = isBuyer || isSeller || isRider;
+
+      const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
+      if (!isAdmin && !isSupportAgent && !isStakeholder) {
+        return res.status(403).json({ error: "Unauthorized to view this order" });
+      }
+      if (!isAdmin && !isSupportAgent && visible.hidden) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      // Only the actual buyer (or an admin acting on their behalf) needs the
+      // verification OTPs surfaced — generate lazily if not yet present.
+      const isBuyerOrAdminViewer = isAdmin || isBuyer;
       if (isBuyerOrAdminViewer) {
         if (isPickup && !securedOrder.pickupOtp) {
           const newPickupOtp = generateOrderOtp();
@@ -11354,18 +11349,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.updateOrder(finalOrder.id, { deliveryOtp: newDeliveryOtp } as any);
           securedOrder.deliveryOtp = newDeliveryOtp;
         }
-        if (isPickup && !securedOrder.pickupOtp) {
-          const newPickupOtp = generateOrderOtp();
-          await storage.updateOrder(finalOrder.id, { pickupOtp: newPickupOtp } as any);
-          securedOrder.pickupOtp = newPickupOtp;
-        }
-        if (!isPickup && !isBus && !isManualExternalDelivery && !securedOrder.deliveryOtp) {
-          const newDeliveryOtp = generateOrderOtp();
-          await storage.updateOrder(finalOrder.id, { deliveryOtp: newDeliveryOtp } as any);
-          securedOrder.deliveryOtp = newDeliveryOtp;
-        }
       }
-      const visible = resolveVisibleOrderStateForRole(securedOrder as any, req.user!.role);
+
       const orderHistory = await storage.getOrderStatusHistory(securedOrder.id);
       const verificationSummary = extractVerificationSummary(orderHistory);
       const busDeliveryWorkflow = isBusMethod(securedOrder.deliveryMethod)
@@ -11378,21 +11363,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             sellerToBuyer: null,
           }
         : verificationSummary;
-      
-      // Enforce stakeholder access for order detail reads.
-      const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
-      const isSupportAgent = req.user!.role === "agent";
-      const isBuyer = req.user!.id === securedOrder.buyerId;
-      const isSeller = req.user!.id === securedOrder.sellerId;
-      const isRider = !!securedOrder.riderId && req.user!.id === securedOrder.riderId;
-      const isStakeholder = isBuyer || isSeller || isRider;
-
-      if (!isAdmin && !isSupportAgent && !isStakeholder) {
-        return res.status(403).json({ error: "Unauthorized to view this order" });
-      }
-      if (!isAdmin && !isSupportAgent && visible.hidden) {
-        return res.status(404).json({ error: "Order not found" });
-      }
 
       const pickupStationInfo = await buildPickupStationInfo(securedOrder);
       const items = await storage.getOrderItems(securedOrder.id);
@@ -11496,7 +11466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -11574,7 +11544,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         calculatedAt: new Date().toISOString(),
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -11734,7 +11704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })),
         });
       } catch (error: any) {
-        res.status(400).json({ error: error.message });
+        sendApiError(res, error);
       }
     }
   );
@@ -11757,7 +11727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = await storage.getOrderItems(req.params.id);
       res.json(items);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -12057,7 +12027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       return res.json(safe);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -12707,7 +12677,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(offers.filter(Boolean));
     } catch (error: any) {
-      res.status(400).json({ error: error.message || "Failed to fetch rider assignment offers" });
+      sendApiError(res, error, 400, "Failed to fetch rider assignment offers");
     }
   });
 
@@ -13314,7 +13284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const availableRiders = await storage.getAvailableRidersWithOrderCounts();
       res.json(availableRiders);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13355,7 +13325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         history,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13371,7 +13341,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         locationSharing: true,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13393,7 +13363,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...nextPrefs,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13409,7 +13379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       io.to(req.user!.id).emit("rider_availability_updated", { online: true });
       res.json({ online: (updated as any)?.riderOnline !== false });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13636,7 +13606,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(tracking);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13672,7 +13642,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         staleAfterSeconds: staleAfterMs / 1000,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13696,7 +13666,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const history = await storage.getDeliveryTrackingHistory(req.params.orderId);
       res.json(history);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13746,7 +13716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(chronological);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13860,7 +13830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(riderLocations);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -13948,7 +13918,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(ordersWithBuyers);
     } catch (error: any) {
       console.error("Error fetching pending orders:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -14056,7 +14026,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(eligibleRiders);
     } catch (error: any) {
       console.error("Error fetching available riders:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -14115,7 +14085,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error in auto-dispatch:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -14467,7 +14437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error building seller dashboard:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -14631,7 +14601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error building rider dashboard:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -14758,7 +14728,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error building buyer dashboard:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -14892,7 +14862,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error building store dashboard:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -14905,7 +14875,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(deliveries);
     } catch (error: any) {
       console.error("Error fetching rider deliveries:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -14951,7 +14921,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         avgDeliveryFee: totalDeliveries > 0 ? totalEarnings / totalDeliveries : 0,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15009,7 +14979,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error fetching seller sales:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15021,7 +14991,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const adminsWithoutPasswords = admins.map(({ password, ...admin }) => admin);
       res.json(adminsWithoutPasswords);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15121,7 +15091,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(primaryMessage);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15174,7 +15144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const messages = await storage.getMessages(req.user!.id, req.params.userId);
       return res.json(messages);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15296,7 +15266,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true, updated: updatedMessages.length });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15407,7 +15377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const count = await storage.getUnreadMessageCount(req.user!.id);
       res.json({ count });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15522,7 +15492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(contacts);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15591,7 +15561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(contacts);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15633,7 +15603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         riders: allRiders.filter((u: any) => u.isActive !== false).map(toContact),
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15645,7 +15615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const presence = presenceService.getPresenceForApi(req.params.userId);
       res.json(presence);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15659,7 +15629,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const presences = presenceService.getBatchPresence(userIds);
       res.json(presences);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15669,7 +15639,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const stats = presenceService.getStats();
       res.json(stats);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15684,7 +15654,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(result);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15708,7 +15678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         orderRelated: contacts.orderRelated,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15762,7 +15732,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         config,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15856,7 +15826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         config,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15895,7 +15865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         config,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15937,7 +15907,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json({ success });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -15980,7 +15950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true, message: messageRecord });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -16010,7 +15980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const success = jitsiMeetService.endCall(req.params.roomName);
       res.json({ success });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -16040,7 +16010,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         stats,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -16148,7 +16118,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -16188,7 +16158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ],
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -16213,7 +16183,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(newMessage);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -16243,7 +16213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         alerts,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -16492,7 +16462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       res.json(sanitizedSettings);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -16617,6 +16587,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allowSellerRegistration: settings.allowSellerRegistration !== false,
         allowRiderRegistration: settings.allowRiderRegistration === true,
         enable3DAR: settings.enable3DAR !== false,
+        // Homepage display settings — mobile reads these from the public
+        // endpoint, so they MUST be exposed here to stay in sync with desktop
+        // (which reads the authenticated /api/platform-settings). Omitting
+        // shopDisplayMode made mobile always default to "by-store" while desktop
+        // honoured the admin's "Shop by Categories" toggle.
+        shopDisplayMode: settings.shopDisplayMode || "by-store",
+        showShopBySection: settings.showShopBySection !== false,
+        showHomepageFeaturedSection: settings.showHomepageFeaturedSection !== false,
+        showHomepageNewArrivalSection: settings.showHomepageNewArrivalSection !== false,
         contactEmail: String(settings.contactEmail || "support@kiyumart.com").trim() || "support@kiyumart.com",
         contactPhone: String(settings.contactPhone || "").trim() || null,
         platformName: String(settings.platformName || "KiyuMart").trim() || "KiyuMart",
@@ -16643,6 +16622,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allowSellerRegistration: true,
         allowRiderRegistration: false,
         enable3DAR: true,
+        shopDisplayMode: "by-store",
+        showShopBySection: true,
+        showHomepageFeaturedSection: true,
+        showHomepageNewArrivalSection: true,
         contactEmail: "support@kiyumart.com",
         contactPhone: null,
         platformName: "KiyuMart",
@@ -17084,7 +17067,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error building seller products dashboard section:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17214,7 +17197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error building seller sales dashboard section:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17238,7 +17221,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error building seller finance dashboard section:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17310,7 +17293,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error building seller activity dashboard section:", error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17340,7 +17323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sanitized = { ...updated, cloudinaryApiSecret: updated.cloudinaryApiSecret ? "••••••••••••••••" : "", paystackSecretKey: updated.paystackSecretKey ? "••••••••••••••••" : "" };
       res.json(sanitized);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17360,7 +17343,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sanitized = { ...updated, paystackSecretKey: updated.paystackSecretKey ? "••••••••••••••••" : "", paystackPublicKey: updated.paystackPublicKey || "" };
       res.json(sanitized);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17381,7 +17364,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sanitized = { ...updated, cloudinaryApiSecret: updated.cloudinaryApiSecret ? "••••••••••••••••" : "", cloudinaryApiKey: updated.cloudinaryApiKey || "", cloudinaryCloudName: updated.cloudinaryCloudName || "" };
       res.json(sanitized);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17407,7 +17390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updated = await storage.updatePlatformSettings(toUpdate);
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17435,7 +17418,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         smtpPass: updated.smtpPass ? "********************************" : "",
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17763,7 +17746,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       const duration = Date.now() - start;
       console.error(`PATCH /api/settings failed after ${duration}ms:`, error?.message || error);
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -17857,7 +17840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const created = await storage.createPromotionalAd({ type, targetId: targetId || '', startAt: startAt ? new Date(startAt) : null, endAt: endAt ? new Date(endAt) : null, createdBy: (req as any).user?.id, title: title || null, description: description || null, imageUrl: imageUrl || null, ctaText: ctaText || null, ctaUrl: ctaUrl || null, themeColor: themeColor || null, displaySection: safeAdSection });
       res.json(created);
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -17878,7 +17861,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       res.json(enriched);
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -17995,7 +17978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const enriched = await Promise.all(rows.map((row) => buildPromotionApplicationResponse(row)));
       res.json(enriched);
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18014,7 +17997,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updated) return res.status(404).json({ error: "Not found" });
       res.json(await buildPromotionApplicationResponse(updated));
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18057,7 +18040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(await buildPromotionApplicationResponse(updated));
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18099,7 +18082,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(await buildPromotionApplicationResponse(updated));
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18171,7 +18154,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(await buildPromotionApplicationResponse(updated));
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18185,7 +18168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updated) return res.status(404).json({ error: "Promotion not found" });
       res.json(updated);
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18195,7 +18178,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.expirePromotionById(id);
       res.json({ ok: true });
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18212,7 +18195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deletedCount: deleted.length,
       });
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18240,7 +18223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(enriched);
     } catch (e: any) {
       console.error('[PROMO-API] Error:', e.message);
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18256,7 +18239,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const created = await storage.createPromotionPricing({ type, durationType, duration, price });
       res.json(created);
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18265,7 +18248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rows = await storage.getAllPromotionPricing({ includeInactive: true });
       res.json(rows);
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18280,7 +18263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updated = await storage.updatePromotionPricing(parseInt(id), updateData);
       res.json(updated);
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18290,7 +18273,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deletePromotionPricing(parseInt(id));
       res.json({ ok: true });
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18516,7 +18499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })),
       );
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -18548,7 +18531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(updatedFeatures);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -18569,7 +18552,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pricing = await storage.getAllPromotionPricing();
       res.json(pricing);
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18589,7 +18572,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const enriched = await Promise.all(rows.map((row) => buildPromotionApplicationResponse(row)));
       res.json(enriched);
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -18732,7 +18715,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(await buildPromotionApplicationResponse(application));
     } catch (e: any) {
-      res.status(400).json({ error: e.message });
+      sendApiError(res, e);
     }
   });
 
@@ -20815,7 +20798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const analytics = await storage.getAnalytics(req.user!.id, req.user!.role);
       res.json(analytics);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -20865,7 +20848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           successfulOrders: Number(deliveryTotals[0]?.successfulOrders ?? 0),
         });
       } catch (error: any) {
-        res.status(400).json({ error: error.message });
+        sendApiError(res, error);
       }
     },
   );
@@ -20962,7 +20945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
         });
       } catch (error: any) {
-        res.status(400).json({ error: error.message });
+        sendApiError(res, error);
       }
     },
   );
@@ -20981,7 +20964,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         platformCommission: (commissions as any).rows || [],
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -20997,7 +20980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (res.headersSent || res.writableEnded) {
         return;
       }
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -21082,7 +21065,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json((rows as any).rows || []);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -21141,7 +21124,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       return res.json(entry);
     } catch (error: any) {
-      return res.status(400).json({ error: error.message });
+      return sendApiError(res, error);
     }
   });
 
@@ -21191,7 +21174,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.json(rows);
       } catch (error: any) {
-        return res.status(400).json({ error: error.message });
+        return sendApiError(res, error);
       }
     },
   );
@@ -21237,7 +21220,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       return res.json(scoped.slice(0, limit));
     } catch (error: any) {
-      return res.status(400).json({ error: error.message });
+      return sendApiError(res, error);
     }
   });
 
@@ -21279,7 +21262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(payload as Record<string, any>),
       });
     } catch (error: any) {
-      return res.status(400).json({ error: error.message });
+      return sendApiError(res, error);
     }
   });
 
@@ -21614,7 +21597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
   // ─── Auto-Fix: Run safe, non-destructive repairs on known issue patterns ───
@@ -21803,6 +21786,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   console.log('[BOOT] WhatsApp-style messaging services initialized');
 
+  // Grace period before a disconnected rider is unassigned from an active
+  // delivery and re-matching restarts. Mobile sockets drop constantly (network
+  // hand-offs, app backgrounding, tab sleep); reassigning on every raw
+  // disconnect would churn assignments. The timer is cancelled the moment the
+  // rider reconnects, and re-validates offline state before acting.
+  const RIDER_REASSIGN_GRACE_MS = 90_000;
+  const pendingRiderReassign = new Map<string, NodeJS.Timeout>();
+
   io.on("connection", (socket) => {
     const userId = socket.data.userId; // From authentication middleware
     const userEmail = socket.data.userEmail;
@@ -21818,6 +21809,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Register with presence service
     presenceService.userConnected(userId, socket.id);
     if (socket.data.userRole === "rider") {
+      // Rider reconnected within the grace window — cancel any pending
+      // unassign/re-match scheduled by a previous disconnect.
+      const pending = pendingRiderReassign.get(userId);
+      if (pending) {
+        clearTimeout(pending);
+        pendingRiderReassign.delete(userId);
+      }
       void (async () => {
         try {
           await storage.updateUser(userId, { riderOnline: true } as any);
@@ -21860,21 +21858,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update presence service
       presenceService.userDisconnected(userId);
       if (socket.data.userRole === "rider") {
-        void (async () => {
-          try {
-            await storage.updateUser(userId, { riderOnline: false } as any);
-            const riderOrders = await storage.getOrdersByUser(userId, "rider");
-            const impacted = riderOrders.find((o: any) =>
-              ["searching_rider", "assigned", "rider_arrived"].includes(canonicalizeOrderStatus(o.status))
-            );
-            if (!impacted) return;
+        void storage.updateUser(userId, { riderOnline: false } as any).catch(() => {});
 
-            await storage.updateOrder(impacted.id, { riderId: null } as any);
-            await startRiderMatchingForPaidOrders([impacted.id]);
-          } catch (error) {
-            console.warn(`[RIDER_MATCH] Offline reassign failed for rider ${userId}:`, (error as any)?.message || error);
-          }
-        })();
+        // Defer unassign + re-match behind a grace period so a transient
+        // mobile disconnect doesn't strip the rider off their active delivery.
+        // Cancelled on reconnect; re-validates that the rider is genuinely
+        // still offline (no fresh heartbeat) before acting.
+        const existingTimer = pendingRiderReassign.get(userId);
+        if (existingTimer) clearTimeout(existingTimer);
+        const timer = setTimeout(() => {
+          pendingRiderReassign.delete(userId);
+          void (async () => {
+            try {
+              // Rider came back (new socket or heartbeat) — leave assignment intact.
+              if (presenceService.getPresence(userId)?.status === "online") return;
+
+              await storage.updateUser(userId, { riderOnline: false } as any);
+              const riderOrders = await storage.getOrdersByUser(userId, "rider");
+              const impacted = riderOrders.find((o: any) =>
+                ["searching_rider", "assigned", "rider_arrived"].includes(canonicalizeOrderStatus(o.status))
+              );
+              if (!impacted || impacted.riderId !== userId) return;
+
+              await storage.updateOrder(impacted.id, { riderId: null } as any);
+              await startRiderMatchingForPaidOrders([impacted.id]);
+            } catch (error) {
+              console.warn(`[RIDER_MATCH] Offline reassign failed for rider ${userId}:`, (error as any)?.message || error);
+            }
+          })();
+        }, RIDER_REASSIGN_GRACE_MS);
+        // Don't let this timer keep the event loop alive on shutdown.
+        if (typeof (timer as any).unref === "function") (timer as any).unref();
+        pendingRiderReassign.set(userId, timer);
       }
     });
 
@@ -22959,7 +22974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (res.headersSent || res.writableEnded) {
         return;
       }
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23093,7 +23108,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(conversation);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23184,7 +23199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(mappedMessages);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23333,7 +23348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(newMessage);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23502,7 +23517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         customerIsActive: normalizedDecision === "activate",
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23553,7 +23568,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23571,7 +23586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       res.json(staff);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23638,7 +23653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23712,7 +23727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23769,7 +23784,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
         });
       } catch (error: any) {
-        res.status(400).json({ error: error.message });
+        sendApiError(res, error);
       }
     }
   );
@@ -23780,7 +23795,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const field = await storage.createCategoryField(req.body);
       res.json(field);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23790,7 +23805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fields = await storage.getCategoryFields(category as string);
       res.json(fields);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23802,7 +23817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(field);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23814,7 +23829,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23828,7 +23843,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const store = await storage.createStore(storeData);
       res.json(store);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23841,7 +23856,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(stores);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -23896,7 +23911,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             AND o.store_id IS NOT NULL
           GROUP BY o.store_id
         `) as any;
-        const rows: any[] = Array.isArray(aggregateRows) ? aggregateRows : (aggregateRows?.rows || []);
+        const rows: any[] = Array.isArray(aggregateRows) ? aggregateRows : ((aggregateRows as any)?.rows || []);
         for (const row of rows) {
           if (row?.store_id) soldByStore.set(String(row.store_id), Number(row.total_sold) || 0);
         }
@@ -23959,7 +23974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(quotes);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24010,7 +24025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sellerProfileImage: seller?.profileImage || null,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24019,7 +24034,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const categories = await storage.getCategoriesByStore(req.params.storeId);
       res.json(categories);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24035,7 +24050,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sellerProfileImage: seller?.profileImage || null,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24081,7 +24096,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24093,7 +24108,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24130,7 +24145,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (e) { /* non-critical */ }
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24140,7 +24155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const applications = await storage.getVerificationApplications();
       res.json(applications);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24162,7 +24177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24186,7 +24201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24370,7 +24385,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "Category request submitted. An admin must approve it before it appears on the homepage.",
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24436,7 +24451,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(requests);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24445,7 +24460,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const category = await storage.createCategory(req.body);
       res.json(category);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24489,7 +24504,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ created, skipped });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24514,7 +24529,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(flagged);
       }
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24632,7 +24647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(category);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24644,7 +24659,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(category);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24656,7 +24671,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24710,7 +24725,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(updated);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24790,7 +24805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: `"${category.name}" was rejected successfully.`,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24802,7 +24817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -24988,7 +25003,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(mediaItem);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25041,7 +25056,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = await storage.getMediaLibraryItems(filters);
       res.json(items);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25078,7 +25093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25133,7 +25148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(attachedImages);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25184,7 +25199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       allReviews.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       res.json(allReviews);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25202,7 +25217,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(review);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25211,7 +25226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const verification = await storage.verifyPurchaseForReview(req.user!.id, req.params.productId);
       res.json(verification);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25236,7 +25251,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(filtered);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25258,7 +25273,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).length;
       res.json({ count });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25299,7 +25314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(notification);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25308,7 +25323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.markAllNotificationsAsRead(req.user!.id);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25320,7 +25335,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25339,7 +25354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const banks = await paystackService.getGhanaBanks(settings.paystackSecretKey ?? undefined);
       res.json(banks.data);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25351,7 +25366,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const verification = await paystackService.verifyAccountNumber(accountNumber, bankCode, settings.paystackSecretKey ?? undefined);
       res.json(verification.data);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25483,7 +25498,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         releasedPayouts,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
@@ -25541,7 +25556,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await claimReward(req.params.rewardId, req.user!.id, req.body.promoOptions);
       res.json(result);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      sendApiError(res, error);
     }
   });
 
