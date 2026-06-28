@@ -68,9 +68,23 @@ export default function Profile() {
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: Partial<UserProfile>) => {
-      return await apiRequest("PATCH", `/api/profile`, data);
+      const res = await apiRequest("PATCH", `/api/profile`, data);
+      // The endpoint returns the freshly-updated user.
+      return await res.json().catch(() => null);
     },
-    onSuccess: () => {
+    onSuccess: (updatedUser: any) => {
+      // Reflect the change immediately by writing the server's updated user into
+      // the cache — so it shows the moment you hit Save, with no page refresh.
+      // The auth provider reads ["/api/auth/me"], so this also updates `user`.
+      if (updatedUser && typeof updatedUser === "object") {
+        queryClient.setQueryData(["/api/auth/me"], (old: any) =>
+          old ? { ...old, ...updatedUser } : updatedUser
+        );
+        queryClient.setQueryData(["/api/profile"], (old: any) =>
+          old ? { ...old, ...updatedUser } : updatedUser
+        );
+      }
+      // Reconcile with the server in the background.
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({
@@ -223,6 +237,13 @@ export default function Profile() {
 
       const data = await response.json();
 
+      // Show the new picture immediately — no refresh needed.
+      const nextUser = data?.user ?? (data?.profileImage ? { profileImage: data.profileImage } : null);
+      if (nextUser) {
+        queryClient.setQueryData(["/api/auth/me"], (old: any) =>
+          old ? { ...old, ...nextUser } : nextUser
+        );
+      }
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
 
       toast({

@@ -19,7 +19,11 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,webp,avif,woff2}"],
+        // Precache only the app shell (code, styles, fonts, favicon). Bundled
+        // images are deliberately excluded — they're cached on-demand by the
+        // runtime `images-cache` (CacheFirst) handler below, so precaching them
+        // too just bloats the service-worker install on slow connections.
+        globPatterns: ["**/*.{js,css,html,ico,woff2}"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api/, /^\/socket\.io/],
         runtimeCaching: [
@@ -75,6 +79,10 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // NOTE: do NOT add a custom rollupOptions.output.manualChunks here. A manual
+    // vendor split caused a chunk init-order crash ("Cannot access 'X' before
+    // initialization") that left React unmounted and the whole app dead. Rollup's
+    // automatic per-route splitting is the known-good behaviour — keep it.
   },
   server: {
     hmr: {

@@ -842,29 +842,6 @@ export default function Settings() {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label className="text-base">Two-Factor Authentication</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Add an extra layer of security to your account
-                    </p>
-                  </div>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => {
-                      toast({
-                        title: "Coming Soon",
-                        description: "Two-factor authentication will be available in a future update.",
-                      });
-                    }}
-                    data-testid="button-setup-2fa"
-                  >
-                    Set Up
-                  </Button>
-                </div>
-                
-                <Separator />
-                
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
                     <Label className="text-base">Change Password</Label>
                     <p className="text-sm text-muted-foreground">
                       Update your password regularly

@@ -69,7 +69,7 @@ export default function LogoLoadingScreen({
         minDisplayTime={minDisplayTime}
         hasMinTimePassed={hasMinTimePassed}
         setHasMinTimePassed={setHasMinTimePassed}
-        shouldReduceMotion={shouldReduceMotion}
+        shouldReduceMotion={!!shouldReduceMotion}
       />
     );
   }

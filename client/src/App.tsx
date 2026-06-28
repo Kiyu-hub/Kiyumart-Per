@@ -242,20 +242,20 @@ function FaviconInjector() {
 }
 
 function ProductDetailsRoute() {
-  const { isMobile } = useMobileDevice();
-  if (!isMobile) {
-    return <React.Suspense fallback={null}><ProductDetails /></React.Suspense>;
-  }
-  return <React.Suspense fallback={null}><MobileProductDecider /></React.Suspense>;
+  return <React.Suspense fallback={null}><ProductDetailDecider /></React.Suspense>;
 }
 
-// Decides between MobileFoodDetail (Bolt-style) and MobileProductDetails based
-// on the product's store type. Does a small product fetch first so we can
-// branch without rendering the wrong UI for a frame.
-function MobileProductDecider() {
+// Decides which detail UI to render for /product/:id. Food vendor / restaurant
+// products use the Bolt-style MobileFoodDetail on BOTH mobile AND desktop (the
+// component centres itself in a phone-width column on wide screens). Everything
+// else uses the standard desktop ProductDetails or mobile MobileProductDetails.
+// A small product+store fetch happens first so we can branch without flashing
+// the wrong UI; the same query keys are reused by the chosen page (cache hit).
+function ProductDetailDecider() {
+  const { isMobile } = useMobileDevice();
   const [, params] = useRoute<{ id: string }>("/product/:id");
   const productId = params?.id || "";
-  const { data: product } = useQuery<{ id: string; storeId?: string | null } & Record<string, any>>({
+  const { data: product, isLoading: productLoading } = useQuery<{ id: string; storeId?: string | null } & Record<string, any>>({
     queryKey: ["/api/products", productId],
     queryFn: async () => {
       const r = await fetch(`/api/products/${productId}`);
@@ -264,7 +264,8 @@ function MobileProductDecider() {
     },
     enabled: !!productId,
   });
-  const { data: store } = useQuery<{ id: string; storeType?: string | null; businessType?: string | null; merchantCategory?: string | null } | null>({
+  const needStore = !!product?.storeId;
+  const { data: store, isLoading: storeLoading } = useQuery<{ id: string; storeType?: string | null; businessType?: string | null; merchantCategory?: string | null } | null>({
     queryKey: ["/api/stores", product?.storeId, "lite-router"],
     queryFn: async () => {
       if (!product?.storeId) return null;
@@ -272,9 +273,16 @@ function MobileProductDecider() {
       if (!r.ok) return null;
       return r.json();
     },
-    enabled: !!product?.storeId,
+    enabled: needStore,
     staleTime: 5 * 60_000,
   });
+
+  // Wait until we know the store type before choosing a layout — avoids
+  // rendering (and fetching for) the wrong detail page for a frame.
+  if (productLoading || (needStore && storeLoading)) {
+    return null;
+  }
+
   const isFood =
     store?.businessType === "restaurant" ||
     store?.businessType === "local_vendor" ||
@@ -282,10 +290,13 @@ function MobileProductDecider() {
     store?.storeType === "restaurant" ||
     store?.merchantCategory === "QUICK_EATS";
 
-  if (product && store && isFood) {
+  if (isFood) {
     return <React.Suspense fallback={null}><MobileFoodDetail /></React.Suspense>;
   }
-  return <React.Suspense fallback={null}><MobileProductDetails /></React.Suspense>;
+  if (isMobile) {
+    return <React.Suspense fallback={null}><MobileProductDetails /></React.Suspense>;
+  }
+  return <React.Suspense fallback={null}><ProductDetails /></React.Suspense>;
 }
 
 function withExternalRiderRouteGuard(Component: React.ComponentType) {

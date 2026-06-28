@@ -176,6 +176,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       newSocket.emit("register", user.id);
       invalidatePlatformQueries();
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      // This fires on every (re)connect. After a network interruption the
+      // socket may have missed live events, so re-sync the core data the UI
+      // depends on rather than waiting for the next event to arrive.
+      invalidateOrderQueries();
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
     });
 
     newSocket.on("disconnect", () => {

@@ -5,6 +5,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { navigateToBannerLink } from "@/lib/bannerNavigation";
 import { useAuth } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
 import { fetchSameOriginJson } from "@/lib/queryClient";
@@ -658,7 +659,7 @@ function MobileBannerSlider() {
           overflow: 'hidden',
           background: bgImage ? undefined : solidBg,
         }}
-        onClick={() => slide.ctaLink && navigate(slide.ctaLink)}
+        onClick={() => navigateToBannerLink(slide.ctaLink, navigate)}
       >
         {/* Background image */}
         {bgImage && (
@@ -744,7 +745,7 @@ function MobileBannerSlider() {
             ))}
             {slide.ctaLink && ctaLabel && (
               <button
-                onClick={(e) => { e.stopPropagation(); navigate(slide.ctaLink!); }}
+                onClick={(e) => { e.stopPropagation(); navigateToBannerLink(slide.ctaLink, navigate); }}
                 style={{
                   marginTop: 8, alignSelf: textCentered ? 'center' : 'flex-start',
                   background: ctaBg, color: ctaColor,

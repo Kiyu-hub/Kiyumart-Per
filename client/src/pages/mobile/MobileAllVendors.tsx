@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useLocation } from "wouter";
+import { navigateToBannerLink } from "@/lib/bannerNavigation";
 import { useQuery } from "@tanstack/react-query";
 import { isFoodVendorStore, getFoodStoreIdSet } from "@/lib/foodVendors";
 import { useToast } from "@/hooks/use-toast";
@@ -498,7 +499,7 @@ export default function MobileAllVendors() {
           filter AND a defensive client filter so they NEVER appear here. */}
       {banner ? (
         <button
-          onClick={() => banner.ctaLink && navigate(banner.ctaLink)}
+          onClick={() => navigateToBannerLink(banner.ctaLink, navigate)}
           style={{
             display: 'block', textAlign: 'left',
             margin: '12px 16px 4px',

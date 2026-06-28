@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { type BannerConfig, TITLE_SIZE_MAP, LAYOUT_DEFAULTS } from "@/components/BannerEditor";
+import { navigateToBannerLink } from "@/lib/bannerNavigation";
 
 interface HeroBanner {
   id: string;
@@ -229,7 +230,7 @@ export default function HeroCarousel() {
                                   onPointerDown={() => { try { autoplayPlugin.current.stop(); } catch {} }}
                                   onPointerUp={() => { try { (autoplayPlugin.current as any).play?.(); } catch {} }}
                                   onPointerLeave={() => { try { (autoplayPlugin.current as any).play?.(); } catch {} }}
-                                  onClick={(e) => { e.stopPropagation(); navigate(banner.ctaLink || "/"); }}
+                                  onClick={(e) => { e.stopPropagation(); navigateToBannerLink(banner.ctaLink, navigate); }}
                                   data-testid={`button-hero-cta-${banner.id}`}
                                 >
                                   {cfg.cta.text || banner.ctaText || t("shopNow")}
@@ -268,7 +269,7 @@ export default function HeroCarousel() {
                                   onPointerDown={() => { try { autoplayPlugin.current.stop(); } catch {} }}
                                   onPointerUp={() => { try { (autoplayPlugin.current as any).play?.(); } catch {} }}
                                   onPointerLeave={() => { try { (autoplayPlugin.current as any).play?.(); } catch {} }}
-                                  onClick={(e) => { e.stopPropagation(); navigate(banner.ctaLink || "/"); }}
+                                  onClick={(e) => { e.stopPropagation(); navigateToBannerLink(banner.ctaLink, navigate); }}
                                   data-testid={`button-hero-cta-${banner.id}`}
                                 >
                                   {cfg.cta.text || banner.ctaText || t("shopNow")}
@@ -306,7 +307,7 @@ export default function HeroCarousel() {
                               onPointerDown={() => { try { autoplayPlugin.current.stop(); } catch {} }}
                               onPointerUp={() => { try { (autoplayPlugin.current as any).play?.(); } catch {} }}
                               onPointerLeave={() => { try { (autoplayPlugin.current as any).play?.(); } catch {} }}
-                              onClick={(e) => { e.stopPropagation(); navigate(banner.ctaLink || "/"); }}
+                              onClick={(e) => { e.stopPropagation(); navigateToBannerLink(banner.ctaLink, navigate); }}
                               data-testid={`button-hero-cta-${banner.id}`}
                             >
                               {banner.ctaText || t("shopNow")}

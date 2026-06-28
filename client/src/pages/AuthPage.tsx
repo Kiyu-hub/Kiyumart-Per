@@ -269,8 +269,21 @@ export default function AuthPage() {
               // Navigation handled by useEffect; EmailVerificationGuard protects private pages
             }}
             onSignup={async (name, email, password, location) => {
-              await handleSignup(name, email, password, location);
-              // OTP screen is handled automatically by the useEffect above
+              try {
+                await handleSignup(name, email, password, location);
+              } catch {
+                return; // handleSignup already surfaced the error toast
+              }
+              // New accounts are unverified — go straight to the OTP screen.
+              // The auth useEffect is gated off by otpGateRef during signup, so
+              // we trigger the verify screen explicitly here instead of waiting
+              // for a refresh.
+              setDesktopVerifyEmail(email);
+              setDesktopOtp(["", "", "", "", "", ""]);
+              setDesktopNeedsVerify(true);
+              fetch("/api/auth/send-verification-otp", { method: "POST", credentials: "include" })
+                .then((r) => r.ok && setDesktopResendCountdown(60))
+                .catch(() => {});
             }}
             isLoginLoading={isLoggingIn}
             isSignupLoading={isSigningUp}

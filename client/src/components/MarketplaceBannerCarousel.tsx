@@ -14,6 +14,7 @@ import Autoplay from "embla-carousel-autoplay";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
+import { navigateToBannerLink } from "@/lib/bannerNavigation";
 import { Badge } from "@/components/ui/badge";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -123,7 +124,7 @@ export default function MarketplaceBannerCarousel({
 
   const handleBannerClick = (banner: MarketplaceBanner) => {
     if (banner.ctaUrl) {
-      navigate(banner.ctaUrl);
+      navigateToBannerLink(banner.ctaUrl, navigate);
     } else if (banner.productRef) {
       navigate(`/product/${banner.productRef}`);
     } else if (banner.storeRef) {

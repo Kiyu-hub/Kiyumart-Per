@@ -4,6 +4,10 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import Header from "@/components/Header";
+import Footer from "@/components/Footer";
+import ThemeToggle from "@/components/ThemeToggle";
 
 // Bolt-Food-style food / dish detail page.
 // Brand color is KiyuMart TEAL. Layout mirrors Bolt:
@@ -51,6 +55,8 @@ export default function MobileFoodDetail() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { isMobile } = useMobileDevice();
+  const isDesktop = !isMobile;
   const productId = params?.id || "";
 
   const [isDark, setIsDark] = useState(true);
@@ -100,6 +106,22 @@ export default function MobileFoodDetail() {
       return r.json();
     },
     enabled: !!product?.storeId,
+  });
+
+  // "You may also like" — other dishes from the same restaurant / vendor.
+  const { data: related = [] } = useQuery<ProductData[]>({
+    queryKey: ["/api/products", "food-related", product?.storeId, productId],
+    queryFn: async () => {
+      const r = await fetch("/api/products?isActive=true");
+      if (!r.ok) return [];
+      const all = await r.json();
+      if (!Array.isArray(all)) return [];
+      return all
+        .filter((p: any) => p && p.id !== productId && String(p.storeId || "") === String(product?.storeId || ""))
+        .slice(0, 12);
+    },
+    enabled: !!productId && !!product?.storeId,
+    staleTime: 60_000,
   });
 
   // ── Palette ───────────────────────────────────────────
@@ -235,9 +257,40 @@ export default function MobileFoodDetail() {
   const rating = parseFloat(String(product?.ratings || "0"));
 
   return (
-    <div style={{ minHeight: '100dvh', background: bg, fontFamily: F, color: txt, paddingBottom: 120 }}>
+    <div style={{ minHeight: '100dvh', background: bg, fontFamily: F, color: txt, display: 'flex', flexDirection: 'column' }}>
+      {/* Desktop wears the SAME chrome as the standard product detail page —
+          ThemeToggle bar, site Header, a Back breadcrumb and Footer — with
+          Bolt-styled content in a max-w-7xl two-column grid (hero left, details
+          right). Mobile stays full-bleed with a fixed bottom CTA. */}
+      {isDesktop && (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 8, borderBottom: `1px solid ${bdr}`, background: card }}>
+            <ThemeToggle />
+          </div>
+          <Header />
+          <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-4">
+            <button
+              onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/products'); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: muted, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, fontSize: 14, padding: 0 }}
+            >
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+              <span>Back</span>
+            </button>
+          </div>
+        </>
+      )}
+      <div
+        className={isDesktop ? 'max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6' : undefined}
+        style={isDesktop ? { flex: 1 } : {
+          margin: '0 auto', position: 'relative', minHeight: '100dvh', background: bg,
+          maxWidth: 480, paddingBottom: 120,
+        }}
+      >
+        <div className={isDesktop ? 'grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12' : undefined}>
+          {/* ── LEFT column: hero (sticky on desktop) ─────────── */}
+          <div className={isDesktop ? 'lg:sticky lg:top-24 lg:self-start' : undefined}>
       {/* ── Hero image ───────────────────────────────────── */}
-      <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', background: skel, overflow: 'hidden' }}>
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', background: skel, overflow: 'hidden', borderRadius: isDesktop ? 18 : 0 }}>
         {heroImg ? (
           <img src={heroImg} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : (
@@ -247,6 +300,7 @@ export default function MobileFoodDetail() {
           position: 'absolute', inset: 0,
           background: 'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 28%)',
         }} />
+        {isMobile && (
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -268,10 +322,14 @@ export default function MobileFoodDetail() {
             </FloatButton>
           </div>
         </div>
+        )}
       </div>
+          </div>
+          {/* ── RIGHT column: details ─────────────────────────── */}
+          <div>
 
       {/* ── Title block ──────────────────────────────────── */}
-      <div style={{ padding: '16px 16px 8px' }}>
+      <div style={{ padding: isDesktop ? '0 0 8px' : '16px 16px 8px' }}>
         <div style={{ fontSize: 22, fontWeight: 800, color: txt, lineHeight: 1.15 }}>{product.name}</div>
         {store?.name && (
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13 }}>
@@ -400,13 +458,18 @@ export default function MobileFoodDetail() {
       </div>
 
       {/* ── Sticky bottom bar: qty stepper + Add to cart ── */}
-      <div style={{
-        position: 'fixed', left: 0, right: 0, bottom: 0,
+      <div style={isMobile ? {
+        position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 0,
+        width: '100%', maxWidth: 480, boxSizing: 'border-box' as const,
         zIndex: 30,
         background: card,
         borderTop: `1px solid ${bdr}`,
         padding: '10px 16px',
         paddingBottom: 'max(10px, env(safe-area-inset-bottom, 10px))',
+        display: 'flex', alignItems: 'center', gap: 12,
+      } : {
+        // Desktop: inline CTA at the foot of the details column.
+        position: 'static', marginTop: 24,
         display: 'flex', alignItems: 'center', gap: 12,
       }}>
         {/* Quantity stepper */}
@@ -476,6 +539,57 @@ export default function MobileFoodDetail() {
           <span>GH₵ {totalPrice.toFixed(2)}</span>
         </button>
       </div>
+          </div>
+        </div>
+
+        {related.length > 0 && (
+          <div style={{ marginTop: isDesktop ? 44 : 18, padding: isDesktop ? 0 : '0 16px' }}>
+            <div style={{ fontSize: isDesktop ? 22 : 18, fontWeight: 800, color: txt, marginBottom: 14 }}>
+              You may also like
+            </div>
+            <div
+              className={isDesktop ? undefined : 'scrollbar-hide'}
+              style={isDesktop
+                ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 18 }
+                : { display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4, WebkitOverflowScrolling: 'touch' as const, scrollSnapType: 'x proximity' }}
+            >
+              {related.map((p) => {
+                const img = Array.isArray(p.images) ? p.images[0] : undefined;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => { navigate(`/product/${p.id}`); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); }}
+                    style={{
+                      flexShrink: 0, width: isDesktop ? 'auto' : 152, textAlign: 'left',
+                      background: card, border: `1px solid ${bdr}`, borderRadius: 14, overflow: 'hidden',
+                      cursor: 'pointer', padding: 0, fontFamily: F, scrollSnapAlign: 'start' as const,
+                    }}
+                  >
+                    <div style={{ width: '100%', aspectRatio: '1 / 1', background: skel }}>
+                      {img
+                        ? <img src={img} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        : <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', fontSize: 40 }}>🍽️</div>}
+                    </div>
+                    <div style={{ padding: 10 }}>
+                      <div style={{
+                        fontSize: 13, fontWeight: 700, color: txt, lineHeight: 1.25,
+                        overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                        WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, minHeight: 32,
+                      }}>
+                        {p.name}
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 13, fontWeight: 800, color: TEAL }}>
+                        GH₵ {(parseFloat(String(p.price || '0')) || 0).toFixed(2)}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+      {isDesktop && <Footer />}
     </div>
   );
 }

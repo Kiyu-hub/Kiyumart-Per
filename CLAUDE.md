@@ -2,6 +2,89 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Tool Orchestration (always-on, all skills + MCPs)
+
+The user does not want to remember which tool does what. When their request matches any trigger below, automatically reach for the matching tool — do not wait to be asked.
+
+### 1. UI / Design / Build requests
+Triggers: *build, design, create, mock, prototype, redesign, upgrade, make a page/component/screen/dashboard/modal/form/chart/animation, "make it pretty", style suggestions, color palette, font pairing, review this design*.
+
+**Run ALL five tools in this order on every UI/build/design request — each adds something the next can't, and using them together is what produces the multi-million-dollar-looking result. Do NOT skip steps just because the request seems small.**
+
+#### Unified design chain
+
+1. **`ui-ux-pro-max:ui-ux-pro-max`** (skill) — **strategic design intelligence.** Pick the niche-matched palette, typography pairing, spacing/shadow tokens, UX guidelines, and (for whole-site builds) which of the 6 presets to use: HUD (tech/AI), Appetite (restaurant), Sovereign (real estate / luxury), Clean Lift (SaaS), Cover Story (fashion/editorial), Breath (wellness). This step produces the **system of record** that every later step pulls from.
+
+2. **`stitch` MCP** (remote `stitch.googleapis.com/mcp`) — **screen mockups & wireframes.** Generate layout proofs for all key screens (or the single screen for component work). Stitch gives you a high-fidelity visual reference of the structure before any code is written. Run it even on component-level work — a single-component mockup catches layout issues you'd otherwise hit at integration time.
+
+3. **`huashu-design`** (skill) — **high-fidelity animated HTML prototype + design-direction critique.** Take the palette from step 1 + the mockup from step 2 and produce an interactive HTML/CSS/JS prototype with motion. Run its **design-direction consultant mode** to get 2–3 variant proposals; then run its **5-dimension expert review** (philosophy / hierarchy / detail / function / innovation, each scored /10 with a fix list) on the chosen variant. Outputs sandboxed to `prototypes/`. Snyk flagged Medium Risk — keep it scoped to `prototypes/`, never let it touch source.
+
+4. **`3d-scroll-website`** (skill, DeviniLabs) — **production Next.js scaffold + frame-sequence engine.** Take the validated prototype from step 3 and build the actual deployed product: Next.js 16 + React 19 + Tailwind v4 scaffold, frame-sequence canvas, Lenis smooth scroll, Framer Motion reveals, cursor-reactive UI, niche preset applied, $0 AI frame generation (Kling/Hailuo/Luma free tiers + start-end frame technique), free stock libraries (Pexels/Mixkit/Unsplash), R3F escape hatch for real interactive 3D, shader backgrounds, Vercel deploy. **This is the main code-emission step for whole sites.** For component-only work inside an existing app, consult this skill for animation patterns and scroll math, but do not scaffold a new project.
+
+5. **`magic` MCP** (21st.dev) — **production TSX components for the gaps.** Generate any specific component the previous step doesn't ship by default — custom widgets, charts, forms, modals, niche-specific UI bits, or single components being added to an existing app like KiyuMart. Magic is the last-mile "give me this exact piece in TSX matching the chosen style" tool.
+
+#### Why all five — and why this order
+- **1 sets the system** so steps 2-5 don't drift into incoherent style.
+- **2 proves the layout** before motion / code is committed.
+- **3 prototypes the soul of the design** — this is where the "multi-million-dollar feel" comes from (timing, easing, micro-interactions). Skipping it makes the final product look correct but feel cheap.
+- **4 ships the production architecture** (scaffold, canvas engine, smooth scroll, deploy). This is the heavy lifting.
+- **5 fills component-level gaps** that 4 doesn't cover.
+
+Order matters: each step consumes the prior step's output as constraints. Skipping step 3 means step 4 builds without a motion brief; skipping step 1 means every later step makes its own style decisions and they conflict.
+
+#### Integration into existing KiyuMart code
+Integration is **only** with explicit "Upgrade [Module Name]" command per Phase 0. Default to new files / new paths; never overwrite production code without authorization.
+
+If the request is ambiguous, run step 1 only and present 2–3 directions before continuing through 2-5.
+
+### 2. Code review / quality
+- **`review`** (skill) — when user asks to review a PR, branch, or pending changes.
+- **`security-review`** (skill) — when user asks for a security audit of pending changes on the current branch.
+- **`simplify`** (skill) — when user asks to clean up, simplify, refactor for clarity, or "review for reuse/efficiency" on changed code.
+
+### 3. Claude Code configuration / harness
+- **`update-config`** (skill) — for any settings.json change: permissions ("allow X"), env vars, hooks ("from now on when X", "every time X", "before/after X"). Memory cannot fulfill automated behaviors — hooks can.
+- **`keybindings-help`** (skill) — when user wants to rebind keys, add chords, change submit key, or modify `~/.claude/keybindings.json`.
+- **`fewer-permission-prompts`** (skill) — scan transcripts for common allow-listable tool calls and write to `.claude/settings.json`.
+- **`init`** (skill) — when user asks to initialize a fresh `CLAUDE.md` in a new project.
+
+### 4. Recurring / scheduled work
+- **`loop`** (skill) — recurring task on an interval ("check the deploy every 5 minutes", "keep running /babysit-prs"). Not for one-off polling.
+- **`schedule`** (skill) — cron-based remote agents / routines, including "run this once at 3 pm tomorrow".
+
+### 5. Tool-building
+- **`skill-creator`** (skill) — when user wants to create, edit, optimize, or improve a Claude Code skill from scratch.
+- **`pinokio`** (skill) — when user wants to discover, launch, or use apps and tools for the current task.
+
+### 6. Claude API / Anthropic SDK code
+- **`claude-api`** (skill) — TRIGGER automatically when: file imports `anthropic` / `@anthropic-ai/sdk`, user asks about Claude API, Anthropic SDK, Managed Agents, prompt caching, thinking, tool use, batch, files, citations, compaction, memory; or migrating between Claude model versions. SKIP if file imports `openai`/other-provider SDK.
+
+### Cross-cutting guardrails (apply to every tool)
+- **Phase 0 from `godmode_architect_rules.md`** — never rewrite/refactor/delete existing code unless user explicitly says "Upgrade [Module Name]". Default stance is enhance and extend.
+- **Tier 1/2/3 performance rules** apply to every visual artifact — auto-downgrade if FPS < 55, CSS fallback required.
+- **Phase 2 aesthetic bar** — every UI output must pass the "Awwwards / Fortune 500" sniff test.
+- **3D/AR hard-disabled for food vendors** regardless of toggle.
+- **Currency: GHS only. Language: English only.**
+- **Don't commit `.env`, credentials, or secrets.**
+
+### Quick-reference table (ALL installed tools)
+
+| Trigger phrase | Tool | Type | Scope |
+|---|---|---|---|
+| any UI / design / build / website / component request | `ui-ux-pro-max` → `stitch` → `huashu-design` → `3d-scroll-website` → `magic` (run ALL in order) | skill + MCP chain | global |
+| review code / PR | `review` | skill | global |
+| security audit branch | `security-review` | skill | global |
+| simplify / refactor for clarity | `simplify` | skill | global |
+| change settings / hooks | `update-config` | skill | global |
+| customize keyboard | `keybindings-help` | skill | global |
+| reduce permission prompts | `fewer-permission-prompts` | skill | global |
+| init new CLAUDE.md | `init` | skill | global |
+| recurring task | `loop` | skill | global |
+| cron / scheduled agent | `schedule` | skill | global |
+| build a skill | `skill-creator` | skill | global |
+| launch app | `pinokio` | skill | global |
+| Claude API / SDK work | `claude-api` | skill | global |
+
 ## Commands
 
 ```bash

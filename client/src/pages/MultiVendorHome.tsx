@@ -46,6 +46,9 @@ interface Category {
   displayOrder: number;
   isActive: boolean;
   requestedBySeller?: boolean;
+  // Store types this category is scoped to (e.g. "food_beverages", "restaurant").
+  // Used to keep food-scoped categories out of the generic "Shop by Category" surface.
+  storeTypes?: string[] | null;
 }
 
 interface WishlistItem {

@@ -17,6 +17,11 @@ cloudflared.exe
 # Claude Code local state — runtime scratch, not source
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+.claude/skills/
+
+# Community AI-agent skills installed via skills.sh (personal, not source)
+.agents/
+skills-lock.json
 
 # Backup files left behind during refactors
 *.backup

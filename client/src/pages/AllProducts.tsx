@@ -15,6 +15,7 @@ import { Search, Filter, ShoppingBag, Loader2 } from "lucide-react";
 import MarketplaceBannerCarousel from "@/components/MarketplaceBannerCarousel";
 import { useDebounce } from "@/hooks/useDebounce";
 import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
+import { excludeFoodVendorProducts, getFoodStoreIdSet } from "@/lib/foodVendors";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getCurrentSellingPrice, getOriginalDisplayPrice } from "@/lib/pricing";
@@ -105,6 +106,16 @@ export default function AllProducts() {
     },
   });
 
+  // Stores list — used only to identify which products belong to food vendors
+  // so they can be kept out of the generic All Products feed.
+  const { data: stores = [] } = useQuery<any[]>({
+    queryKey: ["/api/stores"],
+    queryFn: async () => {
+      const res = await fetch("/api/stores");
+      return res.json();
+    },
+  });
+
   // Fetch featured products as a safe fallback when the main product list is empty
   const { data: featuredProducts = [] } = useQuery<any[]>({
     queryKey: ["/api/homepage/featured-products"],
@@ -118,9 +129,26 @@ export default function AllProducts() {
     staleTime: 1000 * 60,
   });
 
+  // Food vendor products & food-scoped categories live ONLY on the dedicated
+  // Restaurants & Local Vendors surface — they must never appear in the generic
+  // All Products feed (or its category filter). See lib/foodVendors.ts.
+  const foodStoreIds = useMemo(() => getFoodStoreIdSet(stores), [stores]);
+  const nonFoodProducts = useMemo(
+    () => excludeFoodVendorProducts<ProductWithCategoryMeta>(products, foodStoreIds),
+    [products, foodStoreIds],
+  );
+  // Food must also be excluded from the empty-state featured fallback.
+  const nonFoodFeatured = useMemo(
+    () => excludeFoodVendorProducts<any>(featuredProducts, foodStoreIds),
+    [featuredProducts, foodStoreIds],
+  );
+  const isFoodScopedCategory = (category: any) =>
+    Array.isArray(category?.storeTypes) &&
+    category.storeTypes.some((t: string) => t === "food_beverages" || t === "restaurant");
+
   // Use debounced search query for filtering
   const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
+    return nonFoodProducts.filter((product) => {
       const categoryLabel = getProductCategoryLabel(product).toLowerCase();
       const matchesSearch =
         product.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
@@ -130,13 +158,14 @@ export default function AllProducts() {
         productMatchesCategory(product, { slug: selectedCategory });
       return matchesSearch && matchesCategory;
     });
-  }, [products, debouncedSearchQuery, selectedCategory]);
+  }, [nonFoodProducts, debouncedSearchQuery, selectedCategory]);
 
   const availableCategories = useMemo(() => {
     return categories.filter((category: any) =>
-      products.some((product) => productMatchesCategory(product, category)),
+      !isFoodScopedCategory(category) &&
+      nonFoodProducts.some((product) => productMatchesCategory(product, category)),
     );
-  }, [categories, products]);
+  }, [categories, nonFoodProducts]);
 
   // ── Parse URL for category/title context ─────────────────
   const urlParams = new URLSearchParams(location.split("?")[1] || "");
@@ -159,7 +188,7 @@ export default function AllProducts() {
     const accent = "#009688";
     const skel   = isDarkVal ? "#2C2C2E" : "#E5E5EA";
 
-    const displayProducts = filteredProducts.length > 0 ? filteredProducts : featuredProducts;
+    const displayProducts = filteredProducts.length > 0 ? filteredProducts : nonFoodFeatured;
 
     return (
       <div style={{ minHeight: "100dvh", background: bg, fontFamily: F, paddingBottom: "calc(80px + env(safe-area-inset-bottom, 0px))" }}>
@@ -348,6 +377,7 @@ export default function AllProducts() {
                   size="sm"
                   onClick={() => setSelectedCategory(null)}
                   data-testid="button-category-all"
+                  className="shrink-0 whitespace-nowrap"
                 >
                   All
                 </Button>
@@ -358,6 +388,7 @@ export default function AllProducts() {
                     size="sm"
                     onClick={() => setSelectedCategory(category.slug)}
                     data-testid={`button-category-${category.slug}`}
+                    className="shrink-0 whitespace-nowrap"
                   >
                     {category.name}
                   </Button>
@@ -406,13 +437,13 @@ export default function AllProducts() {
                 />
               ))}
             </div>
-          ) : featuredProducts && featuredProducts.length > 0 ? (
+          ) : nonFoodFeatured && nonFoodFeatured.length > 0 ? (
             <div>
               <div className="text-center py-4 text-muted-foreground">
                 <p className="text-lg font-medium">No products match your search/filters. Showing featured products instead.</p>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3" data-testid="grid-featured-products">
-                {featuredProducts.map((product: any) => (
+                {nonFoodFeatured.map((product: any) => (
                   <ProductCard
                     key={product.id}
                     id={product.id}

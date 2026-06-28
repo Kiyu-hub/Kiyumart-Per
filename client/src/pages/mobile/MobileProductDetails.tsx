@@ -234,6 +234,12 @@ export default function MobileProductDetails() {
   const productImages = Array.isArray(product?.images) ? product.images : [];
   const galleryImages = variantImages.length > 0 ? variantImages : productImages;
 
+  // Keep the selected image in range. Switching to a colour with fewer images
+  // would otherwise leave the main image on a fallback and no thumbnail active.
+  useEffect(() => {
+    setSelectedImage((i) => (i >= galleryImages.length ? 0 : i));
+  }, [galleryImages.length]);
+
   // 3D / AR visibility — platform-wide kill switch + food vendor exclusion.
   // Cross-references the actual store record so legacy products without a
   // storeType field can still be correctly identified as food and locked out.
@@ -490,22 +496,38 @@ export default function MobileProductDetails() {
           </div>
         )}
 
-        {/* Thumbnail strip */}
+        {/* Thumbnail strip — horizontal scroll, hidden scrollbar, snap */}
         {galleryImages.length > 1 && (
-          <div style={{ display: "flex", gap: 6, padding: "8px 12px", overflowX: "auto", background: card }}>
-            {galleryImages.map((img, i) => (
-              <button
-                key={i}
-                onClick={() => setSelectedImage(i)}
-                style={{
-                  width: 52, height: 52, borderRadius: 8, overflow: "hidden", flexShrink: 0,
-                  border: `2px solid ${i === selectedImage ? accent : bdr}`, cursor: "pointer", background: "none", padding: 0,
-                  transition: "border-color 0.15s",
-                }}
-              >
-                <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              </button>
-            ))}
+          <div
+            className="scrollbar-hide"
+            style={{
+              display: "flex", gap: 8, padding: "10px 12px", background: card,
+              overflowX: "auto", scrollSnapType: "x proximity",
+              WebkitOverflowScrolling: "touch", scrollbarWidth: "none", msOverflowStyle: "none",
+            }}
+          >
+            {galleryImages.map((img, i) => {
+              const isActive = i === selectedImage;
+              return (
+                <button
+                  key={i}
+                  onClick={() => setSelectedImage(i)}
+                  aria-label={`View image ${i + 1} of ${galleryImages.length}`}
+                  aria-pressed={isActive}
+                  style={{
+                    width: 56, height: 56, borderRadius: 10, overflow: "hidden", flexShrink: 0,
+                    scrollSnapAlign: "start",
+                    border: `2px solid ${isActive ? accent : bdr}`,
+                    boxShadow: isActive ? `0 0 0 1px ${accent}` : "none",
+                    opacity: isActive ? 1 : 0.7,
+                    cursor: "pointer", background: "none", padding: 0,
+                    transition: "border-color 0.15s, opacity 0.15s, box-shadow 0.15s",
+                  }}
+                >
+                  <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

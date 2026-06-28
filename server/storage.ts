@@ -3633,6 +3633,7 @@ export class DbStorage implements IStorage {
           logoLight: null,
           logoDark: null,
           favicon: null,
+          enable3DAR: false,
           primaryColor: '#1e7b5f',
           secondaryColor: '#2c3e50',
           accentColor: '#e74c3c',
@@ -5543,6 +5544,7 @@ export class DbStorage implements IStorage {
         description: categories.description,
         image: categories.image,
         storeTypes: categories.storeTypes,
+        productFieldsConfig: categories.productFieldsConfig,
         isActive: categories.isActive,
         displayOrder: categories.displayOrder,
         createdAt: categories.createdAt,
@@ -5625,6 +5627,7 @@ export class DbStorage implements IStorage {
     token: string;
     storeId: string;
     sellerId: string;
+    mode?: string;
     items: Array<{productId: string; name: string; price: number; image: string | null; quantity: number}>;
     note?: string;
     totalAmount: string;
@@ -5634,6 +5637,7 @@ export class DbStorage implements IStorage {
       token: data.token,
       storeId: data.storeId,
       sellerId: data.sellerId,
+      mode: data.mode || "prefilled",
       items: data.items,
       note: data.note || null,
       totalAmount: data.totalAmount,

@@ -142,6 +142,12 @@ const TRANSITION_RULES: Record<CanonicalOrderStatus, Partial<Record<CanonicalOrd
     ready: {
       allowedRoles: ["seller", "admin", "super_admin"],
       preconditions: [
+        // Keep parity with processing→ready and packaged→ready: an order must
+        // never reach the "ready" fulfilment milestone before payment clears.
+        (ctx) => ({
+          valid: ctx.order.paymentStatus === "completed",
+          error: "Payment must be completed before marking order ready",
+        }),
         (ctx) => ({
           valid: String(ctx.order.deliveryMethod || "").toLowerCase().trim() !== "pickup",
           error: "Pickup orders must be packaged first and then assigned to a pickup station before they become ready",

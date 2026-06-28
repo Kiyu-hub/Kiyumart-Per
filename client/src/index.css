@@ -370,6 +370,20 @@
   }
 }
 
+/* ── Modal viewport clamp (phones) ─────────────────────────────────────
+   The page-level `overflow-x: clip` means a modal wider than the screen is
+   centered and CLIPPED on both edges instead of scrolling — putting its
+   buttons off-screen and out of reach. Several admin/seller dialogs set a
+   fixed desktop width (w-[400px], w-[780px], …). Clamp every dialog to the
+   phone viewport so its actions always stay tappable. max-width overrides a
+   larger fixed width, so this is safe for already-responsive dialogs too. */
+@media (max-width: 767px) {
+  [role="dialog"],
+  [role="alertdialog"] {
+    max-width: calc(100vw - 1.5rem) !important;
+  }
+}
+
 /* ── Frosted glass ─────────────────────────────────────────────────── */
 .m-glass {
   background: rgba(255, 255, 255, 0.82);
