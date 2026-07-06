@@ -7,7 +7,7 @@
     "build": "vite build && npx esbuild server/index.ts --bundle --platform=node --format=esm --outfile=dist/server.mjs --packages=external",
     "start": "node dist/server.mjs",
     "dev:backend": "scripts\\dev-backend-safe.cmd",
-    "build:frontend": "scripts\\build-frontend-safe.cmd",
+    "build:frontend": "node ./node_modules/vite/bin/vite.js build",
     "dev:frontend": "scripts\\dev-frontend-safe.cmd",
     "stop:stack": "scripts\\stop-stack-safe.cmd",
     "start:stack": "Start KiyuMart.cmd",
