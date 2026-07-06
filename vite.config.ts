@@ -14,8 +14,10 @@ export default defineConfig({
       // them without a redeploy). index.html already has:
       //   <link rel="manifest" href="/api/public/app-manifest" />
       manifest: false,
-      injectRegister: "auto",
+      injectRegister: false,
       workbox: {
+        cleanupOutdatedCaches: true,
+        updateViaCache: "none",
         skipWaiting: true,
         clientsClaim: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
@@ -39,6 +41,16 @@ export default defineConfig({
               cacheName: "api-cache",
               networkTimeoutSeconds: 10,
               expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: ({ url }: { url: URL }) => url.pathname === "/" || url.pathname === "/index.html",
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "html-cache",
+              networkTimeoutSeconds: 10,
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },

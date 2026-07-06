@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import * as Sentry from "@sentry/react";
 import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
+import registerServiceWorker from "./serviceWorkerRegistration";
 import "./index.css";
 
 // Sentry — only initialises when VITE_SENTRY_DSN is set (production)
@@ -54,3 +55,5 @@ createRoot(document.getElementById("root")!).render(
     </ErrorBoundary>
   </Sentry.ErrorBoundary>
 );
+
+registerServiceWorker();

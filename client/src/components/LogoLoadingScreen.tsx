@@ -1,4 +1,4 @@
-/**
+﻿/**
  * LogoLoadingScreen - Premium animated loading experience for KiyuMart
  * 
  * Features:
@@ -257,8 +257,6 @@ export default function LogoLoadingScreen({
             transition={{ delay: 0.8 }}
           >
             <span className="text-teal-700 font-semibold text-base">{message}</span>
-
-            {/* Bouncing dots */}
             <div className="flex gap-3">
               {[0, 1, 2].map((i) => (
                 <motion.div
@@ -278,7 +276,6 @@ export default function LogoLoadingScreen({
               ))}
             </div>
 
-            {/* Progress bar with shine effect */}
             <div className="w-64 md:w-80 h-3 bg-white/60 rounded-full overflow-hidden shadow-inner backdrop-blur-sm">
               <motion.div
                 className="h-full rounded-full relative overflow-hidden"

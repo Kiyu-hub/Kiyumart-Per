@@ -144,6 +144,7 @@ import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
+import PWAUpdateNotifier from "@/components/PWAUpdateNotifier";
 import { MobileBottomTabBar } from "@/components/mobile/MobileBottomTabBar";
 
 function RouteGateLoader() {
@@ -783,6 +784,7 @@ function App() {
               <FaviconInjector />
               <MobileBottomTabBar />
               <PWAInstallPrompt />
+              <PWAUpdateNotifier />
             </TooltipProvider>
             </JitsiCallProvider>
           </NotificationProvider>
