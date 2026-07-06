@@ -5,6 +5,7 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  FRONTEND_URL = "https://kiyumartofficial.netlify.app"
 
 # Redirect API calls to your backend server
 [[redirects]]
