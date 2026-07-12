@@ -1,37 +1,78 @@
-# Render deployment configuration
+# Render deployment configuration — KiyuMart backend (API server).
 # https://render.com/docs/yaml-spec
+#
+# Deploy: Render Dashboard → New + → Blueprint → connect this GitHub repo.
+# Render reads this file and creates the service, prompting you for every secret
+# marked `sync: false` (those are never stored in git).
+#
+# The frontend is hosted separately on Netlify (see netlify.toml). This service
+# is the API/backend only. Render injects PORT automatically; the server reads it.
 
 services:
   - type: web
     name: kiyumart-api
     runtime: node
-    region: frankfurt  # EU region, close to Supabase
-    plan: free
-    buildCommand: npm install && npm run build
+    region: frankfurt          # EU region, closest free tier to the eu-west-1 Supabase DB
+    plan: free                 # free tier spins down when idle (cold starts). Upgrade for always-on.
+    branch: main
+    autoDeploy: true
+    # NOTE: `--include=dev` is REQUIRED. With NODE_ENV=production a plain
+    # `npm install` skips devDependencies, so vite/esbuild would be missing and
+    # the build would fail.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm run start
+    healthCheckPath: /api/health   # verifies DB connectivity; deploy only goes live when the DB is reachable
     envVars:
+      # ---- Non-secret config ----
+      - key: NODE_VERSION
+        value: "20"
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        sync: false  # Set manually in Render dashboard
+      - key: KIYUMART_USE_EMBEDDED_VITE
+        value: "false"
+      - key: FRONTEND_URL
+        value: https://kiyumartofficial.netlify.app
+
+      # ---- Secrets: enter in the Render dashboard. Copy from your .env, but
+      #      ROTATE first — these were previously exposed in a public repo. ----
+      - key: DATABASE_URL          # Supabase connection string (reset the DB password first)
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      - key: JWT_SECRET
+      - key: SMTP_HOST
         sync: false
-      - key: SESSION_SECRET
+      - key: SMTP_PORT
         sync: false
-      - key: PAYSTACK_SECRET_KEY
+      - key: SMTP_SECURE
         sync: false
-      - key: PAYSTACK_PUBLIC_KEY
+      - key: SMTP_USER
         sync: false
-      - key: FRONTEND_URL
-        sync: false  # Set to your Netlify URL, e.g. https://kiyumart.netlify.app
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        sync: false
+      - key: SMTP_FROM_NAME
+        sync: false
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Optional — leave unset to run in plaintext-fallback mode (current behaviour).
       - key: SETTINGS_ENCRYPTION_KEY
-        sync: false  # 32-byte hex key for AES-256-GCM encryption of sensitive DB fields
-      - key: KIYUMART_USE_EMBEDDED_VITE
-        value: "false"
-    healthCheckPath: /api/health
+        sync: false
