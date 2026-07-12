@@ -54,29 +54,124 @@ async function resolveSmtpConfig(): Promise<ResolvedSmtpConfig> {
   };
 }
 
-async function buildTransport(config: ResolvedSmtpConfig) {
+/**
+ * Resolve the display name + from-address used by every provider. Falls back to
+ * the SMTP_* values so a single Gmail sender identity works everywhere.
+ */
+function resolveSender(settings: any): { fromName: string; fromEmail: string } {
+  const fromName = String(settings?.smtpFromName || process.env.SMTP_FROM_NAME || "KiyuMart").trim() || "KiyuMart";
+  const fromEmail = String(
+    settings?.smtpFromEmail || process.env.SMTP_FROM_EMAIL || settings?.smtpUser || process.env.SMTP_USER || "",
+  ).trim();
+  return { fromName, fromEmail };
+}
 
-  return nodemailer.createTransport({
+/** fetch() with an abort-based timeout so a dead provider fails fast, never hangs. */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 12000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Brevo (Sendinblue) transactional email over HTTPS. Works on hosts that block
+ * outbound SMTP ports (e.g. Render). Verify a single sender address in Brevo —
+ * no custom domain required. Set BREVO_API_KEY to enable.
+ */
+async function sendViaBrevo(apiKey: string, payload: EmailPayload, fromName: string, fromEmail: string) {
+  const res = await fetchWithTimeout("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": apiKey, "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      sender: { name: fromName, email: fromEmail },
+      to: [{ email: payload.to }],
+      subject: payload.subject,
+      htmlContent: payload.html || undefined,
+      textContent: payload.text,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Brevo email failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  return { provider: "brevo", messageId: (await res.json().catch(() => ({})))?.messageId };
+}
+
+/**
+ * Resend transactional email over HTTPS. Requires a verified domain for custom
+ * from-addresses. Set RESEND_API_KEY to enable.
+ */
+async function sendViaResend(apiKey: string, payload: EmailPayload, fromName: string, fromEmail: string) {
+  const res = await fetchWithTimeout("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from: `${fromName} <${fromEmail}>`,
+      to: [payload.to],
+      subject: payload.subject,
+      html: payload.html || undefined,
+      text: payload.text,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Resend email failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  return { provider: "resend", messageId: (await res.json().catch(() => ({})))?.id };
+}
+
+/** SMTP via nodemailer with fast-fail timeouts (used for local dev or hosts that allow SMTP). */
+async function sendViaSmtp(payload: EmailPayload) {
+  const config = await resolveSmtpConfig();
+  const transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
     secure: config.secure,
     auth: { user: config.user, pass: config.pass },
+    // Fail fast instead of hanging ~30s when the host blocks outbound SMTP.
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 12000,
   });
+  const info = await transporter.sendMail({
+    from: `${config.fromName} <${config.fromEmail}>`,
+    to: payload.to,
+    subject: payload.subject,
+    text: payload.text,
+    html: payload.html,
+  });
+  return { provider: "smtp", messageId: info.messageId };
 }
 
-export async function sendEmail({ to, subject, text, html }: EmailPayload) {
-  const smtpConfig = await resolveSmtpConfig();
-  const transporter = await buildTransport(smtpConfig);
+/**
+ * Sends an email via the first configured provider, in priority order:
+ *   1. Brevo   (BREVO_API_KEY)   — HTTPS, works behind SMTP-blocked hosts
+ *   2. Resend  (RESEND_API_KEY)  — HTTPS, requires verified domain
+ *   3. SMTP    (SMTP_* / DB)     — fallback for local dev / SMTP-allowed hosts
+ *
+ * HTTP providers are preferred because platforms like Render block outbound
+ * SMTP ports, which otherwise makes every OTP / reset email time out.
+ */
+export async function sendEmail(payload: EmailPayload) {
+  const settings = await storage.getPlatformSettings().catch(() => null as any);
+  const { fromName, fromEmail } = resolveSender(settings);
 
-  const info = await transporter.sendMail({
-    from: `${smtpConfig.fromName} <${smtpConfig.fromEmail}>`,
-    to,
-    subject,
-    text,
-    html,
-  });
+  const brevoKey = String(process.env.BREVO_API_KEY || "").trim();
+  const resendKey = String(process.env.RESEND_API_KEY || "").trim();
 
-  return info;
+  if (brevoKey) {
+    if (!fromEmail) throw new Error("Email sender address is not configured (set SMTP_FROM_EMAIL)");
+    return sendViaBrevo(brevoKey, payload, fromName, fromEmail);
+  }
+  if (resendKey) {
+    if (!fromEmail) throw new Error("Email sender address is not configured (set SMTP_FROM_EMAIL)");
+    return sendViaResend(resendKey, payload, fromName, fromEmail);
+  }
+  return sendViaSmtp(payload);
 }
 
 export async function sendPasswordResetEmail(params: {
