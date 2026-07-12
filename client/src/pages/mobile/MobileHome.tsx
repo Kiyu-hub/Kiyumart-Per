@@ -815,7 +815,7 @@ export function MobileHome({
 }: MobileHomeProps) {
   const { user }     = useAuth();
   const [, navigate] = useLocation();
-  const { isMultiVendor: mvFromPublic, isExternalRiderSystemEnabled } = usePlatformSettings();
+  const { isMultiVendor: mvFromPublic, isExternalRiderSystemEnabled, restaurantsEnabled } = usePlatformSettings();
   // Fetch full platform settings for shopDisplayMode (not in usePlatformSettings hook)
   const { data: fullSettings } = useQuery<any>({
     queryKey: ['/api/public/platform-settings'],
@@ -1275,8 +1275,8 @@ export function MobileHome({
         )
       )}
 
-      {/* ── Local Vendors & Restaurants ──────────────────────────── */}
-      {(effectiveLoading || localVendorProducts.length > 0) && (
+      {/* ── Local Vendors & Restaurants (hidden when the food experience is disabled) ── */}
+      {restaurantsEnabled && (effectiveLoading || localVendorProducts.length > 0) && (
         <>
           <SectionHeader
             title="Local Vendors & Restaurants"

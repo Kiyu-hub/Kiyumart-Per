@@ -441,6 +441,9 @@ export default function HomeConnected() {
   };
 
   // Food-vendor isolation — same shared utility as MobileHome / MultiVendorHome.
+  // Platform-wide food experience switch (Super Admin → Advanced Features).
+  // When off, the Local Vendors & Restaurants homepage section is hidden.
+  const restaurantsEnabled = (platformSettings as any)?.restaurantsEnabled !== false;
   // Food products live ONLY in the Local Vendors & Restaurants section; the
   // generic feeds (Featured / New Arrivals / All Products) exclude them.
   const foodStoreIds = getFoodStoreIdSet(dbStores as any);
@@ -661,8 +664,8 @@ export default function HomeConnected() {
 
             {/* Products column - Adjust width based on sidebar visibility */}
             <div className={sidebarItemCount > 0 ? 'lg:col-span-8' : 'lg:col-span-12'}>
-              {/* Local Vendors & Restaurants — dedicated food section */}
-              {(productsLoading || filteredFoodVendorProducts.length > 0 || localVendorList.length > 0 || restaurantList.length > 0) && (
+              {/* Local Vendors & Restaurants — dedicated food section (hidden when the food experience is disabled) */}
+              {restaurantsEnabled && (productsLoading || filteredFoodVendorProducts.length > 0 || localVendorList.length > 0 || restaurantList.length > 0) && (
                 <section className="rounded-2xl border bg-card p-6 shadow-sm mb-8" data-testid="section-local-vendors">
                   <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
                     <div className="flex items-center gap-3">

@@ -74,6 +74,7 @@ const settingsSchema = z.object({
   showHomepageFeaturedSection: z.boolean(),
   showHomepageNewArrivalSection: z.boolean(),
   isExternalRiderSystemEnabled: z.boolean(),
+  restaurantsEnabled: z.boolean(),
   showCheckoutDeliveryMap: z.boolean(),
   allowPickupAgentAdminChat: z.boolean(),
   allowSellerDirectSupportMessages: z.boolean(),
@@ -1348,6 +1349,7 @@ export default function AdminSettings() {
       showHomepageFeaturedSection: true,
       showHomepageNewArrivalSection: true,
       isExternalRiderSystemEnabled: false,
+      restaurantsEnabled: true,
       showCheckoutDeliveryMap: true,
       allowPickupAgentAdminChat: true,
       allowSellerDirectSupportMessages: true,
@@ -1452,6 +1454,7 @@ export default function AdminSettings() {
         ...form.getValues(),
         ...data,
         isExternalRiderSystemEnabled: (data as any).isExternalRiderSystemEnabled === true,
+        restaurantsEnabled: (data as any).restaurantsEnabled !== false,
         showCheckoutDeliveryMap: (data as any).showCheckoutDeliveryMap !== false,
         allowPickupAgentAdminChat: (data as any).allowPickupAgentAdminChat !== false,
         allowSellerDirectSupportMessages: (data as any).allowSellerDirectSupportMessages !== false,
@@ -1485,6 +1488,7 @@ export default function AdminSettings() {
         showHomepageFeaturedSection: mergedData.showHomepageFeaturedSection !== false,
         showHomepageNewArrivalSection: mergedData.showHomepageNewArrivalSection !== false,
         isExternalRiderSystemEnabled: mergedData.isExternalRiderSystemEnabled || false,
+        restaurantsEnabled: mergedData.restaurantsEnabled !== false,
         showCheckoutDeliveryMap: mergedData.showCheckoutDeliveryMap !== false,
         allowPickupAgentAdminChat: mergedData.allowPickupAgentAdminChat !== false,
         allowSellerDirectSupportMessages: mergedData.allowSellerDirectSupportMessages !== false,
@@ -1671,6 +1675,7 @@ export default function AdminSettings() {
         showHomepageFeaturedSection: (settings as any).showHomepageFeaturedSection !== false,
         showHomepageNewArrivalSection: (settings as any).showHomepageNewArrivalSection !== false,
         isExternalRiderSystemEnabled: (settings as any).isExternalRiderSystemEnabled || false,
+        restaurantsEnabled: (settings as any).restaurantsEnabled !== false,
         showCheckoutDeliveryMap: (settings as any).showCheckoutDeliveryMap !== false,
         allowPickupAgentAdminChat: (settings as any).allowPickupAgentAdminChat !== false,
         allowSellerDirectSupportMessages: (settings as any).allowSellerDirectSupportMessages !== false,
@@ -2915,6 +2920,22 @@ export default function AdminSettings() {
                         checked={form.watch("isExternalRiderSystemEnabled")}
                         onCheckedChange={(checked) => form.setValue("isExternalRiderSystemEnabled", checked)}
                         data-testid="switch-external-rider-system"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                      <div className="space-y-0.5 pr-4">
+                        <Label htmlFor="restaurantsEnabled">Enable Restaurants &amp; Local Vendors</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Master switch for the food experience. When off, the food-seller application, the
+                          Restaurants &amp; Local Vendors discovery pages, food banners and food homepage sections
+                          are all hidden platform-wide. Existing food stores and their data are preserved.
+                        </p>
+                      </div>
+                      <Switch
+                        id="restaurantsEnabled"
+                        checked={form.watch("restaurantsEnabled")}
+                        onCheckedChange={(checked) => form.setValue("restaurantsEnabled", checked)}
+                        data-testid="switch-restaurants-enabled"
                       />
                     </div>
                     <div className="flex items-center justify-between p-3 border rounded-lg bg-background">

@@ -338,6 +338,27 @@ function withAdminExternalRiderFeatureGuard(Component: React.ComponentType) {
   };
 }
 
+// Hides food/restaurant discovery routes when the platform-wide food experience
+// is switched off in Super Admin → Settings → Advanced Features.
+function withRestaurantsRouteGuard(Component: React.ComponentType, redirectTo = "/") {
+  return function GuardedRestaurantsRoute() {
+    const [, navigate] = useLocation();
+    const { restaurantsEnabled, hasResolvedSettings } = usePlatformSettings();
+
+    React.useEffect(() => {
+      if (hasResolvedSettings && !restaurantsEnabled) {
+        navigate(redirectTo);
+      }
+    }, [hasResolvedSettings, restaurantsEnabled, navigate]);
+
+    if (!hasResolvedSettings || !restaurantsEnabled) {
+      return <RouteGateLoader />;
+    }
+
+    return <Component />;
+  };
+}
+
 function withSellerFeatureRouteGuard(
   Component: React.ComponentType,
   options: { requireMultiVendor?: boolean; requireInternalRider?: boolean },
@@ -380,6 +401,9 @@ const GuardedRiderDetailsPage = withAdminExternalRiderFeatureGuard(RiderDetailsP
 const GuardedAdminManualRiderAssignment = withAdminExternalRiderFeatureGuard(AdminManualRiderAssignment);
 const GuardedAdminDeliveryTracking = withAdminExternalRiderFeatureGuard(AdminDeliveryTracking);
 const GuardedAdminDeliveryZones = withAdminExternalRiderFeatureGuard(AdminDeliveryZones);
+const GuardedMobileAllVendors = withRestaurantsRouteGuard(MobileAllVendors);
+const GuardedBrowseVendors = withRestaurantsRouteGuard(BrowseVendors);
+const GuardedAdminFoodProducts = withRestaurantsRouteGuard(AdminFoodProducts, "/admin");
 const GuardedSellerPromotions = withSellerFeatureRouteGuard(SellerPromotions, { requireMultiVendor: true });
 const GuardedSellerDeliveries = withSellerFeatureRouteGuard(SellerDeliveries, { requireInternalRider: true });
 
@@ -527,8 +551,8 @@ function Router() {
       <Route path="/stores" component={BrowseStores} />
       <Route path="/categories" component={MobileAllCategories} />
       <Route path="/mobile/stores" component={MobileAllStores} />
-      <Route path="/mobile/vendors" component={MobileAllVendors} />
-      <Route path="/vendors" component={BrowseVendors} />
+      <Route path="/mobile/vendors" component={GuardedMobileAllVendors} />
+      <Route path="/vendors" component={GuardedBrowseVendors} />
       <Route path="/sellers/:id" component={SellerStorePage} />
       <Route path="/product/:id" component={ProductDetailsRoute} />
       <Route path="/p/:slug" component={SocialProductPage} />
@@ -575,7 +599,7 @@ function Router() {
       <Route path="/admin/media-library" component={AdminMediaLibrary} />
       <Route path="/admin/products/create" component={AdminProductCreate} />
       <Route path="/admin/products/:id/edit" component={AdminProductEdit} />
-      <Route path="/admin/food-products" component={AdminFoodProducts} />
+      <Route path="/admin/food-products" component={GuardedAdminFoodProducts} />
       <Route path="/admin/products" component={AdminProducts} />
       <Route path="/admin/orders/:id/action" component={AdminOrderActionPage} />
       <Route path="/admin/orders" component={AdminOrders} />

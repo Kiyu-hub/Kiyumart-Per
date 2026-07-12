@@ -387,6 +387,7 @@ app.use(cookieParser());
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS footer_ad_enabled boolean DEFAULT false`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS product_page_ad_enabled boolean DEFAULT false`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS is_external_rider_system_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS restaurants_enabled boolean DEFAULT true`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS show_checkout_delivery_map boolean DEFAULT true`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_pickup_agent_admin_chat boolean DEFAULT true`);
     await db.execute(sql`ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS allow_seller_direct_support_messages boolean DEFAULT true`);

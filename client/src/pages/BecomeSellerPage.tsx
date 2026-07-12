@@ -19,6 +19,7 @@ import { Loader2, Store, ArrowLeft, AlertCircle, MapPin, Navigation } from "luci
 import { STORE_TYPES, type StoreType, getStoreTypeSchema } from "@shared/storeTypes";
 import { StoreTypeSelector, StoreTypeDynamicFields } from "@/components/StoreTypeSelector";
 import { resolveSavedLocationToAddress } from "@/lib/locationPrefill";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 const baseSellerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -80,6 +81,9 @@ export default function BecomeSellerPage() {
   const [metadataErrors, setMetadataErrors] = useState<Record<string, string>>({});
   // Business type step — must be chosen before the main form appears
   const [businessType, setBusinessType] = useState<"store" | "restaurant" | "local_vendor" | null>(null);
+  // When the platform-wide food experience is disabled, hide the restaurant /
+  // local-vendor application options entirely.
+  const { restaurantsEnabled } = usePlatformSettings();
   // GPS coordinates captured at registration (for distance calculation on home screen)
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -422,7 +426,9 @@ export default function BecomeSellerPage() {
                   { type: "store" as const,        icon: "🏪", label: "Store",        desc: "General merchandise, clothing, electronics & more" },
                   { type: "restaurant" as const,   icon: "🍽️", label: "Restaurant",   desc: "Dine-in or takeout food & drinks" },
                   { type: "local_vendor" as const, icon: "🥘", label: "Local Vendor",  desc: "Home-cooked food, local produce & street goods" },
-                ] as const).map(({ type, icon, label, desc }) => (
+                ] as const)
+                  .filter(({ type }) => restaurantsEnabled || (type !== "restaurant" && type !== "local_vendor"))
+                  .map(({ type, icon, label, desc }) => (
                   <button
                     key={type}
                     onClick={() => {

@@ -297,6 +297,11 @@ export const platformSettings = pgTable("platform_settings", {
   productPageAdUrl: text("product_page_ad_url"),
   showAdminOperationsPanels: boolean("show_admin_operations_panels").default(true),
   isExternalRiderSystemEnabled: boolean("is_external_rider_system_enabled").default(false),
+  // Master switch for the Restaurants & Local Vendors (food) experience. When
+  // false, the food-seller application, food discovery pages, food banners and
+  // food homepage sections are all hidden platform-wide. Defaults true so
+  // existing behaviour is unchanged until a super admin turns it off.
+  restaurantsEnabled: boolean("restaurants_enabled").default(true),
   showCheckoutDeliveryMap: boolean("show_checkout_delivery_map").default(true),
   allowPickupAgentAdminChat: boolean("allow_pickup_agent_admin_chat").default(true),
   allowSellerDirectSupportMessages: boolean("allow_seller_direct_support_messages").default(true),

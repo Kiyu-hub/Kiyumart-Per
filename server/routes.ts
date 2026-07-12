@@ -16580,6 +16580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({
         isExternalRiderSystemEnabled: settings.isExternalRiderSystemEnabled === true,
+        restaurantsEnabled: settings.restaurantsEnabled !== false,
         showCheckoutDeliveryMap: settings.showCheckoutDeliveryMap !== false,
         isMultiVendor: settings.isMultiVendor === true,
         allowSellerBankPayouts: settings.allowSellerBankPayouts !== false,
@@ -16615,6 +16616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.warn('[ROUTES] Falling back to public platform settings response:', error?.message || error);
       res.json({
         isExternalRiderSystemEnabled: false,
+        restaurantsEnabled: true,
         showCheckoutDeliveryMap: true,
         isMultiVendor: false,
         allowSellerBankPayouts: true,
@@ -17432,6 +17434,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (req.user?.role !== "super_admin") {
         delete updateData.isExternalRiderSystemEnabled;
+        delete updateData.restaurantsEnabled;
         delete updateData.showCheckoutDeliveryMap;
         delete updateData.allowPickupAgentAdminChat;
         delete updateData.showHomepageFeaturedSection;
@@ -17612,6 +17615,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const missingSharedVariantStockColumn =
           message.includes("allow_shared_variant_color_stock") &&
           message.toLowerCase().includes("does not exist");
+        const missingRestaurantsEnabledColumn =
+          message.includes("restaurants_enabled") &&
+          message.toLowerCase().includes("does not exist");
         const missingAdvancedFeaturesColumn =
           message.toLowerCase().includes("does not exist") && (
             message.includes("invite_only_registration") ||
@@ -17630,6 +17636,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           !missingPickupAgentChatColumn &&
           !missingSellerDirectSupportMessagesColumn &&
           !missingSharedVariantStockColumn &&
+          !missingRestaurantsEnabledColumn &&
           !missingAdvancedFeaturesColumn
         ) {
           throw error;
@@ -17640,6 +17647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         delete updateData.allowSellerBankPayouts;
         delete updateData.isExternalRiderSystemEnabled;
+        delete updateData.restaurantsEnabled;
         delete updateData.showCheckoutDeliveryMap;
         delete updateData.allowPickupAgentAdminChat;
         delete updateData.allowSellerDirectSupportMessages;

@@ -220,6 +220,8 @@ export default function MultiVendorHome() {
 
   // Food-vendor isolation — food products go in their own section, not in
   // the regular feeds. Same utility powers MobileHome (single source of truth).
+  // Platform-wide food experience switch (Super Admin → Advanced Features).
+  const restaurantsEnabled = (settings as any)?.restaurantsEnabled !== false;
   const foodStoreIds = getFoodStoreIdSet(stores as any);
   const localVendorList   = getLocalVendors(stores as any);
   const restaurantList    = getRestaurants(stores as any);
@@ -477,8 +479,8 @@ export default function MultiVendorHome() {
 
             {/* Products column — expand to full width when no sidebar */}
             <div className={hasSidebarContent ? 'lg:col-span-8' : 'lg:col-span-12'}>
-              {/* Local Vendors & Restaurants — dedicated food section */}
-              {(productsLoading || filteredFoodVendorProducts.length > 0 || localVendorList.length > 0 || restaurantList.length > 0) && (
+              {/* Local Vendors & Restaurants — dedicated food section (hidden when the food experience is disabled) */}
+              {restaurantsEnabled && (productsLoading || filteredFoodVendorProducts.length > 0 || localVendorList.length > 0 || restaurantList.length > 0) && (
                 <section className="mv-glass-card rounded-2xl p-6 md:p-8 space-y-6 mb-8" data-testid="section-local-vendors">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-3">
