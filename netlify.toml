@@ -7,6 +7,10 @@
   NODE_VERSION = "20"
   FRONTEND_URL = "https://kiyumartofficial.netlify.app"
 
+# NOTE: Netlify evaluates redirects top-to-bottom and applies the FIRST match.
+# All backend proxy rules MUST come before the SPA catch-all (/*), otherwise the
+# catch-all serves index.html for asset/API requests (broken banner images, etc).
+
 # Redirect API calls to your backend server
 [[redirects]]
   from = "/api/*"
@@ -14,15 +18,24 @@
   status = 200
   force = true
 
-# SPA fallback - all routes go to index.html
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-
-# Serve attached_assets from backend
+# Serve attached_assets from backend (must precede the SPA fallback below)
 [[redirects]]
   from = "/attached_assets/*"
   to = "https://kiyumart-per.onrender.com/attached_assets/:splat"
   status = 200
   force = true
+
+# Locally-persisted upload fallback (used only when Cloudinary is unavailable).
+# NOTE: Render's disk is ephemeral, so these files do not survive a restart —
+# Cloudinary remains the durable store. This proxy keeps the fallback reachable.
+[[redirects]]
+  from = "/uploads/*"
+  to = "https://kiyumart-per.onrender.com/uploads/:splat"
+  status = 200
+  force = true
+
+# SPA fallback - all remaining routes go to index.html (MUST stay last)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

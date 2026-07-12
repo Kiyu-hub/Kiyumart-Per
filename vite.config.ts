@@ -17,7 +17,6 @@ export default defineConfig({
       injectRegister: false,
       workbox: {
         cleanupOutdatedCaches: true,
-        updateViaCache: "none",
         skipWaiting: true,
         clientsClaim: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,

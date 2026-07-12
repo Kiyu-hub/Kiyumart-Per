@@ -14,6 +14,12 @@ cloudflared.exe
 .env.local
 .env.*.local
 
+# Credential / secret docs — never commit real logins
+ADMIN_LOGIN_CREDENTIALS.md
+TEST_CREDENTIALS.md
+**/TEST_CREDENTIALS.md
+**/ADMIN_LOGIN_CREDENTIALS.md
+
 # Claude Code local state — runtime scratch, not source
 .claude/scheduled_tasks.lock
 .claude/worktrees/
