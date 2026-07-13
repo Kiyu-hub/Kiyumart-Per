@@ -337,7 +337,7 @@ export default function AllProducts() {
       <Header />
 
       <main className="flex-1">
-        <div className="container max-w-[1600px] mx-auto px-4 py-6 space-y-8">
+        <div className="container max-w-[1400px] mx-auto px-4 py-6 space-y-8">
           <div className="flex flex-col gap-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">

@@ -585,7 +585,7 @@ export default function HomeConnected() {
       )} 
 
       <main className="flex-1">
-        <div className="max-w-[1600px] mx-auto px-4 py-12">
+        <div className="max-w-[1400px] mx-auto px-4 py-12">
           {/* Shop by categories - full-width, above products and sidebar */}
           {(platformSettings as any)?.showShopBySection !== false && (
           <section className="rounded-2xl border bg-card p-6 shadow-sm">

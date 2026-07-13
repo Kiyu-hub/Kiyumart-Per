@@ -307,7 +307,7 @@ export default function MultiVendorHome() {
       </div>
       
       <main className="flex-1 relative z-10">
-        <div className="container max-w-[1600px] mx-auto px-4 py-8 space-y-12">
+        <div className="container max-w-[1400px] mx-auto px-4 py-8 space-y-12">
 
           {/* Hero Ad — or product spotlight when no ads */}
           {adsEnabled && heroBannerEnabled ? (
