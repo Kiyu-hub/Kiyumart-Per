@@ -140,8 +140,10 @@ export default function AdBanner({ position, className = "", fullBleed = false, 
         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/10 mix-blend-multiply" />
       </div>
 
-      {/* Center the actual ad image at its intrinsic size without stretching; fallback to branded placeholder */}
-      <div className="relative flex items-center justify-center h-full">
+      {/* Center the actual ad image at its intrinsic size without stretching; fallback to branded placeholder.
+          Fill the whole card with absolute inset-0 so the image is always vertically centered (even
+          top/bottom space) regardless of how the parent flex chain resolves its height. */}
+      <div className="absolute inset-0 flex items-center justify-center">
         {hasImage ? (
           <img
             src={ad.image}
