@@ -66,6 +66,31 @@ function resolveSender(settings: any): { fromName: string; fromEmail: string } {
   return { fromName, fromEmail };
 }
 
+/**
+ * Resolves the platform logo URL for email headers. Prefers the light (white)
+ * logo since the email header band is dark. Falls back through the other logo
+ * fields, then to null (templates render the platform name as text instead).
+ */
+async function getEmailBranding(): Promise<{ platformName: string; logoUrl: string | null }> {
+  const s = await storage.getPlatformSettings().catch(() => null as any);
+  const platformName = String(s?.platformName || "KiyuMart").trim() || "KiyuMart";
+  const raw = String(s?.logoLight || s?.logo || s?.logoDark || "").trim();
+  const logoUrl = /^https?:\/\//i.test(raw) ? raw : null;
+  return { platformName, logoUrl };
+}
+
+/** Dark branded header band with the logo (or the platform name as fallback). */
+function brandedHeader(platformName: string, logoUrl: string | null, subtitle: string): string {
+  const brand = logoUrl
+    ? `<img src="${logoUrl}" alt="${platformName}" height="40" style="height:40px;max-height:40px;width:auto;border:0;display:inline-block;" />`
+    : `<h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.3px;">${platformName}</h1>`;
+  return `
+        <tr><td style="background:#1A4A3C;padding:32px 40px;text-align:center;">
+          ${brand}
+          <p style="margin:12px 0 0;color:rgba(255,255,255,0.65);font-size:13px;">${subtitle}</p>
+        </td></tr>`;
+}
+
 /** fetch() with an abort-based timeout so a dead provider fails fast, never hangs. */
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 12000): Promise<Response> {
   const controller = new AbortController();
@@ -180,7 +205,9 @@ export async function sendPasswordResetEmail(params: {
   platformName: string;
   supportEmail?: string | null;
 }) {
-  const { to, resetLink, platformName, supportEmail } = params;
+  const { to, resetLink, supportEmail } = params;
+  const { logoUrl, platformName: resolvedName } = await getEmailBranding();
+  const platformName = resolvedName || params.platformName;
   const subject = `${platformName} Password Reset`;
   const supportLine = supportEmail ? `If you need help, contact ${supportEmail}.` : "If you need help, contact support.";
   const text = [
@@ -193,20 +220,34 @@ export async function sendPasswordResetEmail(params: {
   ].join("\n");
 
   const html = `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
-      <h2 style="margin-bottom: 8px;">Reset your ${platformName} password</h2>
-      <p>We received a request to reset your ${platformName} password.</p>
-      <p style="margin: 24px 0;">
-        <a href="${resetLink}" style="background:#10b981;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;">
-          Reset Password
-        </a>
-      </p>
-      <p style="font-size: 14px; color:#475569;">If the button doesn't work, copy and paste this link into your browser:</p>
-      <p style="font-size: 14px; color:#475569;">${resetLink}</p>
-      <p style="font-size: 14px; color:#475569;">If you did not request this, you can ignore this email.</p>
-      <p style="font-size: 14px; color:#475569;">${supportLine}</p>
-    </div>
-  `.trim();
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="100%" style="max-width:480px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <!-- Header -->${brandedHeader(platformName, logoUrl, "Password Reset")}
+        <!-- Body -->
+        <tr><td style="padding:40px;">
+          <p style="margin:0 0 8px;color:#111827;font-size:15px;font-weight:600;">Reset your password</p>
+          <p style="margin:0 0 28px;color:#6b7280;font-size:14px;line-height:1.6;">We received a request to reset your ${platformName} password. Click the button below to choose a new one.</p>
+          <div style="text-align:center;margin-bottom:28px;">
+            <a href="${resetLink}" style="background:#10b981;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:10px;display:inline-block;font-weight:700;font-size:15px;">Reset Password</a>
+          </div>
+          <p style="margin:0 0 6px;color:#9ca3af;font-size:13px;">If the button doesn't work, copy and paste this link:</p>
+          <p style="margin:0 0 24px;color:#2563eb;font-size:13px;word-break:break-all;">${resetLink}</p>
+          <p style="margin:0;color:#9ca3af;font-size:13px;line-height:1.6;">If you did not request this, you can safely ignore this email. ${supportLine}</p>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="background:#f9fafb;padding:20px 40px;border-top:1px solid #f3f4f6;">
+          <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center;">&copy; ${new Date().getFullYear()} ${platformName}. All rights reserved.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`.trim();
 
   return sendEmail({ to, subject, text, html });
 }
@@ -220,10 +261,12 @@ export async function sendOtpEmail({
   code: string;
   platformName: string;
 }) {
+  const { logoUrl, platformName: resolvedName } = await getEmailBranding();
+  const brand = resolvedName || platformName;
   await sendEmail({
     to,
-    subject: `${code} is your ${platformName} verification code`,
-    text: `Your ${platformName} verification code is: ${code}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
+    subject: `${code} is your ${brand} verification code`,
+    text: `Your ${brand} verification code is: ${code}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
     html: `
 <!DOCTYPE html>
 <html>
@@ -232,11 +275,7 @@ export async function sendOtpEmail({
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 16px;">
     <tr><td align="center">
       <table width="100%" style="max-width:480px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-        <!-- Header -->
-        <tr><td style="background:#1A4A3C;padding:32px 40px;text-align:center;">
-          <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.3px;">${platformName}</h1>
-          <p style="margin:8px 0 0;color:rgba(255,255,255,0.6);font-size:13px;">Email Verification</p>
-        </td></tr>
+        <!-- Header -->${brandedHeader(brand, logoUrl, "Email Verification")}
         <!-- Body -->
         <tr><td style="padding:40px;">
           <p style="margin:0 0 8px;color:#111827;font-size:15px;font-weight:600;">Here is your verification code</p>
