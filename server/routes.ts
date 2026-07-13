@@ -1730,7 +1730,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.json({ message: "OTP sent" });
     } catch (err: any) {
       console.error("[OTP] send error:", err?.message || err);
-      return res.status(503).json({ error: "Could not send verification email. Please try again." });
+      // TEMP DIAGNOSTIC (remove after debugging): surface provider error when ?debug=kiyu is passed.
+      const detail = req.query?.debug === "kiyu" ? String(err?.message || err) : undefined;
+      return res.status(503).json({ error: "Could not send verification email. Please try again.", detail });
     }
   });
 
