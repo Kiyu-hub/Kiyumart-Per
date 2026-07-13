@@ -639,23 +639,20 @@ export default function HomeConnected() {
             {/* Left Sidebar - Show promo AND/OR ad when available (stacking like MultiVendorHome) */}
             {sidebarItemCount > 0 && (
               <aside className="hidden lg:block lg:col-span-4">
-                <div className="sticky top-24 flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
-                  {/* Promotion — fills available height, splits evenly when stacked */}
+                {/* Compact, self-sizing sticky cards. Each ad/promo is a fixed
+                    portrait card so its image stays vertically centered and does
+                    not depend on scroll position (previously the card stretched to
+                    the full viewport height, pushing the centered image below the
+                    fold as you scrolled). */}
+                <div className="sticky top-24 flex flex-col gap-4">
                   {hasExactlyOnePromotion && singlePromotion && (
-                    <div
-                      className="overflow-hidden rounded-xl"
-                      style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
-                    >
+                    <div className="overflow-hidden rounded-xl aspect-[4/5]">
                       <SinglePromotionSidebar promo={singlePromotion} />
                     </div>
                   )}
-                  {/* Advertisement — fills available height, splits evenly when stacked */}
                   {hasSidebarAd && (
-                    <div
-                      className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md"
-                      style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
-                    >
-                      <AdBanner position="sidebar" className="w-full h-full rounded-none border-0 flex-1" />
+                    <div className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md aspect-[4/5]">
+                      <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
                     </div>
                   )}
                 </div>
