@@ -651,7 +651,7 @@ export default function HomeConnected() {
                     </div>
                   )}
                   {hasSidebarAd && (
-                    <div className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md aspect-[4/5]">
+                    <div className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md aspect-[3/2]">
                       <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
                     </div>
                   )}
