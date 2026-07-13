@@ -1042,7 +1042,7 @@ async function seed() {
           isMultiVendor: false,
           primaryStoreId: clothingStore.id,
           defaultCurrency: "GHS",
-          isExternalRiderSystemEnabled: false,
+          isExternalRiderSystemEnabled: true,
           showCheckoutDeliveryMap: true,
         });
         console.log(`[seed] Created initial platform settings with primaryStoreId=${clothingStore.id}`);

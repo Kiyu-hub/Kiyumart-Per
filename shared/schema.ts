@@ -296,7 +296,9 @@ export const platformSettings = pgTable("platform_settings", {
   productPageAdImage: text("product_page_ad_image"),
   productPageAdUrl: text("product_page_ad_url"),
   showAdminOperationsPanels: boolean("show_admin_operations_panels").default(true),
-  isExternalRiderSystemEnabled: boolean("is_external_rider_system_enabled").default(false),
+  // Defaults TRUE — internal rider features are hidden by default (external /
+  // manual delivery). A super admin turns the built-in rider system on.
+  isExternalRiderSystemEnabled: boolean("is_external_rider_system_enabled").default(true),
   // Master switch for the Restaurants & Local Vendors (food) experience. When
   // false, the food-seller application, food discovery pages, food banners and
   // food homepage sections are all hidden platform-wide. Defaults FALSE — food

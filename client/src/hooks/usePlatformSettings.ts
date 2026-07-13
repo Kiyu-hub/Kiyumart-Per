@@ -32,7 +32,8 @@ export interface PublicPlatformSettings {
 export const publicPlatformSettingsQueryKey = ["/api/public/platform-settings"] as const;
 
 const defaultPublicPlatformSettings: PublicPlatformSettings = {
-  isExternalRiderSystemEnabled: false,
+  // Rider + food experiences are hidden by default until settings resolve.
+  isExternalRiderSystemEnabled: true,
   restaurantsEnabled: false,
   showCheckoutDeliveryMap: true,
   isMultiVendor: false,

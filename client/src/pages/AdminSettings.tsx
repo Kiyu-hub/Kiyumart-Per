@@ -1348,7 +1348,7 @@ export default function AdminSettings() {
       enable3DAR: true,
       showHomepageFeaturedSection: true,
       showHomepageNewArrivalSection: true,
-      isExternalRiderSystemEnabled: false,
+      isExternalRiderSystemEnabled: true,
       restaurantsEnabled: false,
       showCheckoutDeliveryMap: true,
       allowPickupAgentAdminChat: true,

@@ -395,7 +395,7 @@ function buildRouteFallbackPlatformSettings() {
     productPageAdImage: null,
     productPageAdUrl: null,
     showAdminOperationsPanels: true,
-    isExternalRiderSystemEnabled: false,
+    isExternalRiderSystemEnabled: true,
     showCheckoutDeliveryMap: true,
     allowPickupAgentAdminChat: true,
     allowSellerRegistration: true,
@@ -5973,11 +5973,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const filterPublicMarketplaceProducts = async (productList: any[]) => {
     if (!Array.isArray(productList) || productList.length === 0) return [];
 
-    const [activeCategories, activeStores, allSellers] = await Promise.all([
+    const [activeCategories, activeStores, allSellers, platformSettingsForFood] = await Promise.all([
       storage.getCategories({ isActive: true }),
       storage.getStores({ isActive: true, isApproved: true }),
       storage.getUsersByRole("seller"),
+      storage.getPlatformSettings().catch(() => null as any),
     ]);
+
+    // When the food experience is disabled platform-wide, food-vendor products
+    // must never reach the public feeds (prevents them flashing in before the
+    // client can filter by store). Mirrors isFoodVendorStore() on the client.
+    const foodExperienceOff = platformSettingsForFood?.restaurantsEnabled !== true;
+    const isFoodStore = (store: any) =>
+      store?.businessType === "local_vendor" ||
+      store?.businessType === "restaurant" ||
+      store?.merchantCategory === "QUICK_EATS" ||
+      store?.storeType === "food_beverages";
+    const foodStoreIds = new Set(
+      foodExperienceOff
+        ? (activeStores || []).filter(isFoodStore).map((store: any) => String(store.id)).filter(Boolean)
+        : [],
+    );
 
     const activeCategoryById = new Map(
       (activeCategories || []).map((category: any) => [String(category.id), category]),
@@ -6008,6 +6024,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const storeId = String(product.storeId || "").trim();
       if (storeId && !activeStoreIds.has(storeId)) return false;
+
+      // Drop food-vendor products entirely when the food experience is off.
+      if (storeId && foodStoreIds.has(storeId)) return false;
 
       const categoryId = String(product.categoryId || "").trim();
       if (categoryId) {
@@ -16594,7 +16613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         ...settings,
         showAdminOperationsPanels: true,
-        isExternalRiderSystemEnabled: false,
+        isExternalRiderSystemEnabled: true,
         showCheckoutDeliveryMap: true,
         cloudinaryApiSecret: "",
         paystackSecretKey: "",
@@ -16655,7 +16674,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.warn('[ROUTES] Falling back to public platform settings response:', error?.message || error);
       res.json({
-        isExternalRiderSystemEnabled: false,
+        isExternalRiderSystemEnabled: true,
         restaurantsEnabled: false,
         showCheckoutDeliveryMap: true,
         isMultiVendor: false,
