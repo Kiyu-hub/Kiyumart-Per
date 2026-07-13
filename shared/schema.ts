@@ -217,7 +217,7 @@ export const emailOtpVerifications = pgTable("email_otp_verifications", {
 export const platformSettings = pgTable("platform_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   isMultiVendor: boolean("is_multi_vendor").default(false),
-  platformName: text("platform_name").default("ModestGlow"),
+  platformName: text("platform_name").default("KiyuMart"),
   logo: text("logo"),
   logoLight: text("logo_light"),
   logoDark: text("logo_dark"),
@@ -299,9 +299,9 @@ export const platformSettings = pgTable("platform_settings", {
   isExternalRiderSystemEnabled: boolean("is_external_rider_system_enabled").default(false),
   // Master switch for the Restaurants & Local Vendors (food) experience. When
   // false, the food-seller application, food discovery pages, food banners and
-  // food homepage sections are all hidden platform-wide. Defaults true so
-  // existing behaviour is unchanged until a super admin turns it off.
-  restaurantsEnabled: boolean("restaurants_enabled").default(true),
+  // food homepage sections are all hidden platform-wide. Defaults FALSE — food
+  // stays hidden until a super admin explicitly enables it.
+  restaurantsEnabled: boolean("restaurants_enabled").default(false),
   showCheckoutDeliveryMap: boolean("show_checkout_delivery_map").default(true),
   allowPickupAgentAdminChat: boolean("allow_pickup_agent_admin_chat").default(true),
   allowSellerDirectSupportMessages: boolean("allow_seller_direct_support_messages").default(true),

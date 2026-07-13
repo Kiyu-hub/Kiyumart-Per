@@ -35,29 +35,12 @@ export default function AuthPage() {
   const [mobileForceVerify, setMobileForceVerify] = useState(false);
   const [mobileForceVerifyEmail, setMobileForceVerifyEmail] = useState("");
 
-  // Navigate home once authenticated — but show OTP if emailVerified === false
+  // Navigate home once authenticated. Email OTP is only required immediately
+  // after SIGNUP (handled explicitly in the signup flow below); logging into an
+  // existing account never triggers an OTP, even if the email is unverified.
   useEffect(() => {
-    if (otpGateRef.current) return; // OTP flow in progress — skip
+    if (otpGateRef.current) return; // signup OTP flow in progress — skip
     if (!isAuthenticated || !user) return;
-
-    if (user.emailVerified === false) {
-      // Block navigation and show OTP screen
-      otpGateRef.current = true;
-      if (isMobile || isTablet) {
-        setMobileForceVerify(true);
-        setMobileForceVerifyEmail((user as any).email || "");
-      } else {
-        // Desktop: trigger OTP screen if not already shown
-        if (!desktopNeedsVerify) {
-          setDesktopNeedsVerify(true);
-          setDesktopVerifyEmail((user as any).email || "");
-          setDesktopOtp(["","","","","",""]);
-          fetch("/api/auth/send-verification-otp", { method: "POST", credentials: "include" })
-            .then(r => r.ok && setDesktopResendCountdown(60)).catch(() => {});
-        }
-      }
-      return;
-    }
 
     const safeRedirect =
       redirectTarget &&

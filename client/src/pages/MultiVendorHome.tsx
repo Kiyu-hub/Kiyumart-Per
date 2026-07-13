@@ -221,7 +221,7 @@ export default function MultiVendorHome() {
   // Food-vendor isolation — food products go in their own section, not in
   // the regular feeds. Same utility powers MobileHome (single source of truth).
   // Platform-wide food experience switch (Super Admin → Advanced Features).
-  const restaurantsEnabled = (settings as any)?.restaurantsEnabled !== false;
+  const restaurantsEnabled = (settings as any)?.restaurantsEnabled === true;
   const foodStoreIds = getFoodStoreIdSet(stores as any);
   const localVendorList   = getLocalVendors(stores as any);
   const restaurantList    = getRestaurants(stores as any);

@@ -523,9 +523,49 @@ function resolvePaystackSecretKey(settings: { paystackSecretKey?: string | null 
   return resolvePaystackKeyPair(settings as any).secretKey;
 }
 
+// Ensures the account configured via SUPER_ADMIN_EMAIL is a super_admin. If a
+// user with that email already exists (e.g. someone signed up with it as a
+// buyer), it is PROMOTED — keeping its existing password. If no such account
+// exists and SUPER_ADMIN_PASSWORD is set, it is CREATED. Runs at every boot so
+// the Render-configured super admin login always works.
+async function ensureConfiguredSuperAdmin(): Promise<void> {
+  const email = String(process.env.SUPER_ADMIN_EMAIL || "").trim().toLowerCase();
+  if (!email) return;
+  const existing = await storage.getUserByEmail(email);
+  if (existing) {
+    if (existing.role !== "super_admin") {
+      await db
+        .update(users)
+        .set({ role: "super_admin", isApproved: true, isActive: true, emailVerified: true })
+        .where(eq(users.id, existing.id));
+      console.log(`[BOOT] Promoted ${email} to super_admin`);
+    }
+    return;
+  }
+  const password = process.env.SUPER_ADMIN_PASSWORD;
+  if (!password) {
+    console.warn(`[BOOT] SUPER_ADMIN_EMAIL=${email} has no account and SUPER_ADMIN_PASSWORD is unset — cannot create super admin`);
+    return;
+  }
+  const hashed = await hashPassword(password);
+  await db.insert(users).values({
+    email,
+    password: hashed,
+    name: "Super Admin",
+    role: "super_admin",
+    isApproved: true,
+    isActive: true,
+    emailVerified: true,
+  });
+  console.log(`[BOOT] Created super_admin ${email}`);
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   let canonicalSuperAdminId: string | null = null;
   try {
+    await withStartupTimeout(ensureConfiguredSuperAdmin(), 4000, "Super admin ensure").catch((e) =>
+      console.error("[BOOT] ensureConfiguredSuperAdmin failed:", (e as any)?.message || e),
+    );
     canonicalSuperAdminId = await withStartupTimeout(
       enforceSingleSuperAdminAccount(),
       3000,
@@ -16580,7 +16620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({
         isExternalRiderSystemEnabled: settings.isExternalRiderSystemEnabled === true,
-        restaurantsEnabled: settings.restaurantsEnabled !== false,
+        restaurantsEnabled: settings.restaurantsEnabled === true,
         showCheckoutDeliveryMap: settings.showCheckoutDeliveryMap !== false,
         isMultiVendor: settings.isMultiVendor === true,
         allowSellerBankPayouts: settings.allowSellerBankPayouts !== false,
@@ -16616,7 +16656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.warn('[ROUTES] Falling back to public platform settings response:', error?.message || error);
       res.json({
         isExternalRiderSystemEnabled: false,
-        restaurantsEnabled: true,
+        restaurantsEnabled: false,
         showCheckoutDeliveryMap: true,
         isMultiVendor: false,
         allowSellerBankPayouts: true,

@@ -33,7 +33,7 @@ export const publicPlatformSettingsQueryKey = ["/api/public/platform-settings"] 
 
 const defaultPublicPlatformSettings: PublicPlatformSettings = {
   isExternalRiderSystemEnabled: false,
-  restaurantsEnabled: true,
+  restaurantsEnabled: false,
   showCheckoutDeliveryMap: true,
   isMultiVendor: false,
   allowSellerBankPayouts: true,
@@ -71,8 +71,8 @@ export function usePlatformSettings() {
     ...query,
     settings: query.data ?? defaultPublicPlatformSettings,
     isExternalRiderSystemEnabled,
-    // Food experience master switch. Defaults ON (only false when explicitly disabled).
-    restaurantsEnabled: query.data?.restaurantsEnabled !== false,
+    // Food experience master switch. Defaults OFF (only true when explicitly enabled).
+    restaurantsEnabled: query.data?.restaurantsEnabled === true,
     showCheckoutDeliveryMap: query.data?.showCheckoutDeliveryMap !== false,
     isMultiVendor: query.data?.isMultiVendor === true,
     allowSellerBankPayouts: query.data?.allowSellerBankPayouts !== false,

@@ -407,41 +407,10 @@ const GuardedAdminFoodProducts = withRestaurantsRouteGuard(AdminFoodProducts, "/
 const GuardedSellerPromotions = withSellerFeatureRouteGuard(SellerPromotions, { requireMultiVendor: true });
 const GuardedSellerDeliveries = withSellerFeatureRouteGuard(SellerDeliveries, { requireInternalRider: true });
 
-// Blocks protected routes for authenticated-but-unverified users.
-// Public browse routes (homepage, product/store pages) remain accessible.
+// Email verification is only prompted immediately after signup (handled in
+// AuthPage). Logging into an existing account is never blocked or redirected for
+// an unverified email, so this guard is now a pass-through kept for structure.
 function EmailVerificationGuard({ children }: { children: React.ReactNode }) {
-  const { user, isAuthenticated, isLoading } = useAuth();
-  const [location, navigate] = useLocation();
-
-  // Routes accessible even when authenticated but email not yet verified
-  const isPublicRoute =
-    location === "/" ||
-    location.startsWith("/auth") ||
-    location.startsWith("/reset-password") ||
-    location.startsWith("/sellers/") ||
-    location.startsWith("/products/") ||
-    location.startsWith("/p/") ||
-    location.startsWith("/cart/") ||
-    location.startsWith("/categories") ||
-    location.startsWith("/search") ||
-    location.startsWith("/browse") ||
-    location.startsWith("/all-") ||
-    location.startsWith("/pages/") ||
-    location === "/become-seller" ||
-    location === "/become-rider";
-
-  React.useEffect(() => {
-    if (isLoading) return;
-    if (!isAuthenticated || !user) return;
-    if (user.emailVerified !== false) return;
-    if (isPublicRoute) return;
-    navigate("/auth");
-  }, [isLoading, isAuthenticated, user, location, navigate, isPublicRoute]);
-
-  if (!isLoading && isAuthenticated && user && user.emailVerified === false && !isPublicRoute) {
-    return null;
-  }
-
   return <>{children}</>;
 }
 

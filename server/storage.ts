@@ -3707,7 +3707,7 @@ export class DbStorage implements IStorage {
           productPageAdUrl: null,
           showAdminOperationsPanels: true,
           isExternalRiderSystemEnabled: false,
-          restaurantsEnabled: true,
+          restaurantsEnabled: false,
           showCheckoutDeliveryMap: true,
           allowPickupAgentAdminChat: true,
           allowSellerDirectSupportMessages: true,

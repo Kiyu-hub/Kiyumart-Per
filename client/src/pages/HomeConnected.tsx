@@ -443,7 +443,7 @@ export default function HomeConnected() {
   // Food-vendor isolation — same shared utility as MobileHome / MultiVendorHome.
   // Platform-wide food experience switch (Super Admin → Advanced Features).
   // When off, the Local Vendors & Restaurants homepage section is hidden.
-  const restaurantsEnabled = (platformSettings as any)?.restaurantsEnabled !== false;
+  const restaurantsEnabled = (platformSettings as any)?.restaurantsEnabled === true;
   // Food products live ONLY in the Local Vendors & Restaurants section; the
   // generic feeds (Featured / New Arrivals / All Products) exclude them.
   const foodStoreIds = getFoodStoreIdSet(dbStores as any);
