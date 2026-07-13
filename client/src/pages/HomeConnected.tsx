@@ -578,11 +578,11 @@ export default function HomeConnected() {
       {/* Full-bleed hero ad - stretches edge-to-edge and removes card borders for a flush look */}
       {/* Hero ad: render only when ads are enabled and hero is enabled */}
       {adsEnabled && heroBannerEnabled && (
-        <div className="w-screen -mx-4 md:-mx-8 py-3">
+        <div className="w-full py-3">
           {/* much shorter hero ad height per request */}
           <AdBanner position="hero" className="h-16 md:h-20 rounded-none border-0" fullBleed />
         </div>
-      )} 
+      )}
 
       <main className="flex-1">
         <div className="max-w-[1400px] mx-auto px-4 py-12">
@@ -644,14 +644,14 @@ export default function HomeConnected() {
                     not depend on scroll position (previously the card stretched to
                     the full viewport height, pushing the centered image below the
                     fold as you scrolled). */}
-                <div className="sticky top-24 flex flex-col gap-4">
+                <div className={`sticky top-24 flex flex-col gap-4 ${sidebarItemCount > 1 ? 'h-[calc(100vh-7rem)]' : ''}`}>
                   {hasExactlyOnePromotion && singlePromotion && (
-                    <div className="overflow-hidden rounded-xl aspect-[4/5]">
+                    <div className={`overflow-hidden rounded-xl flex flex-col ${sidebarItemCount > 1 ? 'flex-1 min-h-0' : 'aspect-[4/5]'}`}>
                       <SinglePromotionSidebar promo={singlePromotion} />
                     </div>
                   )}
                   {hasSidebarAd && (
-                    <div className="overflow-hidden rounded-xl border-2 border-primary/20 shadow-md aspect-[3/2]">
+                    <div className={`overflow-hidden rounded-xl border-2 border-primary/20 shadow-md ${sidebarItemCount > 1 ? 'flex-1 min-h-0' : 'aspect-[3/2]'}`}>
                       <AdBanner position="sidebar" className="w-full h-full rounded-none border-0" />
                     </div>
                   )}
@@ -906,11 +906,11 @@ export default function HomeConnected() {
       </main>
       {/* Full-bleed footer ad - show only when enabled */}
       {(adsEnabled && footerAdEnabled) && (
-        <div className="w-screen -mx-4 md:-mx-8 pb-8">
+        <div className="w-full pb-8">
           {/* smaller footer ad */}
           <AdBanner position="footer" className="h-12 md:h-16 rounded-none border-0" fullBleed />
         </div>
-      )} 
+      )}
 
       <Footer />
 
