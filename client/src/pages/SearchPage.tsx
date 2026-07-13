@@ -652,7 +652,7 @@ export default function SearchPage() {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
-        <main className="flex-1 max-w-7xl mx-auto px-4 py-10 w-full">
+        <main className="flex-1 max-w-[1800px] mx-auto px-4 py-10 w-full">
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <SearchX className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
             <p className="text-lg text-muted-foreground">Enter something to search for products.</p>
@@ -667,7 +667,7 @@ export default function SearchPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
-      <main className="flex-1 max-w-7xl mx-auto px-4 py-10 w-full">
+      <main className="flex-1 max-w-[1800px] mx-auto px-4 py-10 w-full">
         <h1 className="text-2xl font-bold mb-1">
           Search results for <span className="text-primary">"{searchQuery}"</span>
         </h1>

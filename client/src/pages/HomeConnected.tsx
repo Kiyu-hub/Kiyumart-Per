@@ -585,7 +585,7 @@ export default function HomeConnected() {
       )} 
 
       <main className="flex-1">
-        <div className="max-w-7xl mx-auto px-4 py-12">
+        <div className="max-w-[1800px] mx-auto px-4 py-12">
           {/* Shop by categories - full-width, above products and sidebar */}
           {(platformSettings as any)?.showShopBySection !== false && (
           <section className="rounded-2xl border bg-card p-6 shadow-sm">
@@ -683,13 +683,13 @@ export default function HomeConnected() {
                   </div>
 
                   {productsLoading ? (
-                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`}>
                       {Array.from({ length: 5 }).map((_, i) => (
                         <Skeleton key={i} className="aspect-square w-full rounded-xl" />
                       ))}
                     </div>
                   ) : filteredFoodVendorProducts.length > 0 ? (
-                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`} data-testid="grid-food-vendor-products">
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`} data-testid="grid-food-vendor-products">
                       {filteredFoodVendorProducts.map((product) => {
                         const sellingPrice = parseFloat(product.price);
                         const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
@@ -745,7 +745,7 @@ export default function HomeConnected() {
                 </div>
 
               {featuredProductsLoading ? (
-                <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`}>
                   {Array.from({ length: 10 }).map((_, i) => (
                     <div key={i} className="flex flex-col gap-2">
                       <Skeleton className="aspect-square w-full rounded-xl" />
@@ -761,7 +761,7 @@ export default function HomeConnected() {
                     : "No featured products selected yet."}
                 </div>
               ) : (
-                <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`}>
                   {visibleFeaturedProducts.map((product) => {
                     const sellingPrice = parseFloat(product.price);
                     const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
@@ -807,7 +807,7 @@ export default function HomeConnected() {
                   </div>
 
                   {newArrivalProductsLoading ? (
-                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`}>
                       {Array.from({ length: 10 }).map((_, i) => (
                         <div key={i} className="flex flex-col gap-2">
                           <Skeleton className="aspect-square w-full rounded-xl" />
@@ -817,7 +817,7 @@ export default function HomeConnected() {
                       ))}
                     </div>
                   ) : (
-                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`}>
                       {visibleNewArrivalProducts.map((product) => {
                         const sellingPrice = parseFloat(product.price);
                         const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
@@ -858,7 +858,7 @@ export default function HomeConnected() {
                 </div>
 
                 {productsLoading ? (
-                  <div className={`grid gap-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                  <div className={`grid gap-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`}>
                     {Array.from({ length: 15 }).map((_, i) => (
                       <div key={i} className="flex flex-col gap-2">
                         <Skeleton className="aspect-square w-full rounded-xl" />
@@ -872,7 +872,7 @@ export default function HomeConnected() {
                     {searchQuery ? `No products found matching "${searchQuery}"` : "No products available in this store yet."}
                   </div>
                 ) : (
-                  <div className={`grid gap-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                  <div className={`grid gap-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${sidebarItemCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`}>
                     {filteredProducts.map((product) => {
                       const sellingPrice = parseFloat(product.price);
                       const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;

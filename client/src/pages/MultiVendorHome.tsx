@@ -307,7 +307,7 @@ export default function MultiVendorHome() {
       </div>
       
       <main className="flex-1 relative z-10">
-        <div className="container max-w-7xl mx-auto px-4 py-8 space-y-12">
+        <div className="container max-w-[1800px] mx-auto px-4 py-8 space-y-12">
 
           {/* Hero Ad — or product spotlight when no ads */}
           {adsEnabled && heroBannerEnabled ? (
@@ -500,13 +500,13 @@ export default function MultiVendorHome() {
                   </div>
 
                   {productsLoading ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 gap-y-6">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 gap-y-6">
                       {[...Array(5)].map((_, i) => (
                         <Skeleton key={i} className="aspect-square rounded-xl bg-gray-200 dark:bg-white/10" />
                       ))}
                     </div>
                   ) : filteredFoodVendorProducts.length > 0 ? (
-                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`} data-testid="grid-food-vendor-products">
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`} data-testid="grid-food-vendor-products">
                       {filteredFoodVendorProducts.map((product) => (
                         <ProductCard
                           key={product.id}
@@ -542,13 +542,13 @@ export default function MultiVendorHome() {
                 </div>
 
                 {productsLoading ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 gap-y-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 gap-y-6">
                     {[...Array(10)].map((_, i) => (
                       <Skeleton key={i} className="aspect-square rounded-xl bg-gray-200 dark:bg-white/10" data-testid={`skeleton-product-${i}`} />
                     ))}
                   </div>
                 ) : filteredFeaturedProducts.length > 0 ? (
-                  <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`} data-testid="grid-featured-products">
+                  <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`} data-testid="grid-featured-products">
                     {filteredFeaturedProducts.map((product) => (
                       <ProductCard
                         key={product.id}
@@ -585,13 +585,13 @@ export default function MultiVendorHome() {
                   </div>
 
                   {newArrivalsLoading ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 gap-y-6">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 gap-y-6">
                       {[...Array(5)].map((_, i) => (
                         <Skeleton key={i} className="aspect-square rounded-xl bg-gray-200 dark:bg-white/10" />
                       ))}
                     </div>
                   ) : (
-                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+                    <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`}>
                       {filteredNewArrivalProducts.map((product) => (
                         <ProductCard
                           key={product.id}
@@ -625,7 +625,7 @@ export default function MultiVendorHome() {
                   <span className="text-sm text-gray-500 dark:text-blue-200/70">{filteredAllProducts.length} products</span>
                 </div>
 
-                <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`} data-testid="grid-all-products">
+                <div className={`grid gap-x-4 gap-y-6 grid-cols-2 sm:grid-cols-3 ${hasSidebarContent ? 'md:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'}`} data-testid="grid-all-products">
                   {filteredAllProducts.map((product) => (
                     <ProductCard
                       key={product.id}

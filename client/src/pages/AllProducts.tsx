@@ -337,7 +337,7 @@ export default function AllProducts() {
       <Header />
 
       <main className="flex-1">
-        <div className="container max-w-7xl mx-auto px-4 py-6 space-y-8">
+        <div className="container max-w-[1800px] mx-auto px-4 py-6 space-y-8">
           <div className="flex flex-col gap-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -398,7 +398,7 @@ export default function AllProducts() {
           </div>
 
           {isLoading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
               {[...Array(10)].map((_, i) => (
                 <Skeleton key={i} className="aspect-square rounded-lg" data-testid={`skeleton-product-${i}`} />
               ))}
@@ -419,7 +419,7 @@ export default function AllProducts() {
               </div>
             </div>
           ) : filteredProducts.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6" data-testid="grid-products">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-6 gap-x-4 gap-y-6" data-testid="grid-products">
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}

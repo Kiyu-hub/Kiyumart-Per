@@ -155,7 +155,7 @@ export default function CategoryPage() {
 
       <main className="flex-1">
         <div className="bg-muted py-12 mb-8">
-          <div className="max-w-7xl mx-auto px-4">
+          <div className="max-w-[1800px] mx-auto px-4">
             <div className="grid gap-6 md:grid-cols-[180px_minmax(0,1fr)] md:items-center">
               {category?.image ? (
                 <div className="overflow-hidden rounded-2xl border bg-background shadow-sm">
@@ -187,9 +187,9 @@ export default function CategoryPage() {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 pb-12">
+        <div className="max-w-[1800px] mx-auto px-4 pb-12">
           {isLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-6 gap-x-4 gap-y-6">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <Card key={i} className="overflow-hidden">
                   <Skeleton className="aspect-[3/4] w-full" />
@@ -211,7 +211,7 @@ export default function CategoryPage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-x-4 gap-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-6 gap-x-4 gap-y-6">
               {categoryProducts.map((product) => {
                 const sellingPrice = parseFloat(product.price);
                 const originalPrice = product.costPrice
