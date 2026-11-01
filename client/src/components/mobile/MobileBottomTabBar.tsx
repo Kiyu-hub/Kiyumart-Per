@@ -5,6 +5,8 @@ import { useAuth } from "@/lib/auth";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
 import { cn } from "@/lib/utils";
+import { MobileBottomNavA } from "@/components/mobile/MobileBottomNavA";
+import { getMobileNavVariant } from "@/lib/homeVariant";
 import {
   Home, ShoppingCart, Package, User,
   BarChart3, MessageCircle, Store, Settings,
@@ -53,7 +55,8 @@ const HIDE_ROUTES = ["/auth", "/checkout", "/payment", "/live-tracking", "/cart-
 
 interface CartItem { id: string; quantity: number; }
 
-export function MobileBottomTabBar() {
+/** Original role-specific tab bar — unchanged; kept for ?nav=classic and rollback. */
+export function MobileBottomTabBarClassic() {
   const { isMobile } = useMobileDevice();
   const [location, navigate] = useLocation();
   const { user, isAuthenticated } = useAuth();
@@ -222,4 +225,13 @@ export function MobileBottomTabBar() {
       </nav>
     </>
   );
+}
+
+/**
+ * TEMPORARY comparison switch (redesign/mobile-home-fashion): ?nav=new shows the approved
+ * shared navigation, ?nav=classic (default) shows the original bar above.
+ */
+export function MobileBottomTabBar() {
+  useLocation(); // re-evaluate the variant on every route change
+  return getMobileNavVariant() === "new" ? <MobileBottomNavA /> : <MobileBottomTabBarClassic />;
 }

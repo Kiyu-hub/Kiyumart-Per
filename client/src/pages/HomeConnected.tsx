@@ -6,6 +6,11 @@ import { useMobileDevice } from "@/hooks/useMobileDevice";
 const MobileHomeComp = lazy(() =>
   import("@/pages/mobile/MobileHome").then(m => ({ default: m.MobileHome }))
 );
+// TEMPORARY redesign comparison (?home=classic | ?home=fashion) — see @/lib/homeVariant
+const MobileHomeFashionComp = lazy(() =>
+  import("@/pages/mobile/MobileHomeFashion").then(m => ({ default: m.MobileHomeFashion }))
+);
+import { getMobileHomeVariant } from "@/lib/homeVariant";
 import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -522,9 +527,10 @@ export default function HomeConnected() {
   }
 
   if (isMobile || isTablet) {
+    const MobileHomeView = getMobileHomeVariant() === "fashion" ? MobileHomeFashionComp : MobileHomeComp;
     return (
       <Suspense fallback={null}>
-        <MobileHomeComp
+        <MobileHomeView
           featuredProducts={mobileFeatured as any}
           newArrivalProducts={mobileNewArrivals as any}
           allProducts={mobileAllProducts as any}
