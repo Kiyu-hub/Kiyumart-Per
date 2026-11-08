@@ -458,7 +458,7 @@ export default function MobileProductDetails() {
           onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
           onTouchEnd={e => { const dx = e.changedTouches[0].clientX - touchStartX.current; if (Math.abs(dx) > 45 && galleryImages.length > 1) setSelectedImage(i => (i + (dx < 0 ? 1 : -1) + galleryImages.length) % galleryImages.length); }}>
           {heroImage ? (
-            <img src={heroImage} alt={product.name} style={{ width: "100%", height: "100%", display: "block", objectFit: "cover", objectPosition: "center top" }} />
+            <img src={heroImage} alt={product.name} style={{ width: "100%", height: "100%", display: "block", objectFit: "contain", objectPosition: "center center" }} />
           ) : (
             <div style={{ height: "100%", display: "grid", placeItems: "center", color: subtle }}>Product image unavailable</div>
           )}
@@ -470,10 +470,10 @@ export default function MobileProductDetails() {
             </div>
           </div>
           {galleryImages.length > 1 && (
-            <div style={{ position: "absolute", left: 14, right: 14, bottom: 22, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <button aria-label="Previous image" onClick={() => setSelectedImage(i => (i - 1 + galleryImages.length) % galleryImages.length)} style={actionStyle}>‹</button>
-              <span style={{ color: "#171717", background: "rgba(255,255,255,.88)", borderRadius: 30, padding: "7px 12px", fontSize: 12, fontWeight: 700 }}>{selectedImage + 1} / {galleryImages.length}</span>
-              <button aria-label="Next image" onClick={() => setSelectedImage(i => (i + 1) % galleryImages.length)} style={actionStyle}>›</button>
+            <div style={{ position: "absolute", left: 14, right: 14, top: "50%", transform: "translateY(-50%)", display: "flex", justifyContent: "space-between", alignItems: "center", pointerEvents: "none" }}>
+              <button aria-label="Previous image" onClick={() => setSelectedImage(i => (i - 1 + galleryImages.length) % galleryImages.length)} style={{ ...actionStyle, pointerEvents: "auto" }}>‹</button>
+              <span style={{ color: "#171717", background: "rgba(255,255,255,.88)", borderRadius: 30, padding: "7px 12px", fontSize: 12, fontWeight: 700, pointerEvents: "none", transform: "translateY(65px)" }}>{selectedImage + 1} / {galleryImages.length}</span>
+              <button aria-label="Next image" onClick={() => setSelectedImage(i => (i + 1) % galleryImages.length)} style={{ ...actionStyle, pointerEvents: "auto" }}>›</button>
             </div>
           )}
         </section>
@@ -513,7 +513,7 @@ export default function MobileProductDetails() {
           </div>}
           <div style={{ fontSize: 12, color: availableStock > 0 ? brand : "#C64040", padding: "9px 0 20px", fontWeight: 700 }}>{availableStock > 0 ? (availableStock <= 5 ? `Only ${availableStock} remaining` : "Available") : "Out of stock"}</div>
           <button onClick={() => setEditorialDetailsOpen(true)} style={sectionButton}><span>Product details & care</span><span>＋</span></button>
-          <button onClick={() => setEditorialSizeGuideOpen(true)} style={sectionButton}><span>Size & fit</span><span>↗</span></button>
+          {sizeOptions.length > 0 && <button onClick={() => setEditorialSizeGuideOpen(true)} style={sectionButton}><span>Size & fit</span><span>↗</span></button>}
           <div style={{ borderTop: `1px solid ${edge}`, padding: "19px 0 25px", fontSize: 13, lineHeight: 1.7, color: subtle }}>{descText ? (descText.length > 180 ? descText.slice(0, 180) + "…" : descText) : "Explore the details and available options above."}</div>
         </section>
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 40, background: paper, borderTop: `1px solid ${edge}`, padding: "12px 18px max(12px, env(safe-area-inset-bottom, 12px))", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -7px 24px rgba(0,0,0,.05)" }}>
