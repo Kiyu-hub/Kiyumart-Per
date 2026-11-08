@@ -122,6 +122,8 @@ export default function MobileProductDetails() {
   // with ?productView=classic for side-by-side QA and instant rollback.
   const [editorialDetailsOpen, setEditorialDetailsOpen] = useState(false);
   const [editorialSizeGuideOpen, setEditorialSizeGuideOpen] = useState(false);
+  const [editorialPurchaseOpen, setEditorialPurchaseOpen] = useState(false);
+  const editorialTouchStartY = useRef(0);
 
 
   // touch swipe for carousel
@@ -435,7 +437,7 @@ export default function MobileProductDetails() {
 
   const productView = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "").get("productView");
   // Branch-scoped UX: editorial by default, but a URL flag restores the original.
-  if (productView !== "classic") {
+  if (productView !== "classic" && !_isFoodVendor) {
     const paper = isDark ? "#171717" : "#F8F7F4";
     const ink = isDark ? "#F8F7F4" : "#181818";
     const subtle = isDark ? "#A5A5A5" : "#6D6A65";
@@ -453,10 +455,10 @@ export default function MobileProductDetails() {
       alignItems: "center", color: ink, fontSize: 14, fontWeight: 600, cursor: "pointer",
     };
     return (
-      <div style={{ minHeight: "100dvh", background: paper, fontFamily: F, color: ink, paddingBottom: "calc(105px + env(safe-area-inset-bottom, 0px))" }}>
-        <section aria-label="Product photography" style={{ position: "relative", width: "100%", height: "min(82dvh, 760px)", minHeight: 420, background: isDark ? "#292929" : "#E7E3DB", overflow: "hidden" }}
-          onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
-          onTouchEnd={e => { const dx = e.changedTouches[0].clientX - touchStartX.current; if (Math.abs(dx) > 45 && galleryImages.length > 1) setSelectedImage(i => (i + (dx < 0 ? 1 : -1) + galleryImages.length) % galleryImages.length); }}>
+      <div style={{ height: "100dvh", overflow: "hidden", background: paper, fontFamily: F, color: ink, position: "relative" }}>
+        <section aria-label="Product photography" style={{ position: "relative", width: "100%", height: "100dvh", minHeight: 0, background: isDark ? "#292929" : "#E7E3DB", overflow: "hidden" }}
+          onTouchStart={e => { touchStartX.current = e.touches[0].clientX; editorialTouchStartY.current = e.touches[0].clientY; }}
+          onTouchEnd={e => { const dx = e.changedTouches[0].clientX - touchStartX.current; const dy = e.changedTouches[0].clientY - editorialTouchStartY.current; if (dy < -70 && Math.abs(dy) > Math.abs(dx)) setEditorialPurchaseOpen(true); else if (Math.abs(dx) > 45 && galleryImages.length > 1) setSelectedImage(i => (i + (dx < 0 ? 1 : -1) + galleryImages.length) % galleryImages.length); }}>
           {heroImage ? (
             <img src={heroImage} alt={product.name} style={{ width: "100%", height: "100%", display: "block", objectFit: "contain", objectPosition: "center center" }} />
           ) : (
@@ -476,8 +478,17 @@ export default function MobileProductDetails() {
               <button aria-label="Next image" onClick={() => setSelectedImage(i => (i + 1) % galleryImages.length)} style={{ ...actionStyle, pointerEvents: "auto" }}>›</button>
             </div>
           )}
+          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "105px 22px max(28px, env(safe-area-inset-bottom, 28px))", background: "linear-gradient(transparent, rgba(0,0,0,.72))", color: "white", zIndex: 3, pointerEvents: "none" }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2.6, marginBottom: 10 }}>KIYUMART · THE EDIT</div>
+            <h1 style={{ fontSize: "clamp(25px, 7vw, 36px)", lineHeight: 1.1, maxWidth: 380, margin: "0 0 9px", fontWeight: 600 }}>{product.name}</h1>
+            <strong style={{ fontSize: 20 }}>{formatPrice(sellingPrice)}</strong>
+            <button onClick={() => setEditorialPurchaseOpen(true)} style={{ display: "block", width: "100%", minHeight: 54, marginTop: 23, border: 0, borderRadius: 10, background: "#009688", color: "white", fontSize: 15, fontWeight: 800, pointerEvents: "auto", cursor: "pointer" }}>View details & choose options ↑</button>
+          </div>
         </section>
-        <section style={{ background: paper, marginTop: -18, position: "relative", zIndex: 1, borderRadius: "20px 20px 0 0", padding: "24px 20px 0" }}>
+        {editorialPurchaseOpen && <div onClick={() => setEditorialPurchaseOpen(false)} role="presentation" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.48)", zIndex: 39 }} />}
+        <section aria-label="Choose product options" style={{ background: paper, position: "fixed", left: 0, right: 0, bottom: 0, height: "min(78dvh, 760px)", overflowY: "auto", zIndex: 40, transform: editorialPurchaseOpen ? "translateY(0)" : "translateY(105%)", visibility: editorialPurchaseOpen ? "visible" : "hidden", transition: "transform .28s ease, visibility .28s", borderRadius: "24px 24px 0 0", padding: "20px 20px calc(100px + env(safe-area-inset-bottom, 0px))", boxShadow: "0 -8px 35px rgba(0,0,0,.12)" }}>
+          <div style={{ width: 38, height: 4, background: edge, borderRadius: 10, margin: "0 auto 12px" }} />
+          <button aria-label="Close product options" onClick={() => setEditorialPurchaseOpen(false)} style={{ position: "absolute", top: 18, right: 20, width: 35, height: 35, border: 0, borderRadius: 40, background: edge, color: ink, fontSize: 22 }}>×</button>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ color: brand, fontSize: 10, fontWeight: 800, letterSpacing: 2, marginBottom: 9 }}>KIYUMART EDITORIAL</div>
@@ -516,7 +527,7 @@ export default function MobileProductDetails() {
           {sizeOptions.length > 0 && <button onClick={() => setEditorialSizeGuideOpen(true)} style={sectionButton}><span>Size & fit</span><span>↗</span></button>}
           <div style={{ borderTop: `1px solid ${edge}`, padding: "19px 0 25px", fontSize: 13, lineHeight: 1.7, color: subtle }}>{descText ? (descText.length > 180 ? descText.slice(0, 180) + "…" : descText) : "Explore the details and available options above."}</div>
         </section>
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 40, background: paper, borderTop: `1px solid ${edge}`, padding: "12px 18px max(12px, env(safe-area-inset-bottom, 12px))", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -7px 24px rgba(0,0,0,.05)" }}>
+        {editorialPurchaseOpen && <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 45, background: paper, borderTop: `1px solid ${edge}`, padding: "12px 18px max(12px, env(safe-area-inset-bottom, 12px))", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -7px 24px rgba(0,0,0,.05)" }}>
           <div style={{ display: "flex", alignItems: "center", border: `1px solid ${edge}`, borderRadius: 9, minHeight: 49 }}>
             <button aria-label="Decrease quantity" onClick={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1} style={{ border: 0, background: "transparent", color: ink, width: 36, height: 44, fontSize: 20 }}>−</button>
             <span style={{ fontSize: 14, fontWeight: 700, minWidth: 15, textAlign: "center" }}>{quantity}</span>
@@ -525,7 +536,7 @@ export default function MobileProductDetails() {
           <button onClick={handleAddToCart} disabled={availableStock <= 0 || allInCart || addToCartMutation.isPending} style={{ flex: 1, minHeight: 50, background: availableStock > 0 && !allInCart ? brand : subtle, color: "#fff", border: 0, borderRadius: 10, fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
             {addToCartMutation.isPending ? "Adding…" : addedToCart ? "Added ✓" : allInCart ? "In cart" : availableStock <= 0 ? "Out of stock" : "Add to cart"}
           </button>
-        </div>
+        </div>}
         {editorialDetailsOpen && <div role="presentation" onClick={() => setEditorialDetailsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.56)", display: "flex", alignItems: "flex-end" }}>
           <section role="dialog" aria-modal="true" aria-label="Product information" onClick={e => e.stopPropagation()} style={{ width: "100%", maxHeight: "80dvh", overflowY: "auto", background: paper, borderRadius: "24px 24px 0 0", padding: "26px 22px max(30px, env(safe-area-inset-bottom, 30px))" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20 }}><h2 style={{ margin: 0, fontSize: 23 }}>Product details</h2><button onClick={() => setEditorialDetailsOpen(false)} aria-label="Close" style={{ border: 0, background: edge, borderRadius: "50%", width: 36, height: 36, color: ink }}>×</button></div>
