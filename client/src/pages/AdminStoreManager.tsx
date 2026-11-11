@@ -472,7 +472,7 @@ export default function AdminStoreManager() {
                         </h3>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        "Your marketplace supports multiple independent sellers and stores."
+                        Your marketplace supports multiple independent sellers and stores.
                       </p>
                     </div>
                     <div className="flex items-center justify-between p-4 border rounded-lg" data-testid="marketplace-mode-locked">
@@ -482,8 +482,7 @@ export default function AdminStoreManager() {
                       </div>
                     </div>
 
-                    {true && (
-                      <div className="p-4 border rounded-lg bg-card space-y-3">
+                    <div className="p-4 border rounded-lg bg-card space-y-3">
                         <div className="space-y-1">
                           <Label htmlFor="shopDisplayMode">Shop By Mode</Label>
                           <p className="text-sm text-muted-foreground">
@@ -514,7 +513,6 @@ export default function AdminStoreManager() {
                           )}
                         </div>
                       </div>
-                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
