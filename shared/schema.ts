@@ -446,8 +446,25 @@ export const idempotencyKeys = pgTable("idempotency_keys", {
   keyIdx: index("idempotency_keys_key_idx").on(t.key),
 }));
 
+// Controlled marketplace departments. Only the Super Admin may enable a new
+// department, and only after a scoped recent-password challenge.
+export const catalogDepartments = pgTable("catalog_departments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  icon: text("icon"),
+  storeTypes: text("store_types").array().notNull().default(sql`ARRAY[]::text[]`),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  launchReady: boolean("launch_ready").notNull().default(false),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Product categories (admin-manageable)
 export const categories = pgTable("categories", {
+  departmentId: varchar("department_id").references(() => catalogDepartments.id),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
   slug: text("slug").notNull().unique(),
