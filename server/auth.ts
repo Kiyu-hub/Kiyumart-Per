@@ -56,32 +56,44 @@ export function verifyToken(token: string): any {
   }
 }
 
-export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
-  // Try to get token from cookie first, then fall back to Authorization header
+export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  // Cookie first, then Bearer header. Never trust role claims for authorization:
+  // permissions and account status must reflect current database state.
   let token = req.cookies?.token;
-  
   if (!token) {
     const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
+    if (authHeader?.startsWith("Bearer ")) {
       token = authHeader.substring(7);
     }
   }
-  
+
   if (!token) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
   const decoded = verifyToken(token);
-
-  if (!decoded) {
+  if (!decoded || typeof decoded.id !== "string" || !decoded.id) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 
-  req.user = {
-    ...decoded,
-    role: normalizeRoleValue(decoded?.role),
-  };
-  next();
+  try {
+    const latestUser = await storage.getUser(decoded.id);
+    if (!latestUser || latestUser.isActive === false) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    // Super Admin keeps every authorized dashboard feature, but only if the
+    // account currently has that role in the database.
+    req.user = {
+      id: latestUser.id,
+      email: latestUser.email,
+      role: normalizeRoleValue(latestUser.role),
+    };
+    return next();
+  } catch (error) {
+    console.error("Authentication database verification failed:", error);
+    return res.status(503).json({ error: "Unable to verify account access" });
+  }
 }
 
 export function requireRole(...roles: string[]) {
@@ -209,7 +221,7 @@ export function requirePermission(...permissions: string[]) {
           case "manage_features":
             return (perms as any).canManageFeatures ?? ADMIN_DEFAULTS.canManageFeatures;
           default:
-            return true; // Unknown permissions default to allowed for admins
+            return false; // Unknown permissions must never grant access
         }
       });
 
