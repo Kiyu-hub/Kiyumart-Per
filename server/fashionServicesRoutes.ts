@@ -305,7 +305,7 @@ fashionServicesRouter.post("/api/fashion-service-requests/:id/accept",requireAut
   const reqData=await getRequest(req.params.id,req.user!.id);
   if(reqData.buyerId!==req.user!.id) fail(403,"Only the customer can accept");
   if(reqData.status!=="quoted"||!reqData.quotePesewas||!reqData.depositPercent||
-    !reqData.quoteExpiresAt||reqData.quoteExpiresAt<Date.now() as any) fail(409,"The quote has expired or is not ready");
+    !reqData.quoteExpiresAt||reqData.quoteExpiresAt.getTime()<Date.now()) fail(409,"The quote has expired or is not ready");
   const [saved]=await db.update(requests).set({status:"accepted",updatedAt:new Date()})
     .where(and(eq(requests.id,reqData.id),eq(requests.status,"quoted"))).returning();
   if(!saved) fail(409,"Request status changed");
