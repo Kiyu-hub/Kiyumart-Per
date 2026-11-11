@@ -216,7 +216,7 @@ export const emailOtpVerifications = pgTable("email_otp_verifications", {
 
 export const platformSettings = pgTable("platform_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  isMultiVendor: boolean("is_multi_vendor").default(false),
+  isMultiVendor: boolean("is_multi_vendor").default(true),
   platformName: text("platform_name").default("KiyuMart"),
   logo: text("logo"),
   logoLight: text("logo_light"),
