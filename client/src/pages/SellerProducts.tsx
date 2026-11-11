@@ -348,7 +348,7 @@ const baseProductSchema = z.object({
   description: z.string().min(10, "Description must be at least 10 characters"),
   price: z.string().regex(/^\d+(\.\d{1,2})?$/, "Invalid price format"),
   compareAtPrice: z.string().regex(/^\d+(\.\d{1,2})?$/, "Invalid price format").optional().or(z.literal("")),
-  categoryId: z.string().optional(),
+  categoryId: z.string().min(1, "Select a product category"),
   stockQuantity: z.string().optional().default("0"),
   tags: z.string().optional(),
   images: z.array(z.string().url()).max(8, "Maximum 8 images allowed").default([]),
