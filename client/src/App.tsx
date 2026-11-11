@@ -104,6 +104,11 @@ const CustomerSupport = React.lazy(() => import("@/pages/CustomerSupport"));
 const AllProducts = React.lazy(() => import("@/pages/AllProducts"));
 const BrowseStores = React.lazy(() => import("@/pages/BrowseStores"));
 const SellerStorePage = React.lazy(() => import("@/pages/SellerStorePage"));
+const SellerFashionServices = React.lazy(() => import("@/pages/SellerFashionServices"));
+const AdminFashionServices = React.lazy(() => import("@/pages/AdminFashionServices"));
+const FashionServiceRequestPage = React.lazy(() => import("@/pages/FashionServiceRequestPage"));
+const FashionServiceRequestDetail = React.lazy(() => import("@/pages/FashionServiceRequestDetail"));
+const FashionServiceMyRequests = React.lazy(() => import("@/pages/FashionServiceMyRequests"));
 const BecomeSellerPage = React.lazy(() => import("@/pages/BecomeSellerPage"));
 const BecomeRiderPage = React.lazy(() => import("@/pages/BecomeRiderPage"));
 const AdminStoresList = React.lazy(() => import("@/pages/AdminStoresList"));
@@ -524,6 +529,9 @@ function Router() {
       <Route path="/mobile/vendors" component={GuardedMobileAllVendors} />
       <Route path="/vendors" component={GuardedBrowseVendors} />
       <Route path="/sellers/:id" component={SellerStorePage} />
+      <Route path="/stores/:storeId/fashion-services/request/:offeringId" component={FashionServiceRequestPage} />
+      <Route path="/fashion-services/requests/:id" component={FashionServiceRequestDetail} />
+      <Route path="/fashion-services/my-requests" component={FashionServiceMyRequests} />
       <Route path="/product/:id" component={ProductDetailsRoute} />
       <Route path="/p/:slug" component={SocialProductPage} />
       <Route path="/cart/:token" component={CartLinkCheckout} />
@@ -564,6 +572,7 @@ function Router() {
       <Route path="/admin/hero-banners" component={AdminHeroBanners} />
       <Route path="/admin/promotions" component={AdminPromotions} />
       <Route path="/admin/categories" component={AdminCategoryManager} />
+      <Route path="/admin/fashion-services" component={AdminFashionServices} />
       <Route path="/admin/catalog-departments" component={AdminCatalogDepartments} />
       <Route path="/admin/footer-pages" component={AdminFooterPagesManager} />
       <Route path="/admin/platform-earnings" component={AdminPlatformEarnings} />
@@ -612,6 +621,7 @@ function Router() {
       <Route path="/seller/payout" component={SellerPaymentSetup} />
       <Route path="/seller/payouts" component={SellerPaymentSetup} />
       <Route path="/seller/settings" component={SellerSettings} />
+      <Route path="/seller/fashion-services" component={SellerFashionServices} />
       <Route path="/seller/payment-setup" component={SellerPaymentSetup} />
       <Route path="/seller/reviews" component={SellerRatings} />
       <Route path="/seller" component={SellerDashboard} />
