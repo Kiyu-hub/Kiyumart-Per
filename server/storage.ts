@@ -5543,16 +5543,15 @@ export class DbStorage implements IStorage {
   }
 
   async deleteCategory(id: string): Promise<boolean> {
-    // Unbind any products that reference this category before deletion so the
-    // foreign-key constraint doesn't block the delete. Products remain alive
-    // and accessible (they just lose their category link).
-    await db.transaction(async (tx) => {
-      await tx.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
-      await tx.delete(categories).where(eq(categories.id, id));
-    });
-    // Verify deletion happened
-    const [check] = await db.select({ id: categories.id }).from(categories).where(eq(categories.id, id)).limit(1);
-    return !check;
+    // Never silently orphan product categories. An admin must reassign or
+    // archive linked products before deleting a category.
+    const [linked] = await db.select({ id: products.id }).from(products)
+      .where(eq(products.categoryId, id)).limit(1);
+    if (linked) {
+      throw new Error("This category still has products. Reassign or archive its products before deletion.");
+    }
+    const removed = await db.delete(categories).where(eq(categories.id, id)).returning({ id: categories.id });
+    return removed.length > 0;
   }
 
   async getCategoriesByStore(storeId: string): Promise<Category[]> {
@@ -5564,6 +5563,7 @@ export class DbStorage implements IStorage {
         description: categories.description,
         image: categories.image,
         storeTypes: categories.storeTypes,
+        departmentId: categories.departmentId,
         productFieldsConfig: categories.productFieldsConfig,
         isActive: categories.isActive,
         displayOrder: categories.displayOrder,
