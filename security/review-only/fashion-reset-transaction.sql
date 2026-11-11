@@ -8,6 +8,11 @@
 -- media_library ('banner' rows), platform_settings, role_features, footer_pages,
 -- catalog_departments. Source image files are preserved in GitHub.
 -- Execute ONLY after code/build/deployment compatibility review.
+-- DO NOT APPLY until a verified independent/offsite backup exists and the
+-- product/category API changes are deployed and live-tested. The restricted
+-- internal snapshot protects against mistaken deletion, NOT database loss.
+-- Live original homepage must not be replaced during this release.
+-- Preserve Super Admin authentication security_settings if created later.
 BEGIN;
 DO $$
 DECLARE
@@ -78,15 +83,18 @@ BEGIN
  WHERE n.nspname='public' AND c.relkind='r'
  AND c.relname NOT IN (
   'catalog_departments','users','hero_banners','media_library',
-  'platform_settings','role_features','footer_pages','idempotency_keys','delivery_zones'
+  'platform_settings','role_features','footer_pages','idempotency_keys','delivery_zones',
+  'security_settings'
  );
- IF clear_count<>51 THEN
-  RAISE EXCEPTION 'Expected exactly 51 tables in reset, got %',clear_count;
+ IF clear_count<>50 THEN
+  RAISE EXCEPTION 'Expected exactly 50 tables in reset, got %',clear_count;
  END IF;
  EXECUTE 'TRUNCATE TABLE '||to_clear||' RESTRICT';
 END $$;
 
 DELETE FROM public.media_library WHERE category <> 'banner';
+DELETE FROM public.security_settings
+ WHERE user_id NOT IN (SELECT id FROM public.users WHERE role='super_admin');
 DELETE FROM public.users WHERE role <> 'super_admin';
 DELETE FROM public.delivery_zones;
 
