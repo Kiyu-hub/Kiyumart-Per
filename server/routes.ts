@@ -24587,10 +24587,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const enabledRows = await db.select({ id: catalogDepartments.id })
         .from(catalogDepartments).where(eq(catalogDepartments.isEnabled, true));
       const enabledIds = new Set(enabledRows.map(row => String(row.id)));
+      // Legacy uncategorized rows stay visible until the coordinated reset.
+      // Newly created categories always have a departmentId and obey gating.
       const visibleCategories = isActive === "false"
         ? cats
         : cats.filter((category) =>
-            category.departmentId && enabledIds.has(String(category.departmentId))
+            !category.departmentId || enabledIds.has(String(category.departmentId))
           );
       const flagged = await flagSellerRequestedCategories(visibleCategories);
 
