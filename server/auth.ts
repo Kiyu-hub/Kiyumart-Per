@@ -78,7 +78,14 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
 
   try {
     const latestUser = await storage.getUser(decoded.id);
-    if (!latestUser || latestUser.isActive === false) {
+    if (!latestUser) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    const currentRole = normalizeRoleValue(latestUser.role);
+    // Existing seller/rider suspension workflows intentionally permit certain
+    // limited endpoints through requireRoleAllowInactive. Preserve that flow.
+    if (latestUser.isActive === false && currentRole !== "seller" && currentRole !== "rider") {
       return res.status(401).json({ error: "Authentication required" });
     }
 
@@ -87,7 +94,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     req.user = {
       id: latestUser.id,
       email: latestUser.email,
-      role: normalizeRoleValue(latestUser.role),
+      role: currentRole,
     };
     return next();
   } catch (error) {
