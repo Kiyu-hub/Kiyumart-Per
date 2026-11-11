@@ -11,6 +11,12 @@ import processPaystackChargeSuccess from '../payments';
 async function run() {
   const calls: string[] = [];
 
+  // Authentication now verifies the current account against storage.
+  // Return a valid buyer fixture instead of relying on the role in a JWT.
+  storageModule.storage.getUser = async (id: string) => id === 'u1'
+    ? ({ id, email: 'u1@example.com', role: 'buyer', isActive: true, isApproved: true } as any)
+    : undefined;
+
   // Mock platform settings
   storageModule.storage.getPlatformSettings = async () => ({ isMultiVendor: false, primaryStoreId: 'store1', paystackSecretKey: 'sk_test', defaultCommissionRate: '10' } as any);
 
