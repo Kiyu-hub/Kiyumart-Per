@@ -60,6 +60,7 @@ const AdminBannerManager = React.lazy(() => import("@/pages/AdminBannerManager")
 const AdminHeroBanners = React.lazy(() => import("@/pages/AdminHeroBanners"));
 const AdminPromotions = React.lazy(() => import("@/pages/AdminPromotions"));
 const AdminCategoryManager = React.lazy(() => import("@/pages/AdminCategoryManager"));
+const AdminCatalogDepartments = React.lazy(() => import("@/pages/AdminCatalogDepartments"));
 const AdminFooterPagesManager = React.lazy(() => import("@/pages/AdminFooterPagesManager"));
 const AdminPlatformEarnings = React.lazy(() => import("@/pages/AdminPlatformEarnings"));
 const AdminSellersPayouts = React.lazy(() => import("@/pages/AdminSellersPayouts"));
@@ -563,6 +564,7 @@ function Router() {
       <Route path="/admin/hero-banners" component={AdminHeroBanners} />
       <Route path="/admin/promotions" component={AdminPromotions} />
       <Route path="/admin/categories" component={AdminCategoryManager} />
+      <Route path="/admin/catalog-departments" component={AdminCatalogDepartments} />
       <Route path="/admin/footer-pages" component={AdminFooterPagesManager} />
       <Route path="/admin/platform-earnings" component={AdminPlatformEarnings} />
       <Route path="/admin/media-library" component={AdminMediaLibrary} />
