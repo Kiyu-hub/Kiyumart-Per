@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   verify:
-    name: TypeScript and auth regression tests (isolated)
+    name: Security tests, TypeScript, full unit suite, and build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -37,7 +37,9 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Focused auth regression tests
-        run: node scripts/run-tsx-test-suite-safe.mjs server/__tests__/auth-current-role.test.ts server/__tests__/auth-permission-if-admin.test.ts
+      - name: Run complete existing server unit test suite (no real DB credentials)
+        run: node scripts/run-tsx-test-suite-safe.mjs
       - name: TypeScript static check
         run: npx tsc --noEmit --pretty false
+      - name: Production bundle build (not deployed)
+        run: npm run build
