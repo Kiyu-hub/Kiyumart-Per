@@ -57,6 +57,50 @@ async function run() {
     assert.equal(continued, false);
     assert.equal(res.statusCode, 401, "Inactive super_admin must not retain access");
 
+    // Suspension must never grant broad access merely because role = seller/rider.
+    currentRole = "seller";
+    const suspendedReq: any = {
+      cookies: { token },
+      headers: {},
+      method: "GET",
+      path: "/api/seller/message-contacts",
+    };
+    res = makeRes();
+    continued = false;
+    await requireAuth(suspendedReq, res as any, () => { continued = true; });
+    assert.equal(continued, true, "Suspended seller should retain limited message contacts access");
+    assert.equal(suspendedReq.user.role, "seller");
+
+    suspendedReq.path = "/api/orders";
+    res = makeRes();
+    continued = false;
+    await requireAuth(suspendedReq, res as any, () => { continued = true; });
+    assert.equal(continued, false, "Suspended seller must not access ordinary routes");
+    assert.equal(res.statusCode, 401);
+
+    suspendedReq.path = "/api/seller/message-contacts";
+    suspendedReq.method = "POST";
+    res = makeRes();
+    continued = false;
+    await requireAuth(suspendedReq, res as any, () => { continued = true; });
+    assert.equal(continued, false, "Suspended seller must not write through the read-only exception");
+    assert.equal(res.statusCode, 401);
+
+    currentRole = "rider";
+    suspendedReq.method = "GET";
+    suspendedReq.path = "/api/rider/message-contacts";
+    res = makeRes();
+    continued = false;
+    await requireAuth(suspendedReq, res as any, () => { continued = true; });
+    assert.equal(continued, true, "Suspended rider should retain limited message contacts access");
+
+    suspendedReq.path = "/api/seller/message-contacts";
+    res = makeRes();
+    continued = false;
+    await requireAuth(suspendedReq, res as any, () => { continued = true; });
+    assert.equal(continued, false, "Rider may not borrow the seller exception");
+    assert.equal(res.statusCode, 401);
+
     console.log("auth-current-role.test passed");
   } finally {
     (storage as any).getUser = originalGetUser;
