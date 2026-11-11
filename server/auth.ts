@@ -83,9 +83,14 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     }
 
     const currentRole = normalizeRoleValue(latestUser.role);
-    // Existing seller/rider suspension workflows intentionally permit certain
-    // limited endpoints through requireRoleAllowInactive. Preserve that flow.
-    if (latestUser.isActive === false && currentRole !== "seller" && currentRole !== "rider") {
+    // Suspended operational accounts may only retrieve the explicitly approved
+    // message-contacts lists; all other authenticated endpoints stay blocked.
+    // requireRoleAllowInactive still validates the account role on those routes.
+    const inactiveContactAccess =
+      req.method === "GET" &&
+      ((currentRole === "seller" && req.path === "/api/seller/message-contacts") ||
+        (currentRole === "rider" && req.path === "/api/rider/message-contacts"));
+    if (latestUser.isActive === false && !inactiveContactAccess) {
       return res.status(401).json({ error: "Authentication required" });
     }
 
