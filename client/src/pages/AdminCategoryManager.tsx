@@ -372,6 +372,11 @@ export default function AdminCategoryManager() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              {user?.role === "super_admin" && (
+                <Button variant="outline" onClick={() => navigate("/admin/catalog-departments")} data-testid="button-manage-departments">
+                  Marketplace Departments
+                </Button>
+              )}
               {user?.role === "super_admin" && activeTab === "food" && (
                 <Button
                   variant="outline"
