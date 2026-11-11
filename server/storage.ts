@@ -1,4 +1,5 @@
 import { db } from "../db/index";
+import { requirePublishedCategoryForStore } from "./catalogCategoryRules";
 import { 
   users, products, orders, orderItems, orderStatusHistory, deliveryZones, deliveryTracking,
   chatMessages, transactions, platformSettings, cart, wishlist, reviews, riderReviews,
@@ -1254,7 +1255,9 @@ export class DbStorage implements IStorage {
 
   // Product operations
   async createProduct(product: InsertProduct & { sellerId: string }): Promise<Product> {
-    const result = await db.insert(products).values(product).returning();
+    const resolved = await requirePublishedCategoryForStore(product.categoryId, product.storeId);
+    const prepared = { ...product, categoryId: resolved.id, category: resolved.name };
+    const result = await db.insert(products).values(prepared).returning();
     this.invalidateCache("getProducts");
     return result[0];
   }
@@ -1304,7 +1307,21 @@ export class DbStorage implements IStorage {
   }
 
   async updateProduct(id: string, data: Partial<Product>): Promise<Product | undefined> {
-    const result = await db.update(products).set({ ...data, updatedAt: new Date() }).where(eq(products.id, id)).returning();
+    let changes = data;
+    if (Object.prototype.hasOwnProperty.call(data, "categoryId") || Object.prototype.hasOwnProperty.call(data, "storeId")) {
+      const current = await this.getProduct(id);
+      if (!current) return undefined;
+      const resolved = await requirePublishedCategoryForStore(
+        Object.prototype.hasOwnProperty.call(data, "categoryId") ? data.categoryId : current.categoryId,
+        Object.prototype.hasOwnProperty.call(data, "storeId") ? data.storeId : current.storeId,
+      );
+      changes = { ...data, categoryId: resolved.id, category: resolved.name };
+    } else if (Object.prototype.hasOwnProperty.call(data, "category")) {
+      // Never allow editing the old text category independently from categoryId.
+      const { category: _unused, ...rest } = data;
+      changes = rest;
+    }
+    const result = await db.update(products).set({ ...changes, updatedAt: new Date() }).where(eq(products.id, id)).returning();
     this.invalidateCache(`getProduct:${id}`);
     this.invalidateCache("getProducts");
     return result[0];
