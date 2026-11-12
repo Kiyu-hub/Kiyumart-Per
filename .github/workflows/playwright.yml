@@ -9,6 +9,12 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/kiyumart
+      SESSION_SECRET: ci-only-e2e-secret
+      NODE_ENV: test
+      AUTO_MAINTENANCE_DURATION_MS: '0'
     services:
       postgres:
         image: postgres:15
@@ -41,6 +47,12 @@ jobs:
       - name: Install Playwright browsers & OS deps
         run: npx playwright install --with-deps chromium
 
+      - name: Prepare isolated test database schema
+        run: npx drizzle-kit push --force
+
+      - name: Seed isolated test database
+        run: npx tsx server/seed.ts
+
       - name: Start backend (server)
         env:
           SESSION_SECRET: testsecret
@@ -56,12 +68,6 @@ jobs:
 
       - name: Wait for backend
         run: npx wait-on http://localhost:5000/api/health --timeout 60000
-
-      - name: Seed database
-        env:
-          SESSION_SECRET: testsecret
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kiyumart
-        run: npx tsx server/seed.ts || true
 
       - name: Start frontend (Vite)
         run: |
