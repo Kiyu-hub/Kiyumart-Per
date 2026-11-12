@@ -2,13 +2,22 @@ name: Playwright E2E
 
 on:
   push:
-    branches: [ main, chore/docs-ghana-english ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
 jobs:
   e2e:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SESSION_SECRET: ci-only-local-e2e-secret
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/kiyumart
+      AUTO_MAINTENANCE_DURATION_MS: '0'
+      NODE_ENV: test
     services:
       postgres:
         image: postgres:15
@@ -25,61 +34,44 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-
-      - name: Use Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit --pretty false
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Initialize isolated local PostgreSQL schema
+        run: npx drizzle-kit push --force
+      - name: Seed isolated local test data
+        run: npx tsx server/seed.ts
+      - name: Build frontend for server bootstrap
+        run: npm run build
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck (tsc)
-        run: npm run typecheck
-
-      - name: Install Playwright browsers & OS deps
-        run: npx playwright install --with-deps
-
-      - name: Start backend (server)
-        env:
-          SESSION_SECRET: testsecret
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kiyumart
-          PGHOST: localhost
-          PGUSER: postgres
-          PGPASSWORD: postgres
-          PGPORT: 5432
-          PGDATABASE: kiyumart
-          NODE_ENV: test
+      - name: Start backend (local test only)
         run: |
-          nohup bash -lc "SESSION_SECRET=$SESSION_SECRET DATABASE_URL=$DATABASE_URL npx tsx server/index.ts > server-ci.log 2>&1 &" 
-
-      - name: Wait for backend
-        run: npx wait-on http://localhost:5000/api/health --timeout 60000
-
-      - name: Seed database
-        env:
-          SESSION_SECRET: testsecret
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kiyumart
-        run: npx tsx server/seed.ts || true
-
-      - name: Start frontend (Vite)
+          npx tsx server/index.ts > server-ci.log 2>&1 &
+          echo $! > server-ci.pid
+      - name: Verify backend is healthy
         run: |
-          nohup npm run dev:frontend > vite-ci.log 2>&1 &
-
-      - name: Wait for frontend
-        run: npx wait-on http://localhost:5173 --timeout 60000
-
-      - name: Run Playwright tests
-        env:
-          SESSION_SECRET: testsecret
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kiyumart
-        run: npx playwright test --reporter=github --retries=2
-        continue-on-error: false
-
+          if ! npx wait-on http://127.0.0.1:5000/api/health --timeout 60000; then
+            echo "Backend health check failed; printing sanitized logs."
+            sed -E 's#postgresql://[^[:space:]]+#postgresql://[REDACTED]#g' server-ci.log | tail -n 70
+            exit 1
+          fi
+      - name: Start frontend (local test only)
+        run: |
+          npx vite --host 0.0.0.0 > vite-ci.log 2>&1 &
+          echo $! > vite-ci.pid
+      - name: Verify frontend is healthy
+        run: npx wait-on http://127.0.0.1:5173 --timeout 60000
+      - name: Run Playwright
+        run: npx playwright test --project=chromium --reporter=github --retries=1
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: playwright-report || .
+          path: playwright-report

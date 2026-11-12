@@ -5,6 +5,7 @@ export default defineConfig({
   timeout: 90 * 1000,
   retries: 1,
   workers: 2,
+  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
   use: {
     baseURL: 'http://localhost:5173',
     headless: true,

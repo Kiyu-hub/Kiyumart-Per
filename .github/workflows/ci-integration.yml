@@ -1,4 +1,4 @@
-name: CI
+name: CI integration
 
 on:
   push:
@@ -6,29 +6,32 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SESSION_SECRET: ci-only-local-secret
+      DATABASE_URL: postgresql://test:test@127.0.0.1:5432/test
+      AUTO_MAINTENANCE_DURATION_MS: '0'
     steps:
       - uses: actions/checkout@v4
-      - name: Use Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - name: Install dependencies
-        run: npm ci
-      - name: Run unit tests
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run unit suite
+        run: node scripts/run-tsx-test-suite-safe.mjs
+      - name: Run optional Paystack integration tests
         env:
-          SESSION_SECRET: testsecret
-        run: npm run test:unit
-      - name: Run integration tests (optional)
-        env:
-          SESSION_SECRET: testsecret
           RUN_PAYSTACK_INTEGRATION: ${{ secrets.RUN_PAYSTACK_INTEGRATION }}
         run: |
-          if [ "${RUN_PAYSTACK_INTEGRATION}" = "true" ]; then
-            echo "Running integration tests";
-            npm run test:integration;
+          if [ "$RUN_PAYSTACK_INTEGRATION" = "true" ]; then
+            node scripts/run-tsx-test-suite-safe.mjs server/__tests__/paystack-integration.test.ts
           else
-            echo "Skipping integration tests (set RUN_PAYSTACK_INTEGRATION secret to 'true' to enable)";
+            echo "Paystack integration intentionally skipped until test-mode setup"
           fi

@@ -377,7 +377,7 @@ export default function HomeConnected() {
       requestedBySeller: Boolean(cat.requestedBySeller),
       productCount: products.filter((product) => productMatchesCategory(product, cat)).length,
     }))
-    .filter(category => category.productCount > 0 || category.requestedBySeller);
+    .filter(category => category.isActive !== false); // Keep empty categories visible after reset
 
   const cartItemsForSidebar = cartItems.map(cartItem => {
     const product = cartProducts.find(p => p.id === cartItem.productId);
