@@ -56,6 +56,7 @@ import {
   reportedCases,
   suggestions,
   productModifiers,
+  catalogDepartments,
 } from "@shared/schema";
 import { eq, or, isNotNull, isNull, and, desc, sql, inArray, asc, lte, gte, ne } from "drizzle-orm";
 import { 
@@ -24581,7 +24582,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cats = await storage.getCategories({
         isActive: isActive === "true" ? true : isActive === "false" ? false : undefined,
       });
-      const flagged = await flagSellerRequestedCategories(cats);
+      // Shopper discovery must only expose categories in enabled marketplace
+      // departments. Preserve inactive/pending discovery for existing admin tools.
+      const enabledRows = await db.select({ id: catalogDepartments.id })
+        .from(catalogDepartments).where(eq(catalogDepartments.isEnabled, true));
+      const enabledIds = new Set(enabledRows.map(row => String(row.id)));
+      // Legacy uncategorized rows stay visible until the coordinated reset.
+      // Newly created categories always have a departmentId and obey gating.
+      const visibleCategories = isActive === "false"
+        ? cats
+        : cats.filter((category) =>
+            !category.departmentId || enabledIds.has(String(category.departmentId))
+          );
+      const flagged = await flagSellerRequestedCategories(visibleCategories);
 
       // Attach per-category product counts via a single DB query
       try {

@@ -21,7 +21,7 @@ import { ArrowLeft, Loader2, Plus, X } from "lucide-react";
 const productFormSchema = insertProductSchema.extend({
   name: z.string().min(1, "Product name is required"),
   description: z.string().min(1, "Description is required"),
-  categoryId: z.string().optional(),
+  categoryId: z.string().min(1, "Select a product category"),
   price: z.string().min(1, "Price is required"),
   costPrice: z.string().optional(),
   stock: z.number().min(0, "Stock must be 0 or greater"),

@@ -178,10 +178,10 @@ export default function MultiVendorHome() {
   const isFoodScoped = (c: Category) =>
     Array.isArray(c.storeTypes) &&
     c.storeTypes.some((t) => t === "food_beverages" || t === "restaurant");
+  // Display launch-ready categories even if the first sellers have not added
+  // products yet. This avoids an empty Shop by Category section after a reset.
   const categoriesWithProducts = categories.filter(
-    (category) =>
-      !isFoodScoped(category) &&
-      (getCategoryProductCount(category) > 0 || Boolean(category.requestedBySeller)),
+    (category) => !isFoodScoped(category) && category.isActive !== false,
   );
   
   const isAdmin = user?.role === "admin";
