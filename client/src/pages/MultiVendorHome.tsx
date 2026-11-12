@@ -21,7 +21,7 @@ import LocationPrompt from "@/components/LocationPrompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
+import { getProductCategoryLabel } from "@/lib/categoryUtils";
 import {
   excludeFoodVendorProducts,
   getFoodStoreIdSet,
@@ -168,17 +168,14 @@ export default function MultiVendorHome() {
     }
   };
 
-  const getCategoryProductCount = (category: Category) =>
-    allProducts.filter((product) => productMatchesCategory(product, category)).length;
-  // Hide food-scoped categories from the generic "Shop by Category" surface —
-  // they live on the dedicated Restaurants & Local Vendors page.
-  const isFoodScoped = (c: Category) =>
-    Array.isArray(c.storeTypes) &&
-    c.storeTypes.some((t) => t === "food_beverages" || t === "restaurant");
+  // Fashion-first discovery changes category visibility only. Keep the
+  // existing homepage design, products, storefronts, banners and navigation.
+  // Show active clothing categories even when they contain zero products.
   const categoriesWithProducts = categories.filter(
     (category) =>
-      !isFoodScoped(category) &&
-      (getCategoryProductCount(category) > 0 || Boolean(category.requestedBySeller)),
+      category.isActive !== false &&
+      Array.isArray(category.storeTypes) &&
+      category.storeTypes.includes("clothing"),
   );
   
   const isAdmin = user?.role === "admin";
