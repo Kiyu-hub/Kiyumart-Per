@@ -6,9 +6,17 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SESSION_SECRET: ci-only-local-secret
+      DATABASE_URL: postgresql://test:test@127.0.0.1:5432/test
+      AUTO_MAINTENANCE_DURATION_MS: '0'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,39 +25,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Install dependencies
-        run: |
-          npm ci
+        run: npm ci
 
-      - name: Install Playwright browsers
-        run: |
-          npx playwright install --with-deps chromium
+      - name: Run server unit tests
+        run: node scripts/run-tsx-test-suite-safe.mjs
 
-      - name: Run unit tests
-        run: |
-          node scripts/run-tsx-test-suite-safe.mjs
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit --pretty false
 
-      - name: Start backend
-        run: |
-          npx tsx server/index.ts &
-          # allow server time to start
-          for i in {1..30}; do
-            if curl -sS http://localhost:5000/api/health >/dev/null 2>&1; then break; fi
-            sleep 1
-          done
+      - name: Build frontend and server bundles
+        run: npm run build
 
-      - name: Start frontend
-        run: |
-          npx vite --host 0.0.0.0 &
-          # wait for vite
-          for i in {1..30}; do
-            if curl -sS http://localhost:5173/ >/dev/null 2>&1; then break; fi
-            sleep 1
-          done
-
-      - name: Run Playwright e2e
-        env:
-          SESSION_SECRET: testsecret
-        run: |
-          npx playwright test --project=chromium --reporter=dot
+# Browser E2E tests run in the dedicated playwright.yml workflow,
+# which provisions PostgreSQL. This workflow must not use production credentials.
