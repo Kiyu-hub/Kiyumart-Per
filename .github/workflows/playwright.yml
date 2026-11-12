@@ -54,20 +54,17 @@ jobs:
         run: npx tsx server/seed.ts
 
       - name: Start backend (server)
-        env:
-          SESSION_SECRET: testsecret
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kiyumart
-          PGHOST: localhost
-          PGUSER: postgres
-          PGPASSWORD: postgres
-          PGPORT: 5432
-          PGDATABASE: kiyumart
-          NODE_ENV: test
         run: |
-          nohup bash -lc "SESSION_SECRET=$SESSION_SECRET DATABASE_URL=$DATABASE_URL npx tsx server/index.ts > server-ci.log 2>&1 &" 
+          npx tsx server/index.ts > server-ci.log 2>&1 &
+          echo $! > server-ci.pid
 
-      - name: Wait for backend
-        run: npx wait-on http://localhost:5000/api/health --timeout 60000
+      - name: Wait for backend (show startup errors on failure)
+        run: |
+          if ! npx wait-on http://127.0.0.1:5000/api/health --timeout 60000; then
+            echo "Backend startup failed. Sanitized startup diagnostics:"
+            sed -E 's#postgresql://[^[:space:]]+#postgresql://[REDACTED]#g' server-ci.log | tail -n 70
+            exit 1
+          fi
 
       - name: Start frontend (Vite)
         run: |
