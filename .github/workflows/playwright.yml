@@ -47,6 +47,9 @@ jobs:
         run: npx drizzle-kit push --force
       - name: Seed isolated local test data
         run: npx tsx server/seed.ts
+      - name: Build frontend for server bootstrap
+        run: npm run build
+
       - name: Start backend (local test only)
         run: |
           npx tsx server/index.ts > server-ci.log 2>&1 &
