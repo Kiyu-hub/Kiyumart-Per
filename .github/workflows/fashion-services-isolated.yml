@@ -1,0 +1,39 @@
+name: Fashion Services isolated validation
+
+on:
+  push:
+    branches:
+      - feature/fashion-services-isolated
+  pull_request:
+    branches:
+      - feature/fashion-category-gating
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck-unit-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SESSION_SECRET: ci-only-fashion-services
+      DATABASE_URL: postgresql://test:test@127.0.0.1:5432/test
+      AUTO_MAINTENANCE_DURATION_MS: '0'
+      PAYSTACK_SECRET_KEY: ''
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript verification
+        run: npx tsc --noEmit --pretty false
+      - name: Fashion Services unit tests and existing server unit tests
+        run: node scripts/run-tsx-test-suite-safe.mjs
+      - name: Build frontend and backend without production secrets
+        run: npm run build
