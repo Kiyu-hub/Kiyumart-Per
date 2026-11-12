@@ -15,6 +15,7 @@ import { FaWhatsapp, FaTiktok } from "react-icons/fa";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
 import type { Product } from "@shared/schema";
 import { isFoodVendorStore } from "@/lib/foodVendors";
+import FashionServicesStorePanel from "@/components/FashionServicesStorePanel";
 
 // Bolt-style restaurant detail page for mobile food vendors.
 const MobileFoodStorePage = lazy(() => import("@/pages/mobile/MobileFoodStorePage"));
@@ -435,6 +436,9 @@ export default function SellerStorePage() {
           )}
         </div>
 
+        {/* Optional verified fashion services; regular sellers see no extra section. */}
+        {store?.id && <div style={{ padding: "0 12px" }}><FashionServicesStorePanel storeId={store.id} /></div>}
+
         {/* ── Products ── */}
         <div style={{ padding: '16px 12px 40px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
@@ -592,6 +596,8 @@ export default function SellerStorePage() {
               </p>
             )}
           </div>
+
+          {store?.id && <FashionServicesStorePanel storeId={store.id} />}
 
           <div className="space-y-4">
             <div className="flex items-center gap-2">
