@@ -53,6 +53,9 @@ jobs:
       - name: Seed isolated test database
         run: npx tsx server/seed.ts
 
+      - name: Build frontend for server bootstrap
+        run: npm run build
+
       - name: Start backend (server)
         run: |
           npx tsx server/index.ts > server-ci.log 2>&1 &
