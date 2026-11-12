@@ -112,9 +112,9 @@ async function getRequest(id: string, userId: string, role?: string) {
   if (request!.buyerId!==userId && request!.sellerId!==userId && role!=="super_admin") fail(403,"You cannot access this request");
   return request!;
 }
-function permittedMedia(values: string[], max = 8) {
+function permittedMedia(values: string[], max = 8): string[] {
   try { return validateFashionImages(values,max); }
-  catch (error) { fail(400, error instanceof Error ? error.message : "Invalid image link"); }
+  catch (error) { return fail(400, error instanceof Error ? error.message : "Invalid image link"); }
 }
 async function notify(userId: string, title: string, message: string, requestId?: string) {
   try {
@@ -239,7 +239,8 @@ fashionServicesRouter.patch("/api/admin/fashion-services/applications/:id",requi
 /** A booking is created only from an explicitly approved service offering. */
 fashionServicesRouter.post("/api/stores/:storeId/fashion-service-requests", requireAuth, limiter, handler(async(req,res)=>{
   const user=await storage.getUser(req.user!.id);
-  if(!user || user.isActive===false || !["buyer","seller","super_admin"].includes(String(user.role))) fail(403,"An active customer account is required");
+  if(!user) return fail(403,"An active customer account is required");
+  if(user.isActive===false || !["buyer","seller","super_admin"].includes(String(user.role))) return fail(403,"An active customer account is required");
   const [store]=await db.select().from(stores).where(eq(stores.id,req.params.storeId)).limit(1);
   if(!store || store.isActive===false || store.isApproved===false || !store.primarySellerId) fail(404,"Store not found");
   if(store.primarySellerId===user.id) fail(400,"You cannot request a service from your own store");
@@ -316,7 +317,10 @@ fashionServicesRouter.patch("/api/fashion-service-requests/:id/status",requireAu
   const input=z.object({status:z.enum(["cancelled","declined","in_progress","ready_for_collection","completed"])}).parse(req.body);
   const data=await getRequest(req.params.id,req.user!.id,req.user!.role);
   const actor=data.buyerId===req.user!.id?"buyer":data.sellerId===req.user!.id?"seller":null;
-  if(!actor) fail(403,"Only the customer or seller can change this request");
+  if(!actor) return fail(403,"Only the customer or seller can change this request");
+  if(input.status==="completed" && (!data.quotePesewas || data.paidPesewas < data.quotePesewas)) {
+    return fail(409,"The remaining balance must be paid before completion");
+  }
   const required=data.quotePesewas&&data.depositPercent
     ?depositDuePesewas(data.quotePesewas,data.depositPercent):0;
   if(!canTransitionFashionRequest(data.status as FashionRequestStatus,input.status,actor,data.paidPesewas,required)) {
@@ -357,14 +361,15 @@ function paystackKey(): string {
 fashionServicesRouter.post("/api/fashion-service-requests/:id/payments/initialize",requireAuth,handler(async(req,res)=>{
   const key=paystackKey();
   const data=await getRequest(req.params.id,req.user!.id);
-  if(data.buyerId!==req.user!.id||data.status!=="accepted"||!data.quotePesewas||!data.depositPercent)
-    fail(409,"This quotation is not ready for payment");
+  if(data.buyerId!==req.user!.id||!["accepted","in_progress","ready_for_collection"].includes(data.status)||!data.quotePesewas||!data.depositPercent)
+    return fail(409,"This quotation is not ready for payment");
+  if(data.paidPesewas===0 && data.status!=="accepted") return fail(409,"The deposit must be paid before work starts");
   const outstanding=nextFashionPaymentPesewas(data.quotePesewas,data.depositPercent,data.paidPesewas);
   if(outstanding<=0) fail(409,"Already paid in full");
   const existing=await db.select().from(payments).where(and(eq(payments.requestId,data.id),eq(payments.status,"initiated"))).limit(1);
   if(existing.length) fail(409,"You have an outstanding payment attempt. Verify it before creating a new one.");
   const buyer=await storage.getUser(data.buyerId);
-  if(!buyer?.email) fail(409,"Buyer email is unavailable");
+  if(!buyer?.email) return fail(409,"Buyer email is unavailable");
   const reference="kfs-"+randomUUID();
   const [record]=await db.insert(payments).values({
     requestId:data.id,buyerId:data.buyerId,paystackReference:reference,amountPesewas:outstanding,
