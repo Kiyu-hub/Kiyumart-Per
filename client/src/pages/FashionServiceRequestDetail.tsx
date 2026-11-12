@@ -127,7 +127,7 @@ export default function FashionServiceRequestDetail() {
               </div>
               {!["cancelled","declined"].includes(request.status)&&<div className="flex gap-2">
                 <Input value={text} onChange={e=>setText(e.target.value)} maxLength={2500}
-                  placeholder="Message the "+(isBuyer?"seller":"customer")} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&text.trim()){e.preventDefault();send.mutate();}}}/>
+                  placeholder={"Message the "+(isBuyer?"seller":"customer")} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&text.trim()){e.preventDefault();send.mutate();}}}/>
                 <Button disabled={send.isPending||!text.trim()} onClick={()=>send.mutate()} aria-label="Send message"><Send className="w-4 h-4"/></Button>
               </div>}
             </CardContent></Card>
@@ -148,8 +148,8 @@ export default function FashionServiceRequestDetail() {
                 <Button disabled={quoteMutation.isPending||Number(quote)<=0} onClick={()=>quoteMutation.mutate()} className="w-full">Send quotation</Button>
               </div>}
               {isBuyer&&request.status==="quoted"&&<Button className="w-full" disabled={accept.isPending} onClick={()=>accept.mutate()}>Accept quotation</Button>}
-              {isBuyer&&request.status==="accepted"&&(request.paidPesewas<(request.quotePesewas||0))&&<>
-                <Button className="w-full" disabled={pay.isPending} onClick={()=>pay.mutate()}><CreditCard className="w-4 h-4 mr-2"/>Pay through Paystack</Button>
+              {isBuyer&&["accepted","in_progress","ready_for_collection"].includes(request.status)&&(request.paidPesewas<(request.quotePesewas||0))&&<>
+                <Button className="w-full" disabled={pay.isPending} onClick={()=>pay.mutate()}><CreditCard className="w-4 h-4 mr-2"/>{request.paidPesewas > 0 ? "Pay remaining balance" : "Pay through Paystack"}</Button>
                 <p className="text-xs text-muted-foreground">Paystack will be activated only after the service-payment rollout is tested. No payment is charged by this form itself.</p>
               </>}
               {isSeller&&request.status==="accepted"&&<Button className="w-full" disabled={change.isPending} onClick={()=>change.mutate("in_progress")}>Start production (requires verified deposit)</Button>}
