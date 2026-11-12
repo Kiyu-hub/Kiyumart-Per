@@ -11,8 +11,13 @@ import processPaystackChargeSuccess from '../payments';
 async function run() {
   const calls: string[] = [];
 
+  // Authenticate against a mocked active test account.
+  storageModule.storage.getUser = async (id: string) => id === 'u1'
+    ? ({ id, email: 'u1@example.com', role: 'buyer', isActive: true, isApproved: true } as any)
+    : undefined;
+
   // Mock platform settings
-  storageModule.storage.getPlatformSettings = async () => ({ isMultiVendor: false, primaryStoreId: 'store1', paystackSecretKey: 'sk_test', defaultCommissionRate: '10' } as any);
+  storageModule.storage.getPlatformSettings = async () => ({ isMultiVendor: false, primaryStoreId: 'store1', paystackSecretKey: 'sk_test_ci_placeholder', paystackPublicKey: 'pk_test_ci_placeholder', defaultCommissionRate: '10' } as any);
 
   // Mock store and order
   storageModule.storage.getStore = async (id: string) => ({ id: 'store1', primarySellerId: 'seller1', name: 'Primary Store', paystackSubaccountId: 'sub_123', isPayoutVerified: true, payoutType: 'bank_account', payoutDetails: {} } as any);
