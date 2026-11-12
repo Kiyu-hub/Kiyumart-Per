@@ -115,7 +115,7 @@ async function seed() {
         canManageFeatures: true,
       };
       const { storage } = await import('./storage');
-      await storage.updateRoleFeatures('super_admin', superAdminFeatures, 'system');
+      await storage.updateRoleFeatures('super_admin', superAdminFeatures, superAdmin.id);
       console.log('Ensured super_admin role features set via seed');
     } catch (e) {
       console.warn('Could not ensure super_admin role features via seed:', (e as any)?.message || e);
