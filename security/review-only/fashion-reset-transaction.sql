@@ -5,12 +5,12 @@
 -- All original orders/financial history remain archived in that schema.
 -- Public idempotency keys (7) are intentionally retained to prevent payment replay.
 -- Other preserved live tables: users (1 Super Admin), hero_banners (7),
--- media_library ('banner' rows), platform_settings, role_features, footer_pages,
+-- media_library (all 11 Super Admin-owned rows), platform_settings, role_features, footer_pages,
 -- catalog_departments. Source image files are preserved in GitHub.
 -- Execute ONLY after code/build/deployment compatibility review.
--- DO NOT APPLY until a verified independent/offsite backup exists and the
--- product/category API changes are deployed and live-tested. The restricted
+-- The owner explicitly waived an independent/offsite backup. The restricted
 -- internal snapshot protects against mistaken deletion, NOT database loss.
+-- DO NOT APPLY until product/category API changes are deployed and live-tested.
 -- Live original homepage must not be replaced during this release.
 -- Preserve Super Admin authentication security_settings if created later.
 BEGIN;
@@ -56,11 +56,11 @@ BEGIN
  (SELECT 1 FROM public.catalog_departments WHERE slug='clothing' AND is_enabled AND launch_ready) THEN
   RAISE EXCEPTION 'Catalog launch-state guard failed';
  END IF;
- SELECT count(*) INTO protected_media FROM public.media_library WHERE category='banner';
- IF protected_media<>7 THEN RAISE EXCEPTION 'Expected 7 banner-media files'; END IF;
+ SELECT count(*) INTO protected_media FROM public.media_library;
+ IF protected_media<>11 THEN RAISE EXCEPTION 'Expected all 11 Super Admin media uploads'; END IF;
  IF EXISTS(
   SELECT 1 FROM public.media_library m LEFT JOIN public.users u ON u.id=m.uploader_id
-  WHERE m.category='banner' AND (u.role IS DISTINCT FROM 'super_admin'::user_role)
+  WHERE u.role IS DISTINCT FROM 'super_admin'::user_role
  ) THEN RAISE EXCEPTION 'Banner media owner must remain Super Admin'; END IF;
  IF EXISTS(
   SELECT 1 FROM public.role_features r
@@ -92,7 +92,6 @@ BEGIN
  EXECUTE 'TRUNCATE TABLE '||to_clear||' RESTRICT';
 END $$;
 
-DELETE FROM public.media_library WHERE category <> 'banner';
 DELETE FROM public.security_settings
  WHERE user_id NOT IN (SELECT id FROM public.users WHERE role='super_admin');
 DELETE FROM public.users WHERE role <> 'super_admin';
@@ -138,7 +137,7 @@ BEGIN
    RAISE EXCEPTION 'Super Admin must remain intact';
  END IF;
  IF (SELECT count(*) FROM public.hero_banners)<>7 OR
-    (SELECT count(*) FROM public.media_library WHERE category='banner')<>7 OR
+    (SELECT count(*) FROM public.media_library)<>11 OR
     (SELECT count(*) FROM public.platform_settings)<>1 OR
     (SELECT count(*) FROM public.role_features)<>6 OR
     (SELECT count(*) FROM public.footer_pages)<>16 OR
