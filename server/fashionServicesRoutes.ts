@@ -314,8 +314,12 @@ fashionServicesRouter.post("/api/fashion-service-requests/:id/accept",requireAut
   const acceptedPrice=reqData.quotePesewas;
   const acceptedDeposit=reqData.depositPercent;
   const acceptedExpiry=reqData.quoteExpiresAt;
-  if(reqData.status!=="quoted"||!acceptedPrice||!acceptedDeposit||
-    !acceptedExpiry||acceptedExpiry.getTime()<Date.now()) fail(409,"The quote has expired or is not ready");
+  if(acceptedPrice===null || acceptedDeposit===null || acceptedExpiry===null) {
+    throw new HttpError(409,"The quote has expired or is not ready");
+  }
+  if(reqData.status!=="quoted" || acceptedPrice<=0 || acceptedDeposit<=0 || acceptedExpiry.getTime()<Date.now()) {
+    throw new HttpError(409,"The quote has expired or is not ready");
+  }
   // Compare the specific quotation accepted by the buyer. A concurrently edited
   // quote or expiry must never be silently accepted at a different price.
   const [saved]=await db.update(requests).set({status:"accepted",updatedAt:new Date()})
