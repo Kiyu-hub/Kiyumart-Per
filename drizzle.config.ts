@@ -6,7 +6,8 @@ if (!process.env.DATABASE_URL) {
 
 export default defineConfig({
   out: "./migrations",
-  schema: "./shared/schema.ts",
+  // Include fashion-service tables in isolated CI/staging schema synchronization.
+  schema: ["./shared/schema.ts", "./shared/fashionServicesSchema.ts"],
   dialect: "postgresql",
   dbCredentials: {
     url: process.env.DATABASE_URL,
