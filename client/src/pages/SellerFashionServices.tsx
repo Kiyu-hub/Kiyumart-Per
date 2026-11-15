@@ -42,6 +42,8 @@ export default function SellerFashionServices() {
   const [offerType,setOfferType] = useState<(typeof serviceTypes)[number]["key"]>("tailoring");
   const [offerStartingPrice,setOfferStartingPrice] = useState("");
   const [offerDays,setOfferDays] = useState("7");
+  const [availabilityDays,setAvailabilityDays] = useState<number[] | null>(null);
+  const [advanceDays,setAdvanceDays] = useState<number | null>(null);
   const {data,isLoading,isError,refetch} = useQuery<SellerData>({
     queryKey:["/api/seller/fashion-services"],
     enabled:!!user&&user.role==="seller",
@@ -69,6 +71,22 @@ export default function SellerFashionServices() {
     onSuccess:()=>queryClient.invalidateQueries({queryKey:["/api/seller/fashion-services"]}),
     onError:(e:Error)=>toast({title:"Update failed",description:e.message,variant:"destructive"}),
   });
+  const saveAvailability=useMutation({
+    mutationFn:()=>jsonPost("/api/seller/fashion-services/profile",{
+      availability:{
+        days:(availabilityDays ?? data?.application?.availability.days ?? [1,2,3,4,5,6]).slice().sort((a,b)=>a-b),
+        advanceDays:advanceDays ?? data?.application?.availability.advanceDays ?? 30,
+        paused:data?.application?.availability.paused ?? false,
+      },
+    },"PATCH"),
+    onSuccess:()=>{
+      setAvailabilityDays(null);
+      setAdvanceDays(null);
+      queryClient.invalidateQueries({queryKey:["/api/seller/fashion-services"]});
+      toast({title:"Appointment availability updated"});
+    },
+    onError:(e:Error)=>toast({title:"Unable to save availability",description:e.message,variant:"destructive"}),
+  });
   const pauseService=useMutation({
     mutationFn:(paused:boolean)=>jsonPost("/api/seller/fashion-services/profile",{
       availability:{days:data?.application?.availability.days??[1,2,3,4,5,6],
@@ -81,6 +99,9 @@ export default function SellerFashionServices() {
   const app=data?.application;
   const approved=app?.status==="approved";
   const canApply=!app||["rejected","changes_requested"].includes(app.status);
+  const availableDays=availabilityDays ?? app?.availability.days ?? [1,2,3,4,5,6];
+  const bookingNotice=advanceDays ?? app?.availability.advanceDays ?? 30;
+  const availabilityChanged=availabilityDays!==null || advanceDays!==null;
   return <DashboardLayout role="seller">
     <main className="max-w-5xl mx-auto p-4 md:p-8 space-y-6">
       <div className="flex flex-wrap gap-3 items-center justify-between">
@@ -137,6 +158,31 @@ export default function SellerFashionServices() {
           </CardContent>
         </Card>}
         {approved&&<>
+          <Card>
+            <CardHeader><CardTitle>Appointment availability</CardTitle>
+              <CardDescription>Choose the days when customers may request a fitting or consultation. Times are confirmed by message; these settings do not guarantee an appointment.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2"><Label>Available days</Label>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Available appointment days">
+                  {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((day,index)=><Button key={day} size="sm" type="button"
+                    aria-pressed={availableDays.includes(index)}
+                    variant={availableDays.includes(index)?"default":"outline"}
+                    onClick={()=>setAvailabilityDays(current=>{
+                      const selected=current??app?.availability.days??[1,2,3,4,5,6];
+                      return selected.includes(index)?selected.filter(value=>value!==index):[...selected,index].sort((a,b)=>a-b);
+                    })}>{day}</Button>)}
+                </div>
+              </div>
+              <div className="space-y-2 max-w-xs"><Label htmlFor="fashion-advance-days">How far ahead can customers request a date? (days)</Label>
+                <Input id="fashion-advance-days" type="number" min="1" max="180" step="1"
+                  value={bookingNotice} onChange={e=>setAdvanceDays(Number(e.target.value))}/>
+              </div>
+              {availableDays.length===0&&<p className="text-sm text-destructive">Select at least one available day.</p>}
+              <Button size="sm" disabled={!availabilityChanged||saveAvailability.isPending||availableDays.length===0||!Number.isInteger(bookingNotice)||bookingNotice<1||bookingNotice>180}
+                onClick={()=>saveAvailability.mutate()}>{saveAvailability.isPending?"Saving…":"Save availability"}</Button>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader><CardTitle>My Service Offerings</CardTitle><CardDescription>These appear inside your clothing store. Customers can request quotations rather than pay before you agree on the design.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
