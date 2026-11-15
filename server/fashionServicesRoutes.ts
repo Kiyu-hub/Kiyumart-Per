@@ -1,6 +1,6 @@
 import { Router, type RequestHandler, type Response } from "express";
 import rateLimit from "express-rate-limit";
-import { and, asc, desc, eq, sql, lte } from "drizzle-orm";
+import { and, asc, desc, eq, sql, lte, or } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { db } from "../db";
@@ -224,7 +224,8 @@ fashionServicesRouter.patch("/api/admin/fashion-services/applications/:id",requi
   const [app]=await db.select().from(applications).where(eq(applications.id,req.params.id)).limit(1);
   if(!app) fail(404,"Application not found");
   if(input.status==="approved") {
-    await sellerStore(app.sellerId);
+    const approvedSellerStore=await sellerStore(app.sellerId);
+    if(approvedSellerStore.id!==app.storeId) fail(409,"This service application is not linked to the seller's current approved store");
     if(!app.portfolioUrls.length) fail(409,"The applicant must submit a work portfolio");
   }
   if((input.status==="rejected"||input.status==="changes_requested"||input.status==="suspended")&&!input.note) fail(400,"An explanation is required");
@@ -270,7 +271,7 @@ fashionServicesRouter.get("/api/fashion-service-requests", requireAuth,handler(a
   const data=role==="super_admin"
     ?await db.select().from(requests).orderBy(desc(requests.createdAt)).limit(200)
     :role==="seller"
-      ?await db.select().from(requests).where(eq(requests.sellerId,uid)).orderBy(desc(requests.createdAt)).limit(100)
+      ?await db.select().from(requests).where(or(eq(requests.sellerId,uid),eq(requests.buyerId,uid))).orderBy(desc(requests.createdAt)).limit(100)
       :await db.select().from(requests).where(eq(requests.buyerId,uid)).orderBy(desc(requests.createdAt)).limit(100);
   res.json(data);
 }));
@@ -298,7 +299,10 @@ fashionServicesRouter.post("/api/fashion-service-requests/:id/quote",requireAuth
   if(!["pending","quoted"].includes(request.status) || request.paidPesewas!==0) fail(409,"This request cannot be quoted");
   const [saved]=await db.update(requests).set({status:"quoted",quotePesewas:input.quotePesewas,depositPercent:input.depositPercent,
     quoteExpiresAt:new Date(Date.now()+input.expiresInDays*86400000),updatedAt:new Date()})
-    .where(and(eq(requests.id,request.id),eq(requests.sellerId,req.user!.id))).returning();
+    .where(and(eq(requests.id,request.id),eq(requests.sellerId,req.user!.id),
+      or(eq(requests.status,"pending"),eq(requests.status,"quoted")),
+      eq(requests.paidPesewas,0))).returning();
+  if(!saved) fail(409,"This request was updated while preparing the quotation");
   await notify(request.buyerId,"Fashion service quote", "The seller sent a quotation for your request.",request.id);
   res.json(saved);
 }));
