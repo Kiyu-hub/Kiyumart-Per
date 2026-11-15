@@ -36,6 +36,7 @@ import {
   Flag,
   Lightbulb,
   Gift,
+  Scissors,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -168,6 +169,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: Truck, label: "Riders", id: "riders", adminPermission: "canManageUsers" },
     { icon: UserCheck, label: "Assign Riders", id: "manual-rider-assignment", badge: "assignments_dynamic", adminPermission: "canManageOrders" },
     { icon: Ticket, label: "Applications", id: "applications", badge: "applications_dynamic", adminPermission: "canManageUsers" },
+    { icon: Scissors, label: "Fashion Services", id: "fashion-services" },
     { icon: Tag, label: "Promotions", id: "promotions", badge: "promotions_dynamic", adminPermission: "canManagePromotions" },
     { icon: Shield, label: "Permissions", id: "permissions", adminPermission: "canManageFeatures" },
     { icon: MapPin, label: "Delivery Zones", id: "zones", adminPermission: "canManagePlatformSettings" },
@@ -230,6 +232,7 @@ const menuItems: Record<string, MenuItem[]> = {
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: ImagePlus, label: "Media Library", id: "media-library" },
     { icon: Package, label: "My Products", id: "products" },
+    { icon: Scissors, label: "Fashion Services", id: "fashion-services" },
     { icon: Grid3x3, label: "Categories", id: "categories" },
     { icon: ShoppingBag, label: "Orders", id: "orders" },
     { icon: Tag, label: "Coupons", id: "coupons" },
