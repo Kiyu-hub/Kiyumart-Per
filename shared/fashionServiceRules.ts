@@ -63,6 +63,17 @@ export function nextFashionPaymentPesewas(
   return paidPesewas === 0 ? deposit : quotePesewas - paidPesewas;
 }
 
+/** Only the HTTPS Paystack-hosted checkout may receive a payment redirect. */
+export function validatedPaystackCheckoutUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    return url.origin === "https://checkout.paystack.com" && !url.username && !url.password
+      ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export function validateFashionImages(urls: string[], maximum: number): string[] {
   if (urls.length > maximum) throw new Error("Too many images");
   return urls.map(url => {

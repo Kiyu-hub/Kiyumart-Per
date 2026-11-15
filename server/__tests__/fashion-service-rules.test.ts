@@ -7,6 +7,7 @@ import {
   nextFashionPaymentPesewas,
   validServiceType,
   validateFashionImages,
+  validatedPaystackCheckoutUrl,
 } from "../../shared/fashionServiceRules";
 
 assert.equal(validServiceType("tailoring"), true);
@@ -48,5 +49,15 @@ assert.equal(canTransitionFashionRequest("accepted", "cancelled", "buyer", 5000,
 assert.deepEqual(validateFashionImages(["https://example.com/design.png"], 1), ["https://example.com/design.png"]);
 assert.throws(() => validateFashionImages(["http://example.com/unsafe.png"], 1));
 assert.throws(() => validateFashionImages(["https://example.com/a.png", "https://example.com/b.png"], 1));
+
+// Paystack's API initializes at api.paystack.co but sends buyers to checkout.paystack.com.
+assert.equal(validatedPaystackCheckoutUrl("https://checkout.paystack.com/abc123"), "https://checkout.paystack.com/abc123");
+assert.equal(validatedPaystackCheckoutUrl("http://checkout.paystack.com/abc123"), null);
+assert.equal(validatedPaystackCheckoutUrl("https://checkout.paystack.co/abc123"), null);
+assert.equal(validatedPaystackCheckoutUrl("https://checkout.paystack.com.evil.example/abc123"), null);
+assert.equal(validatedPaystackCheckoutUrl("https://evil.example/"), null);
+assert.equal(validatedPaystackCheckoutUrl("https://user@checkout.paystack.com/abc123"), null);
+assert.equal(validatedPaystackCheckoutUrl("https://checkout.paystack.com:8443/abc123"), null);
+assert.equal(validatedPaystackCheckoutUrl("not a URL"), null);
 
 console.log("fashion-service-rules.test passed");

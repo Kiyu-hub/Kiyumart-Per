@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, CheckCircle2, CreditCard, MessageCircle, Send, Scissors } from "lucide-react";
 import { formatPesewas, requestStatusLabel, type FashionServiceRequest, type FashionServiceMessage } from "@/lib/fashionServices";
+import { validatedPaystackCheckoutUrl } from "@shared/fashionServiceRules";
 
 type Detail = { request: FashionServiceRequest; messages: FashionServiceMessage[] };
 const post = <T,>(url:string,payload:unknown={},method="POST")=>fetchApiJson<T>(url,{method,
@@ -68,9 +69,9 @@ export default function FashionServiceRequestDetail() {
     mutationFn:()=>post<{authorizationUrl:string}>("/api/fashion-service-requests/"+id+"/payments/initialize"),
     onSuccess:d=>{
       try {
-        const target=new URL(d.authorizationUrl);
-        if(target.protocol!=="https:"||!target.hostname.endsWith(".paystack.co")) throw new Error("Unexpected payment destination");
-        window.location.assign(target.href);
+        const target=validatedPaystackCheckoutUrl(d.authorizationUrl);
+        if(!target) throw new Error("Unexpected payment destination");
+        window.location.assign(target);
       }catch{toast({title:"Unable to open payment provider",variant:"destructive"});}
     },
     onError:(e:Error)=>toast({title:"Payment unavailable",description:e.message,variant:"destructive"}),
