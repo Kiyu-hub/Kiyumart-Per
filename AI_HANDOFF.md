@@ -47,6 +47,11 @@
 5. Keep Fashion Services deployment, category-only UI fix, and any destructive reset as **separate changes**, each requiring explicit production release approval. Preserve seven existing banner records/links if still current.
 6. Document results, unresolved issues and exact tested commit in GitHub PRs. Update this file when verified facts change.
 
+## Cloud-first development
+
+- [GitHub Codespaces setup](docs/CLOUD_DEVELOPMENT.md) lets future AI/developers work from a remote branch without relying on the Windows machine. This is **configuration only**; no Codespace or staging database is provisioned by this commit.
+- The next release milestone is documented in [GitHub issue #13](https://github.com/Smart3990/Kiyumart-Per/issues/13).
+
 ## “Everything on GitHub” and safe storage boundaries
 
 - This check accessed GitHub's **remote** repository only. It **cannot inspect the owner's Windows filesystem**, so it cannot certify there are no local-only modified/untracked files or delete anything locally. To verify from any existing clone, check `git status --short`, `git branch -vv`, and `git log --branches --not --remotes`; review all pending changes **and secrets** before pushing selected branches/commits. Do not blindly use `git push --all`.

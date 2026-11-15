@@ -1,0 +1,15 @@
+{
+  "name": "KiyuMart — cloud development (isolated)",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "postCreateCommand": "npm ci",
+  "forwardPorts": [5000, 5173],
+  "portsAttributes": {
+    "5000": { "label": "KiyuMart API", "onAutoForward": "notify" },
+    "5173": { "label": "KiyuMart Vite preview", "onAutoForward": "notify" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  }
+}
