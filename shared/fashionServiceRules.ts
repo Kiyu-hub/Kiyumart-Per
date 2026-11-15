@@ -14,6 +14,18 @@ export function validServiceType(value: string): boolean {
   return FASHION_SERVICE_TYPES.some((service) => service.key === value);
 }
 
+/** Select the correct participant-scoped list; a seller can also be a customer. */
+export type FashionRequestListScope = "all" | "seller" | "buyer";
+export function fashionRequestListScope(role: string, view?: "buyer"): FashionRequestListScope {
+  if (view === "buyer") return "buyer";
+  return role === "super_admin" ? "all" : role === "seller" ? "seller" : "buyer";
+}
+
+/** Only unpaid, pending requests and existing quotes can be quoted again. */
+export function canQuoteFashionRequest(status: FashionRequestStatus, paidPesewas: number): boolean {
+  return (status === "pending" || status === "quoted") && paidPesewas === 0;
+}
+
 export function canTransitionFashionRequest(
   from: FashionRequestStatus,
   to: FashionRequestStatus,

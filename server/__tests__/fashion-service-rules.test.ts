@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
   canTransitionFashionRequest,
+  canQuoteFashionRequest,
+  fashionRequestListScope,
   depositDuePesewas,
   nextFashionPaymentPesewas,
   validServiceType,
@@ -10,6 +12,20 @@ import {
 assert.equal(validServiceType("tailoring"), true);
 assert.equal(validServiceType("custom_design"), true);
 assert.equal(validServiceType("unapproved-service"), false);
+
+// A seller's own purchases must not be buried in their incoming service requests.
+assert.equal(fashionRequestListScope("seller"), "seller");
+assert.equal(fashionRequestListScope("seller", "buyer"), "buyer");
+assert.equal(fashionRequestListScope("buyer"), "buyer");
+assert.equal(fashionRequestListScope("super_admin"), "all");
+assert.equal(fashionRequestListScope("super_admin", "buyer"), "buyer");
+
+// A quotation must not overwrite a booking once accepted or paid.
+assert.equal(canQuoteFashionRequest("pending", 0), true);
+assert.equal(canQuoteFashionRequest("quoted", 0), true);
+assert.equal(canQuoteFashionRequest("accepted", 0), false);
+assert.equal(canQuoteFashionRequest("quoted", 500), false);
+assert.equal(canQuoteFashionRequest("cancelled", 0), false);
 
 assert.equal(depositDuePesewas(10001, 50), 5001);
 assert.equal(depositDuePesewas(10000, 100), 10000);

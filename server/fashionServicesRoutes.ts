@@ -1,6 +1,6 @@
 import { Router, type RequestHandler, type Response } from "express";
 import rateLimit from "express-rate-limit";
-import { and, asc, desc, eq, sql, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql, lte } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { db } from "../db";
@@ -14,7 +14,7 @@ import {
   fashionServiceReviews as reviews,
 } from "@shared/fashionServicesSchema";
 import {
-  canTransitionFashionRequest, depositDuePesewas,
+  canTransitionFashionRequest, canQuoteFashionRequest, fashionRequestListScope, depositDuePesewas,
   nextFashionPaymentPesewas, validServiceType, validateFashionImages,
   type FashionRequestStatus,
 } from "@shared/fashionServiceRules";
@@ -266,10 +266,13 @@ fashionServicesRouter.post("/api/stores/:storeId/fashion-service-requests", requ
 }));
 fashionServicesRouter.get("/api/fashion-service-requests", requireAuth,handler(async(req,res)=>{
   const uid=req.user!.id;
-  const role=req.user!.role;
-  const data=role==="super_admin"
+  // A seller can also order from another store. Keep provider and buyer views separate
+  // so a busy seller's incoming requests do not hide their personal orders.
+  const view=z.enum(["buyer"]).optional().parse(req.query.view);
+  const scope=fashionRequestListScope(req.user!.role,view);
+  const data=scope==="all"
     ?await db.select().from(requests).orderBy(desc(requests.createdAt)).limit(200)
-    :role==="seller"
+    :scope==="seller"
       ?await db.select().from(requests).where(eq(requests.sellerId,uid)).orderBy(desc(requests.createdAt)).limit(100)
       :await db.select().from(requests).where(eq(requests.buyerId,uid)).orderBy(desc(requests.createdAt)).limit(100);
   res.json(data);
@@ -295,10 +298,12 @@ fashionServicesRouter.post("/api/fashion-service-requests/:id/quote",requireAuth
   if(request.sellerId!==req.user!.id) fail(403,"Not your customer request");
   const store=await sellerStore(req.user!.id);
   await requireApprovedService(store.id);
-  if(!["pending","quoted"].includes(request.status) || request.paidPesewas!==0) fail(409,"This request cannot be quoted");
+  if(!canQuoteFashionRequest(request.status as FashionRequestStatus,request.paidPesewas)) fail(409,"This request cannot be quoted");
   const [saved]=await db.update(requests).set({status:"quoted",quotePesewas:input.quotePesewas,depositPercent:input.depositPercent,
     quoteExpiresAt:new Date(Date.now()+input.expiresInDays*86400000),updatedAt:new Date()})
-    .where(and(eq(requests.id,request.id),eq(requests.sellerId,req.user!.id))).returning();
+    .where(and(eq(requests.id,request.id),eq(requests.sellerId,req.user!.id),
+      inArray(requests.status,["pending","quoted"]),eq(requests.paidPesewas,0))).returning();
+  if(!saved) fail(409,"Request changed while sending the quotation; please refresh");
   await notify(request.buyerId,"Fashion service quote", "The seller sent a quotation for your request.",request.id);
   res.json(saved);
 }));
@@ -307,8 +312,12 @@ fashionServicesRouter.post("/api/fashion-service-requests/:id/accept",requireAut
   if(reqData.buyerId!==req.user!.id) fail(403,"Only the customer can accept");
   if(reqData.status!=="quoted"||!reqData.quotePesewas||!reqData.depositPercent||
     !reqData.quoteExpiresAt||reqData.quoteExpiresAt.getTime()<Date.now()) fail(409,"The quote has expired or is not ready");
+  // Compare the specific quotation accepted by the buyer. A concurrently edited
+  // quote or expiry must never be silently accepted at a different price.
   const [saved]=await db.update(requests).set({status:"accepted",updatedAt:new Date()})
-    .where(and(eq(requests.id,reqData.id),eq(requests.status,"quoted"))).returning();
+    .where(and(eq(requests.id,reqData.id),eq(requests.buyerId,req.user!.id),eq(requests.status,"quoted"),
+      eq(requests.quotePesewas,reqData.quotePesewas),eq(requests.depositPercent,reqData.depositPercent),
+      eq(requests.quoteExpiresAt,reqData.quoteExpiresAt),gte(requests.quoteExpiresAt,new Date()))).returning();
   if(!saved) fail(409,"Request status changed");
   await notify(saved.sellerId,"Quote accepted","The customer accepted the quotation.",saved.id);
   res.json(saved);

@@ -14,7 +14,8 @@ export default function FashionServiceMyRequests() {
   const { user,isAuthenticated }=useAuth();
   const [,navigate]=useLocation();
   const {data=[],isLoading,isError}=useQuery<FashionServiceRequest[]>({
-    queryKey:["/api/fashion-service-requests"],
+    queryKey:["/api/fashion-service-requests?view=buyer"],
+    queryFn:()=>fetchApiJson<FashionServiceRequest[]>("/api/fashion-service-requests?view=buyer"),
     enabled:isAuthenticated,
   });
   const mine=data.filter(req=>req.buyerId===user?.id);
