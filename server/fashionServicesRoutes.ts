@@ -310,14 +310,18 @@ fashionServicesRouter.post("/api/fashion-service-requests/:id/quote",requireAuth
 fashionServicesRouter.post("/api/fashion-service-requests/:id/accept",requireAuth,handler(async(req,res)=>{
   const reqData=await getRequest(req.params.id,req.user!.id);
   if(reqData.buyerId!==req.user!.id) fail(403,"Only the customer can accept");
-  if(reqData.status!=="quoted"||!reqData.quotePesewas||!reqData.depositPercent||
-    !reqData.quoteExpiresAt||reqData.quoteExpiresAt.getTime()<Date.now()) fail(409,"The quote has expired or is not ready");
+  // Capture a stable snapshot of the quotation before the conditional write.
+  const acceptedPrice=reqData.quotePesewas;
+  const acceptedDeposit=reqData.depositPercent;
+  const acceptedExpiry=reqData.quoteExpiresAt;
+  if(reqData.status!=="quoted"||!acceptedPrice||!acceptedDeposit||
+    !acceptedExpiry||acceptedExpiry.getTime()<Date.now()) fail(409,"The quote has expired or is not ready");
   // Compare the specific quotation accepted by the buyer. A concurrently edited
   // quote or expiry must never be silently accepted at a different price.
   const [saved]=await db.update(requests).set({status:"accepted",updatedAt:new Date()})
     .where(and(eq(requests.id,reqData.id),eq(requests.buyerId,req.user!.id),eq(requests.status,"quoted"),
-      eq(requests.quotePesewas,reqData.quotePesewas),eq(requests.depositPercent,reqData.depositPercent),
-      eq(requests.quoteExpiresAt,reqData.quoteExpiresAt),gte(requests.quoteExpiresAt,new Date()))).returning();
+      eq(requests.quotePesewas,acceptedPrice),eq(requests.depositPercent,acceptedDeposit),
+      eq(requests.quoteExpiresAt,acceptedExpiry),gte(requests.quoteExpiresAt,new Date()))).returning();
   if(!saved) fail(409,"Request status changed");
   await notify(saved.sellerId,"Quote accepted","The customer accepted the quotation.",saved.id);
   res.json(saved);
