@@ -1,0 +1,687 @@
+{
+  "scope": "public catalog and hero banner configuration only; not a complete database backup",
+  "categories": [
+    {
+      "id": "97a1e169-bb17-4ca3-9758-b56bc6bf3768",
+      "name": "Men's Clothing",
+      "slug": "mens-clothing",
+      "image": "/attached_assets/stock_images/Men's_fashion_category_image_d439510a.png",
+      "order": 0,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "7ca71238-39f8-4476-b9a2-019ce8f7690a",
+      "name": "Women's Clothing",
+      "slug": "womens-clothing",
+      "image": "/attached_assets/stock_images/Fashion_hero_banner_lifestyle_000ccc89.png",
+      "order": 1,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "fc0a6d49-d40a-4920-853c-e78ed4f81841",
+      "name": "Abayas",
+      "slug": "abayas",
+      "image": "/attached_assets/stock_images/Burgundy_velvet_abaya_with_pearls_c19f2d40.png",
+      "order": 2,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "6b94cc90-eb3e-4958-9cfb-6b7289fee123",
+      "name": "Hijabs & Scarves",
+      "slug": "hijabs",
+      "image": "/attached_assets/stock_images/Hijabs_and_accessories_category_09f9b1a2.png",
+      "order": 3,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": "Hijabs & Scarves ores.",
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "6e732488-c98b-49bd-860a-2acaf24a89ef",
+      "name": "Kids' Clothing",
+      "slug": "kids-clothing",
+      "image": "/attached_assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png",
+      "order": 4,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "fad1a4d9-fc2f-45ae-84f2-13a7272c48a7",
+      "name": "Modest Fashion",
+      "slug": "modest-fashion",
+      "image": "/attached_assets/stock_images/Islamic_fashion_hero_banner_6bb20763.png",
+      "order": 5,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "11e90ccc-6219-43ad-aefc-d54a3c6960d8",
+      "name": "Kaftans & Traditional Wear",
+      "slug": "kaftans-traditional",
+      "image": "/attached_assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png",
+      "order": 6,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "d5e47837-ed01-4251-aa7e-e78625ccb31a",
+      "name": "Evening & Occasion Wear",
+      "slug": "evening-wear",
+      "image": "/attached_assets/stock_images/Evening_wear_category_image_455c3389.png",
+      "order": 7,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "81633233-019d-400d-b859-460d632eb22e",
+      "name": "Dresses & Gowns",
+      "slug": "dresses",
+      "image": "/attached_assets/stock_images/Evening_wear_category_image_455c3389.png",
+      "order": 8,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "1d896da3-ec1e-4d8a-9367-8b3751178e25",
+      "name": "Tops, Shirts & Blouses",
+      "slug": "tops-shirts",
+      "image": "/attached_assets/stock_images/Men's_fashion_category_image_d439510a.png",
+      "order": 9,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "2151ae45-dadc-4351-a4e8-e4134b8d731c",
+      "name": "Trousers, Skirts & Bottoms",
+      "slug": "pants-bottoms",
+      "image": "/attached_assets/stock_images/Fashion_hero_banner_lifestyle_000ccc89.png",
+      "order": 10,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "42660e32-c12e-4e16-9b37-d49f5aca2818",
+      "name": "Shoes & Footwear",
+      "slug": "footwear",
+      "image": "/attached_assets/stock_images/Footwear_category_image_9d3587fc.png",
+      "order": 11,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "6c785abd-438e-4d15-ba5a-df0970776889",
+      "name": "Bags & Handbags",
+      "slug": "bags",
+      "image": "/attached_assets/stock_images/Women's_accessories_category_image_091f4ac1.png",
+      "order": 12,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "54abae7c-a737-43d1-8ec2-84dfb26cdbcf",
+      "name": "Fashion Accessories",
+      "slug": "accessories",
+      "image": "/attached_assets/stock_images/Women's_accessories_category_image_091f4ac1.png",
+      "order": 13,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "a22cd1f6-5769-4e23-b278-9724d449d796",
+      "name": "Jewelry & Watches",
+      "slug": "jewelry-watches",
+      "image": "/attached_assets/stock_images/Men's_watch_product_photo_7b78c9da.png",
+      "order": 14,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "33885525-2029-4f28-8b70-5ad8f1486449",
+      "name": "Belts, Caps & Headwear",
+      "slug": "belts-hats",
+      "image": "/attached_assets/stock_images/Men's_fashion_category_image_d439510a.png",
+      "order": 15,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "d1bc1de5-b864-424a-a131-f3c670513f9d",
+      "name": "Fabrics & Tailoring",
+      "slug": "fabrics-tailoring",
+      "image": "/attached_assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png",
+      "order": 16,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "f43b57a8-097d-4f7c-a3cd-b822d5c73a56",
+      "name": "Activewear & Sportswear",
+      "slug": "sportswear",
+      "image": "/attached_assets/stock_images/Men's_sneakers_product_photo_2c87b833.png",
+      "order": 17,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "1a20d1d7-63db-44d6-a034-173fd99a47b0",
+      "name": "Sleepwear & Loungewear",
+      "slug": "sleepwear",
+      "image": "/attached_assets/stock_images/Fashion_hero_banner_lifestyle_000ccc89.png",
+      "order": 18,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    },
+    {
+      "id": "8d5cdf32-e44c-46f9-b1a3-6305ffac9c74",
+      "name": "Wedding & Special Events",
+      "slug": "wedding-occasion",
+      "image": "/attached_assets/stock_images/Evening_wear_category_image_455c3389.png",
+      "order": 19,
+      "active": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": null,
+      "departmentId": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd"
+    }
+  ],
+  "heroBanners": [
+    {
+      "id": "038c5943-1c48-491d-8400-87aaba288b9c",
+      "image": "/attached_assets/stock_images/Diverse_Islamic_fashion_banner_eb13714d.png",
+      "order": 1,
+      "title": "Elegant Abaya Collection",
+      "active": true,
+      "ctaLink": "/products?category=abayas",
+      "ctaText": "Shop Now",
+      "subtitle": "Discover modest elegance with our exclusive abaya designs",
+      "placement": "home",
+      "storeMode": "both",
+      "themeColor": null
+    },
+    {
+      "id": "5ea9a60f-3264-4ec0-9beb-fdac6afeef29",
+      "image": "/attached_assets/stock_images/Islamic_fashion_hero_banner_6bb20763.png",
+      "order": 2,
+      "title": "Premium Hijab Styles",
+      "active": true,
+      "ctaLink": "/products?category=hijabs",
+      "ctaText": "Explore Collection",
+      "subtitle": "Luxurious fabrics, timeless designs for every occasion",
+      "placement": "home",
+      "storeMode": "both",
+      "themeColor": null
+    },
+    {
+      "id": "7b5dca51-ca32-4b22-a162-2b996809ebb7",
+      "image": "/attached_assets/stock_images/Fashion_hero_banner_lifestyle_000ccc89.png",
+      "order": 3,
+      "title": "Modest Fashion Essentials",
+      "active": true,
+      "ctaLink": "/products",
+      "ctaText": "View Deals",
+      "subtitle": "Complete your wardrobe with our curated modest wear",
+      "placement": "home",
+      "storeMode": "both",
+      "themeColor": null
+    },
+    {
+      "id": "1e0e404e-6029-4acb-9779-ba628fd4769d",
+      "image": "/attached_assets/stock_images/Hijabs_and_accessories_category_09f9b1a2.png",
+      "order": 4,
+      "title": "Premium Hijabs & Accessories",
+      "active": true,
+      "ctaLink": "/products?category=hijabs",
+      "ctaText": "Shop Hijabs",
+      "subtitle": "Beautiful hijabs and accessories for every style",
+      "placement": "home",
+      "storeMode": "both",
+      "themeColor": null
+    },
+    {
+      "id": "029bb0d8-d54b-4190-bb45-612ecf63db50",
+      "image": "/attached_assets/stock_images/Evening_wear_category_image_455c3389.png",
+      "order": 5,
+      "title": "Evening Wear Collection",
+      "active": true,
+      "ctaLink": "/products?category=evening-wear",
+      "ctaText": "Shop Evening Wear",
+      "subtitle": "Stunning modest evening dresses for special occasions",
+      "placement": "home",
+      "storeMode": "both",
+      "themeColor": null
+    },
+    {
+      "id": "e6e13dda-421c-44b3-9815-770c73985325",
+      "image": "/attached_assets/stock_images/Burgundy_velvet_abaya_with_pearls_c19f2d40.png",
+      "order": 6,
+      "title": "Burgundy Velvet Abayas",
+      "active": true,
+      "ctaLink": "/products?category=abayas",
+      "ctaText": "View Collection",
+      "subtitle": "Luxurious velvet abayas with elegant pearl details",
+      "placement": "home",
+      "storeMode": "both",
+      "themeColor": null
+    },
+    {
+      "id": "3329548d-3296-407f-9a2e-2929de07a2b0",
+      "image": "/attached_assets/stock_images/Women's_accessories_category_image_091f4ac1.png",
+      "order": 7,
+      "title": "Women's Accessories",
+      "active": true,
+      "ctaLink": "/products?category=accessories",
+      "ctaText": "Shop Accessories",
+      "subtitle": "Complete your look with our curated accessories",
+      "placement": "home",
+      "storeMode": "both",
+      "themeColor": null
+    }
+  ],
+  "capturedAtUtc": "2026-11-20T00:42:55.483917+00:00",
+  "sourceProject": "vpxjggnzttxgpzbogbzg",
+  "catalogDepartments": [
+    {
+      "id": "fa9c46ce-b5b5-4988-9c83-4d224f0381dd",
+      "icon": "👗",
+      "name": "Fashion & Style",
+      "slug": "clothing",
+      "order": 0,
+      "enabled": true,
+      "storeTypes": [
+        "clothing"
+      ],
+      "description": "Clothing, shoes, hijabs, bags and accessories",
+      "launchReady": true
+    },
+    {
+      "id": "b4dcf753-849b-4303-b072-707249ec616c",
+      "icon": "💻",
+      "name": "Electronics & Computers",
+      "slug": "electronics",
+      "order": 1,
+      "enabled": false,
+      "storeTypes": [
+        "electronics"
+      ],
+      "description": "Computers, gadgets, and smart devices",
+      "launchReady": false
+    },
+    {
+      "id": "ef660f42-cdcc-4f33-93dd-0c43dcea89b4",
+      "icon": "📱",
+      "name": "Phones & Mobile",
+      "slug": "phones",
+      "order": 2,
+      "enabled": false,
+      "storeTypes": [
+        "electronics"
+      ],
+      "description": "Phones and mobile accessories",
+      "launchReady": false
+    },
+    {
+      "id": "301bd012-fa4d-4926-bcc9-a0b767cbb0f2",
+      "icon": "🛋️",
+      "name": "Home & Furniture",
+      "slug": "home-furniture",
+      "order": 3,
+      "enabled": false,
+      "storeTypes": [
+        "home_garden"
+      ],
+      "description": "Furniture and home essentials",
+      "launchReady": false
+    },
+    {
+      "id": "a2851004-5fca-4b15-a3ca-e85af9afbc81",
+      "icon": "🧺",
+      "name": "Home Appliances",
+      "slug": "appliances",
+      "order": 4,
+      "enabled": false,
+      "storeTypes": [
+        "home_garden"
+      ],
+      "description": "Kitchen and home appliances",
+      "launchReady": false
+    },
+    {
+      "id": "ed4cba9c-c86e-4202-a3ea-84059299b419",
+      "icon": "🧴",
+      "name": "Beauty & Personal Care",
+      "slug": "beauty",
+      "order": 5,
+      "enabled": false,
+      "storeTypes": [
+        "beauty_cosmetics"
+      ],
+      "description": "Skincare, haircare, makeup and fragrance",
+      "launchReady": false
+    },
+    {
+      "id": "5ce3b4fb-cee9-4e57-b133-fbd187c8494d",
+      "icon": "💚",
+      "name": "Health & Wellness",
+      "slug": "health",
+      "order": 6,
+      "enabled": false,
+      "storeTypes": [
+        "health_wellness"
+      ],
+      "description": "Health and wellbeing products",
+      "launchReady": false
+    },
+    {
+      "id": "06cf1d83-21b0-45cb-82ac-9462886612f9",
+      "icon": "🛒",
+      "name": "Groceries & Food",
+      "slug": "groceries",
+      "order": 7,
+      "enabled": false,
+      "storeTypes": [
+        "food_beverages"
+      ],
+      "description": "Groceries and packaged food",
+      "launchReady": false
+    },
+    {
+      "id": "0e87211c-eb2c-47d2-8904-ccca5c1c2314",
+      "icon": "🍽️",
+      "name": "Restaurants & Prepared Meals",
+      "slug": "restaurants",
+      "order": 8,
+      "enabled": false,
+      "storeTypes": [
+        "restaurant"
+      ],
+      "description": "Meals and takeaway services",
+      "launchReady": false
+    },
+    {
+      "id": "2e784177-ef36-436d-9e3d-124972995bb0",
+      "icon": "🏃",
+      "name": "Sports & Fitness",
+      "slug": "sports",
+      "order": 9,
+      "enabled": false,
+      "storeTypes": [
+        "sports_fitness"
+      ],
+      "description": "Sport and fitness products",
+      "launchReady": false
+    },
+    {
+      "id": "470dde26-6494-46fa-b29a-6f43df9ff319",
+      "icon": "🚗",
+      "name": "Automotive & Parts",
+      "slug": "automotive",
+      "order": 10,
+      "enabled": false,
+      "storeTypes": [
+        "automotive"
+      ],
+      "description": "Vehicles and parts",
+      "launchReady": false
+    },
+    {
+      "id": "e5d46c28-298b-4ead-ac28-8af4ff7c435f",
+      "icon": "📚",
+      "name": "Books & Stationery",
+      "slug": "books",
+      "order": 11,
+      "enabled": false,
+      "storeTypes": [
+        "books_media"
+      ],
+      "description": "Books, media and learning supplies",
+      "launchReady": false
+    },
+    {
+      "id": "996a2374-2a62-478c-b9b9-8cf4e5b31d00",
+      "icon": "🧸",
+      "name": "Toys & Games",
+      "slug": "toys",
+      "order": 12,
+      "enabled": false,
+      "storeTypes": [
+        "toys_games"
+      ],
+      "description": "Toys and games",
+      "launchReady": false
+    },
+    {
+      "id": "4d3e7f94-9a9c-403f-874a-7f426cb8db09",
+      "icon": "👶",
+      "name": "Baby & Maternity",
+      "slug": "baby",
+      "order": 13,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Baby care and nursery",
+      "launchReady": false
+    },
+    {
+      "id": "9bb392d6-4862-4631-a9ff-c3bdb9ed3695",
+      "icon": "🐾",
+      "name": "Pet Supplies",
+      "slug": "pets",
+      "order": 14,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Pet care and food",
+      "launchReady": false
+    },
+    {
+      "id": "e4a6aada-0e4b-4427-95ac-f9985a2b7ab8",
+      "icon": "🌿",
+      "name": "Garden & Outdoor",
+      "slug": "garden",
+      "order": 15,
+      "enabled": false,
+      "storeTypes": [
+        "home_garden"
+      ],
+      "description": "Gardens and outdoor activities",
+      "launchReady": false
+    },
+    {
+      "id": "0cd18c13-f620-4d46-8bb0-29de39103812",
+      "icon": "🔧",
+      "name": "Hardware & Tools",
+      "slug": "hardware",
+      "order": 16,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Tools and hardware supplies",
+      "launchReady": false
+    },
+    {
+      "id": "8180cd24-ea68-434b-ab77-7576335d45c5",
+      "icon": "🏭",
+      "name": "Industrial & Business",
+      "slug": "industrial",
+      "order": 17,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Business and industrial products",
+      "launchReady": false
+    },
+    {
+      "id": "8ddfa906-6485-4758-8757-cb2066c12f23",
+      "icon": "✏️",
+      "name": "Office & School Supplies",
+      "slug": "office",
+      "order": 18,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Office and school products",
+      "launchReady": false
+    },
+    {
+      "id": "220251b6-8f88-4bf7-8773-1410dedeea39",
+      "icon": "🎨",
+      "name": "Arts & Crafts",
+      "slug": "arts",
+      "order": 19,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Artworks and crafts",
+      "launchReady": false
+    },
+    {
+      "id": "eb77ab37-a87e-4373-80b1-fb5d7dd0d622",
+      "icon": "🎵",
+      "name": "Music & Entertainment",
+      "slug": "music",
+      "order": 20,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Music equipment and entertainment",
+      "launchReady": false
+    },
+    {
+      "id": "2cdb8285-aa55-4792-b256-f70e5f118645",
+      "icon": "🧳",
+      "name": "Travel & Luggage",
+      "slug": "travel",
+      "order": 21,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Travel gear",
+      "launchReady": false
+    },
+    {
+      "id": "c49dcf4b-b964-426d-aad2-db63ef1a8948",
+      "icon": "🎁",
+      "name": "Gifts & Celebrations",
+      "slug": "gifts",
+      "order": 22,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Gifts and events",
+      "launchReady": false
+    },
+    {
+      "id": "927b447f-7201-4c7c-b719-cc4c8e897823",
+      "icon": "🕌",
+      "name": "Religious & Cultural Goods",
+      "slug": "religious",
+      "order": 23,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Religious and cultural goods",
+      "launchReady": false
+    },
+    {
+      "id": "87edb7a6-0d80-4121-a82a-405d1688e843",
+      "icon": "🌾",
+      "name": "Agriculture & Farming",
+      "slug": "agriculture",
+      "order": 24,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Farming inputs",
+      "launchReady": false
+    },
+    {
+      "id": "1dcb06ec-2e35-44b3-89ba-2699596e06e7",
+      "icon": "💾",
+      "name": "Digital Products & Software",
+      "slug": "digital",
+      "order": 25,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Software and digital goods",
+      "launchReady": false
+    },
+    {
+      "id": "1024afe9-ffaa-4017-a936-0957a7a2e306",
+      "icon": "📅",
+      "name": "Services & Bookings",
+      "slug": "services",
+      "order": 26,
+      "enabled": false,
+      "storeTypes": [],
+      "description": "Bookable professional services",
+      "launchReady": false
+    }
+  ]
+}
