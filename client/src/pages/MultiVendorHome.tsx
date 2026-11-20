@@ -21,7 +21,7 @@ import LocationPrompt from "@/components/LocationPrompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getProductCategoryLabel } from "@/lib/categoryUtils";
+import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 import {
   excludeFoodVendorProducts,
   getFoodStoreIdSet,
@@ -167,6 +167,11 @@ export default function MultiVendorHome() {
       addToWishlistMutation.mutate(productId);
     }
   };
+
+  // Product counts still feed the existing desktop category cards; zero-count
+  // categories remain visible under fashion-first discovery.
+  const getCategoryProductCount = (category: Category) =>
+    allProducts.filter((product) => productMatchesCategory(product, category)).length;
 
   // Fashion-first discovery changes category visibility only. Keep the
   // existing homepage design, products, storefronts, banners and navigation.
