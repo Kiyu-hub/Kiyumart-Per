@@ -168,17 +168,19 @@ export default function MultiVendorHome() {
     }
   };
 
+  // Product counts still feed the existing desktop category cards; zero-count
+  // categories remain visible under fashion-first discovery.
   const getCategoryProductCount = (category: Category) =>
     allProducts.filter((product) => productMatchesCategory(product, category)).length;
-  // Hide food-scoped categories from the generic "Shop by Category" surface —
-  // they live on the dedicated Restaurants & Local Vendors page.
-  const isFoodScoped = (c: Category) =>
-    Array.isArray(c.storeTypes) &&
-    c.storeTypes.some((t) => t === "food_beverages" || t === "restaurant");
+
+  // Fashion-first discovery changes category visibility only. Keep the
+  // existing homepage design, products, storefronts, banners and navigation.
+  // Show active clothing categories even when they contain zero products.
   const categoriesWithProducts = categories.filter(
     (category) =>
-      !isFoodScoped(category) &&
-      (getCategoryProductCount(category) > 0 || Boolean(category.requestedBySeller)),
+      category.isActive !== false &&
+      Array.isArray(category.storeTypes) &&
+      category.storeTypes.includes("clothing"),
   );
   
   const isAdmin = user?.role === "admin";

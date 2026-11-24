@@ -1,0 +1,31 @@
+name: Fashion category release smoke
+on:
+  push:
+    branches:
+      - release/fashion-categories-only-20261112
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build frontend and backend
+        run: npm run build
+      - name: Verify minimal category-only changes
+        run: |
+          node - <<'NODE'
+          const fs=require('fs');
+          const assert=require('assert');
+          const single=fs.readFileSync('client/src/pages/HomeConnected.tsx','utf8');
+          const multi=fs.readFileSync('client/src/pages/MultiVendorHome.tsx','utf8');
+          assert(single.includes('.filter(category => category.isActive !== false)'));
+          assert(multi.includes('category.storeTypes.includes("clothing")'));
+          assert(multi.includes('category.isActive !== false'));
+          assert(multi.includes('shopDisplayMode === "by-category"'));
+          process.stdout.write('Category-only smoke assertions passed\\n');
+          NODE

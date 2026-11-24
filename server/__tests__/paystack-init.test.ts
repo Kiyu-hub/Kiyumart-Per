@@ -12,7 +12,7 @@ async function run() {
   const calls: string[] = [];
 
   // Mock platform settings
-  storageModule.storage.getPlatformSettings = async () => ({ isMultiVendor: false, primaryStoreId: 'store1', paystackSecretKey: 'sk_test', defaultCommissionRate: '10' } as any);
+  storageModule.storage.getPlatformSettings = async () => ({ isMultiVendor: false, primaryStoreId: 'store1', paystackSecretKey: 'sk_test_ci_placeholder', paystackPublicKey: 'pk_test_ci_placeholder', defaultCommissionRate: '10' } as any);
 
   // Mock store and order
   storageModule.storage.getStore = async (id: string) => ({ id: 'store1', primarySellerId: 'seller1', name: 'Primary Store', paystackSubaccountId: 'sub_123', isPayoutVerified: true, payoutType: 'bank_account', payoutDetails: {} } as any);
