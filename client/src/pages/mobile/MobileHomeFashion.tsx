@@ -16,6 +16,8 @@ import { useAuth } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
 import { fetchSameOriginJson } from "@/lib/queryClient";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { useToast } from "@/hooks/use-toast";
+import { getMobileNavVariant } from "@/lib/homeVariant";
 import UserAvatar from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { ShoppingCart, Sun, Moon, Store, Truck } from "lucide-react";
@@ -630,50 +632,91 @@ export function MobileHomeFashion({
     ? cartData.reduce((s: number, i: any) => s + (i.quantity || 1), 0)
     : 0;
 
-  // Location — identical behaviour to MobileHome.
+  // Location — saved on this device (localStorage 'kiyumart_user_location',
+  // the same key the food pages, sign-up and checkout prefill read), so it
+  // survives reloads and app restarts. Tap the label to update it.
+  const { toast } = useToast();
   const [locationLabel, setLocationLabel] = useState<string | null>(null);
   const [locLoading, setLocLoading]       = useState(false);
-  const geocodeRef = useRef(false);
+  const LOC_KEY = 'kiyumart_user_location';
 
-  async function reverseGeocode(lat: number, lon: number) {
+  const shortLabel = (v: unknown): string | null => {
+    const t = String(v ?? '').trim();
+    return t ? t.split(',')[0].trim() || null : null;
+  };
+
+  // Reverse-geocode via the existing server proxy (/api/public/geocode/reverse),
+  // which sends Nominatim a proper User-Agent and avoids browser CORS issues.
+  async function lookupCity(lat: number, lon: number): Promise<{ city: string | null; label: string | null }> {
     try {
-      const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
-      const data = await res.json();
-      const city = data?.address?.city || data?.address?.town || data?.address?.village || data?.address?.county || 'Near you';
-      setLocationLabel(city);
-      const prev = JSON.parse(localStorage.getItem('kiyumart_user_location') || '{}');
-      localStorage.setItem('kiyumart_user_location', JSON.stringify({ ...prev, city }));
+      const r = await fetch(`/api/public/geocode/reverse?lat=${lat}&lon=${lon}`);
+      if (!r.ok) return { city: null, label: null };
+      const d = await r.json();
+      const a = d?.raw?.address || {};
+      const city = a.city || a.town || a.village || a.suburb || a.county || null;
+      return { city, label: d?.display_name || null };
     } catch {
-      setLocationLabel('Near you');
+      return { city: null, label: null };
     }
   }
 
+  function saveLocation(next: Record<string, unknown>) {
+    try {
+      const prev = JSON.parse(localStorage.getItem(LOC_KEY) || '{}');
+      localStorage.setItem(LOC_KEY, JSON.stringify({ ...prev, ...next, timestamp: Date.now() }));
+    } catch { /* storage blocked: label still shows for this visit */ }
+  }
+
   function requestLocation() {
-    if (!navigator.geolocation) { setLocationLabel('Accra, Ghana'); return; }
+    if (locLoading) return;
+    if (!navigator.geolocation) {
+      toast({ title: 'Location unavailable', description: 'This device or browser does not share location.', variant: 'destructive' });
+      return;
+    }
     setLocLoading(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
-        localStorage.setItem('kiyumart_user_location', JSON.stringify({ latitude, longitude }));
-        await reverseGeocode(latitude, longitude);
+        const { city, label } = await lookupCity(latitude, longitude);
+        const shown = city || shortLabel(label) || 'Current location';
+        saveLocation({ latitude, longitude, city: shown, ...(label ? { label } : {}) });
+        setLocationLabel(shown);
         setLocLoading(false);
       },
-      () => { setLocationLabel('Accra, Ghana'); setLocLoading(false); },
-      { enableHighAccuracy: false, timeout: 6000 },
+      (err) => {
+        setLocLoading(false);
+        toast({
+          title: "Couldn't get your location",
+          description: err.code === err.PERMISSION_DENIED
+            ? 'Allow location access for KiyuMart in your browser settings, then tap "Add your location" again.'
+            : 'Please try again in a moment.',
+          variant: 'destructive',
+        });
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 5 * 60 * 1000 },
     );
   }
 
+  // Restore the saved location on load (also picks up one set on the food
+  // pages, at sign-up or at checkout). Older entries without a city name are
+  // looked up once and the result saved.
   useEffect(() => {
-    if (geocodeRef.current) return;
-    geocodeRef.current = true;
+    let cancelled = false;
     try {
-      const saved = localStorage.getItem('kiyumart_user_location');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed?.city) setLocationLabel(parsed.city);
-        else if (parsed?.latitude && parsed?.longitude) reverseGeocode(parsed.latitude, parsed.longitude);
+      const parsed = JSON.parse(localStorage.getItem(LOC_KEY) || 'null');
+      const lat = parsed?.latitude ?? parsed?.lat;
+      const lon = parsed?.longitude ?? parsed?.lon;
+      const known = shortLabel(parsed?.city) || shortLabel(parsed?.label);
+      if (known) setLocationLabel(known);
+      else if (typeof lat === 'number' && typeof lon === 'number') {
+        lookupCity(lat, lon).then(({ city, label }) => {
+          if (cancelled) return;
+          const shown = city || shortLabel(label);
+          if (shown) { setLocationLabel(shown); saveLocation({ city: shown }); }
+        });
       }
     } catch { /* ignore */ }
+    return () => { cancelled = true; };
   }, []);
 
   const firstName   = user?.name?.split(' ')[0] ?? null;
@@ -694,6 +737,11 @@ export function MobileHomeFashion({
     </div>
   );
 
+  const showHeaderSellerCta = getMobileNavVariant() !== 'new'
+    && (!user || (user.role !== 'seller' && user.role !== 'super_admin' && user.role !== 'admin'));
+  const showHeaderRiderCta = !isExternalRiderSystemEnabled
+    && (!user || (user.role !== 'rider' && user.role !== 'seller' && user.role !== 'super_admin' && user.role !== 'admin'));
+
   const isWishlisted = (id: string) => safeWishlist.some((w) => w.productId === id);
   const openProduct  = (id: string) => navigate(`/product/${id}`);
 
@@ -704,34 +752,28 @@ export function MobileHomeFashion({
     >
       <style>{SCOPED_CSS}</style>
 
-      <div style={{ height: 12 }} />
+      {/* Top safe space: clears the phone's status bar / notch (installed app or edge-to-edge browser). */}
+      <div style={{ height: 'max(12px, env(safe-area-inset-top, 0px))' }} />
 
-      {/* Become Seller/Rider + theme toggle — unchanged behaviour */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 4px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          {(!user || (user.role !== 'seller' && user.role !== 'super_admin' && user.role !== 'admin')) && (
+      {/* "Become a Seller" now lives in the bottom bar's centre button. The header
+          keeps it only while the old bottom bar is in use, so the link is never lost.
+          "Become a Rider" stays (only when the internal rider system is on). */}
+      {(showHeaderSellerCta || showHeaderRiderCta) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '0 16px 4px' }}>
+          {showHeaderSellerCta && (
             <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1" onClick={() => navigate('/become-seller')}>
               <Store className="h-2.5 w-2.5" />
               Become a Seller
             </Button>
           )}
-          {!isExternalRiderSystemEnabled && (!user || (user.role !== 'rider' && user.role !== 'seller' && user.role !== 'super_admin' && user.role !== 'admin')) && (
+          {showHeaderRiderCta && (
             <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1" onClick={() => navigate('/become-rider')}>
               <Truck className="h-2.5 w-2.5" />
               Become a Rider
             </Button>
           )}
         </div>
-        <button
-          onClick={toggleTheme}
-          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          style={{ width: 36, height: 36, background: 'none', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
-        >
-          {isDark
-            ? <Sun size={19} color={vars['--mt']} strokeWidth={1.8} />
-            : <Moon size={19} color={vars['--mt']} strokeWidth={1.8} />}
-        </button>
-      </div>
+      )}
 
       {/* Greeting, notifications, cart — unchanged behaviour, compact spacing */}
       <div style={{ padding: '2px 16px 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -763,7 +805,16 @@ export function MobileHomeFashion({
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 0, flexShrink: 0 }}>
+          <button
+            onClick={toggleTheme}
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{ width: 44, height: 44, background: 'transparent', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+          >
+            {isDark
+              ? <Sun size={21} color={MT} strokeWidth={1.8} />
+              : <Moon size={21} color={MT} strokeWidth={1.8} />}
+          </button>
           <button
             onClick={() => navigate('/notifications')}
             aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
@@ -786,13 +837,13 @@ export function MobileHomeFashion({
       {/* Location */}
       <div style={{ padding: '2px 16px 12px', display: 'flex', alignItems: 'center', gap: 5, minHeight: 20 }}>
         <Ico name="location" size={13} color={TEAL} />
-        {locationLabel ? (
-          <span style={{ fontSize: 12, color: MM, fontWeight: 500 }}>{locationLabel}</span>
-        ) : (
-          <button onClick={requestLocation} style={{ fontSize: 12, lineHeight: 1.4, color: TEAL, fontWeight: 600, background: 'none', border: 'none', padding: '2px 0', minHeight: 0, minWidth: 0, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}>
-            {locLoading ? 'Getting location…' : '+ Add your location'}
-          </button>
-        )}
+        <button
+          onClick={requestLocation}
+          aria-label={locationLabel ? `Delivery location: ${locationLabel}. Tap to update` : 'Add your location'}
+          style={{ fontSize: 12, lineHeight: 1.4, color: locationLabel ? MM : TEAL, fontWeight: locationLabel ? 500 : 600, background: 'none', border: 'none', padding: '2px 0', minHeight: 0, minWidth: 0, cursor: 'pointer', WebkitTapHighlightColor: 'transparent', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+        >
+          {locLoading ? 'Getting location…' : locationLabel ? <>{locationLabel} <span style={{ color: TEAL, fontWeight: 600 }}>· Change</span></> : '+ Add your location'}
+        </button>
       </div>
 
       {/* Search — same destination, fashion-focused hint text */}
@@ -809,7 +860,6 @@ export function MobileHomeFashion({
           <span style={{ fontSize: 15, color: MM, flex: 1, textAlign: 'left', fontFamily: F, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             Search dresses, shoes, stores…
           </span>
-          <Ico name="tune" size={17} color={MM} />
         </button>
       </div>
 
