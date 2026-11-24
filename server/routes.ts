@@ -407,6 +407,29 @@ function buildRouteFallbackPlatformSettings() {
   };
 }
 
+// Fields that must never leave the server in plain text. GET /api/settings and
+// GET /api/platform-settings are readable without signing in, so every
+// response built from platform settings goes through redactPlatformSecrets().
+// The admin form receives the mask; PATCH /api/settings keeps the stored value
+// whenever it gets a mask back (see isMaskedSecretValue).
+const PLATFORM_SECRET_MASK = "••••••••••••••••";
+const PLATFORM_SECRET_FIELDS = [
+  "paystackSecretKey",
+  "cloudinaryApiSecret",
+  "smtpPass",
+  "sentryAuthToken",
+  "googleCredentialsJson",
+  "renderDeployHookUrl",
+] as const;
+
+function redactPlatformSecrets<T extends Record<string, any>>(settings: T): T {
+  const out: Record<string, any> = { ...settings };
+  for (const key of PLATFORM_SECRET_FIELDS) {
+    if (key in out) out[key] = out[key] ? PLATFORM_SECRET_MASK : "";
+  }
+  return out as T;
+}
+
 function isMaskedSecretValue(value?: string | null): boolean {
   const normalized = String(value || "").trim();
   if (!normalized) return false;
@@ -16519,7 +16542,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           String(process.env.VITE_MAPBOX_GL_VERSION || "").trim() || undefined,
         ),
       };
-      res.json(sanitizedSettings);
+      res.json(redactPlatformSecrets(sanitizedSettings));
     } catch (error: any) {
       sendApiError(res, error);
     }
@@ -16606,7 +16629,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           String(process.env.VITE_MAPBOX_GL_VERSION || "").trim() || undefined,
         ),
       };
-      res.json(sanitizedSettings);
+      res.json(redactPlatformSecrets(sanitizedSettings));
     } catch (error: any) {
       console.warn('[ROUTES] Falling back to default platform settings response:', error?.message || error);
       const settings: any = buildRouteFallbackPlatformSettings();
@@ -17382,7 +17405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updated = await storage.updatePlatformSettings(toUpdate);
       resetCloudinaryConfigCache();
       const sanitized = { ...updated, cloudinaryApiSecret: updated.cloudinaryApiSecret ? "••••••••••••••••" : "", paystackSecretKey: updated.paystackSecretKey ? "••••••••••••••••" : "" };
-      res.json(sanitized);
+      res.json(redactPlatformSecrets(sanitized));
     } catch (error: any) {
       sendApiError(res, error);
     }
@@ -17402,7 +17425,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const updated = await storage.updatePlatformSettings(toUpdate);
       const sanitized = { ...updated, paystackSecretKey: updated.paystackSecretKey ? "••••••••••••••••" : "", paystackPublicKey: updated.paystackPublicKey || "" };
-      res.json(sanitized);
+      res.json(redactPlatformSecrets(sanitized));
     } catch (error: any) {
       sendApiError(res, error);
     }
@@ -17423,7 +17446,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const updated = await storage.updatePlatformSettings(toUpdate);
       const sanitized = { ...updated, cloudinaryApiSecret: updated.cloudinaryApiSecret ? "••••••••••••••••" : "", cloudinaryApiKey: updated.cloudinaryApiKey || "", cloudinaryCloudName: updated.cloudinaryCloudName || "" };
-      res.json(sanitized);
+      res.json(redactPlatformSecrets(sanitized));
     } catch (error: any) {
       sendApiError(res, error);
     }
@@ -17523,6 +17546,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (!updateData.smtpPass || isMaskedSecretValue(updateData.smtpPass)) {
         updateData.smtpPass = previousSettings.smtpPass;
+      }
+      for (const key of ["sentryAuthToken", "googleCredentialsJson", "renderDeployHookUrl"] as const) {
+        if (key in updateData && isMaskedSecretValue((updateData as any)[key])) {
+          (updateData as any)[key] = (previousSettings as any)[key];
+        }
       }
       if (
         updateData.paystackSecretKey &&
@@ -17800,7 +17828,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...settings,
         smtpPass: settings.smtpPass ? "********************************" : "",
       };
-      
+      settings = redactPlatformSecrets(settings);
+
       res.json({
         ...settings,
         showAdminOperationsPanels: settings.showAdminOperationsPanels !== false,
