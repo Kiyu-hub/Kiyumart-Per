@@ -20,11 +20,13 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        // Precache only the app shell (code, styles, fonts, favicon). Bundled
-        // images are deliberately excluded — they're cached on-demand by the
-        // runtime `images-cache` (CacheFirst) handler below, so precaching them
-        // too just bloats the service-worker install on slow connections.
-        globPatterns: ["**/*.{js,css,html,ico,woff2}"],
+        // Precache ONLY the core app shell: index.html plus the entry bundle and
+        // stylesheet (Vite names them assets/index-*). Precaching every lazy
+        // page chunk (~229 files, ~7 MB) made each new release download in full
+        // before it could take over, so phones kept showing the old version for
+        // a minute or more. Page chunks and fonts are now cached the first time
+        // they are used (see the "page-chunks" rule below); images as before.
+        globPatterns: ["index.html", "assets/index-*.{js,css}", "*.ico"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api/, /^\/socket\.io/],
         runtimeCaching: [
@@ -51,6 +53,19 @@ export default defineConfig({
               networkTimeoutSeconds: 10,
               expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 },
               cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            // Lazy page chunks, styles and fonts under /assets/. File names are
+            // content-hashed, so a cached copy never goes stale: CacheFirst is safe,
+            // and pages visited once keep working offline.
+            urlPattern: ({ url, sameOrigin }: { url: URL; sameOrigin: boolean }) =>
+              sameOrigin && url.pathname.startsWith("/assets/") && /\.(?:js|css|woff2?)$/.test(url.pathname),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "page-chunks",
+              expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [200] },
             },
           },
           {
