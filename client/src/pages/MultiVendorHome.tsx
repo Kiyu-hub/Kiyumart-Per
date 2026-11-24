@@ -1,9 +1,6 @@
 import { useState, useCallback, lazy, Suspense } from "react";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
-const MobileHomeComp = lazy(() => import("@/pages/mobile/MobileHome").then(m => ({ default: m.MobileHome })));
-// TEMPORARY redesign comparison (?home=classic | ?home=fashion) — see @/lib/homeVariant
 const MobileHomeFashionComp = lazy(() => import("@/pages/mobile/MobileHomeFashion").then(m => ({ default: m.MobileHomeFashion })));
-import { getMobileHomeVariant } from "@/lib/homeVariant";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
@@ -269,14 +266,15 @@ export default function MultiVendorHome() {
 
   const { isMobile, isTablet } = useMobileDevice();
   if (isMobile || isTablet) {
-    const MobileHomeView = getMobileHomeVariant() === "fashion" ? MobileHomeFashionComp : MobileHomeComp;
+    // Mobile shows every active category, even with zero products (it applies
+    // its own active/food filters). Desktop keeps categoriesWithProducts.
     return (
       <Suspense fallback={null}>
-        <MobileHomeView
+        <MobileHomeFashionComp
           featuredProducts={mobileFeatured}
           newArrivalProducts={mobileNewArrivals}
           allProducts={mobileAllProducts}
-          categories={categoriesWithProducts}
+          categories={categories}
           stores={stores}
           wishlist={wishlist}
           isLoading={productsLoading || categoriesLoading}

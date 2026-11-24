@@ -1,13 +1,13 @@
 /**
- * Mobile Home — Fashion layout (redesign/mobile-home-fashion)
+ * Mobile Home — Fashion layout. The only mobile/tablet homepage.
  *
- * Approved redesign of the mobile homepage (Prompt 02/03). The original
- * implementation lives untouched in ./MobileHome.tsx; which one renders is
- * chosen by getMobileHomeVariant() in @/lib/homeVariant (default: classic).
+ * Approved redesign (Prompt 02/03); made permanent by the product owner on
+ * 2026-11-24, replacing the original MobileHome.tsx (recoverable from Git
+ * history, e.g. `git show 68561d6:client/src/pages/mobile/MobileHome.tsx`).
  *
  * Header, theme toggle, notifications/cart badges, location, banner data and
- * the restaurants section reuse the same logic as MobileHome.tsx. Colours are
- * the existing mobile palette only (see MobileHome.tsx L27–40, L1000–1001).
+ * the restaurants section keep the original behaviour. Colours are the
+ * existing mobile palette only.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -23,7 +23,28 @@ import {
   getFoodStoreIdSet,
   splitProductsByFoodStores,
 } from "@/lib/foodVendors";
-import type { MobileHomeProps } from "./MobileHome";
+import type { Product } from "@shared/schema";
+
+// ── Prop types (moved from the retired MobileHome.tsx, unchanged) ─────────────
+type ProductWithMeta = Product & {
+  categoryName?: string | null;
+  categoryId?: string | null;
+};
+interface Category {
+  id: string; name: string; slug: string; image: string;
+  displayOrder: number; isActive: boolean;
+}
+interface WishlistItem { id: string; userId: string; productId: string; }
+export interface MobileHomeProps {
+  featuredProducts: ProductWithMeta[];
+  newArrivalProducts: ProductWithMeta[];
+  allProducts?: ProductWithMeta[];
+  categories: Category[];
+  stores: any[];
+  wishlist: WishlistItem[];
+  isLoading: boolean;
+  onToggleWishlist: (id: string) => void;
+}
 
 // ── Existing KiyuMart mobile palette (unchanged values) ───────────────────────
 const F      = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
@@ -545,9 +566,11 @@ export function MobileHomeFashion({
       .map((x) => x.s);
   }, [safeStores, foodStoreIds]);
 
-  // Categories: drop food-scoped ones; categories scoped to fashion store types first.
+  // Categories: every ACTIVE admin category shows, even with zero products
+  // (same rule as release PR #11); food-scoped ones are dropped; fashion first.
   const visibleCats = useMemo(() => {
     const list = safeCats.filter((c: any) => {
+      if (c?.isActive === false) return false;
       const types = Array.isArray(c?.storeTypes) ? c.storeTypes : [];
       return !types.some((t: string) => t === 'food_beverages' || t === 'restaurant');
     });

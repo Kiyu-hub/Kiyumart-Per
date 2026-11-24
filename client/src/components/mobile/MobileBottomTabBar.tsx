@@ -70,7 +70,7 @@ export function MobileBottomTabBarClassic() {
       setIsDark(saved ? saved === "dark" : document.documentElement.classList.contains("dark"));
     };
     read();
-    // Re-sync whenever localStorage changes (other tab or MobileHome toggle)
+    // Re-sync whenever localStorage changes (other tab or theme toggle)
     const onStorage = (e: StorageEvent) => { if (e.key === "theme") read(); };
     window.addEventListener("storage", onStorage);
     // Also poll for class changes (same-tab toggle)
