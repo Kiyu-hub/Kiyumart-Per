@@ -36,7 +36,7 @@ const defaultPublicPlatformSettings: PublicPlatformSettings = {
   isExternalRiderSystemEnabled: true,
   restaurantsEnabled: false,
   showCheckoutDeliveryMap: true,
-  isMultiVendor: false,
+  isMultiVendor: true,
   allowSellerBankPayouts: true,
   allowSellerDirectSupportMessages: true,
   allowSellerRegistration: true,
@@ -75,7 +75,8 @@ export function usePlatformSettings() {
     // Food experience master switch. Defaults OFF (only true when explicitly enabled).
     restaurantsEnabled: query.data?.restaurantsEnabled === true,
     showCheckoutDeliveryMap: query.data?.showCheckoutDeliveryMap !== false,
-    isMultiVendor: query.data?.isMultiVendor === true,
+    // Marketplace mode cannot be disabled, even while settings load.
+    isMultiVendor: true,
     allowSellerBankPayouts: query.data?.allowSellerBankPayouts !== false,
     allowSellerDirectSupportMessages: query.data?.allowSellerDirectSupportMessages !== false,
     allowSellerRegistration: query.data?.allowSellerRegistration !== false,

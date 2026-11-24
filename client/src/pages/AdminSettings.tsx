@@ -1242,7 +1242,6 @@ export default function AdminSettings() {
   });
 
   // Filter banners by store mode
-  const singleStoreBanners = heroBanners.filter(b => b.storeMode === "single" || b.storeMode === "both");
   const multiVendorBanners = heroBanners.filter(b => b.storeMode === "multivendor" || b.storeMode === "both");
 
   // Delete banner mutation
@@ -1340,7 +1339,7 @@ export default function AdminSettings() {
     resolver: zodResolver(settingsSchema),
     defaultValues: {
       platformName: "",
-      isMultiVendor: false,
+      isMultiVendor: true,
       allowSellerRegistration: false,
       allowRiderRegistration: false,
       allowSellerBankPayouts: true,
@@ -1453,6 +1452,7 @@ export default function AdminSettings() {
       const mergedData = {
         ...form.getValues(),
         ...data,
+        isMultiVendor: true,
         isExternalRiderSystemEnabled: (data as any).isExternalRiderSystemEnabled === true,
         restaurantsEnabled: (data as any).restaurantsEnabled === true,
         showCheckoutDeliveryMap: (data as any).showCheckoutDeliveryMap !== false,
@@ -1479,7 +1479,7 @@ export default function AdminSettings() {
       // Reset form with server response
       form.reset({
         platformName: mergedData.platformName,
-        isMultiVendor: mergedData.isMultiVendor,
+        isMultiVendor: true,
         allowSellerRegistration: mergedData.allowSellerRegistration || false,
         allowRiderRegistration: mergedData.allowRiderRegistration || false,
         allowSellerBankPayouts: mergedData.allowSellerBankPayouts !== false,
@@ -1629,7 +1629,8 @@ export default function AdminSettings() {
 
   const onSubmit = (_data: SettingsFormData) => {
     // Use getValues to ensure controlled switches and all values are included
-    const payload: any = { ...form.getValues() };
+    const payload: any = { ...form.getValues(), isMultiVendor: true };
+    delete payload.primaryStoreId; // Retain existing legacy data without offering a selector.
     if ((settings as any)?.id === "default") {
       delete payload.allowSellerBankPayouts;
       delete payload.allowSharedVariantColorStock;
@@ -1666,7 +1667,7 @@ export default function AdminSettings() {
     if (settings) {
       form.reset({
         platformName: settings.platformName,
-        isMultiVendor: settings.isMultiVendor,
+        isMultiVendor: true,
         allowSellerRegistration: (settings as any).allowSellerRegistration || false,
         allowRiderRegistration: (settings as any).allowRiderRegistration || false,
         allowSellerBankPayouts: (settings as any).allowSellerBankPayouts !== false,
@@ -1813,7 +1814,7 @@ export default function AdminSettings() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge className="border-primary/20 bg-primary/10 text-primary">Super Admin Control</Badge>
-                    <Badge variant="outline">{form.watch("isMultiVendor") ? "Multi-Vendor" : "Single Store"}</Badge>
+                    <Badge variant="outline">Multi-Vendor</Badge>
                     <Badge variant="outline">
                       {form.watch("isExternalRiderSystemEnabled") ? "External Delivery Enabled" : "Rider Features Off"}
                     </Badge>
@@ -1834,9 +1835,9 @@ export default function AdminSettings() {
               <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-2">
                 <div className="min-h-[132px] rounded-2xl border border-border/70 bg-background p-4 shadow-sm dark:bg-background/80 dark:backdrop-blur">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Commerce Mode</p>
-                  <p className="mt-2 text-base font-semibold">{form.watch("isMultiVendor") ? "Marketplace" : "Primary Store"}</p>
+                  <p className="mt-2 text-base font-semibold">Marketplace</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {form.watch("isMultiVendor") ? "Multiple sellers and multi-store layout." : "Single-store storefront experience."}
+                    Multiple sellers, independent shops, and marketplace discovery.
                   </p>
                 </div>
                 <div className="min-h-[132px] rounded-2xl border border-border/70 bg-background p-4 shadow-sm dark:bg-background/80 dark:backdrop-blur">
@@ -2031,19 +2032,12 @@ export default function AdminSettings() {
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                  <div className="flex items-center justify-between p-3 border rounded-lg" data-testid="marketplace-mode-locked">
                     <div className="space-y-0.5">
-                      <Label htmlFor="isMultiVendor">Multi-Vendor Mode</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Enable multiple sellers to list products on your platform
-                      </p>
+                      <Label>Multi-Vendor Marketplace</Label>
+                      <p className="text-sm text-muted-foreground">Permanently enabled. Multiple sellers can manage their own stores.</p>
                     </div>
-                    <Switch
-                      id="isMultiVendor"
-                      checked={form.watch("isMultiVendor")}
-                      onCheckedChange={(checked) => form.setValue("isMultiVendor", checked)}
-                      data-testid="switch-multi-vendor"
-                    />
+                    <Badge variant="outline">Active</Badge>
                   </div>
 
                   <div className="flex items-center justify-between p-3 border rounded-lg">
@@ -2124,16 +2118,7 @@ export default function AdminSettings() {
                             </p>
                           </div>
                         </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => form.setValue("isMultiVendor", false)}
-                          className="gap-2"
-                        >
-                          <ArrowRightLeft className="h-4 w-4" />
-                          Switch to Single Store
-                        </Button>
+                        <Badge variant="outline">Permanent marketplace mode</Badge>
                       </div>
 
                       {/* Hero Banner Management */}
@@ -2200,107 +2185,6 @@ export default function AdminSettings() {
                           <Label>Show "Shop By" Section</Label>
                           <p className="text-xs text-muted-foreground">
                             Toggle visibility of the Shop by Store/Category section on the homepage
-                          </p>
-                        </div>
-                        <Switch
-                          checked={form.watch("showShopBySection") !== false}
-                          onCheckedChange={(checked) => form.setValue("showShopBySection", checked)}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {!form.watch("isMultiVendor") && (
-                    <div className="p-4 border rounded-lg bg-muted/50 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Store className="h-5 w-5 text-primary" />
-                          <div>
-                            <Label className="text-base font-semibold">Single Store Mode</Label>
-                            <p className="text-sm text-muted-foreground">
-                              Display products from one primary store
-                            </p>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => form.setValue("isMultiVendor", true)}
-                          className="gap-2"
-                        >
-                          <ArrowRightLeft className="h-4 w-4" />
-                          Switch to Multi-Vendor
-                        </Button>
-                      </div>
-                      
-                      <div className="space-y-2 pt-2 border-t">
-                        <Label htmlFor="primaryStoreId">Primary Store</Label>
-                        <Select
-                          value={form.watch("primaryStoreId") || "none"}
-                          onValueChange={(value) => form.setValue("primaryStoreId", value === "none" ? null : value)}
-                        >
-                          <SelectTrigger id="primaryStoreId" data-testid="select-primary-store">
-                            <SelectValue placeholder="Select a store" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">No primary store</SelectItem>
-                            {stores.filter(s => s.isActive).map((store) => (
-                              <SelectItem key={store.id} value={store.id}>
-                                {store.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                          Select the store to display in single-store mode. Only one store can be primary. Leave empty to show the first active store.
-                        </p>
-                      </div>
-                      {/* Single-Store Banner Preview */}
-                      <div className="space-y-3 pt-3 border-t">
-                        <div className="flex items-center justify-between">
-                          <Label>Hero Banners for Single-Store Mode</Label>
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => navigate("/admin/hero-banners")}
-                          >
-                            <Plus className="h-4 w-4 mr-1" />
-                            Manage Banners
-                          </Button>
-                        </div>
-                        {singleStoreBanners.length === 0 ? (
-                          <div className="text-center py-6 border border-dashed rounded-lg">
-                            <ImageIcon className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                            <p className="text-sm text-muted-foreground">No banners configured for single-store mode</p>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => navigate("/admin/hero-banners")}
-                            >
-                              Create your first banner
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {singleStoreBanners.slice(0, 6).map((banner) => (
-                              <BannerPreviewCard key={banner.id} banner={banner} />
-                            ))}
-                          </div>
-                        )}
-                        {singleStoreBanners.length > 6 && (
-                          <p className="text-sm text-muted-foreground text-center">
-                            +{singleStoreBanners.length - 6} more banners. <Button variant="ghost" className="p-0 h-auto" onClick={() => navigate("/admin/hero-banners")}>View all</Button>
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="flex items-center justify-between pt-2 border-t">
-                        <div>
-                          <Label>Show "Shop By" Section</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Toggle visibility of the Shop by Category section on the homepage
                           </p>
                         </div>
                         <Switch
@@ -4242,8 +4126,8 @@ export default function AdminSettings() {
                   <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border text-sm">
                     <Store className="h-4 w-4 text-muted-foreground" />
                     <span className="text-muted-foreground">Current store mode:</span>
-                    <Badge variant="outline" className={settings?.isMultiVendor ? "border-purple-500 text-purple-500" : "border-blue-500 text-blue-500"}>
-                      {settings?.isMultiVendor ? "Multi-Vendor" : "Single Store"}
+                    <Badge variant="outline" className="border-primary text-primary">
+                      Multi-Vendor
                     </Badge>
                   </div>
 

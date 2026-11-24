@@ -8,19 +8,19 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Install dependencies
         run: npm ci
       - name: Run unit tests
         env:
           SESSION_SECRET: testsecret
-        run: npm run test:unit
+        run: node scripts/run-tsx-test-suite-safe.mjs
       - name: Run integration tests (optional)
         env:
           SESSION_SECRET: testsecret
@@ -28,7 +28,7 @@ jobs:
         run: |
           if [ "${RUN_PAYSTACK_INTEGRATION}" = "true" ]; then
             echo "Running integration tests";
-            npm run test:integration;
+            node scripts/run-tsx-test-suite-safe.mjs server/__tests__/paystack-integration.test.ts;
           else
             echo "Skipping integration tests (set RUN_PAYSTACK_INTEGRATION secret to 'true' to enable)";
           fi

@@ -3,8 +3,8 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
 
-const MobileHomeComp = lazy(() =>
-  import("@/pages/mobile/MobileHome").then(m => ({ default: m.MobileHome }))
+const MobileHomeFashionComp = lazy(() =>
+  import("@/pages/mobile/MobileHomeFashion").then(m => ({ default: m.MobileHomeFashion }))
 );
 import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -524,7 +524,7 @@ export default function HomeConnected() {
   if (isMobile || isTablet) {
     return (
       <Suspense fallback={null}>
-        <MobileHomeComp
+        <MobileHomeFashionComp
           featuredProducts={mobileFeatured as any}
           newArrivalProducts={mobileNewArrivals as any}
           allProducts={mobileAllProducts as any}

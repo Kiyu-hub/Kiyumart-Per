@@ -288,7 +288,13 @@ function matchesCategories(query: string, categories: SearchCategory[]): SearchC
 }
 
 // ── Mobile full-page search ───────────────────────────────────────────────────
-function MobileSearchPage({ initialQuery, onNavigate }: { initialQuery: string; onNavigate: (path: string) => void }) {
+// wouter v3's useLocation() excludes the query string, so read ?q= from the address directly.
+function readQueryFromAddress(): string {
+  try { return new URLSearchParams(window.location.search).get('q') || ''; } catch { return ''; }
+}
+
+function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { initialQuery: string; onNavigate: (path: string) => void }) {
+  const initialQuery = initialQueryProp || readQueryFromAddress();
   const [inputValue, setInputValue] = useState(initialQuery);
   const [debouncedQuery, setDebouncedQuery] = useState(initialQuery);
   const [isFocused, setIsFocused] = useState(!initialQuery);
@@ -307,6 +313,27 @@ function MobileSearchPage({ initialQuery, onNavigate }: { initialQuery: string; 
   }, []);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
+
+  // Keep the query in the address bar (replace, no new history entry) so returning
+  // from a product with Back restores the same search.
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const q = debouncedQuery.trim();
+      if ((url.searchParams.get('q') || '') === q) return;
+      if (q) url.searchParams.set('q', q); else url.searchParams.delete('q');
+      window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+    } catch { /* ignore */ }
+  }, [debouncedQuery]);
+
+  // Back: when opened from inside the app (e.g. the home search bar adds from=home),
+  // go back to that screen instead of pushing a new copy of the home page.
+  const handleBack = () => {
+    let fromApp = false;
+    try { fromApp = !!new URLSearchParams(window.location.search).get('from'); } catch { /* ignore */ }
+    if (fromApp && window.history.length > 1) window.history.back();
+    else onNavigate('/');
+  };
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(inputValue), 350);
@@ -433,7 +460,8 @@ function MobileSearchPage({ initialQuery, onNavigate }: { initialQuery: string; 
         {/* Back button row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px 10px' }}>
           <button
-            onClick={() => onNavigate('/')}
+            onClick={handleBack}
+            aria-label="Back"
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#fff', display: 'grid', placeItems: 'center', padding: 4, WebkitTapHighlightColor: 'transparent' }}
           >
             <ArrowLeft size={22} color="#fff" />

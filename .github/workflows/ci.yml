@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,7 +16,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
 
       - name: Install dependencies
         run: |
@@ -28,7 +28,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          npm run test:unit
+          node scripts/run-tsx-test-suite-safe.mjs
 
       - name: Start backend
         run: |
@@ -41,7 +41,7 @@ jobs:
 
       - name: Start frontend
         run: |
-          npm run dev:frontend &
+          npx vite --host 0.0.0.0 &
           # wait for vite
           for i in {1..30}; do
             if curl -sS http://localhost:5173/ >/dev/null 2>&1; then break; fi

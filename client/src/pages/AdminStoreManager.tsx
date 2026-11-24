@@ -23,8 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Save, Store, ArrowLeft, AlertTriangle, Settings, Palette, Building2, ToggleLeft } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2, Save, Store, ArrowLeft, Settings, Palette, Building2 } from "lucide-react";
 
 const storeSettingsSchema = z.object({
   platformName: z.string().min(1, "Store name is required"),
@@ -57,15 +56,9 @@ export default function AdminStoreManager() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("profile");
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const [showModeWarning, setShowModeWarning] = useState(false);
 
   const { data: settings, isLoading } = useQuery<PlatformSettings>({
     queryKey: ["/api/settings"],
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
-  });
-
-  const { data: stores = [] } = useQuery<Array<{id: string; name: string; isActive: boolean; isApproved: boolean}>>({
-    queryKey: ["/api/stores"],
     enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
@@ -90,7 +83,7 @@ export default function AdminStoreManager() {
       businessHoursClose: "18:00",
       defaultCurrency: (settings.defaultCurrency as "GHS") || "GHS",
       shippingZonesEnabled: true,
-      isMultiVendor: settings.isMultiVendor || false,
+      isMultiVendor: true,
       primaryStoreId: settings.primaryStoreId || "",
       shopDisplayMode: (settings.shopDisplayMode as "by-store" | "by-category") || "by-store",
       footerDescription: settings.footerDescription || "",
@@ -113,7 +106,7 @@ export default function AdminStoreManager() {
         businessHoursClose: "18:00",
         defaultCurrency: (settings.defaultCurrency as "GHS") || "GHS",
         shippingZonesEnabled: true,
-        isMultiVendor: settings.isMultiVendor || false,
+        isMultiVendor: true,
         primaryStoreId: settings.primaryStoreId || "",
         shopDisplayMode: (settings.shopDisplayMode as "by-store" | "by-category") || "by-store",
         footerDescription: settings.footerDescription || "",
@@ -123,7 +116,7 @@ export default function AdminStoreManager() {
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (data: StoreSettingsFormData) => {
-      return await apiRequest("PATCH", "/api/settings", data);
+      return await apiRequest("PATCH", "/api/settings", { ...data, isMultiVendor: true });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
@@ -132,7 +125,6 @@ export default function AdminStoreManager() {
         title: "Settings updated",
         description: "Store settings have been saved successfully.",
       });
-      setShowModeWarning(false);
     },
     onError: (error: Error) => {
       toast({
@@ -144,17 +136,9 @@ export default function AdminStoreManager() {
   });
 
   const onSubmit = (data: StoreSettingsFormData) => {
-    // Convert empty string to undefined for primaryStoreId
-    const cleanedData = {
-      ...data,
-      primaryStoreId: data.primaryStoreId && data.primaryStoreId !== "" ? data.primaryStoreId : undefined,
-    };
+    const cleanedData = { ...data, isMultiVendor: true };
+    delete cleanedData.primaryStoreId; // Preserve historical store assignment.
     updateSettingsMutation.mutate(cleanedData);
-  };
-
-  const handleModeChange = (checked: boolean) => {
-    form.setValue("isMultiVendor", checked);
-    setShowModeWarning(true);
   };
 
   if (authLoading || isLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {
@@ -202,8 +186,8 @@ export default function AdminStoreManager() {
                   Business
                 </TabsTrigger>
                 <TabsTrigger value="mode" data-testid="tab-mode">
-                  <ToggleLeft className="h-4 w-4 mr-2" />
-                  Store Mode
+                  <Building2 className="h-4 w-4 mr-2" />
+                  Marketplace
                 </TabsTrigger>
               </TabsList>
 
@@ -474,9 +458,9 @@ export default function AdminStoreManager() {
               <TabsContent value="mode" className="space-y-4">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Store Mode Configuration</CardTitle>
+                    <CardTitle>Marketplace Display</CardTitle>
                     <CardDescription>
-                      Choose between single-store or multi-vendor marketplace mode
+                      KiyuMart always operates as a multi-vendor marketplace. Choose how shoppers browse.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -484,43 +468,21 @@ export default function AdminStoreManager() {
                       <div className="flex items-center gap-3 mb-2">
                         <Store className="h-5 w-5 text-primary" />
                         <h3 className="font-semibold text-lg">
-                          Current Mode: {form.watch("isMultiVendor") ? "Multi-Vendor" : "Single Store"}
+                          Current Mode: Multi-Vendor
                         </h3>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {form.watch("isMultiVendor") 
-                          ? "Your platform is configured as a marketplace with multiple sellers"
-                          : "Your platform operates as a single store"}
+                        Your marketplace supports multiple independent sellers and stores.
                       </p>
                     </div>
-
-                    {showModeWarning && (
-                      <Alert variant="destructive">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertDescription>
-                          <strong>Warning:</strong> Changing the store mode will affect how your platform operates. 
-                          Make sure to review all implications before saving this change.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-
-                    <div className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="space-y-1 flex-1">
-                        <Label htmlFor="isMultiVendor">Enable Multi-Vendor Mode</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Allow multiple sellers to create stores and list products on your platform
-                        </p>
+                    <div className="flex items-center justify-between p-4 border rounded-lg" data-testid="marketplace-mode-locked">
+                      <div>
+                        <Label>Multi-Vendor Marketplace</Label>
+                        <p className="text-sm text-muted-foreground">Permanently enabled. Sellers can apply, manage stores, and list products.</p>
                       </div>
-                      <Switch
-                        id="isMultiVendor"
-                        checked={form.watch("isMultiVendor")}
-                        onCheckedChange={handleModeChange}
-                        data-testid="switch-multi-vendor"
-                      />
                     </div>
 
-                    {form.watch("isMultiVendor") && (
-                      <div className="p-4 border rounded-lg bg-card space-y-3">
+                    <div className="p-4 border rounded-lg bg-card space-y-3">
                         <div className="space-y-1">
                           <Label htmlFor="shopDisplayMode">Shop By Mode</Label>
                           <p className="text-sm text-muted-foreground">
@@ -546,81 +508,11 @@ export default function AdminStoreManager() {
                             </p>
                           ) : (
                             <p className="text-muted-foreground">
-                              <strong>Shop by Categories:</strong> Customers will see product categories (electronics, fashion, etc.) from all stores combined.
+                              <strong>Shop by Categories:</strong> Customers will see categories from all stores combined. Fashion is our current focus.
                             </p>
                           )}
                         </div>
                       </div>
-                    )}
-
-                    {!form.watch("isMultiVendor") && (
-                      <div className="p-4 border rounded-lg bg-card space-y-3">
-                        <div className="space-y-1">
-                          <Label htmlFor="primaryStoreId">Primary Store</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Select which store's products to display on your single-store homepage
-                          </p>
-                        </div>
-                        <Select
-                          value={form.watch("primaryStoreId") || ""}
-                          onValueChange={(value) => form.setValue("primaryStoreId", value)}
-                        >
-                          <SelectTrigger id="primaryStoreId" data-testid="select-primary-store">
-                            <SelectValue placeholder="Select a store..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {stores.filter(s => s.isActive && s.isApproved).length === 0 ? (
-                              <SelectItem value="none" disabled>No approved stores available</SelectItem>
-                            ) : (
-                              stores
-                                .filter(s => s.isActive && s.isApproved)
-                                .map((store) => (
-                                  <SelectItem key={store.id} value={store.id}>
-                                    {store.name}
-                                  </SelectItem>
-                                ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        {!form.watch("primaryStoreId") && stores.filter(s => s.isActive && s.isApproved).length > 0 && (
-                          <p className="text-sm text-amber-600">
-                            ⚠️ No primary store selected. All products from all stores will be shown until you select one.
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <Card className="border-2">
-                        <CardHeader>
-                          <CardTitle className="text-base">Single Store Mode</CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-sm space-y-2">
-                          <p className="text-muted-foreground">Best for:</p>
-                          <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                            <li>Individual businesses</li>
-                            <li>Brand-specific stores</li>
-                            <li>Simpler inventory management</li>
-                            <li>Direct customer relationships</li>
-                          </ul>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-2">
-                        <CardHeader>
-                          <CardTitle className="text-base">Multi-Vendor Mode</CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-sm space-y-2">
-                          <p className="text-muted-foreground">Best for:</p>
-                          <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                            <li>Marketplace platforms</li>
-                            <li>Multiple seller support</li>
-                            <li>Commission-based business</li>
-                            <li>Wider product variety</li>
-                          </ul>
-                        </CardContent>
-                      </Card>
-                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>

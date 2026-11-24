@@ -23,6 +23,7 @@ import {
 import { eq, and, asc, desc, sql, lte, gte, gt, or, isNull, isNotNull, inArray, ilike } from "drizzle-orm";
 import { promises as fs } from "fs";
 import path from "path";
+import { withPermanentMultiVendor } from "../shared/marketplaceMode";
 import {
   isValidGhanaMobileMoneyNumber,
   normalizeGhanaMobileMoneyNumber,
@@ -3572,10 +3573,10 @@ export class DbStorage implements IStorage {
       );
       const compatOverrides = await readPlatformSettingsCompat();
       if (result.length === 0) {
-        // Ensure reasonable defaults on first creation: Single-store by default and GHS currency
+        // Ensure reasonable defaults on first creation: multi-vendor by default and GHS currency
         const [settings] = await withStorageTimeout(
           db.insert(platformSettings).values({
-            isMultiVendor: false,
+            isMultiVendor: true,
             defaultCurrency: 'GHS',
             adsEnabled: false,
             heroBannerEnabled: false,
@@ -3595,7 +3596,7 @@ export class DbStorage implements IStorage {
           "Platform settings bootstrap",
         );
         // compat provides fallbacks for columns not yet in DB; DB result wins if column exists
-        const mergedSettings = { ...compatOverrides, ...settings };
+        const mergedSettings = withPermanentMultiVendor({ ...compatOverrides, ...settings });
         this.setCachedResult(cacheKey, mergedSettings);
         return mergedSettings;
       }
@@ -3608,7 +3609,7 @@ export class DbStorage implements IStorage {
         if (settings[key] === '__CLEAR__') settings[key] = null;
       }
       // compat provides fallbacks for columns not yet in DB; DB result wins if the column exists
-      const mergedSettings = { ...compatOverrides, ...settings };
+      const mergedSettings = withPermanentMultiVendor({ ...compatOverrides, ...settings });
       this.setCachedResult(cacheKey, mergedSettings);
       return mergedSettings;
     } catch (err: any) {
@@ -3627,7 +3628,7 @@ export class DbStorage implements IStorage {
         // Provide a full shape that satisfies the PlatformSettings type; set optional fields to null/defaults
         const defaults: PlatformSettings = {
           id: 'default',
-          isMultiVendor: false,
+          isMultiVendor: true,
           platformName: 'KiyuMart',
           logo: null,
           logoLight: null,
@@ -3759,7 +3760,7 @@ export class DbStorage implements IStorage {
           notificationSound: 'default',
           updatedAt: new Date(),
         };
-        return { ...defaults, ...(await readPlatformSettingsCompat()) };
+        return withPermanentMultiVendor({ ...defaults, ...(await readPlatformSettingsCompat()) });
       }
       throw err;
     }
@@ -3771,7 +3772,8 @@ export class DbStorage implements IStorage {
     await ensurePlatformSettingsSchemaCompat();
 
     const existing = await this.getPlatformSettings();
-    const payload = { ...data, updatedAt: new Date() } as Record<string, any>;
+    // A stale form or direct PATCH cannot disable marketplace mode.
+    const payload = withPermanentMultiVendor({ ...data, updatedAt: new Date() }) as Record<string, any>;
 
     const runUpdate = async (updatePayload: Record<string, any>) =>
       db.update(platformSettings)
@@ -3932,10 +3934,10 @@ export class DbStorage implements IStorage {
     // Invalidate cache again after update
     this.invalidateCache("getPlatformSettings");
     // compat provides fallbacks; DB result wins if the column exists
-    return {
+    return withPermanentMultiVendor({
       ...(await readPlatformSettingsCompat()),
       ...result[0],
-    };
+    });
   }
 
   // Promotional Ads management
