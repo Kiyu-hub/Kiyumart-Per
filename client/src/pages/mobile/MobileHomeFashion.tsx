@@ -758,8 +758,9 @@ export function MobileHomeFashion({
       {/* "Become a Seller" now lives in the bottom bar's centre button. The header
           keeps it only while the old bottom bar is in use, so the link is never lost.
           "Become a Rider" stays (only when the internal rider system is on). */}
-      {(showHeaderSellerCta || showHeaderRiderCta) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '0 16px 4px' }}>
+      {/* Top row: optional Become chips on the left, theme toggle in its original top-right spot. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           {showHeaderSellerCta && (
             <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1" onClick={() => navigate('/become-seller')}>
               <Store className="h-2.5 w-2.5" />
@@ -773,7 +774,16 @@ export function MobileHomeFashion({
             </Button>
           )}
         </div>
-      )}
+        <button
+          onClick={toggleTheme}
+          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{ width: 36, height: 36, background: 'none', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+        >
+          {isDark
+            ? <Sun size={19} color={MT} strokeWidth={1.8} />
+            : <Moon size={19} color={MT} strokeWidth={1.8} />}
+        </button>
+      </div>
 
       {/* Greeting, notifications, cart — unchanged behaviour, compact spacing */}
       <div style={{ padding: '2px 16px 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -805,16 +815,7 @@ export function MobileHomeFashion({
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 0, flexShrink: 0 }}>
-          <button
-            onClick={toggleTheme}
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            style={{ width: 44, height: 44, background: 'transparent', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
-          >
-            {isDark
-              ? <Sun size={21} color={MT} strokeWidth={1.8} />
-              : <Moon size={21} color={MT} strokeWidth={1.8} />}
-          </button>
+        <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
           <button
             onClick={() => navigate('/notifications')}
             aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
