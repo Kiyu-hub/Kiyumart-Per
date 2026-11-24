@@ -11,7 +11,7 @@ async function run() {
   const calls: string[] = [];
 
   // Platform settings
-  storageModule.storage.getPlatformSettings = async () => ({ paystackSecretKey: 'sk_test', defaultCommissionRate: '10', isMultiVendor: false } as any);
+  storageModule.storage.getPlatformSettings = async () => ({ paystackSecretKey: 'sk_test_ci_placeholder', paystackPublicKey: 'pk_test_ci_placeholder', defaultCommissionRate: '10', isMultiVendor: false } as any);
 
   // Orders / stores
   const order = { id: 'order1', buyerId: 'u1', orderNumber: 'ORD-1', total: '105.00', processingFee: '5.00', currency: 'GHS', storeId: 'store1', sellerId: 'seller1', paymentReference: 'mock-ref' } as any;
@@ -27,7 +27,7 @@ async function run() {
   storageModule.storage.createCommissionWithEarning = async (orderId: string) => { calls.push(`commission:${orderId}`); return { commission: { id: `c-${orderId}`, sellerId: 'seller1', sellerAmount: '90.00' }, earning: {} }; };
   storageModule.storage.markCommissionsProcessed = async (ids: string[]) => ({ ids });
   storageModule.storage.createNotification = async (n: any) => { calls.push('notify'); return n; };
-  storageModule.storage.getUser = async (id: string) => ({ id, email: `${id}@example.com`, name: 'Buyer' });
+  storageModule.storage.getUser = async (id: string) => ({ id, email: `${id}@example.com`, name: 'Buyer', role: 'buyer', isActive: true, isApproved: true });
 
   storageModule.storage.createSellerPayout = async (p: any) => { calls.push('createSellerPayout'); return { id: 'payout1', ...p }; };
   storageModule.storage.updatePayoutStatus = async (id: string, status: string) => ({ id, status });
